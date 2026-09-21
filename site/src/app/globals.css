@@ -1,0 +1,158 @@
+@import "tailwindcss";
+
+/* Night Shift palette with Signal type (Bricolage Grotesque, Geist, Geist Mono). */
+@theme {
+  --color-bg: #0e1012;
+  --color-bg-deep: #0b0d0f;
+  --color-surface: #171a1d;
+  --color-surface-2: #1e2125;
+  --color-surface-3: #22262a;
+  --color-band: #13161a;
+  --color-stage: #121417;
+  --color-line: #2a2e33;
+  --color-line-soft: #23272b;
+  --color-line-strong: #3a3f44;
+  --color-fg: #e8e6e1;
+  --color-muted: #b4b8bc;
+  --color-dim: #8a9096;
+  --color-amber: #f5b642;
+  --color-amber-ink: #121212;
+  --color-pass: #6fcf97;
+  --color-fail: #ff7a6b;
+
+  /* Light "app under test" colours used inside product mockups. */
+  --color-paper: #f4f4f0;
+  --color-paper-ink: #1b1d21;
+  --color-paper-muted: #4a4e55;
+  --color-paper-line: #c9cac4;
+  --color-paper-fail: #b8392b;
+
+  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    background: var(--color-bg);
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-amber);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+
+  ::selection {
+    background: var(--color-amber);
+    color: var(--color-amber-ink);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Long-form text for docs and legal pages. */
+  .prose-night {
+    color: var(--color-muted);
+    font-size: 1.0625rem;
+    line-height: 1.75;
+  }
+  .prose-night > * + * {
+    margin-top: 1.1em;
+  }
+  .prose-night h2 {
+    margin-top: 2.4em;
+    color: var(--color-fg);
+    font-family: var(--font-display);
+    font-size: 1.75rem;
+    font-weight: 700;
+    line-height: 1.2;
+    scroll-margin-top: 6rem;
+  }
+  .prose-night h3 {
+    margin-top: 1.8em;
+    color: var(--color-fg);
+    font-size: 1.125rem;
+    font-weight: 600;
+    scroll-margin-top: 6rem;
+  }
+  .prose-night strong {
+    color: var(--color-fg);
+    font-weight: 600;
+  }
+  .prose-night a {
+    color: var(--color-amber);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .prose-night ul,
+  .prose-night ol {
+    padding-left: 1.4em;
+  }
+  .prose-night ul {
+    list-style: disc;
+  }
+  .prose-night ol {
+    list-style: decimal;
+  }
+  .prose-night li + li {
+    margin-top: 0.45em;
+  }
+  .prose-night li::marker {
+    color: var(--color-dim);
+  }
+  .prose-night code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    color: var(--color-fg);
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: 6px;
+    padding: 0.1em 0.4em;
+  }
+  .prose-night pre {
+    overflow-x: auto;
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+  }
+  .prose-night pre code {
+    background: none;
+    border: 0;
+    padding: 0;
+  }
+  .prose-night table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+  }
+  .prose-night th,
+  .prose-night td {
+    text-align: left;
+    padding: 0.7em 0.8em;
+    border-bottom: 1px solid var(--color-line);
+    vertical-align: top;
+  }
+  .prose-night th {
+    color: var(--color-fg);
+    font-weight: 600;
+  }
+}
