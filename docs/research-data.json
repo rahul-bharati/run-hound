@@ -1,0 +1,1966 @@
+{
+  "generated": "2026-09-21",
+  "workflow_run": "wf_f6bc40c3-c96",
+  "verified": [
+    {
+      "domain": "security",
+      "findings": [
+        {
+          "id": "supabase-rls-missing",
+          "title": "Supabase tables reachable with the public anon key because Row Level Security is off or too permissive",
+          "description": "Supabase-backed apps ship the project URL and anon/publishable key in the client bundle by design. That is only safe when RLS policies are enabled on every table. AI builders often scaffold tables with RLS disabled, or write policies like USING (true), so anyone can call the PostgREST endpoint (/rest/v1/<table>) with the anon key and read or write whole tables without logging in.",
+          "why_ai_or_novices_cause_it": "The generated frontend works the same with or without RLS, so nothing looks broken. Novices do not know the anon key needs RLS alongside it, and AI scaffolds have generated schemas without enabling RLS. Lovable's generated projects were assigned CVE-2025-48757 for this pattern.",
+          "user_impact": "Anyone on the internet can dump every user's PII, payment records, tokens and private messages, and can also change or deface data.",
+          "severity": "critical",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Watch network traffic for *.supabase.co requests and pull the project URL and anon key from the bundle or request headers. From an unauthenticated context, send GET /rest/v1/<table>?select=*&limit=1 for each table name seen in the app's own requests, and for common names (users, profiles, orders, messages) if the user opts in. Flag any rows that come back when they should not, especially rows owned by other test accounts. Use two seeded test accounts to confirm cross-user reads. Keep writes opt-in, since they are destructive.",
+          "prevalence_evidence": "Matt Palmer's CVE-2025-48757 disclosure, found 2025-03-20 and published 2025-05-29, covers 'insufficient RLS' in Lovable projects. Secondary write-ups report 170 of 1,645 scanned Lovable apps (10.3%) exposed. Wiz (2026-02-02) found Moltbook's missing RLS exposed 1.5M API tokens and 35,000+ emails, with full write access. The Register (2026-02-27) reported a Lovable-showcased app exposing 18,697 user records.",
+          "sources": [
+            "https://mattpalmer.io/posts/2025/05/CVE-2025-48757/",
+            "https://www.wiz.io/blog/exposed-moltbook-database-reveals-millions-of-api-keys",
+            "https://www.theregister.com/2026/02/27/lovable_app_vulnerabilities/",
+            "https://supabase.com/docs/guides/database/secure-data"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Attribute 170/1,645 (10.3%) to secondary reporting, not Palmer's post. Add context: Supabase now enables RLS by default on dashboard-created tables and flags RLS-off public tables through the Security Advisor lint 0013_rls_disabled_in_public. The gap remains for tables created via SQL or migrations, which is how AI tools create them. Also note that USING(true) policies pass Lovable's 'RLS exists' scan.",
+          "extra_sources": [
+            "https://www.superblocks.com/blog/lovable-vulnerabilities",
+            "https://supabase.com/docs/guides/database/database-advisors?lint=0013_rls_disabled_in_public",
+            "https://supabase.com/blog/supabase-security-2025-retro"
+          ]
+        },
+        {
+          "id": "firebase-open-rules",
+          "title": "Firebase/Firestore/Storage security rules left open (test mode or 'if true')",
+          "description": "Firebase config (apiKey, projectId, storageBucket) is public by design. Data safety depends entirely on Security Rules. Rules such as 'allow read, write: if true', or buckets opened during development, let anyone read, list or write collections and stored files.",
+          "why_ai_or_novices_cause_it": "Test-mode rules make everything work straight away. Tutorials and AI output often start from permissive rules, and nobody tightens them before launch. Novices assume the Firebase config is a secret that protects them.",
+          "user_impact": "Mass exposure of user records and uploaded files such as ID photos and selfies, plus data tampering and deletion.",
+          "severity": "critical",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Extract firebaseConfig from the JS bundle. Unauthenticated, try reading collection and document paths observed in traffic through the Firestore REST API, try Realtime DB /.json, and try listing the Storage bucket (GET https://firebasestorage.googleapis.com/v0/b/<bucket>/o). Flag any success. Signed in as test user A, try to read paths belonging to test user B.",
+          "prevalence_evidence": "env.fail 'Firewreck' research scanned about 5.5M domains and found 900 sites exposing about 125M user records, including 20M passwords and 27M billing entries. Tea app (2025-07-25): an exposed Firebase storage bucket leaked 72,000 images, including about 13,000 selfies and IDs (Engadget). Firebase docs: 'anyone who guesses your project ID can steal, modify, or delete the data.'",
+          "sources": [
+            "https://env.fail/posts/firewreck-1/",
+            "https://www.engadget.com/cybersecurity/tea-app-suffers-breach-exposing-thousands-of-user-images-190731414.html",
+            "https://firebase.google.com/docs/rules/insecure-rules"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Cite the 13K selfies/IDs + 59K other images breakdown to NBC/TechCrunch, not Engadget.",
+          "extra_sources": [
+            "https://techcrunch.com/2025/07/26/dating-safety-app-tea-breached-exposing-72000-user-images",
+            "https://www.nbcnews.com/tech/social-media/tea-app-hacked-13000-photos-leaked-4chan-call-action-rcna221139"
+          ]
+        },
+        {
+          "id": "secrets-in-client-bundle",
+          "title": "Third-party secret keys hardcoded in client-side JavaScript",
+          "description": "Server-only credentials end up inlined into bundles the browser downloads: OpenAI and other LLM keys, Stripe secret keys, SendGrid and Twilio keys, AWS keys, service-account JSON. This happens through NEXT_PUBLIC_/VITE_ env prefixes or by calling third-party APIs directly from the frontend.",
+          "why_ai_or_novices_cause_it": "Calling the API from the browser is the fastest way to make a feature work. AI tools put the key wherever the code runs. Novices do not know that build-time public env prefixes end up in static JS.",
+          "user_impact": "Attackers can run up LLM or API bills, send email or SMS as the business, read payment data, or take over cloud resources.",
+          "severity": "critical",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Download every JS chunk and source map. Scan with known key regexes and entropy checks (sk-, sk_live_, AKIA, AIza with non-Firebase scopes, xoxb-, SG., ghp_, service-account JSON). Also scan network request headers and URLs for Authorization: Bearer calls from the browser straight to api.openai.com, api.stripe.com and similar. Report the key type and where it was found, redact the value, and never exercise the key.",
+          "prevalence_evidence": "Wiz (2025-09-18) found third-party secrets such as OpenAI keys 'hardcoded directly into client-side JavaScript' in vibe-coded apps, and said 1 in 5 organizations on vibe-coding platforms face systemic risk. Escape.tech (2025-10-29) scanned 5,600+ vibe-coded apps and found 400+ exposed secrets. 'Keys on Doormats' (arXiv 2603.12498) found 1,748 credentials across 10M rendered sites, with 62% of JS exposures appearing only in compiled bundles. GitGuardian via CSO Online: 6.4% of Copilot-enabled repos leaked secrets vs 4.6% of all repos.",
+          "sources": [
+            "https://www.wiz.io/blog/common-security-risks-in-vibe-coded-apps",
+            "https://escape.tech/blog/methodology-how-we-discovered-vulnerabilities-apps-built-with-vibe-coding/",
+            "https://arxiv.org/abs/2603.12498",
+            "https://www.csoonline.com/article/3953927/ai-programming-copilots-are-worsening-code-security-and-leaking-more-secrets.html"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Rephrase the Wiz stat as '1 in 5 organizations use vibe-coding platforms (per Wiz)', not a vulnerability rate.",
+          "extra_sources": []
+        },
+        {
+          "id": "supabase-service-role-exposed",
+          "title": "Supabase service_role / secret key shipped to the browser (bypasses RLS entirely)",
+          "description": "The Supabase service_role key has the bypassrls attribute. When it is exposed in the frontend, for example as NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY or VITE_SUPABASE_SERVICE_ROLE_KEY, even well-written RLS is irrelevant.",
+          "why_ai_or_novices_cause_it": "When RLS blocks a query, the easy 'fix' an AI or novice reaches for is to swap in the service_role key, which makes the error disappear.",
+          "user_impact": "Full read, write and delete access to the database and admin Auth/Storage operations.",
+          "severity": "critical",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Decode every JWT-shaped string in bundles and requests and flag role=service_role. Also flag sb_secret_ prefixed keys. This is a zero-false-positive, non-destructive check.",
+          "prevalence_evidence": "Supabase docs: secret and service role keys 'are never safe to expose because they bypass RLS.' Escape.tech's methodology lists 'Supabase service key exposures' among its vibe-coded app findings. No standalone count found.",
+          "sources": [
+            "https://supabase.com/docs/guides/database/secure-data",
+            "https://escape.tech/blog/methodology-how-we-discovered-vulnerabilities-apps-built-with-vibe-coding/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "client-side-only-auth",
+          "title": "Authentication or authorization enforced only in frontend code",
+          "description": "Login checks, password gates, role checks ('isAdmin'), route guards and feature flags live in React state or JS. The backend APIs they protect accept any request. Some apps even compare passwords client-side against strings embedded in the bundle.",
+          "why_ai_or_novices_cause_it": "A route guard or hidden button looks like security. AI assistants readily generate client-side gating when asked to 'add a login page'. Novices do not know that anyone can call the API directly.",
+          "user_impact": "Anyone can reach protected data and admin functions by calling APIs directly, editing localStorage or flipping a JS variable.",
+          "severity": "critical",
+          "detectable_via_browser": "yes",
+          "detection_approach": "(1) Scan bundles for hardcoded password comparisons and role literals. (2) Record the authenticated API calls, then replay them with no cookies or tokens and with a low-privilege user's token, and diff the responses. (3) Tamper with localStorage/sessionStorage flags (isAdmin, role, plan), reload, and check whether privileged data loads from the server. (4) Navigate directly to routes found in the router manifest while logged out.",
+          "prevalence_evidence": "Wiz (2025-09-18) documented apps doing 'password entry and validation on the client side, without contacting any backend server', with hardcoded passwords in JS. The Register (2026-02-27) reported an AI-generated access check that was inverted, blocking authenticated users while letting anonymous ones through, which exposed 18,697 records. OWASP Top 10:2025 A01 Broken Access Control: '100% of the applications tested were found to have some form of broken access control.'",
+          "sources": [
+            "https://www.wiz.io/blog/common-security-risks-in-vibe-coded-apps",
+            "https://www.theregister.com/2026/02/27/lovable_app_vulnerabilities/",
+            "https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Note that Lovable disputes the Register app's code was Lovable-generated.",
+          "extra_sources": []
+        },
+        {
+          "id": "idor-bola",
+          "title": "IDOR / Broken Object Level Authorization on API endpoints",
+          "description": "Endpoints such as /api/orders/123 or /api/users/:id/profile return or modify any object whose ID the caller supplies, without checking that the caller owns it.",
+          "why_ai_or_novices_cause_it": "Generated CRUD handlers fetch by ID and return the result. Ownership checks are a separate step that neither the prompt nor the tests ask for. Happy-path testing with one account never shows the problem.",
+          "user_impact": "Cross-account data exposure and tampering, sometimes leading to account takeover.",
+          "severity": "critical",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Use two seeded test accounts. Crawl as user A and record every request carrying an object ID (path, query or body, including UUIDs). Replay each request with user B's session and with no session, and flag 2xx responses whose data belongs to A. For numeric IDs, try adjacent values within an opt-in budget. Run PUT, PATCH and DELETE variants only when destructive mode is on.",
+          "prevalence_evidence": "OWASP API Security Top 10 2023 API1 BOLA: prevalence 'Widespread', detectability 'Easy'. The Register (2026-04-21) reported a BOLA flaw in Lovable's own platform API that let any free account reach other users' source code, database credentials and AI chat history in 'five API calls'.",
+          "sources": [
+            "https://github.com/OWASP/API-Security/blob/master/editions/2023/en/0xa1-broken-object-level-authorization.md",
+            "https://www.theregister.com/security/2026/04/21/lovable-denies-data-leak-cites-intentional-behavior/5226233"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Clarify that the Lovable BOLA example is the vendor platform's own API, not a vibe-coded app.",
+          "extra_sources": []
+        },
+        {
+          "id": "unprotected-admin-internal-routes",
+          "title": "Admin panels, internal tools and 'private' apps deployed publicly without authentication",
+          "description": "Admin dashboards (/admin, /dashboard, /internal), debug endpoints and internal knowledge-base or chatbot apps are deployed to the public internet with no auth, or with auth only in the UI. On some platforms, 'private' apps could still be joined by registering through exposed endpoints.",
+          "why_ai_or_novices_cause_it": "Builders assume an unlinked URL is private. Vibe-coding platforms deploy publicly by default. Signup and registration endpoints generated for one use case stay enabled.",
+          "user_impact": "Exposure of internal data, admin actions available to anyone, and sensitive knowledge bases leaked through chatbots.",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Enumerate routes from the SPA router manifest, sitemap and bundle strings (admin, internal, debug, dashboard, settings, api/*). Visit each logged out and as a low-privilege user, and flag privileged UI or data that renders. Check whether signup endpoints respond on apps the user says are invite-only or SSO-only.",
+          "prevalence_evidence": "Wiz (2025-09-18) found internal apps 'deployed on the public internet without authentication', including knowledge bases and chatbots. In Wiz's Base44 finding (discovered 2025-07-09), register and verify-otp endpoints accepted only the public app_id, bypassing SSO on private apps. Wix fixed it within 24 hours.",
+          "sources": [
+            "https://www.wiz.io/blog/common-security-risks-in-vibe-coded-apps",
+            "https://www.wiz.io/blog/critical-vulnerability-base44"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "paywall-payment-bypass",
+          "title": "Paywall and subscription enforced client-side; payment webhooks unverified or success page trusted",
+          "description": "Premium status is read from client state, localStorage or a query parameter such as ?success=true after a Stripe redirect. Webhook endpoints do not verify the Stripe-Signature header, so forged 'payment succeeded' events grant access.",
+          "why_ai_or_novices_cause_it": "Redirect-to-success is the simplest way to show 'paid'. Signature verification fails with confusing raw-body errors, so it gets removed to make things work.",
+          "user_impact": "Free access to paid features, fraudulent order fulfilment and lost revenue.",
+          "severity": "high",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Browser-visible parts: (1) visit the checkout success URL directly without paying and check whether premium unlocks; (2) flip plan or isPro flags in storage or responses, reload, and see whether the server still serves premium data; (3) replay premium API calls as a free-tier user; (4) in opt-in mode, POST an unsigned test event to discovered /webhook or /api/stripe routes on the user's own staging site and check for 2xx. Server-side verification logic cannot be seen directly.",
+          "prevalence_evidence": "Stripe docs: 'Without verification, an attacker could send fake webhook events to your endpoint to trigger actions like fulfilling orders, granting account access or modifying records.' Enrichlead (Cursor-built, March 2025): founder posted 'people bypassing the subscription', as reported by Snyk. The details of that incident come from the founder's social posts, so treat them as semi-anecdotal.",
+          "sources": [
+            "https://docs.stripe.com/webhooks",
+            "https://snyk.io/articles/the-highs-and-lows-of-vibe-coding/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "missing-rate-limiting",
+          "title": "No rate limiting on auth, OTP, SMS/email and LLM-backed endpoints",
+          "description": "Login, signup, password reset, OTP, contact forms and AI-generation endpoints accept unlimited requests. This enables credential stuffing, OTP brute force, SMS/email cost pumping and LLM bill runaway.",
+          "why_ai_or_novices_cause_it": "Rate limiting is invisible on the happy path and needs infrastructure such as Redis or edge config. Prompts rarely ask for it and AI rarely adds it unprompted.",
+          "user_impact": "Account takeover, large third-party bills and service outage.",
+          "severity": "high",
+          "detectable_via_browser": "partial",
+          "detection_approach": "With a strict opt-in budget on the user's own site, fire N (for example 20-30) rapid requests at login with wrong passwords, password reset and generation endpoints. Look for 429 responses, Retry-After or RateLimit headers, CAPTCHA or lockout. Report 'no throttling observed after N attempts'. Never target SMS or paid endpoints without explicit consent.",
+          "prevalence_evidence": "OWASP API4:2023 Unrestricted Resource Consumption gives the example of a $0.05/SMS password reset abused 'tens of thousands of times'. Snyk's account of Enrichlead cites 'maxed out usage on API keys' and missing rate limiting.",
+          "sources": [
+            "https://github.com/OWASP/API-Security/blob/master/editions/2023/en/0xa4-unrestricted-resource-consumption.md",
+            "https://snyk.io/articles/the-highs-and-lows-of-vibe-coding/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Downgrade detectability to partial and word results as 'no throttling observed within budget N'.",
+          "extra_sources": []
+        },
+        {
+          "id": "mass-assignment-server-validation",
+          "title": "Missing server-side validation / mass assignment (client can set role, price, owner_id)",
+          "description": "APIs, or direct Supabase/Firebase writes, accept whatever fields the client sends. Attackers add role:'admin', is_verified:true, price:0, user_id:<victim> or credits:99999. Length, type and format validation exists only in the form UI.",
+          "why_ai_or_novices_cause_it": "AI generates validation in the React form (zod or HTML attributes) and passes the body straight to the ORM or DB insert. Novices treat frontend validation as sufficient.",
+          "user_impact": "Privilege escalation, price manipulation, data corruption and junk or malicious data stored.",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Intercept form submissions in Playwright (route interception). Resend with the frontend constraints violated (oversize strings, wrong types, negative quantities) and with extra privileged fields added (role, isAdmin, price, owner/user_id). Then re-read the object and flag it if the server accepted the values. Compare against the constraints the UI enforces, taken from the a11y tree and DOM attributes.",
+          "prevalence_evidence": "OWASP API3:2023 Broken Object Property Level Authorization includes mass-assignment scenarios such as adding 'total_stay_price' and 'blocked': false to requests. The Snyk/Enrichlead account cites 'no input validation' and 'creating random stuff in the database'. No vibe-coding-specific statistic found.",
+          "sources": [
+            "https://github.com/OWASP/API-Security/blob/master/editions/2023/en/0xa3-broken-object-property-level-authorization.md",
+            "https://snyk.io/articles/the-highs-and-lows-of-vibe-coding/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Mark the Snyk wording as a paraphrase.",
+          "extra_sources": []
+        },
+        {
+          "id": "xss-dangerouslysetinnerhtml",
+          "title": "Stored/reflected XSS via dangerouslySetInnerHTML, innerHTML, v-html or unsanitized Markdown/LLM output",
+          "description": "User content, URL parameters or LLM responses are rendered as raw HTML, for example in markdown previews, rich-text comments or chat UIs that render model output as HTML. Script runs in other users' sessions.",
+          "why_ai_or_novices_cause_it": "AI reaches for dangerouslySetInnerHTML to render formatted text or markdown. The name's warning is not understood. Chat UIs that render LLM output as HTML are a common new sink.",
+          "user_impact": "Session theft, account takeover and actions performed as the victim.",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Inject benign canary payloads, such as an <img src=x onerror=window.__rh_xss=1> variant and a unique marker, into every input, URL parameter and hash. Revisit as a second user and check whether the marker executed (window flag or console) or appears unescaped in the DOM. Also hook Element.innerHTML setters to trace sinks at runtime. Pair with a CSP check.",
+          "prevalence_evidence": "Veracode 2025 GenAI Code Security Report (2025-07-30): AI tools 'failed to defend against [XSS, CWE-80] in 86% of relevant code samples'. 45% of samples overall introduced OWASP Top 10 flaws. React docs: 'it is trivial to introduce an XSS vulnerability this way.'",
+          "sources": [
+            "https://www.veracode.com/blog/genai-code-security-report/",
+            "https://react.dev/reference/react-dom/components/common"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "missing-security-headers-csp",
+          "title": "Missing security headers (CSP, HSTS, X-Frame-Options/frame-ancestors, X-Content-Type-Options, Referrer-Policy)",
+          "description": "Responses lack Content-Security-Policy, Strict-Transport-Security, clickjacking protection and nosniff, or ship a CSP containing 'unsafe-inline' or wildcards that negates it.",
+          "why_ai_or_novices_cause_it": "Headers are hosting and framework config, not app code, so prompts never touch them. Defaults on many hosts do not set them.",
+          "user_impact": "XSS impact is amplified, clickjacking becomes possible, and downgrade attacks become possible.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Inspect response headers on the document and API responses. Grade the CSP (unsafe-inline, unsafe-eval, *, missing object-src or base-uri, missing frame-ancestors). Test framing by loading the page in an iframe from a local origin. This is a cheap check suitable for V0.",
+          "prevalence_evidence": "HTTP Archive Web Almanac 2025 Security: CSP on 21.9% of pages (up from 18.5%), HSTS on 36% of mobile pages, X-Frame-Options about 30%, X-Content-Type-Options about 50% on mobile. Escape.tech lists missing security headers among vibe-coded app issues.",
+          "sources": [
+            "https://almanac.httparchive.org/en/2025/security",
+            "https://escape.tech/state-of-security-of-vibe-coded-apps"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Remove the claim that Escape lists missing security headers. Keep severity low to medium: missing headers alone are rarely exploitable, and platforms like Vercel and Netlify set HSTS by default.",
+          "extra_sources": []
+        },
+        {
+          "id": "insecure-cookies",
+          "title": "Session cookies without HttpOnly, Secure or SameSite, and tokens stored in localStorage",
+          "description": "Auth and session cookies are set without HttpOnly (readable by JS, so stealable via XSS), Secure (sent over HTTP) or an explicit SameSite, or JWTs sit in localStorage.",
+          "why_ai_or_novices_cause_it": "Default cookie helpers and quick-start auth snippets often omit the flags. Storing JWTs in localStorage is the simplest pattern AI suggests.",
+          "user_impact": "Session hijacking via XSS or network interception, and CSRF exposure.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "After login, call context.cookies() and inspect the flags on cookies that look like sessions. Scan localStorage and sessionStorage for JWTs or refresh tokens and decode their expiry and scope. Flag long-lived tokens and missing flags.",
+          "prevalence_evidence": "Web Almanac 2025 Cookies: only 12% of first-party cookies set HttpOnly and 24% set Secure, and 66% (desktop) do not specify SameSite. These are web-wide figures, not session-cookie specific.",
+          "sources": [
+            "https://almanac.httparchive.org/en/2025/cookies"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Treat localStorage tokens in Supabase or Firebase SDK apps as informational, not a defect.",
+          "extra_sources": []
+        },
+        {
+          "id": "cors-misconfig",
+          "title": "Permissive CORS: reflected Origin or null allowed with credentials",
+          "description": "The API echoes any Origin into Access-Control-Allow-Origin, or allows 'null', together with Access-Control-Allow-Credentials: true, or uses a broken suffix or prefix allowlist. Any website can then read authenticated responses.",
+          "why_ai_or_novices_cause_it": "CORS errors block development, and the fastest AI or Stack Overflow fix is cors({origin: true, credentials: true}) or reflecting the origin.",
+          "user_impact": "Malicious sites can read victims' private data and CSRF tokens.",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Replay the app's API requests with Origin: https://evil.example, Origin: null and suffix/prefix variants. Flag ACAO reflecting the value together with ACAC: true. This is non-destructive.",
+          "prevalence_evidence": "OWASP Top 10:2025 A01 lists CORS misconfiguration under Broken Access Control. PortSwigger documents reflected origin, null origin and allowlist parsing errors as common. No vibe-coding-specific statistic found.",
+          "sources": [
+            "https://portswigger.net/web-security/cors",
+            "https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "verbose-errors-sourcemaps",
+          "title": "Verbose error / stack-trace leaks and exposed production source maps",
+          "description": "API errors return stack traces, SQL or ORM messages, file paths or env details. Production deploys ship .map files with sourcesContent, which reveals full original source, hidden endpoints and sometimes secrets.",
+          "why_ai_or_novices_cause_it": "Debug error handlers (res.status(500).json(err)) are generated for convenience and never removed. Some bundlers emit source maps by default.",
+          "user_impact": "Reconnaissance gets much easier: hidden APIs, schema and secrets are revealed and exploits can be chained.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Capture console and network during danger-path tests with malformed inputs, and flag responses containing stack-trace patterns (at Function., Traceback, SQLSTATE, PrismaClient, file paths). For each JS chunk, request <chunk>.js.map and check sourceMappingURL, flag when sourcesContent is present, and feed the recovered source into the secret and route scanners.",
+          "prevalence_evidence": "OWASP Top 10:2025 adds A10 'Mishandling of Exceptional Conditions'. Sentry Security blog (2025-01-31) describes exposed sourcemaps revealing a hidden endpoint that was chained into password-change account takeover. No prevalence statistic found.",
+          "sources": [
+            "https://top10.owasp.org/2025",
+            "https://blog.sentry.security/abusing-exposed-sourcemaps/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "open-redirect",
+          "title": "Open redirects in login/logout/callback flows (?next=, ?redirect=, ?returnTo=)",
+          "description": "Post-login or OAuth callback parameters redirect to any URL without an allowlist. These redirects enable phishing on a trusted domain and sometimes OAuth token leakage.",
+          "why_ai_or_novices_cause_it": "'Redirect back to where the user came from' is implemented as router.push(searchParams.get('next')) without validation.",
+          "user_impact": "Credible phishing links and possible theft of auth codes or tokens.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Find redirect-like parameters in URLs, forms and bundle strings. Set them to an external canary domain plus bypass variants (//evil.example, /\\evil.example, https:evil.example). Complete the flow and check the final navigation URL.",
+          "prevalence_evidence": "OWASP Unvalidated Redirects and Forwards Cheat Sheet describes the phishing and access-control-bypass risks. Anecdotal/unsourced for vibe-coding prevalence.",
+          "sources": [
+            "https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "vulnerable-framework-versions",
+          "title": "Known-vulnerable framework versions and middleware-only auth (e.g. Next.js CVE-2025-29927, React2Shell CVE-2025-55182)",
+          "description": "Apps run outdated Next.js or React Server Components versions with critical CVEs. CVE-2025-29927 lets an x-middleware-subrequest header skip middleware, and many AI-generated apps put all auth in middleware. CVE-2025-55182 (CVSS 10) is unauthenticated RCE via the RSC Flight protocol and is on CISA KEV.",
+          "why_ai_or_novices_cause_it": "AI templates pin whatever version was in training data, and vibe coders rarely upgrade. Middleware-only auth is the pattern most tutorials show.",
+          "user_impact": "Auth bypass across all protected routes, or full server compromise.",
+          "severity": "critical",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Fingerprint framework and version from headers (x-powered-by, x-nextjs-*), __NEXT_DATA__, the buildId, chunk names and runtime globals, and map them to a CVE list. For CVE-2025-29927, request a protected route with the x-middleware-subrequest header variants on the user's own site and check whether auth is skipped (safe, read-only). Do not attempt RCE payloads; report version risk only.",
+          "prevalence_evidence": "Datadog Security Labs: CVE-2025-29927 affects Next.js <12.3.5, <13.5.9, <14.2.25 and <15.2.3 (disclosed 2025-03-21). Datadog observed 'over 800 IP addresses' scanning for React2Shell by 2025-12-05. It was added to CISA KEV on 2025-12-05.",
+          "sources": [
+            "https://securitylabs.datadoghq.com/articles/nextjs-middleware-auth-bypass/",
+            "https://securitylabs.datadoghq.com/articles/cve-2025-55182-react2shell-remote-code-execution-react-server-components/"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Add that Vercel/Netlify-hosted apps were not affected by 29927. Cite CISA for the KEV date. The 'many AI-generated apps put all auth in middleware' claim is unsourced.",
+          "extra_sources": [
+            "https://www.cisa.gov/news-events/alerts/2025/12/05/cisa-adds-one-known-exploited-vulnerability-catalog"
+          ]
+        },
+        {
+          "id": "llm-prompt-injection",
+          "title": "Prompt injection in LLM-powered features (chatbots, AI assistants, RAG over user content)",
+          "description": "Customer-facing chatbots and AI features can be steered by user input (direct injection) or by content they ingest (indirect injection). They make unauthorized commitments, leak system prompts or private context, or trigger tool actions. The risk is highest when a feature has the 'lethal trifecta': private data access, untrusted content and an exfiltration channel.",
+          "why_ai_or_novices_cause_it": "Adding a chatbot is a single API call, and builders treat the system prompt as a security boundary. Model output is often rendered as HTML or used to take actions without checks.",
+          "user_impact": "Data leakage, reputational and legal exposure, unauthorized actions, and XSS through model output.",
+          "severity": "high",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Detect chat or LLM widgets (network calls to LLM APIs or streaming endpoints). Send a curated set of benign injection probes: system-prompt extraction, instruction override, a canary token that should not be repeated, markdown image exfiltration to a local canary URL, and HTML/script in output. Flag leaks of the system prompt or of seeded private data, fetches to the canary, or unescaped rendering. Results are probabilistic, so report them as risk, not proof.",
+          "prevalence_evidence": "OWASP Top 10 for LLM Applications 2025 ranks LLM01 Prompt Injection first. AI Incident Database #622 (2023-12-18): a Chevrolet dealer's ChatGPT bot agreed to sell a Tahoe for $1. Simon Willison's 'lethal trifecta' (2025-06-16).",
+          "sources": [
+            "https://genai.owasp.org/llmrisk/llm01-prompt-injection/",
+            "https://incidentdatabase.ai/cite/622/",
+            "https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "slopsquatting-hallucinated-packages",
+          "title": "Hallucinated or slopsquatted dependencies pulled into the app",
+          "description": "LLMs recommend package names that do not exist. Attackers register those names with malicious code, and AI-generated projects install them.",
+          "why_ai_or_novices_cause_it": "Vibe coders accept whatever npm or pip install the AI suggests without checking that the package is real or reputable.",
+          "user_impact": "Supply-chain compromise: malicious code in the build or the browser bundle, and credential theft.",
+          "severity": "medium",
+          "detectable_via_browser": "partial",
+          "detection_approach": "From outside, Run Hound can only fingerprint bundled client libraries (webpack module paths, license comments, source maps) and check them against vulnerability and malicious-package feeds such as OSV or GHSA. It can also flag scripts loaded from unexpected third-party origins. Server-side and dev dependencies are invisible, so this belongs in a future opt-in grey-box mode that reads package.json or the lockfile.",
+          "prevalence_evidence": "Spracklen et al. (arXiv 2406.10279, USENIX Security 2025): hallucinated packages average 'at least 5.2% for commercial models and 21.7% for open-source models', with 205,474 unique hallucinated names. Aikido reports an empty 'huggingface-cli' PyPI package got 30,000+ downloads in three months.",
+          "sources": [
+            "https://arxiv.org/abs/2406.10279",
+            "https://www.aikido.dev/blog/slopsquatting-ai-package-hallucination-attacks"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Emphasize that it is mostly undetectable black-box and belongs in the future grey-box scope.",
+          "extra_sources": []
+        },
+        {
+          "id": "shared-prod-env-destructive-risk",
+          "title": "No dev/prod separation: staging or preview builds wired to the production database (tester safety risk)",
+          "description": "Vibe-coded apps often use one database and one set of keys everywhere. A 'staging' URL Run Hound is authorized to test may write to production data. AI agents operating on such environments have destroyed production data.",
+          "why_ai_or_novices_cause_it": "Platforms historically defaulted to a single environment, and novices do not set up separate projects or keys.",
+          "user_impact": "Automated danger-path tests (deletes, bulk creates) could corrupt or wipe real customer data. This hits Run Hound's own safety and reputation.",
+          "severity": "high",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Compare Supabase or Firebase project IDs, API hosts and Stripe key mode (pk_live_ vs pk_test_) between the staging target and the production domain, if the user supplies it. Warn if they match or if live-mode keys appear. Keep destructive actions opt-in, require seeded test accounts, and require explicit confirmation when live keys are detected.",
+          "prevalence_evidence": "AI Incident Database #1152 / The Register (2025-07-21): a Replit agent deleted SaaStr's production database during a code freeze and fabricated about 4,000 fake records. Replit then shipped 'automatic dev/prod database separation'. Prevalence of shared environments is anecdotal/unsourced.",
+          "sources": [
+            "https://incidentdatabase.ai/cite/1152/",
+            "https://www.theregister.com/2025/07/21/replit_saastr_vibe_coding_incident/"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Cite Masad's X post or The Register 2025-07-22 for the dev/prod separation claim. The AIID incident date is 2025-07-18.",
+          "extra_sources": [
+            "https://x.com/amasad/status/1946986468586721478",
+            "https://www.theregister.com/2025/07/22/replit_saastr_response/"
+          ]
+        },
+        {
+          "id": "ai-code-baseline-insecurity",
+          "title": "Context: AI-generated code is measurably less secure, and its authors are more confident in it",
+          "description": "This is a cross-cutting finding that supports the need for Run Hound, not a single bug class. Controlled studies show AI-assisted developers write less secure code and overrate its security. Large-scale tests show roughly half of AI-generated code samples contain OWASP Top 10 flaws, with no improvement in newer or larger models.",
+          "why_ai_or_novices_cause_it": "Models optimize for functional code, security performance 'remained flat, regardless of model size', and users trust the output.",
+          "user_impact": "Every category above is more likely in AI-built apps, and owners are less likely to suspect them.",
+          "severity": "high",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Not a single check. It justifies making the black-box security pass (headers, cookies, secrets, BaaS rules, authz replay) a default part of every Run Hound report, even at V0.",
+          "prevalence_evidence": "Perry et al., CCS 2023 (arXiv 2211.03622): AI-assistant users 'wrote significantly less secure code' and were more likely to believe it secure. Veracode (2025-07-30): 45% of samples across 100+ LLMs failed security tests, with Java at 72%.",
+          "sources": [
+            "https://arxiv.org/abs/2211.03622",
+            "https://www.veracode.com/blog/genai-code-security-report/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Note that Perry used Codex-era assistants (2022), so it is dated. Pair it with Veracode 2025 for currency.",
+          "extra_sources": []
+        }
+      ],
+      "refuted": [],
+      "missed_items": [
+        {
+          "title": "Supabase Storage buckets set public / missing storage.objects policies, and Supabase RPC (SECURITY DEFINER) functions callable via /rest/v1/rpc",
+          "why": "Same root cause as RLS, but on storage and functions. File uploads (IDs, avatars, invoices) are often in public buckets, and RPC functions bypass table RLS. Both can be tested black-box with the anon key.",
+          "source": "https://supabase.com/docs/guides/storage/security/access-control"
+        },
+        {
+          "title": "Exposed deployment artifacts: /.env, /.git/, backup files, and public preview/staging deployments",
+          "why": "Very common novice leak, and trivially detectable with a HEAD/GET to well-known paths on the user's own domain. Vercel preview URLs are public unless Deployment Protection is on.",
+          "source": "https://vercel.com/docs/security/deployment-protection"
+        },
+        {
+          "title": "CSRF on cookie-authenticated state-changing endpoints",
+          "why": "Absent from the list. Cookie-session apps built with Express or Next API routes often lack CSRF tokens or SameSite. Missing tokens and SameSite can be detected black-box.",
+          "source": "https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html"
+        },
+        {
+          "title": "Unrestricted file upload (type/size/content not checked server-side, SVG/HTML uploads served inline leading to stored XSS)",
+          "why": "Vibe apps commonly add avatar and document upload. Only client-side accept= checks are typical. It can be tested by uploading benign polyglot or SVG canaries on the user's own site.",
+          "source": "https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html"
+        },
+        {
+          "title": "Weak auth configuration: user enumeration via login/reset messages, email confirmation disabled, open signup on an 'invite-only' app, weak password policy",
+          "why": "This was part of the Sentry sourcemap ATO chain (enumeration). BaaS defaults are often left as-is. It is observable by comparing responses.",
+          "source": "https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html"
+        },
+        {
+          "title": "SSRF via 'import from URL' / link-preview / AI 'fetch this page' features",
+          "why": "LLM features that fetch URLs are increasingly common. The server-side fetch can be partially detected with an out-of-band canary URL the user controls.",
+          "source": "https://owasp.org/API-Security/editions/2023/en/0xa7-server-side-request-forgery/"
+        },
+        {
+          "title": "Third-party script supply chain / missing SRI (e.g., polyfill.io compromise, June 2024)",
+          "why": "Browser-visible and relevant to the slopsquatting item: it flags scripts from compromised or unexpected CDNs and missing integrity attributes. This is the part of supply-chain risk a browser can actually see.",
+          "source": "https://sansec.io/research/polyfill-supply-chain-attack"
+        },
+        {
+          "title": "Supabase Edge Functions / serverless API routes deployed with JWT verification disabled",
+          "why": "A common 'fix' when functions return 401. It can be detected by calling observed function URLs without an Authorization header.",
+          "source": "https://supabase.com/docs/guides/functions/auth"
+        }
+      ]
+    },
+    {
+      "domain": "accessibility",
+      "findings": [
+        {
+          "id": "non-semantic-click-handlers",
+          "title": "Clickable div/span instead of <button>/<a>",
+          "description": "Interactive controls are built as <div onClick> or <span onClick>, sometimes with role=button bolted on, but without tabindex, Enter/Space key handling, or focus styling. The control works with a mouse but cannot be reached or activated from the keyboard, and screen readers see it as plain text or a broken button. This is a WCAG 2.1.1 Keyboard (A) and 4.1.2 Name, Role, Value (A) failure.",
+          "why_ai_or_novices_cause_it": "LLMs and new React developers attach onClick to whatever element is already styled, such as a card or table row. Once the page 'works' with a mouse nobody tries it with Tab. MDN says role=button needs tabindex=0 plus Enter and Space handlers, and generated code often has only some of these.",
+          "user_impact": "Keyboard-only users, switch users and screen-reader users cannot open menus, submit, or select items, so whole features are blocked for them.",
+          "severity": "critical",
+          "detectable_via_browser": "yes",
+          "detection_approach": "(1) CDP DOMDebugger.getEventListeners, or instrumenting addEventListener, to find click listeners on elements whose computed role is generic or none. Also flag cursor:pointer on non-focusable elements. (2) Tab through the page, press Enter and Space on each candidate, and diff the DOM, URL and network to see whether the mouse click effect happens. (3) Compare the set of mouse-clickable elements against the set of Tab-reachable elements. axe-core catches only part of this, for example role=button without a focusable element, so agent interaction is needed.",
+          "prevalence_evidence": "WebAIM Million 2026: 'Home pages averaged 30.4 instances of tabindex=0 or tabindex=-1 (up 17% from 26 in 2025)', which suggests more custom widgets with hand-rolled focus. No direct prevalence figure for div-buttons was found.",
+          "sources": [
+            "https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Reference/Roles/button_role",
+            "https://webaim.org/projects/million/"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Remove listener enumeration as the primary method for React apps, or explain the event-delegation limit. Use cursor:pointer, React fiber props and the Tab-reachability diff instead. The tabindex statistic is indirect evidence only.",
+          "extra_sources": [
+            "https://legacy.reactjs.org/blog/2020/08/10/react-v17-rc.html#changes-to-event-delegation"
+          ]
+        },
+        {
+          "id": "empty-icon-buttons-links",
+          "title": "Icon-only buttons and links with no accessible name",
+          "description": "Icon buttons, such as a lucide/heroicons SVG for close, menu, delete, cart or social links, have no text, aria-label or <title>. Screen readers announce only 'button' or read the URL. This fails WCAG 4.1.2 and 2.4.4.",
+          "why_ai_or_novices_cause_it": "shadcn/Tailwind output relies heavily on icon-only controls (<Button size=\"icon\"><X/></Button>). Models and beginners often leave out sr-only text or aria-label. The CHI 2026 study found that LLMs struggle with svg_graphics_labelled and link-purpose rules.",
+          "user_impact": "Blind users cannot tell what a control does. A 'button' next to each row could be delete or edit.",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "axe-core rules button-name, link-name, svg-img-alt. Cross-check the accessible name in the Playwright accessibility snapshot for each interactive node, and use vision on a screenshot crop to suggest the intended label for the report.",
+          "prevalence_evidence": "WebAIM Million 2026: empty links on 46.3% of home pages and empty buttons on 30.6%. A11YN (arXiv 2510.13914) lists link-name among the most frequent axe violations in base LLM output (129 instances).",
+          "sources": [
+            "https://webaim.org/projects/million/",
+            "https://arxiv.org/html/2510.13914v1",
+            "https://arxiv.org/html/2503.15885v1"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Attribute the svg_graphics_labelled and link-text finding to Suh et al., arXiv 2503.15885 (GPT-4o), not to CHI 2026. Describe the A11YN counts as coming from the Qwen2.5-Coder-7B base model.",
+          "extra_sources": [
+            "https://arxiv.org/html/2503.15885v1",
+            "https://playwright.dev/docs/aria-snapshots"
+          ]
+        },
+        {
+          "id": "missing-form-labels-placeholder-as-label",
+          "title": "Form inputs without labels, or with placeholder as the only label",
+          "description": "Inputs have no <label for>, aria-label or aria-labelledby, or they rely on placeholder text that disappears on typing. Custom shadcn Select/Combobox/Checkbox triggers are often not linked to their visible label. This fails WCAG 1.3.1, 3.3.2 (visible labels) and 4.1.2.",
+          "why_ai_or_novices_cause_it": "Placeholder-only inputs look clean in generated mockups. Composed components such as a Radix Select trigger inside a FormItem lose the label link when the developer skips the FormLabel/FormControl wrappers.",
+          "user_impact": "Screen readers announce 'edit text' with no context. Users with cognitive or memory disabilities lose the prompt once they start typing, and voice-control users cannot target fields by name.",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "axe label, label-title-only, select-name, aria-input-field-name. Also check that each input's accessible name comes only from the placeholder, meaning the name equals the placeholder and there is no visible <label> in the bounding box region. Then fill the field and use a screenshot to check whether any visible label remains.",
+          "prevalence_evidence": "WebAIM Million 2026: missing form input labels on 51% of home pages, and 'One third (33.1%) of those form inputs were not properly labeled'. The LLM comparison study (arXiv 2503.15885) found LLMs better than humans on basic labeling but worse on 'Form Label Position Issues'.",
+          "sources": [
+            "https://webaim.org/projects/million/",
+            "https://www.w3.org/WAI/WCAG22/Understanding/labels-or-instructions.html",
+            "https://arxiv.org/html/2503.15885v1"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Minor: the Form Label Position result is GPT-4o-specific, not true of 'LLMs' in general.",
+          "extra_sources": []
+        },
+        {
+          "id": "low-contrast-text",
+          "title": "Low text and UI contrast (muted grays, placeholder, disabled, dark mode, text on images)",
+          "description": "Text falls below 4.5:1 (1.4.3 AA), and UI components or focus rings fall below 3:1 (1.4.11). Typical cases are Tailwind gray-400 on white, muted-foreground tokens, placeholder text, hover and focus states, dark-mode variants, and text over hero images or gradients.",
+          "why_ai_or_novices_cause_it": "Generated designs favour subtle, low-contrast 'modern' palettes. Developers check the light theme at rest only. Hover, focus, disabled and dark-mode states are never viewed side by side.",
+          "user_impact": "Low-vision users, older users, and anyone on a phone in sunlight cannot read content or see control boundaries.",
+          "severity": "high",
+          "detectable_via_browser": "partial",
+          "detection_approach": "axe color-contrast covers static text on solid backgrounds. The agent adds three checks. (1) Re-run axe after emulating prefers-color-scheme: dark and forced states (hover, focus). (2) For text over images or gradients, where axe returns 'incomplete', sample screenshot pixels behind the text box and compute the ratio. (3) Measure focus-ring and border contrast against adjacent colours for 1.4.11.",
+          "prevalence_evidence": "WebAIM Million 2026: low contrast text on 83.9% of home pages. A11YN reports color-contrast as the second most frequent axe violation in base LLM output (702 instances). Nuance: arXiv 2503.15885 found GPT-4o reduced contrast issues by about 49% compared with human-written code, but contrast still made up 80% of violations.",
+          "sources": [
+            "https://webaim.org/projects/million/",
+            "https://arxiv.org/html/2510.13914v1",
+            "https://arxiv.org/html/2503.15885v1"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Name the model (Qwen2.5-Coder-7B) for the A11YN counts and state that the 80% figure used the IBM Equal Access checker.",
+          "extra_sources": []
+        },
+        {
+          "id": "alt-text-missing-or-meaningless",
+          "title": "Missing alt text, or alt text that passes checks but is meaningless",
+          "description": "Images have no alt attribute (1.1.1), or have alt text that exists but says nothing, such as alt=\"image\", alt=\"hero\", a filename, or a generic stock description. Decorative images lack alt=\"\" and create noise.",
+          "why_ai_or_novices_cause_it": "Models fill in alt text so that linters pass, but they cannot see the image, so they write generic strings. Vibe coders swap in real images later without updating the placeholder alt.",
+          "user_impact": "Screen-reader users miss product images, charts or instructional content, or hear meaningless noise.",
+          "severity": "medium",
+          "detectable_via_browser": "partial",
+          "detection_approach": "axe image-alt, role-img-alt, input-image-alt for missing alt. The semantic check needs the agent's vision model to compare image content with the alt string, flagging filename-like alt, single generic words, and duplicated alt across different images. This is LLM-as-judge, so report it as a 'needs review' confidence tier.",
+          "prevalence_evidence": "WebAIM Million 2026: missing alt text on 53.1% of home pages. Calò et al., CHI 2026 EA: across 300 UIs from Claude, Gemini and GPT they found 541 semantic violations that pass automated checks ('an image with alt=\"image\" passes every check'). LLM judges detected injected faults with 80-92% recall.",
+          "sources": [
+            "https://webaim.org/projects/million/",
+            "https://tommasocalo.github.io/papers/26-semacces-chiea.pdf",
+            "https://dl.acm.org/doi/10.1145/3772363.3799364"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "vague-link-button-text",
+          "title": "Generic link and button text ('Click here', 'Learn more', 'Submit')",
+          "description": "Several links or buttons share identical, context-free names such as 'Learn more', 'Read more', 'Click' or 'View'. Screen-reader users who navigate by a links or buttons list cannot tell them apart. This fails 2.4.4 Link Purpose and 2.4.6.",
+          "why_ai_or_novices_cause_it": "Card-grid templates generated by LLMs repeat a single CTA string in each card. Automated checkers pass them because a name exists.",
+          "user_impact": "Users navigating by element lists hear '5 links: learn more, learn more...', which makes navigation slow and error-prone.",
+          "severity": "medium",
+          "detectable_via_browser": "partial",
+          "detection_approach": "From the a11y tree, group interactive elements by accessible name and flag duplicate names that point to different hrefs or actions. Match against a list of generic phrases. Use an LLM judge to decide whether surrounding context, such as aria-describedby or a card heading, disambiguates them.",
+          "prevalence_evidence": "Calò et al. (CHI 2026 EA): 'generic button labels and vague link text are the two' most common semantic violations, together about half of all semantic violations in LLM-generated UIs. WebAIM Million 2026: '15.2% of pages had ambiguous link text'.",
+          "sources": [
+            "https://tommasocalo.github.io/papers/26-semacces-chiea.pdf",
+            "https://webaim.org/projects/million/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Say that repeated 'Learn more' links with a programmatic context (such as a card heading in the same list item) pass 2.4.4. Report them as a best-practice or usability issue rather than a hard failure unless the context is missing.",
+          "extra_sources": [
+            "https://www.w3.org/WAI/WCAG22/Understanding/link-purpose-in-context.html"
+          ]
+        },
+        {
+          "id": "invisible-focus-indicator",
+          "title": "Focus indicator removed (outline-none / focus:outline-none with no replacement)",
+          "description": "Tailwind outline-none, outline-hidden, or a global *:focus{outline:0} removes the browser focus ring without providing a ring, border or background replacement. Keyboard users cannot see where they are. This fails 2.4.7 Focus Visible (AA), and WCAG 2.2 adds 2.4.11 and 2.4.13.",
+          "why_ai_or_novices_cause_it": "Developers remove the 'ugly blue ring' that appears on click. Tailwind docs say 'It is highly recommended to apply your own focus styling for accessibility when using this utility', and generated code often skips that. The outline-none utility also overrides global focus styles because it sits in the utilities layer.",
+          "user_impact": "Keyboard, switch and low-vision magnifier users lose their place on the page. This is a common reason audits describe a site as 'unusable by keyboard'.",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "axe does not reliably detect this, so the agent has to interact. Press Tab through every focusable element. For each, take an element screenshot (or computed outline, box-shadow, border and background) before and after focus, and flag any element with no visible change or a change below 3:1 contrast. Also check for :focus-visible parity when focus comes from the keyboard.",
+          "prevalence_evidence": "No large-scale prevalence figure found (anecdotal/unsourced for rate). The mechanism is documented by Tailwind and W3C.",
+          "sources": [
+            "https://tailwindcss.com/docs/outline-style",
+            "https://www.w3.org/WAI/WCAG22/Understanding/focus-visible.html",
+            "https://github.com/noahweidig/noahweidig.github.io/issues/54"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Replace '2.4.11 and 2.4.13' with 2.4.7 (AA) plus 2.4.13 Focus Appearance (AAA), and use 1.4.11 for ring contrast. Treat a failure to meet 3:1 as 1.4.11 or AAA, not a 2.4.7 failure.",
+          "extra_sources": [
+            "https://www.w3.org/WAI/WCAG22/Understanding/focus-appearance.html"
+          ]
+        },
+        {
+          "id": "modal-focus-management",
+          "title": "Modals, drawers and sheets that do not move, trap or return focus, or have no accessible name",
+          "description": "Hand-rolled modals leave focus behind the overlay, let Tab escape into the obscured page, do not close on Escape, or leave focus on <body> after closing. shadcn/Radix Dialog or Sheet used without DialogTitle produces an unnamed dialog. There is also the reverse failure: a real keyboard trap with no way out (2.1.2).",
+          "why_ai_or_novices_cause_it": "LLMs generate a fixed-position div 'modal' with state toggling but none of the APG behaviour. Developers using shadcn delete the title to fit a design, and Radix then logs an error that is ignored.",
+          "user_impact": "Screen-reader users do not know a dialog opened, or they keep interacting with the hidden page. Keyboard users can get stuck or lost after closing.",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Open each dialog, sheet or popover found during exploration and check four things. (1) Is document.activeElement inside the dialog? (2) Tab N+1 times and check focus stays inside. (3) Does Escape close it? (4) After closing, does focus return to the trigger? Check for role=dialog with an accessible name and aria-modal. Capture console messages that match Radix's \"`DialogContent` requires a `DialogTitle`\" as a strong signal. Detect traps by checking whether focus can leave a widget with Tab, Shift+Tab or Escape.",
+          "prevalence_evidence": "anecdotal/unsourced for rate. The shadcn issue #4302 shows the warning firing even on shadcn's own dashboard sample block at narrow viewport.",
+          "sources": [
+            "https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/",
+            "https://github.com/shadcn-ui/ui/issues/4302"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Note that Radix warnings appear only in development builds, so the console signal is missing when a production build is tested.",
+          "extra_sources": []
+        },
+        {
+          "id": "aria-misuse",
+          "title": "ARIA misuse (wrong roles, aria-hidden on focusable content, broken references, conflicting semantics)",
+          "description": "Examples: role=button without key handling; aria-hidden=true on elements that contain focusable controls; aria-labelledby pointing to IDs that do not exist; role=menu used for site navigation; aria-expanded never updated; ARIA overriding correct native semantics.",
+          "why_ai_or_novices_cause_it": "Models add ARIA to look 'accessible' without implementing the behaviour it promises. The LLM-vs-human study found GPT-4o 'introduced more violations in areas like ARIA-related attributes'.",
+          "user_impact": "Assistive tech announces controls that do not behave as announced, or hides working content entirely. W3C APG: 'Incorrect ARIA misrepresents visual experiences, with potentially devastating effects on their corresponding non-visual experiences.'",
+          "severity": "high",
+          "detectable_via_browser": "partial",
+          "detection_approach": "axe covers the static rules: aria-allowed-role, aria-valid-attr-value, aria-hidden-focus, aria-required-children/parent. For state correctness, the agent toggles each widget and checks aria-expanded, aria-selected and aria-checked against visible state from a screenshot. It also checks that role=menu or tab widgets support arrow keys per APG.",
+          "prevalence_evidence": "WebAIM Million 2026: 'home pages with ARIA present had significantly more errors (59.1 on average) than pages without ARIA (42 on average)', and aria-hidden usage rose 30% year over year to 23.3 per page. arXiv 2503.15885: LLMs 'struggle with complex accessibility requirements, particularly ARIA-related attributes'.",
+          "sources": [
+            "https://webaim.org/projects/million/",
+            "https://www.w3.org/WAI/ARIA/apg/practices/read-me-first/",
+            "https://arxiv.org/html/2503.15885v1"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "custom-widget-keyboard",
+          "title": "Keyboard-inaccessible custom widgets (dropdowns, comboboxes, tabs, date pickers, sliders, drag-and-drop)",
+          "description": "Custom selects or menus open only on hover or click, arrow keys do nothing, and options are unreachable by Tab. Drag-to-reorder has no single-pointer or keyboard alternative, which fails WCAG 2.2 2.5.7 Dragging Movements (AA).",
+          "why_ai_or_novices_cause_it": "Generated code often builds bespoke widgets from divs instead of native <select> or tested primitives. Hover-driven nav menus are common in AI landing-page templates.",
+          "user_impact": "Keyboard and assistive-technology users cannot complete core flows such as choosing a plan, picking a date or reordering items.",
+          "severity": "high",
+          "detectable_via_browser": "partial",
+          "detection_approach": "For each widget detected by role (combobox, listbox, menu, tablist, slider) or by visual heuristics, drive the APG keyboard contract (arrow keys, Home/End, Enter/Space, Escape) and verify the state change in the DOM and screenshot. For elements with a draggable attribute or pointer-drag listeners, look for an alternative control. A golden-path scenario should be re-run keyboard-only and compared with the mouse run.",
+          "prevalence_evidence": "anecdotal/unsourced (no large-scale rate found). The requirements come from APG and MDN.",
+          "sources": [
+            "https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/",
+            "https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Reference/Roles/button_role"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Cite the specific APG patterns and Understanding 2.5.7. Separate 'deviates from APG' (advisory) from 'not operable by keyboard' (a 2.1.1 failure).",
+          "extra_sources": [
+            "https://www.w3.org/WAI/WCAG22/Understanding/dragging-movements.html",
+            "https://www.w3.org/WAI/ARIA/apg/patterns/combobox/"
+          ]
+        },
+        {
+          "id": "heading-landmark-structure",
+          "title": "Broken heading hierarchy and missing landmarks",
+          "description": "Heading levels are chosen for font size and skip levels. Pages have multiple or zero h1 elements, and card titles are divs. Content sits outside landmarks (no <main>, <nav>, <header>). This affects 1.3.1 and 2.4.6, plus axe best-practice rules region and landmark-one-main.",
+          "why_ai_or_novices_cause_it": "Generated sections are composed independently, so each hero or section uses whatever heading tag suits its styling. Layout wrappers are plain divs. The LLM study found persistent 'HeadingsOrg' problems in generated code.",
+          "user_impact": "Screen-reader users, most of whom navigate by headings and landmarks, cannot skim or jump to content.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Build a heading outline and landmark map from the a11y snapshot. Flag skipped levels, missing or multiple h1, and content outside landmarks (axe region, landmark-one-main, page-has-heading-one, heading-order). Use a vision model to find visually heading-like text that is not a heading.",
+          "prevalence_evidence": "WebAIM Million 2026: 'Skipped heading levels were present on 41.8% of all pages, up from 39% in 2025'. A11YN: region was the most frequent axe violation in base LLM output (894 instances) and landmark-one-main had 164.",
+          "sources": [
+            "https://webaim.org/projects/million/",
+            "https://arxiv.org/html/2510.13914v1",
+            "https://arxiv.org/html/2503.15885v1"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "State that skipped levels and region are best-practice findings (a 1.3.1 failure only when the structure is misrepresented), so they should get lower severity in reports.",
+          "extra_sources": []
+        },
+        {
+          "id": "form-errors-status-not-announced",
+          "title": "Form validation errors, toasts and status updates not announced",
+          "description": "Validation messages appear visually as red text or a toast but are not tied to the input (no aria-invalid or aria-describedby) and are not in a live region. Async results such as 'Saved', 'Added to cart' or '5 results' are silent. This fails 3.3.1 Error Identification (A) and 4.1.3 Status Messages (AA).",
+          "why_ai_or_novices_cause_it": "Generated forms validate and render error text conditionally but skip the programmatic association. Toast libraries are mounted inconsistently. Errors are sometimes shown only by colour, which also fails 1.4.1.",
+          "user_impact": "Blind users submit, nothing is announced, and they do not know the form failed or which field is wrong. This leads to abandoned signups and checkouts.",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Danger-path scenarios submit invalid or empty data. After each submit, check that new error text is referenced by the input's aria-describedby or aria-errormessage, that aria-invalid=true is set, that the text sits inside role=alert/status or an aria-live region (or focus moves to it), and that the error is not conveyed only by red border colour (screenshot or vision check). Do the same for toasts after successful actions.",
+          "prevalence_evidence": "anecdotal/unsourced for rate. The requirement and examples are from W3C Understanding 4.1.3.",
+          "sources": [
+            "https://www.w3.org/WAI/WCAG22/Understanding/status-messages.html"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Add the pre-existing live-region check. Aria-describedby association without aria-invalid is not by itself a 3.3.1 failure if the error text identifies the field.",
+          "extra_sources": []
+        },
+        {
+          "id": "spa-route-change-silent",
+          "title": "SPA route changes with no title update, focus move or announcement",
+          "description": "Client-side routing in React Router, Next.js or Vite SPAs swaps content without changing document.title, moving focus, or announcing the new page. Focus stays on the clicked link or resets to <body>.",
+          "why_ai_or_novices_cause_it": "Vibe-coded apps are almost all SPAs, and routing is scaffolded without any accessibility announcer. Developers only see the visual change.",
+          "user_impact": "Screen-reader users are not told the page changed and may keep reading stale context, or they are sent back to the top of the document.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "After each in-app navigation (URL change without a full load), check whether document.title changed and is unique, where document.activeElement ends up (ideally the h1, main, or a skip target), and whether an aria-live region received text. Flag routes that fail all three.",
+          "prevalence_evidence": "Gatsby and Fable Tech Labs user testing (2019) found 'Without page refreshes, screen reader users may not be informed that the page has changed' and that announcements were inconsistent across Safari/VoiceOver and Firefox/NVDA. No current prevalence rate was found.",
+          "sources": [
+            "https://www.gatsbyjs.com/blog/2019-07-11-user-testing-accessible-client-routing/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Note that Next.js includes a route announcer (next-route-announcer). Map a stale title to 2.4.2 and treat the rest as best practice.",
+          "extra_sources": [
+            "https://nextjs.org/docs/architecture/accessibility#route-announcements"
+          ]
+        },
+        {
+          "id": "missing-skip-link",
+          "title": "No skip link, or a broken one, past repeated navigation",
+          "description": "There is no 'Skip to main content' link (2.4.1 Bypass Blocks, A). Where one exists it may point to a missing ID, a non-focusable target, or never become visible on focus.",
+          "why_ai_or_novices_cause_it": "Templates rarely include skip links. When they do, the target ID often drifts after refactors.",
+          "user_impact": "Keyboard users must Tab through the full header and nav on every page.",
+          "severity": "low",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Press Tab once from page load and check that the first focusable element is a visible in-page link. Activate it and verify that focus or scroll moves into main content. Otherwise count the Tab presses needed to reach <main>. axe bypass gives a partial check.",
+          "prevalence_evidence": "WebAIM Million 2026: '17.1% of home pages had a skip link present, up from 15.3% in 2025', so about 83% lack one.",
+          "sources": [
+            "https://webaim.org/projects/million/"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Add that 10% of detected skip links were broken. Clarify that a missing skip link is not necessarily a 2.4.1 failure when proper landmarks or headings exist, so low severity is right.",
+          "extra_sources": [
+            "https://webaim.org/projects/million/"
+          ]
+        },
+        {
+          "id": "missing-lang-attribute",
+          "title": "Missing or wrong <html lang>",
+          "description": "The <html> element has no lang attribute, or has the wrong one (for example lang=en on a non-English localized app). This fails 3.1.1 Language of Page (A).",
+          "why_ai_or_novices_cause_it": "Some starters omit it. Localised or translated generated sites keep a hard-coded lang=en.",
+          "user_impact": "Screen readers use the wrong pronunciation engine, which makes content unintelligible, and translation tools misbehave.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "axe html-has-lang and html-lang-valid. The agent can also detect the page text language and compare it to the lang value.",
+          "prevalence_evidence": "WebAIM Million 2026: missing document language on 13.5% of home pages.",
+          "sources": [
+            "https://webaim.org/projects/million/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "focus-obscured-sticky",
+          "title": "Focused element hidden under sticky header, footer, chat widget or cookie banner (WCAG 2.2)",
+          "description": "When tabbing, the focused control scrolls under a fixed header, a cookie consent bar, or a chat bubble such as Intercom or Crisp. This fails 2.4.11 Focus Not Obscured (Minimum), AA, new in WCAG 2.2.",
+          "why_ai_or_novices_cause_it": "Sticky navbars and floating widgets are standard in generated landing pages. Nobody sets scroll-padding-top, and nobody tabs through the page.",
+          "user_impact": "Sighted keyboard and magnifier users lose track of focus.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "During keyboard traversal, get the focused element's bounding box and all position:fixed or sticky element boxes. Flag full occlusion (a 2.4.11 failure) or partial occlusion (2.4.12, AAA). Confirm with elementFromPoint at the focus-box centre and with a screenshot.",
+          "prevalence_evidence": "anecdotal/unsourced. W3C Understanding names cookie banners and sticky content as the typical failure.",
+          "sources": [
+            "https://www.w3.org/WAI/WCAG22/Understanding/focus-not-obscured-minimum.html"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Add the exception for user-dismissible content and note that the check should run after the page has scrolled the focused element into view.",
+          "extra_sources": []
+        },
+        {
+          "id": "small-touch-targets",
+          "title": "Touch or pointer targets under 24x24 CSS px (WCAG 2.2 2.5.8)",
+          "description": "Small icon buttons, close 'x' buttons, pagination dots, inline table actions and checkbox hit areas fall below 24x24 CSS px and lack the spacing exception. This fails 2.5.8 Target Size (Minimum), AA.",
+          "why_ai_or_novices_cause_it": "Dense dashboard layouts and size='sm' or h-6 w-6 icon buttons are common in shadcn-style output. Testing is done on desktop with a mouse.",
+          "user_impact": "Users with tremor or motor impairment, and mobile users generally, mis-tap, which can trigger destructive actions such as delete.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "axe target-size rule (WCAG 2.2 tags). Supplement with bounding-box measurement of every interactive node at mobile viewports, applying the 24px-circle spacing exception.",
+          "prevalence_evidence": "anecdotal/unsourced (no large-scale rate found).",
+          "sources": [
+            "https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Add the inline-link and user-agent-default exceptions, and the axe tag caveat.",
+          "extra_sources": [
+            "https://dequeuniversity.com/rules/axe/4.10/target-size"
+          ]
+        },
+        {
+          "id": "reflow-zoom-failure",
+          "title": "Layout breaks at 320px width or 200-400% zoom",
+          "description": "Content requires horizontal scrolling or overlaps at 320 CSS px (equal to 1280px at 400% zoom), or text clips when resized to 200%. This fails 1.4.10 Reflow (AA) and 1.4.4 Resize Text (AA). Fixed-width tables and modals, and heights set in px, are typical causes.",
+          "why_ai_or_novices_cause_it": "Generated layouts are tested at one or two breakpoints. Fixed h-[600px] containers and wide data tables are common.",
+          "user_impact": "Low-vision users who zoom lose content or functions, and mobile users see a broken UI.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Set the viewport to 320x256 and 1280 with deviceScaleFactor or CSS zoom 400%. Check whether document.scrollWidth exceeds clientWidth, find elements clipped by overflow:hidden, and check for overlapping bounding boxes of text nodes. Re-run golden paths at that size to confirm functions stay reachable.",
+          "prevalence_evidence": "anecdotal/unsourced.",
+          "sources": [
+            "https://www.w3.org/WAI/WCAG22/Understanding/reflow.html"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Note the exemption for 2-D content such as tables, which the researcher lists as a typical cause. Horizontal scroll inside a data table is allowed.",
+          "extra_sources": []
+        },
+        {
+          "id": "reduced-motion-ignored",
+          "title": "Animations ignore prefers-reduced-motion",
+          "description": "Framer Motion or GSAP entrance animations, parallax, auto-playing carousels and scroll-jacking run regardless of the OS 'reduce motion' setting. This affects 2.3.3 Animation from Interactions (AAA) and 2.2.2 Pause, Stop, Hide (A) for auto-moving content over 5 seconds.",
+          "why_ai_or_novices_cause_it": "Motion-heavy 'wow' landing pages are a signature of AI site builders. The reduced-motion media query is rarely added.",
+          "user_impact": "Users with vestibular disorders can get 'distraction, dizziness, headaches and nausea' (W3C).",
+          "severity": "low",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Load the page twice, once with page.emulateMedia({reducedMotion:'reduce'}) and once without. Compare document.getAnimations() counts and durations and diff screenshot sequences. Flag unchanged motion. Detect auto-advancing carousels with no pause control by taking timed screenshots.",
+          "prevalence_evidence": "anecdotal/unsourced.",
+          "sources": [
+            "https://www.w3.org/WAI/WCAG22/Understanding/animation-from-interactions.html"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Note that ignoring prefers-reduced-motion is not itself a WCAG AA failure, since 2.3.3 is AAA. Only auto-moving content over 5s with no pause control fails 2.2.2 (A).",
+          "extra_sources": []
+        },
+        {
+          "id": "auth-paste-blocking",
+          "title": "Login and OTP fields that block paste or autofill (WCAG 2.2 3.3.8)",
+          "description": "Password or OTP inputs use onPaste preventDefault, or autocomplete=off, or split OTP boxes that reject paste, or CAPTCHAs with no alternative. This fails 3.3.8 Accessible Authentication (Minimum), AA.",
+          "why_ai_or_novices_cause_it": "Some developers wrongly believe blocking paste is a 'security best practice', and it appears in generated auth forms. Split-digit OTP components often mishandle paste.",
+          "user_impact": "Users with cognitive disabilities, and anyone relying on a password manager, cannot log in without transcribing credentials.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "In auth flows, run a clipboard paste into password and OTP fields and check the resulting value. Check the autocomplete attributes (current-password, one-time-code). Detect CAPTCHA widgets and check whether an alternative is offered.",
+          "prevalence_evidence": "anecdotal/unsourced. The requirement is from W3C Understanding 3.3.8.",
+          "sources": [
+            "https://www.w3.org/WAI/WCAG22/Understanding/accessible-authentication-minimum.html"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Narrow the CAPTCHA claim (object recognition is excepted at AA). Drop autocomplete=off as a 3.3.8 failure.",
+          "extra_sources": [
+            "https://www.w3.org/WAI/WCAG22/Understanding/accessible-authentication-minimum.html"
+          ]
+        },
+        {
+          "id": "automation-coverage-gap-and-overlay-false-comfort",
+          "title": "Relying on automated scans or overlay widgets for 'compliance' (legal exposure)",
+          "description": "Teams treat a clean axe or Lighthouse score, or an installed overlay widget (accessiBe, UserWay and similar), as proof of accessibility. Automated rules cover only part of real issues, and overlays do not prevent lawsuits. This matters more since the EU European Accessibility Act began applying on 28 June 2025 (EN 301 549, which incorporates WCAG 2.1 AA), and US ADA web suits keep rising.",
+          "why_ai_or_novices_cause_it": "Vibe coders and small teams have no accessibility specialist. A Lighthouse score of 100 or a one-line widget install feels like a finished job.",
+          "user_impact": "Users with disabilities still meet the interaction-level failures described in the other findings. Businesses face demand letters and lawsuits (64% of sued companies make under $25M revenue) and, in the EU, national penalties. The microenterprise exemption applies only to services from companies with fewer than 10 employees and no more than €2M turnover.",
+          "severity": "high",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Detect overlay scripts by network request domain and global objects, and warn in the report that they are not remediation. Label every report finding as 'automated rule' or 'agent-verified interaction' so users can see coverage. Run both axe and the keyboard, focus, semantic and state checks, and state clearly that this is not a WCAG conformance certification.",
+          "prevalence_evidence": "Deque: automated axe testing covers 'on average, 57 percent of accessibility issues' by volume (2,000+ audits, about 300,000 issues). Playwright docs: 'many accessibility problems can only be discovered through manual testing'. UsableNet: more than 5,000 digital accessibility lawsuits in 2025, with 'no meaningful reduction in lawsuits against widget users'. FTC ordered accessiBe to pay $1M (Jan 3, 2025) over claims its AI widget made sites WCAG-compliant. Level Access: EAA enforcement began June 28, 2025, with the first lawsuits filed in France in November 2025. WebAIM Million 2026 names 'AI-assisted coding practices (\"vibe coding\")' among the drivers of worsening accessibility: 95.9% of pages had failures and the average rose to 56.1 errors per page.",
+          "sources": [
+            "https://www.deque.com/blog/automated-testing-study-identifies-57-percent-of-digital-accessibility-issues/",
+            "https://playwright.dev/docs/accessibility-testing",
+            "https://blog.usablenet.com/ada-web-lawsuit-trends-2026",
+            "https://www.ftc.gov/news-events/news/press-releases/2025/01/ftc-order-requires-online-marketer-pay-1-million-deceptive-claims-its-ai-product-could-make-websites",
+            "https://www.levelaccess.com/compliance-overview/european-accessibility-act-eaa/",
+            "https://webaim.org/projects/million/"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Say the final FTC order came in April 2025 (proposed Jan 3, 2025). Frame Deque's 57% as vendor-reported and by issue volume, and present the GOV.UK 13-40% per tool as the counterpoint. Say turnover OR balance sheet of €2M or less.",
+          "extra_sources": [
+            "https://www.ftc.gov/news-events/news/press-releases/2025/04/ftc-approves-final-order-requiring-accessibe-pay-1-million",
+            "https://alphagov.github.io/accessibility-tool-audit/"
+          ]
+        }
+      ],
+      "refuted": [],
+      "missed_items": [
+        {
+          "title": "Playwright removed page.accessibility.snapshot(); use ariaSnapshot or CDP AX tree",
+          "why": "Several detection approaches rely on 'the Playwright accessibility snapshot'. The old API is gone. Run Hound must use page/locator.ariaSnapshot() (YAML or JSON), or CDP Accessibility.getFullAXTree for computed names and roles. This is an implementation risk for V0.",
+          "source": "https://playwright.dev/docs/release-notes"
+        },
+        {
+          "title": "React event delegation defeats listener-based click-handler detection",
+          "why": "React 17 and later attach handlers at the root, so getEventListeners on elements is empty for the main target stack (Lovable, Bolt and v0 are React). Detection needs heuristics based on cursor, fiber props or interaction.",
+          "source": "https://legacy.reactjs.org/blog/2020/08/10/react-v17-rc.html#changes-to-event-delegation"
+        },
+        {
+          "title": "US ADA Title II deadline extended to April 2027/2028 (WCAG 2.1 AA)",
+          "why": "This is a legal driver for adoption. A DOJ interim final rule on April 20, 2026 pushed state and local government compliance to April 26, 2027 (population of 50k or more) and April 26, 2028 (under 50k). It is relevant to 'the need for this kind of tool' and to the timing of the OSS release.",
+          "source": "https://www.federalregister.gov/documents/2026/04/20/2026-07663/extension-of-compliance-dates-for-nondiscrimination-on-the-basis-of-disability-accessibility-of-web"
+        },
+        {
+          "title": "Independent evidence of low automated coverage (GOV.UK tool audit)",
+          "why": "13 tools were run against 142 planted barriers, and the best found 40% (low of 13%). This counterbalances Deque's vendor 57% figure and supports the agent-interaction value proposition.",
+          "source": "https://alphagov.github.io/accessibility-tool-audit/"
+        },
+        {
+          "title": "Forced-colors / Windows High Contrast mode",
+          "why": "outline-none (as opposed to outline-hidden) removes focus even in forced-colors mode. Icons drawn with background-image and SVGs with hard-coded fill disappear. Playwright supports emulateMedia({forcedColors:'active'}), so this is cheap to add.",
+          "source": "https://tailwindcss.com/docs/outline-style"
+        },
+        {
+          "title": "WCAG 2.2 Redundant Entry (3.3.7, A) and Consistent Help (3.2.6, A)",
+          "why": "Multi-step signup and checkout flows that ask for the same data again are common in generated apps. They can be detected across a V2/V3 end-to-end flow by the agent comparing the fields in each step.",
+          "source": "https://www.w3.org/WAI/WCAG22/Understanding/redundant-entry.html"
+        },
+        {
+          "title": "Content on hover or focus (1.4.13) and tooltips",
+          "why": "Tooltips and hover cards that cannot be dismissed with Escape, disappear when the pointer moves onto them, or appear only on hover are common with shadcn and Radix misuse. The browser agent can detect these by hovering, focusing and pressing Escape.",
+          "source": "https://www.w3.org/WAI/WCAG22/Understanding/content-on-hover-or-focus.html"
+        },
+        {
+          "title": "Text spacing (1.4.12) and Identify Input Purpose (1.3.5)",
+          "why": "Injecting the WCAG text-spacing CSS and checking for clipping is automatable. Missing or invalid autocomplete tokens on personal-data fields are covered by axe autocomplete-valid only when the token is invalid, not when it is missing.",
+          "source": "https://www.w3.org/WAI/WCAG22/Understanding/text-spacing.html"
+        },
+        {
+          "title": "Timing and session timeouts (2.2.1) and page title (2.4.2)",
+          "why": "Auth sessions that expire without warning, and SPAs with one static <title>, are common in vibe-coded apps. Both can be detected from outside the app, the timeout through long-running scenarios and the title through the axe document-title rule plus a per-route uniqueness check.",
+          "source": "https://www.w3.org/WAI/WCAG22/Understanding/timing-adjustable.html"
+        },
+        {
+          "title": "Canvas-rendered, shadow DOM and iframe content coverage limits",
+          "why": "Flutter-web or canvas UIs expose little DOM or a11y tree to scan. Closed shadow roots and cross-origin iframes (payment and embed widgets) limit axe. The report should state which content was not scanned rather than implying the page is clean.",
+          "source": "https://github.com/dequelabs/axe-core/blob/develop/doc/API.md"
+        },
+        {
+          "title": "Label in Name (2.5.3) mismatch for voice-control users",
+          "why": "An aria-label such as 'btn-primary' or 'Submit form' on a button that visibly reads 'Continue' breaks voice control. This is common when LLMs add aria-label. It can be detected by comparing the visible text from a screenshot or innerText with the accessible name (axe label-content-name-mismatch is experimental).",
+          "source": "https://www.w3.org/WAI/WCAG22/Understanding/label-in-name.html"
+        }
+      ]
+    },
+    {
+      "domain": "broken_features",
+      "findings": [
+        {
+          "id": "dead-interactive-elements",
+          "title": "Buttons, links and menu items that do nothing",
+          "description": "Controls look finished but do nothing. Typical causes: an onClick that is empty or only runs console.log, href=\"#\", a handler that calls a function that was never written, or a button with no text and no working action. The UI looks complete while the feature behind it is missing.",
+          "why_ai_or_novices_cause_it": "AI tools build the visible UI first and wire behavior later, or never. The prompt asks for 'a dashboard with export and share buttons' and the model draws the buttons without writing the backend. LLM bug studies list 'Incomplete Generation' (empty functions or `pass` bodies) at 9.57% of bugs. Nobody clicks every control before shipping.",
+          "user_impact": "Users click Export, Save or Share and nothing happens, with no error. They lose trust, contact support, or leave. In a checkout or signup this loses conversions.",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Enumerate every interactive element from the a11y tree and DOM (role=button/link/menuitem, elements with click listeners, cursor:pointer). Click each one in an isolated state and record whether anything happens: DOM mutation, navigation, network request, dialog, focus change, or console output. If nothing happens, or the element has href=\"#\" or javascript:void(0), flag it as 'dead control'. Treat empty accessible names as a secondary signal. Save a screenshot before and after.",
+          "prevalence_evidence": "WebGen-Bench (NeurIPS 2025 D&B): the best agent/LLM pair (Bolt.diy + DeepSeek-R1) passed only 27.8% of 647 functional UI test cases on generated websites; a web-navigation agent ran the tests. WebAIM Million 2025: 45.4% of home pages had empty links and 29.6% had empty buttons. Tao et al. LLM bug taxonomy: Incomplete Generation 9.57%.",
+          "sources": [
+            "https://arxiv.org/abs/2505.03733",
+            "https://webaim.org/projects/million/2025",
+            "https://arxiv.org/html/2403.08937"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Say 'best off-the-shelf pair 27.8%; fine-tuned model 38.2%'. Change 'Tao et al.' to 'Tambon et al. (Empirical Software Engineering 2025)' and note it studied older code LLMs on Python functions. Move the WebAIM empty-link and empty-button numbers to the a11y domain rather than using them as dead-control prevalence.",
+          "extra_sources": [
+            "https://proceedings.neurips.cc/paper_files/paper/2025/hash/6841eed8bb6a2ec49e49235c8115efee-Abstract-Datasets_and_Benchmarks_Track.html",
+            "https://link.springer.com/article/10.1007/s10664-025-10614-4"
+          ]
+        },
+        {
+          "id": "fabricated-mock-data-in-prod",
+          "title": "Placeholder, demo or made-up data shipped as if it were real",
+          "description": "Dashboards, lists, stats, testimonials or 'results' come from hardcoded arrays, seed JSON or LLM-invented sample records instead of the real data source. Examples: 'John Doe', lorem ipsum, example.com emails, the same numbers for every account, charts that never change.",
+          "why_ai_or_novices_cause_it": "AI builders fill empty screens with sample data so the preview looks good. If the backend is never connected, the mocks stay in production. Agents have also been caught inventing data to hide failures.",
+          "user_impact": "Users make decisions from fake numbers. The owner believes the feature works. Reviews or metrics may amount to misleading claims.",
+          "severity": "high",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Pattern-match rendered text for placeholder markers (lorem ipsum, John/Jane Doe, example.com, 555- phone numbers, 'Acme', TODO, {{var}}, 'undefined', 'NaN', '$0.00' everywhere). Check whether the displayed records match any network response; data present in the JS bundle but never fetched points to hardcoding. Compare two test accounts: identical 'personal' data suggests a mock. Create or delete a record and check whether counts and charts update.",
+          "prevalence_evidence": "Axon Build audit of 26 AI-built apps: 'fabricated or demo data presented as real output' was one of 14 recurring problems, and the only one visible during normal owner use. Replit/SaaStr incident, July 2025 (The Register): the agent 'created a 4,000-record database containing fictional people' and 'generated misleading reports to conceal bugs'.",
+          "sources": [
+            "https://axonbuild.com/blog/what-goes-wrong-with-vibe-coded-apps",
+            "https://www.theregister.com/2025/07/21/replit_saastr_vibe_coding_incident/"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "The Replit case is an agent fabricating data during development, not placeholder data left in production. Rate detection 'partial': placeholder markers are reliable, plausible fake data is not.",
+          "extra_sources": []
+        },
+        {
+          "id": "not-actually-persisted",
+          "title": "Features that look saved but are not persisted",
+          "description": "A create, edit or delete updates the UI (optimistic state, React state, localStorage) but never reaches a server, or the write fails silently. After a reload, on another device, or in a new session the change is gone or reverts.",
+          "why_ai_or_novices_cause_it": "Prototype builders often keep state only in the browser until a backend is connected. Models write optimistic UI updates without checking the server's response. The builder tests in one tab without reloading, so everything seems to work.",
+          "user_impact": "Silent data loss: users enter work, come back, and it's gone. It usually surfaces only after real users rely on it.",
+          "severity": "critical",
+          "detectable_via_browser": "yes",
+          "detection_approach": "For each CRUD flow: do the action, confirm a write request (POST/PUT/PATCH/DELETE) got a 2xx, then (a) hard-reload, (b) open a fresh browser context with storage cleared and the same login, and (c) check the item is still there. Flag writes that only touch localStorage/IndexedDB (diff storage snapshots), send no request, or get a 4xx/5xx while the UI shows success.",
+          "prevalence_evidence": "Anecdotal/unsourced as a specific frequency. Related: WebGen-Bench functional tests (27.8% best pass rate) include data-operation cases. Axon Build audits describe apps that 'worked beautifully' in demos and failed under real conditions. CodeRabbit (Dec 2025): error-handling and exception-path gaps were 'nearly 2x more common' in AI PRs.",
+          "sources": [
+            "https://arxiv.org/abs/2505.03733",
+            "https://axonbuild.com/blog/what-goes-wrong-with-vibe-coded-apps",
+            "https://www.coderabbit.ai/blog/state-of-ai-vs-human-code-generation-report"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Fix the Axon paraphrase. Keep prevalence marked as unsourced.",
+          "extra_sources": []
+        },
+        {
+          "id": "silent-form-failure",
+          "title": "Forms that fail silently: no error state, swallowed exceptions",
+          "description": "When the API returns 4xx/5xx, times out, or the user is offline, the form shows nothing, spins forever, resets as if it worked, or shows a generic toast while the data is lost. Validation errors from the server never reach the user, or show only visually without a programmatic association or aria-live.",
+          "why_ai_or_novices_cause_it": "Generated code covers the happy path. The try/catch only calls console.error, or the promise rejection is never handled. Error paths never show up in the builder's own tests because their local backend always answers.",
+          "user_impact": "Users think they submitted (signup, contact, order) when they didn't, or they retry and create duplicates. Businesses lose leads without knowing.",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Use Playwright route interception to inject failures on each form's submit request: 500, 422 with an error body, network abort, a 30s delay, and offline mode. Check for a visible error message, preserved input, a re-enabled submit button, an aria-live/role=alert announcement, and no false 'Success'. Also correlate unhandled promise rejections in the console with a UI that stays silent.",
+          "prevalence_evidence": "CodeRabbit 'State of AI vs Human Code Generation' (Dec 2025, 470 PRs): AI PRs had 10.83 issues vs 6.45 for human PRs (~1.7x); 'Error handling and exception-path gaps were nearly 2x more common', with missing null checks, early returns and exception logic. Axon Build: 17 of 21 audited third-party apps had no error tracking or alerting.",
+          "sources": [
+            "https://www.coderabbit.ai/blog/state-of-ai-vs-human-code-generation-report",
+            "https://axonbuild.com/blog/what-goes-wrong-with-vibe-coded-apps"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Make clear that the Axon 17/21 figure is about observability or alerting, not form UX.",
+          "extra_sources": []
+        },
+        {
+          "id": "missing-loading-empty-states",
+          "title": "Missing loading, empty and partial-data states",
+          "description": "Screens flash blank, show 'undefined'/'NaN', crash on an empty array, or show a fake empty state while data is still loading. A brand-new account shows a broken layout or an error instead of a helpful empty state.",
+          "why_ai_or_novices_cause_it": "Developers and models test on a fast local backend with seeded data, so slow networks and zero-record accounts are never exercised. Generated components often assume `data` is already defined.",
+          "user_impact": "First-run experience breaks for every new user. Slow mobile networks show blank or broken screens. Users may conclude their data was deleted.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Run key pages with network throttling (Slow 3G), with delayed API routes, and with a fresh empty account (or routes intercepted to return []/{}). Screenshot mid-load and after load. Flag 'undefined', 'NaN', '[object Object]', 'null', blank regions, and uncaught TypeErrors (e.g. 'Cannot read properties of undefined (reading map)'). Check for a busy indicator (aria-busy/progressbar) while loading.",
+          "prevalence_evidence": "Tao et al. taxonomy of LLM-generated code bugs: 'Missing Corner Case' is the 2nd most common category at 15.27%. CodeRabbit: missing null checks and early returns among the gaps that are nearly 2x more common in AI PRs.",
+          "sources": [
+            "https://arxiv.org/html/2403.08937",
+            "https://www.coderabbit.ai/blog/state-of-ai-vs-human-code-generation-report"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Fix the attribution to Tambon et al. and state that the evidence is indirect.",
+          "extra_sources": []
+        },
+        {
+          "id": "double-submit",
+          "title": "Double submit creates duplicate orders, charges or records",
+          "description": "The submit button stays enabled during the request and the backend is not idempotent. A double-click, pressing Enter twice, a refresh after POST, or a browser retry creates duplicate records, sends duplicate emails, or charges twice.",
+          "why_ai_or_novices_cause_it": "Disable-on-submit, idempotency keys and Post/Redirect/Get are defensive patterns that prompts rarely ask for. Stripe's own guidance warns that fulfillment 'might be called multiple times, possibly concurrently', which naive handlers don't expect.",
+          "user_impact": "Duplicate charges and orders, refunds, support load, and corrupted data.",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Per form: dispatch two clicks within ~50ms, press Enter repeatedly, and reload right after submitting. Count outgoing mutation requests; more than one without an idempotency key or deduping header is suspect. Then check whether the list or history shows duplicates. Check the button gets disabled/aria-disabled and shows progress. Run only against opted-in, non-destructive or test-mode targets.",
+          "prevalence_evidence": "Anecdotal/unsourced for prevalence. Mechanism documented in OpenReplay's guide ('Now you have two orders, two charges, and one frustrated customer') and in Stripe's fulfillment docs ('might be called multiple times, possibly concurrently, for the same Checkout Session').",
+          "sources": [
+            "https://blog.openreplay.com/prevent-double-form-submissions/",
+            "https://docs.stripe.com/checkout/fulfillment"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Don't treat a missing idempotency header as evidence on its own. Confirm by observing the duplicate record.",
+          "extra_sources": []
+        },
+        {
+          "id": "stale-response-race",
+          "title": "Race conditions: out-of-order responses show stale data",
+          "description": "Search-as-you-type, filters, tabs and pagination fire overlapping requests. A slower earlier response arrives after a newer one and overwrites it, so the UI shows results for the wrong query or page. Related: fast navigation causes state updates on unmounted views, and a response lands in the wrong account after switching users.",
+          "why_ai_or_novices_cause_it": "Generated fetch-in-useEffect code usually has no AbortController and no ignore flag. Debounce alone is not enough. Local backends respond in constant time, so the ordering bug never appears during development.",
+          "user_impact": "Users see wrong search results, wrong prices or wrong records, and may act on them. These bugs are intermittent and hard to report.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Intercept API routes and add random or reversed delays (e.g. make the first request slowest). Type a query quickly, change filters fast, or page quickly, then check that the final rendered results match the final input (compare the response for the last query with the DOM). Repeat several times for flakiness. Also look for React warnings and for requests that are never cancelled.",
+          "prevalence_evidence": "CodeRabbit (Dec 2025): 'Concurrency and dependency correctness saw ~2x increases' in AI-authored PRs. GreatFrontEnd documents the pattern: 'the response for the term toma can arrive later than the response for the term tomato'.",
+          "sources": [
+            "https://www.coderabbit.ai/blog/state-of-ai-vs-human-code-generation-report",
+            "https://www.greatfrontend.com/react-interview-playbook/react-data-fetching"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "payment-success-without-webhook",
+          "title": "Payment 'success' granted from the redirect page, not a verified webhook",
+          "description": "The app grants paid access or marks an order paid because the browser landed on /success (often with a session_id it never checks against the provider). Real payments whose redirect never loads go unfulfilled. Anyone who visits the success URL directly may get paid features for free.",
+          "why_ai_or_novices_cause_it": "The success-page approach is the simplest to write and it looks right in the builder's test. Webhooks need a server endpoint, signature verification and idempotency, which AI builders often skip or stub.",
+          "user_impact": "Revenue loss (free upgrades), customers charged but not provisioned, and duplicate provisioning.",
+          "severity": "critical",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Test mode only, with owner opt-in. (1) Find the success/return URL in the checkout flow or JS bundle. (2) In a fresh free account, open it directly with no session_id, a fake one, and a reused one. Flag any plan or entitlement change in the UI or in /me-type API responses. (3) Watch whether the entitlement change follows only the client redirect with no server confirmation. Whether a webhook exists can't be confirmed from outside, which makes this partial.",
+          "prevalence_evidence": "Anecdotal/unsourced for frequency in vibe-coded apps. Stripe docs state it outright: 'You can't rely on triggering fulfilment only from your checkout landing page, because it's not guaranteed customers visit that page', and 'Webhooks are required for fulfilment'.",
+          "sources": [
+            "https://docs.stripe.com/checkout/fulfillment"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Reword: landing-page fulfillment is recommended alongside webhooks. The bug is unverified client-side grant plus a missing webhook.",
+          "extra_sources": [
+            "https://docs.stripe.com/checkout/fulfillment.md?payment-ui=stripe-hosted"
+          ]
+        },
+        {
+          "id": "oauth-redirect-misconfig",
+          "title": "OAuth/magic-link redirects go to localhost or the wrong domain in production",
+          "description": "After Google/GitHub login or a magic link, users land on http://localhost:3000, a preview domain, or a blank page. The cause is an unchanged Site URL or a redirect allow-list that doesn't match production, and the auth provider falls back silently.",
+          "why_ai_or_novices_cause_it": "Supabase-style auth defaults the Site URL to localhost and, per practitioner reports, silently falls back to it when a redirectTo isn't allow-listed. AI builders configure auth in dev and nobody re-checks after deploy or a domain change.",
+          "user_impact": "Nobody can log in on the production site, and there's no error message.",
+          "severity": "critical",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Start each social or magic-link login and follow the redirect chain. Inspect redirect_to/redirect_uri query params and Location headers for localhost, 127.0.0.1, preview hosts, or hosts that don't match the app origin. Flag a final landing on an unreachable host or with error fragments (#error=...). Also grep the JS bundles for hardcoded localhost auth callback URLs. Stop before entering third-party credentials unless a test account is provided.",
+          "prevalence_evidence": "Supabase docs: Site URL 'defines the default redirect URL when no redirectTo is specified'; change it 'from http://localhost:3000 to your production URL'. DEV article: Supabase 'falls back to the Site URL... silently, with no error page and no console warning'. GitHub issue supabase#12941 reports signInWithOAuth always redirecting to localhost:3000 in production.",
+          "sources": [
+            "https://supabase.com/docs/guides/auth/redirect-urls",
+            "https://dev.to/arling/supabase-oauth-redirects-to-localhost-in-production-the-allow-list-rule-nobody-reads-3g1b",
+            "https://github.com/supabase/supabase/issues/12941"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Rate 'partial' unless a test identity or inbox is provided. Credit the fallback claim to the DEV article and the GitHub reports, not the Supabase docs.",
+          "extra_sources": []
+        },
+        {
+          "id": "broken-email-flows",
+          "title": "Password reset, email verification and magic links broken in production",
+          "description": "Emails never arrive (the default dev SMTP only sends to team members, rate limits are hit), the link points to the API or a localhost URL, the token is consumed or lost during a redirect ('token is missing'), or the reset page logs the user in without letting them set a password.",
+          "why_ai_or_novices_cause_it": "These flows depend on out-of-band infrastructure (SMTP, email templates, redirect allow-lists) that AI builders don't configure. The developer tests with their own team email address, which the default SMTP allows, so the flow looks like it works.",
+          "user_impact": "New users can't verify accounts and existing users are locked out. Signups quietly drop off and support tickets grow.",
+          "severity": "high",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Trigger signup, reset and magic-link flows and watch the network for 429 or 'Email address not authorized' errors, plus UI that says 'check your email' even when the request failed. With an owner-supplied test inbox (or a Mailpit/IMAP hook), open the received link, then check the redirect host, that the reset form renders, that the new password works, and that the link can't be reused. Without an inbox, only the request side can be checked, which makes this partial.",
+          "prevalence_evidence": "Supabase SMTP docs: the default server sends 'only to pre-authorized addresses', is capped at '2 messages per hour', and has 'no SLA'. Latenode community thread on Supabase+Lovable reset failures cites 'token is missing' errors and redirect/callback mismatches. The frequency itself is anecdotal.",
+          "sources": [
+            "https://supabase.com/docs/guides/auth/auth-smtp",
+            "https://community.latenode.com/t/debugging-email-password-reset-functionality-in-supabase-lovable-integration/37537"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Quote the actual error: 'Verify requires a token or a token hash'.",
+          "extra_sources": []
+        },
+        {
+          "id": "spa-refresh-deeplink-back",
+          "title": "Refresh, deep links and the Back button break on SPA routes",
+          "description": "Client-side routes work when clicked but 404 on reload or when opened directly or shared, because the host has no rewrite to index.html. Related: Back/Forward loses filters, form input, scroll position or the modal state. URLs don't reflect state, so links can't be shared.",
+          "why_ai_or_novices_cause_it": "The dev server rewrites routes automatically, but static hosts need an explicit rule (e.g. Netlify `/* /index.html 200`). Beginners don't know this, and AI builders' previews hide it.",
+          "user_impact": "Shared or bookmarked links land on 404s, a refresh 'breaks the app', and users lose work when they press Back.",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "For every route the crawler reaches by clicking: open it directly in a new context and hard-reload it. Check the HTTP status (a 404 document or the host's error page is a failure) and that the content matches the clicked render. Test Back/Forward after filtering, paginating and filling forms, and check URL and state consistency. Report any route that fails to render its own content on refresh.",
+          "prevalence_evidence": "Netlify support guide: direct links and refreshes on routes other than '/' in SPAs 404 without the `/* /index.html 200` rewrite. It is one of Netlify's canonical support guides. Frequency is otherwise anecdotal/unsourced.",
+          "sources": [
+            "https://answers.netlify.com/t/support-guide-direct-links-to-my-single-page-app-spa-dont-work/126"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "dead-links-assets",
+          "title": "Dead links, missing assets and broken internal navigation",
+          "description": "Links and images point to pages that don't exist or were renamed, missing assets, or template leftovers (/about, /blog, /privacy placeholders, # anchors with no target). Footers and nav from AI templates often link to pages that were never built.",
+          "why_ai_or_novices_cause_it": "AI templates generate full nav and footer link sets ('Careers', 'Blog', 'Terms') for pages nobody creates. Renames during AI edits leave old links behind.",
+          "user_impact": "404s erode credibility. Missing Privacy/Terms pages can create compliance problems. Broken images degrade the page.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Crawl same-origin pages, collect every href/src/srcset/CSS url, and HEAD/GET them. Flag 4xx/5xx, soft-404s (200 with 'not found' content), anchors whose #id doesn't exist, and images that fail (naturalWidth == 0). Check external links politely (no deep crawling of third-party sites).",
+          "prevalence_evidence": "Pew Research (May 2024): '23% of news webpages contain at least one broken link, as do 21% of webpages from government sites'; 'a quarter of all webpages that existed at one point between 2013 and 2023 are no longer accessible'. This is general web data, not specific to vibe-coded apps.",
+          "sources": [
+            "https://www.pewresearch.org/data-labs/2024/05/17/when-online-content-disappears/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "hydration-errors",
+          "title": "SSR hydration mismatches (Next.js/React)",
+          "description": "Server-rendered HTML differs from the first client render, causing console errors, content that flickers or re-renders, and sometimes event handlers that don't attach. Common causes: Date() or locale formatting in render, window/localStorage checks, invalid nesting (<div> in <p>, <a> in <a>, <button> in <button>).",
+          "why_ai_or_novices_cause_it": "LLMs mix browser-only APIs and time-dependent values into server components and produce invalid HTML nesting (e.g. a card wrapped in a link that contains buttons). Developers ignore the red console overlay or paper over it with suppressHydrationWarning.",
+          "user_impact": "Flicker, layout shift, wrong content (server vs client time), and in the worst case parts of the page that don't respond until a re-render. Crawlers and screen readers can see different content from sighted users.",
+          "severity": "medium",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Capture console errors and warnings on first load for messages like 'Hydration failed', 'did not match', 'Text content does not match server-rendered HTML', and minified React errors #418/#423/#425. Compare the raw server HTML (response body) with the post-hydration DOM text. Validate nesting of interactive content in the DOM. Re-run in a different timezone/locale to trigger date-based mismatches.",
+          "prevalence_evidence": "Next.js official docs list the common causes: invalid nesting, `typeof window` checks, browser-only APIs, 'time-dependent APIs such as the Date() constructor', and browser extensions. Frequency is anecdotal/unsourced.",
+          "sources": [
+            "https://nextjs.org/docs/messages/react-hydration-error"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Rate 'partial' in production builds. Rely on comparing raw HTML with the hydrated DOM, not only on console text.",
+          "extra_sources": []
+        },
+        {
+          "id": "timezone-locale-bugs",
+          "title": "Timezone and locale bugs (off-by-one dates, wrong formats)",
+          "description": "Dates shift by a day depending on the user's timezone (e.g. a 'YYYY-MM-DD' birthday or due date shown as the previous day), bookings fall in the wrong slot, 'today' filters are wrong near midnight, and currency or number formats break for non-US locales. A value saved via a date input changes after reload.",
+          "why_ai_or_novices_cause_it": "JavaScript Date parses date-only strings as UTC but date-time strings as local time, and LLMs reproduce these patterns. Developers test only in their own timezone and locale.",
+          "user_impact": "Wrong appointments, deadlines and invoices. Every user outside the developer's timezone is affected.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Run the same scenarios in multiple Playwright contexts with different timezoneId (e.g. America/Los_Angeles, Pacific/Kiritimati, Asia/Kolkata with its half-hour offset) and locale (en-US, de-DE, ja-JP), plus a mocked clock near midnight or a DST boundary. Enter a date, save, reload, and compare the displayed value across contexts. Flag differences and off-by-one results. Also check number and currency parsing with comma decimals.",
+          "prevalence_evidence": "MDN: 'date-only forms are interpreted as a UTC time and date-time forms are interpreted as a local time... due to a historical spec error'. Next.js docs list Date() in render as a hydration cause. Frequency is anecdotal/unsourced.",
+          "sources": [
+            "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date",
+            "https://nextjs.org/docs/messages/react-hydration-error"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "prod-config-env-missing",
+          "title": "Production config missing: undefined env vars, localhost API URLs, dev-only settings",
+          "description": "The deployed app calls http://localhost:3001/api, 'undefined/api/...', or a preview backend because build-time env vars were missing or lacked the right prefix (VITE_, NEXT_PUBLIC_). Features that worked in the builder fail in production. Secret keys get prefixed to 'make it work' and end up exposed in the bundle.",
+          "why_ai_or_novices_cause_it": "Vite and Next statically inline env vars at build time. A missing or unprefixed variable becomes undefined without an obvious error. Beginners respond by adding the public prefix to secrets.",
+          "user_impact": "Whole features are dead in production (CORS/connection errors), or secrets leak.",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Monitor all network requests for hosts equal to localhost, 127.0.0.1 or 0.0.0.0, literal 'undefined'/'null' in URLs, preview/staging hosts, or mixed content. Scan the JS bundles for such base URLs and for key patterns (sk_live, service_role and similar). Correlate with console errors such as ERR_CONNECTION_REFUSED and CORS failures.",
+          "prevalence_evidence": "Vite docs: VITE_ variables are 'statically replaced at build time' and 'VITE_* variables should not contain sensitive information'. Escape.tech black-box scan of 5,600 vibe-coded apps (Lovable, Base44, Create.xyz, Bolt.new) found 400+ exposed secrets through frontend bundle analysis.",
+          "sources": [
+            "https://vite.dev/guide/env-and-mode",
+            "https://escape.tech/blog/methodology-how-we-discovered-vulnerabilities-apps-built-with-vibe-coding/"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Say 'several methods including JS bundle analysis'. The localhost and undefined-URL failure has no prevalence evidence.",
+          "extra_sources": []
+        },
+        {
+          "id": "broken-mobile-layout",
+          "title": "Broken mobile/responsive layouts and zoom blocking",
+          "description": "Horizontal scroll at phone widths, overlapping or cut-off content, nav menus that don't open or can't be reached, modals taller than the viewport with no scroll, fixed elements covering CTAs, tiny tap targets, and pinch-zoom disabled via the viewport meta tag.",
+          "why_ai_or_novices_cause_it": "AI builders preview and iterate on desktop canvases. Generated fixed widths (w-[1200px]), absolutely positioned elements and hover-only menus break on touch. Templates often ship with user-scalable=no.",
+          "user_impact": "Most consumer traffic is mobile, so core flows (signup, checkout) can become unusable. Low-vision users can't zoom (a WCAG 1.4.4/1.4.10 failure).",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Re-run the golden-path scenarios in device emulation (320, 375 and 414 px widths, touch enabled, portrait and landscape). Check document.scrollWidth > clientWidth, elements outside the viewport, overlapping bounding boxes of interactive elements, targets smaller than 24x24 CSS px, and that the menu opens by tap. Inspect the viewport meta for user-scalable=no or maximum-scale=1. Compare screenshots with vision to catch clipped text.",
+          "prevalence_evidence": "HTTP Archive Web Almanac 2024 (Accessibility chapter): '16% of mobile sites disable scaling' via user-scalable=no, '20% set a maximum-scale of 1', 23% use either. There is no sourced figure for responsive-layout breakage specific to vibe-coded apps (anecdotal).",
+          "sources": [
+            "https://almanac.httparchive.org/en/2024/accessibility"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Cite WCAG 2.2 2.5.8 for the 24px target threshold.",
+          "extra_sources": []
+        },
+        {
+          "id": "ai-edit-regressions",
+          "title": "Regressions when an AI edit fixes one thing and breaks another (the 'doom loop')",
+          "description": "A prompt to fix bug A silently breaks feature B, or reintroduces an earlier bug, because the agent edits without a dependency map, rewrites whole files, or duplicates logic, so one copy gets fixed and the other doesn't. Without regression tests nobody notices until users do.",
+          "why_ai_or_novices_cause_it": "Context limits, non-deterministic generation, copy-paste over refactoring, and patches aimed at the visible symptom. Vibe coders have no test suite and judge by what they see in one preview. Most audited AI-built apps had no working automated tests.",
+          "user_impact": "Features that worked last week break without anyone noticing, and trust in the product erodes.",
+          "severity": "high",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Run Hound's exported Playwright specs become a regression baseline. Re-run the approved scenario suite after each change (CLI/CI hook), diff results, screenshots (visual diff), a11y-tree snapshots and network contracts (request/response shapes) against the last green run, and flag newly failing golden paths. It's partial because it only catches regressions in flows that were already captured.",
+          "prevalence_evidence": "GitClear (via DevClass, Feb 2025; 211M changed lines): code blocks with 5+ duplicated lines rose 8x in 2024, moved (refactored) lines fell 39.9%. SWE-Bench+ (arXiv 2410.06992): '31.08% of the passed patches are suspicious patches due to weak test cases'. Axon Build: 23 of 26 audited AI-built apps had zero working automated tests.",
+          "sources": [
+            "https://www.devclass.com/ai-ml/2025/02/20/ai-is-eroding-code-quality-states-new-in-depth-report/1626250",
+            "https://arxiv.org/abs/2410.06992",
+            "https://axonbuild.com/blog/what-goes-wrong-with-vibe-coded-apps",
+            "https://rockingtech.co.uk/blog/why-your-vibe-coded-app-keeps-breaking"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Say 'at least 23 of 26'.",
+          "extra_sources": []
+        },
+        {
+          "id": "hallucinated-apis-runtime-errors",
+          "title": "Code calls functions, endpoints or fields that don't exist, causing runtime errors",
+          "description": "Generated code references functions, object properties, SDK methods or API routes that don't exist ('x is not a function', 404 on /api/v1/whatever, reading a field the backend never returns). Often it breaks only on the branch that's rarely exercised.",
+          "why_ai_or_novices_cause_it": "LLMs 'hallucinate objects' that fit the prompt's vocabulary and mix up SDK versions. Beginners can't tell a plausible API from a real one, and the broken branch isn't exercised in the demo.",
+          "user_impact": "Features crash partway through, often only on secondary paths (edit, delete, export, settings).",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "During exploration, capture uncaught exceptions and console errors (TypeError: ... is not a function / undefined), failed chunk loads, and API calls that return 404/405 for app-own routes. Map each error to the step and element that triggered it, and include the stack from source maps if present. Explore beyond the golden path (edit, delete, secondary tabs) to reach rarely used branches.",
+          "prevalence_evidence": "Tao et al. (Empirical Software Engineering 2025, arXiv 2403.08937; 333 bugs): Hallucinated Object 9.57%, Wrong Attribute 8.55%, Misinterpretation 20.77% (most common).",
+          "sources": [
+            "https://arxiv.org/html/2403.08937"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Change the attribution to Tambon et al. and note the older models and Python scope.",
+          "extra_sources": [
+            "https://link.springer.com/article/10.1007/s10664-025-10614-4"
+          ]
+        },
+        {
+          "id": "sample-data-only-logic",
+          "title": "Search, filter, sort and pagination that only work on small sample data or the happy path",
+          "description": "Search is case-sensitive or exact-match, breaks on special characters or unicode, and shows no 'no results' state. Pagination drops or duplicates items at page boundaries, the 'next' button stays active on the last page, or everything is loaded client-side and fails beyond a few hundred records. Sorting is lexicographic ('10' before '9'). Inputs have no length limits.",
+          "why_ai_or_novices_cause_it": "Built and demoed against 5-10 seed records. Models skip corner cases and prefer simple, I/O-heavy approaches (fetch all, filter in the browser).",
+          "user_impact": "Real users can't find their data, lists are wrong, and pages slow down or freeze as data grows.",
+          "severity": "medium",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Fuzz search and filter inputs (mixed case, accents/emoji, quotes, %, _, very long strings, leading/trailing spaces, empty), assert that results are consistent and a proper empty state appears. Walk pagination to the end, checking for duplicate or missing IDs across pages and the disabled state of 'next'. Check sort order on numeric and date columns. Watch whether a list request returns the entire dataset (large payloads with no page params). It's partial because proving scale behavior needs seeded volume (optional owner-approved seeding or intercepted large mock responses).",
+          "prevalence_evidence": "Tao et al.: 'Missing Corner Case' is 15.27% of LLM-generated code bugs (code 'fails on one or a few exceptional test inputs'). CodeRabbit (Dec 2025): 'Excessive I/O operations were ~8x more common in AI-authored PRs'.",
+          "sources": [
+            "https://arxiv.org/html/2403.08937",
+            "https://www.coderabbit.ai/blog/state-of-ai-vs-human-code-generation-report"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Fix the attribution.",
+          "extra_sources": []
+        },
+        {
+          "id": "unverified-done-claims",
+          "title": "'Looks done' and 'AI says done': no one independently verifies features (the need for this tool)",
+          "description": "This is a cross-cutting pattern: builders accept the AI's claim, or a quick visual preview, as proof that a feature works. Agents have reported passing tests that didn't pass, and developers consistently overrate how much AI helped. The result is apps that pass the demo and fail real use.",
+          "why_ai_or_novices_cause_it": "Non-technical builders can't read the code. Output that is 'almost right' passes a casual look. There are no tests, and agent-written tests can be weak or fabricated.",
+          "user_impact": "Users hit the bugs first, and owners find out through churn, refunds or incidents.",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "This is Run Hound's core value proposition: an independent black-box verifier. Generate golden-path and danger-path scenarios from the a11y tree, DOM and vision, execute them, verify outcomes against network and persisted state (not just the UI), and export repeatable Playwright specs so 'done' is backed by evidence.",
+          "prevalence_evidence": "Stack Overflow 2025 Developer Survey (AI section): 66% cite 'AI solutions that are almost right, but not quite' as their top frustration, 45% say debugging AI code takes longer, only 3.1% 'highly trust' AI output accuracy. METR RCT (July 2025, 16 experienced OSS devs, 246 issues): AI use made tasks take 19% longer, yet developers believed it sped them up by 20%. Replit/SaaStr (The Register, July 2025): the agent 'lied about unit test outcomes'. WebGen-Bench: best pass rate 27.8%.",
+          "sources": [
+            "https://survey.stackoverflow.co/2025/ai",
+            "https://metr.org/blog/2025-07-10-early-2025-ai-experienced-os-dev-study/",
+            "https://www.theregister.com/2025/07/21/replit_saastr_vibe_coding_incident/",
+            "https://arxiv.org/abs/2505.03733"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Qualify WebGen-Bench as best off-the-shelf. The Replit test claim is a first-person anecdote.",
+          "extra_sources": []
+        }
+      ],
+      "refuted": [],
+      "missed_items": [
+        {
+          "title": "Stale chunk loads after redeploy (ChunkLoadError or 'Failed to fetch dynamically imported module')",
+          "why": "Frequent on Vite/Next apps that redeploy often, as vibe-coded apps do. Open tabs break on navigation. Detectable from the browser: keep a context open across a deploy, or intercept chunk requests with a 404, and watch for the vite:preloadError event or a console error.",
+          "source": "https://vite.dev/guide/troubleshooting ; https://github.com/vitejs/vite/issues/11804"
+        },
+        {
+          "title": "Broken authorization/data isolation that looks like a feature bug (missing Supabase RLS, one user sees another's data)",
+          "why": "The most damaging vibe-coding failure on record. Overlaps with the security domain but shows up as 'wrong data in my list'. Detectable with two test accounts (cross-account IDOR checks). CVE-2025-48757: 170 of 1,645 Lovable apps (10.3%) exposed.",
+          "source": "https://www.superblocks.com/blog/lovable-vulnerabilities ; https://escape.tech/blog/methodology-how-we-discovered-vulnerabilities-apps-built-with-vibe-coding/"
+        },
+        {
+          "title": "Session expiry and token refresh failures",
+          "why": "Users get logged out mid-task, or get stuck in a half-authenticated state after the JWT expires, and forms fail silently with 401s. Detectable by expiring or deleting tokens, mocking the clock, or intercepting 401s.",
+          "source": "https://supabase.com/docs/guides/auth/sessions"
+        },
+        {
+          "title": "Cross-browser failures (Safari/WebKit, Firefox)",
+          "why": "Builders preview in Chromium only. Date inputs, clipboard APIs and newer JS or CSS features break on iOS Safari. Playwright ships WebKit and Firefox, so this is cheap to add to the danger path.",
+          "source": "https://playwright.dev/docs/browsers"
+        },
+        {
+          "title": "File upload flows (storage bucket policies, size and type limits, public buckets)",
+          "why": "Common feature in AI-built apps. Failures include silent 403s from storage policies, missing error states on oversized files, and uploads served from public buckets. Detectable with test files and by inspecting network traffic.",
+          "source": "https://vibegraveyard.ai/story/lovable-public-buckets/"
+        },
+        {
+          "title": "Performance and Core Web Vitals regressions (huge bundles, fetch-everything lists)",
+          "why": "Many sites still fail Core Web Vitals. AI code tends toward heavy I/O (CodeRabbit ~8x). Measurable from the browser with the Performance API, LCP/INP/CLS and payload sizes.",
+          "source": "https://almanac.httparchive.org/en/2024/performance ; https://www.coderabbit.ai/blog/state-of-ai-vs-human-code-generation-report"
+        }
+      ]
+    },
+    {
+      "domain": "non_tech_blind_spots",
+      "findings": [
+        {
+          "id": "open-backend-no-rls",
+          "title": "Backend database/storage left open (Supabase RLS off, Firebase test-mode rules)",
+          "description": "AI-generated apps talk to Supabase or Firebase directly from the browser. If row-level security or security rules are missing or permissive, any visitor can read or write other users' rows or files.",
+          "why_ai_or_novices_cause_it": "Supabase tables start without RLS enabled, and Firebase test mode is wide open; AI scaffolding and novices ship these defaults because the app 'works'.",
+          "user_impact": "Mass exposure of user records, IDs, messages, payment data; possible data tampering or deletion.",
+          "severity": "critical",
+          "detectable_via_browser": "partial",
+          "detection_approach": "On owner-verified targets only: observe which backend endpoints the app itself calls, then as a second seeded test account check whether data belonging to the first account is returned. Report in plain language: 'Another logged-in user could see data that belongs to someone else.' Do not enumerate beyond the owner's own seeded test data.",
+          "prevalence_evidence": "CVE-2025-48757: 170 of 1,645 scanned Lovable apps exposed, 303 vulnerable endpoints (Superblocks write-up). Tea app: 72,000 images incl. ~13,000 selfies/IDs exposed via unsecured Firebase storage (Engadget, Jul 2025). Escape.tech: 2,038 critical vulns, 400+ secrets, 175 PII exposures across vibe-coded apps.",
+          "sources": [
+            "https://www.superblocks.com/blog/lovable-vulnerabilities",
+            "https://firebase.google.com/docs/rules/insecure-rules",
+            "https://www.engadget.com/cybersecurity/tea-app-suffers-breach-exposing-thousands-of-user-images-190731414.html",
+            "https://escape.tech/state-of-security-of-vibe-coded-apps",
+            "https://supabase.com/docs/guides/deployment/going-into-prod"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Say '170 of 1,645 Lovable showcase apps (~10%), 303 endpoints (Matt Palmer, CVE-2025-48757)', not 'Superblocks'. Escape scanned about 1.4K apps. The 13,000 selfies/IDs figure should cite Tea's statement or 404 Media, not Engadget.",
+          "extra_sources": [
+            "https://www.wiz.io/blog/exposed-moltbook-database-reveals-millions-of-api-keys",
+            "https://mattpalmer.io/posts/statement-on-CVE-2025-48757/"
+          ]
+        },
+        {
+          "id": "client-side-only-authz",
+          "title": "Access control enforced only in the browser",
+          "description": "Admin pages, paid features or 'inactive' states are hidden with frontend route guards or flags, while the server API does not re-check who the user is.",
+          "why_ai_or_novices_cause_it": "AI tools generate UI-level guards that look like security; novices assume a hidden button means a blocked action.",
+          "user_impact": "Users can reach features or data they should not; account takeover or privilege escalation.",
+          "severity": "critical",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Using the owner's test accounts, compare what a low-privilege account's API calls return versus what the UI shows; flag pages that render protected content after a hard reload or direct URL visit while logged out. Explain: 'Your app hides this page, but the server still hands out the data.'",
+          "prevalence_evidence": "Synack documents three real pentest cases of client-side auth bypass; Wiz found Base44 platform flaw letting unauthenticated users register on private apps using a public app_id (Jul 2025).",
+          "sources": [
+            "https://www.synack.com/exploits-explained/client-side-authentication-bypass-3-real-world-pentesting-case-studies/",
+            "https://www.wiz.io/blog/critical-vulnerability-base44"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Replace or relabel the Base44 example as a 'platform auth flaw'. Better evidence is the Synack cases plus OWASP A01 Broken Access Control, which is the #1 category.",
+          "extra_sources": [
+            "https://owasp.org/Top10/A01_2021-Broken_Access_Control/"
+          ]
+        },
+        {
+          "id": "runaway-llm-api-costs",
+          "title": "Runaway LLM/cloud API bills (denial of wallet)",
+          "description": "AI features call paid model APIs with no per-user quota, rate limit or input size cap; unrestricted keys for paid Google APIs are similar.",
+          "why_ai_or_novices_cause_it": "Builders focus on the demo working; rate limiting and billing alerts are invisible until the invoice arrives.",
+          "user_impact": "Surprise bills in the thousands; service suspension.",
+          "severity": "high",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Note when the browser calls model providers directly instead of the app's own backend; check whether the app's AI endpoint shows any rate-limit response (429) under a small, owner-approved burst. Explain: 'Nothing stops one visitor from running up your AI bill. Add limits and a spending cap.'",
+          "prevalence_evidence": "OWASP LLM10:2025 defines Unbounded Consumption incl. Denial of Wallet. Google: 'You are financially responsible for charges caused by abuse of unrestricted API keys.' RedHunt Labs found AI-platform credentials among ~25,000 secrets leaked from ~26,000 of ~130,000 vibe-coded sites (Sep 2025).",
+          "sources": [
+            "https://genai.owasp.org/llmrisk/llm102025-unbounded-consumption/",
+            "https://developers.google.com/maps/api-security-best-practices",
+            "https://redhuntlabs.com/blog/echoes-of-ai-exposure-thousands-of-secrets-leaking-through-vibe-coded-sites-wave-15-project-resonance/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "env-var-prefix-confusion",
+          "title": "Misunderstanding which environment variables become public",
+          "description": "Framework prefixes (VITE_, NEXT_PUBLIC_) inline values into client code at build time; builders believe anything in .env is private.",
+          "why_ai_or_novices_cause_it": "'.env' sounds secret; AI assistants add the prefix to make an error go away.",
+          "user_impact": "Configuration intended to be private ends up visible to every visitor.",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Report which configuration values appear in shipped client code and explain in plain language that anything in the browser is public, with a pointer to move sensitive calls server-side.",
+          "prevalence_evidence": "Vite docs: 'VITE_* variables should not contain sensitive information such as API keys. The values of these variables are bundled into your source code at build time.' Intruder attributes many bundle exposures to build-time env injection mistakes (Dec 2025).",
+          "sources": [
+            "https://vite.dev/guide/env-and-mode",
+            "https://www.intruder.io/research/secrets-detection-javascript"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Soften the Intruder attribution to 'Intruder documents a case where a build script injected all of process.env into the bundle; it found 42,000+ tokens across 5M apps'.",
+          "extra_sources": []
+        },
+        {
+          "id": "dev-prod-confusion",
+          "title": "Dev vs prod confusion: localhost URLs, test-mode keys, mixed content, shared DB",
+          "description": "Production builds still point at localhost APIs, use test/sandbox payment keys, load http:// resources, or dev and prod share one database.",
+          "why_ai_or_novices_cause_it": "AI generators default to localhost:3000/5173; non-technical builders have no concept of separate environments.",
+          "user_impact": "Forms hang silently, payments never charge, or a dev action wipes production data.",
+          "severity": "high",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Flag network requests to localhost/127.0.0.1/private IPs, http:// requests blocked as mixed content, and test-mode indicators in payment widgets. Explain: 'Your live site is trying to talk to your own laptop.'",
+          "prevalence_evidence": "Replit agent deleted SaaStr production DB (Jul 2025); Replit then added automatic dev/prod DB separation (The Register). MDN: fetch/XHR/scripts over http on https pages are blocked.",
+          "sources": [
+            "https://opsily.com/blog/hardcoded-localhost-url-in-production-build",
+            "https://developer.mozilla.org/en-US/docs/Web/Security/Mixed_content",
+            "https://www.theregister.com/2025/07/21/replit_saastr_vibe_coding_incident/"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Cite theregister.com/2025/07/22/replit_saastr_response/ or x.com/amasad/status/1946986468586721478 for the separation fix. A shared DB cannot be observed from the browser.",
+          "extra_sources": [
+            "https://www.theregister.com/2025/07/22/replit_saastr_response/",
+            "https://x.com/amasad/status/1946986468586721478",
+            "https://fortune.com/2025/07/23/ai-coding-tool-replit-wiped-database-called-it-a-catastrophic-failure/"
+          ]
+        },
+        {
+          "id": "no-database-backups",
+          "title": "No database backups or recovery plan",
+          "description": "Free-tier backends often have no automatic backups; builders don't know until data is lost.",
+          "why_ai_or_novices_cause_it": "Backups are an ops concern invisible in the app; AI agents with DB access can destroy data.",
+          "user_impact": "Permanent loss of all user data.",
+          "severity": "high",
+          "detectable_via_browser": "no",
+          "detection_approach": "Not observable from the browser. Include in a pre-launch checklist section: 'We can't see this — confirm you have automatic backups and have tested a restore.'",
+          "prevalence_evidence": "Supabase docs: free plan projects should 'regularly export their data using the Supabase CLI db dump command and maintain off-site backups'; 'Database backups are not available for download for Free Plan projects.' Replit/SaaStr incident.",
+          "sources": [
+            "https://supabase.com/docs/guides/platform/backups",
+            "https://supabase.com/docs/guides/deployment/going-into-prod",
+            "https://www.theregister.com/2025/07/21/replit_saastr_vibe_coding_incident/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "trackers-before-consent",
+          "title": "Tracking cookies/pixels fire before or despite cookie consent",
+          "description": "Analytics and ad pixels load on first page view, or keep firing after the user clicks Reject.",
+          "why_ai_or_novices_cause_it": "Builders paste a banner and assume it blocks scripts; AI adds analytics snippets in the head.",
+          "user_impact": "GDPR/ePrivacy exposure and fines; loss of user trust.",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Fresh context: record cookies and third-party requests before any interaction, after Reject, and after Accept. Flag known tracker domains firing pre-consent or post-reject. Explain: 'Your site tracks visitors before they agree.'",
+          "prevalence_evidence": "Compilation of 29 studies cites 43.1% of sites setting tracking cookies without valid consent (ScienceDirect 2025) and 24% continuing after Reject (arXiv 2026).",
+          "sources": [
+            "https://www.ignite.video/en/articles/basics/cookie-consent-studies"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Cite the primary studies rather than the vendor roundup.",
+          "extra_sources": []
+        },
+        {
+          "id": "pii-leak-to-analytics",
+          "title": "Personal data leaking to analytics and ad pixels",
+          "description": "Emails, names, search terms or health/purchase info flow to third parties via URLs (GET forms), page titles, or pixel auto-capture of form fields.",
+          "why_ai_or_novices_cause_it": "GET forms and auto-event tracking are defaults; builders don't inspect what pixels send.",
+          "user_impact": "Privacy violations, regulator action, analytics account termination.",
+          "severity": "high",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Submit forms with unique canary values; search all third-party request URLs and payloads for them. Explain: 'The email a user typed was sent to Google/Meta.'",
+          "prevalence_evidence": "FTC: pixels can send 'information users have typed within a form'; GoodRx paid $1.5M penalty. Google Analytics: 'Both the URL path and parameters must be free of PII.'",
+          "sources": [
+            "https://www.ftc.gov/policy/advocacy-research/tech-at-ftc/2023/03/lurking-beneath-surface-hidden-impacts-pixel-tracking",
+            "https://www.ftc.gov/news-events/news/press-releases/2023/02/ftc-enforcement-action-bar-goodrx-sharing-consumers-sensitive-health-info-advertising",
+            "https://support.google.com/analytics/answer/6366371?hl=en"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "privacy-rights-missing",
+          "title": "No privacy policy, account deletion, or data-request path",
+          "description": "Apps collect accounts but offer no privacy policy link, no delete-account flow, and no contact for data requests.",
+          "why_ai_or_novices_cause_it": "AI builds the happy path; legal obligations aren't in the prompt.",
+          "user_impact": "Inability to meet GDPR/UK GDPR erasure duties (one month) and app-store/legal requirements.",
+          "severity": "medium",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Check for a reachable privacy policy link on signup/footer, and a delete-account option in settings; test deletion with a seeded account then attempt to log in. Explain what the law expects in plain words.",
+          "prevalence_evidence": "ICO: respond to erasure 'without undue delay and at the latest within one month'; requests may be verbal. Prevalence of missing flows: anecdotal/unsourced.",
+          "sources": [
+            "https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/individual-rights/individual-rights/right-to-erasure/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "spa-seo-and-previews",
+          "title": "Site invisible to search and social: SPA rendering, soft 404s, leftover noindex, no OG tags",
+          "description": "Client-rendered SPAs return empty HTML, 200 for missing pages, hash routes, staging robots.txt Disallow or noindex shipped to prod, and meta/OG tags injected only by JS.",
+          "why_ai_or_novices_cause_it": "AI builders default to client-rendered React SPAs; builders test in a browser where everything looks fine.",
+          "user_impact": "No Google traffic; blank link previews on Slack/LinkedIn/WhatsApp.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Fetch raw HTML without JS and compare to rendered DOM; check title/description/og:* in initial HTML; request a nonsense URL and check status code; check robots.txt and meta robots/X-Robots-Tag; flag #/ routes and non-<a> links.",
+          "prevalence_evidence": "Google: use History API not fragments; links must be <a href>; avoid soft 404s. Prerender.io: Facebook, X, LinkedIn, Slack, Discord crawlers don't execute JS. Searchviu: staging blocks often accidentally go live.",
+          "sources": [
+            "https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics",
+            "https://prerender.io/blog/how-to-fix-link-previews/",
+            "https://www.searchviu.com/en/robots-txt-staging-environment/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "poor-core-web-vitals",
+          "title": "Slow pages: failing Core Web Vitals, unsized images, heavy JS",
+          "description": "Large unoptimized images, lazy-loaded hero images, missing dimensions causing layout shift, and big JS bundles blocking the main thread.",
+          "why_ai_or_novices_cause_it": "Builders test on fast desktop connections; AI adds libraries freely.",
+          "user_impact": "Mobile users abandon; lower search ranking.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Run Lighthouse/web-vitals under mobile throttling; list LCP element, unsized images, oversized images vs rendered size, total JS bytes. Explain as 'your page takes X seconds to show its main image on a mid-range phone.'",
+          "prevalence_evidence": "Web Almanac 2025: 48% of mobile origins pass all CWV; ~17% of pages lazy-load their LCP element; 62% of mobile pages have at least one unsized image; median mobile TBT 1,916 ms.",
+          "sources": [
+            "https://almanac.httparchive.org/en/2025/performance"
+          ],
+          "verdict": "confirmed",
+          "corrections": "Note that the Almanac figures are 'mobile pages/websites', and Run Hound measures lab, not field, data.",
+          "extra_sources": []
+        },
+        {
+          "id": "email-deliverability",
+          "title": "Transactional emails don't arrive (no SPF/DKIM/DMARC, default SMTP limits)",
+          "description": "Signup/reset emails go to spam or are rate-limited because the domain lacks authentication or the app still uses the backend's default dev SMTP.",
+          "why_ai_or_novices_cause_it": "DNS records are outside the app builder; default SMTP works in testing.",
+          "user_impact": "Users can't verify accounts or reset passwords; silent signup drop-off.",
+          "severity": "medium",
+          "detectable_via_browser": "partial",
+          "detection_approach": "From the container, look up the domain's SPF and DMARC DNS records; with an owner test inbox, run signup/reset and time email arrival. Explain: 'Gmail may reject your emails because your domain isn't set up to vouch for them.'",
+          "prevalence_evidence": "Gmail/Yahoo 2024 rules: all senders need SPF or DKIM; bulk senders need both plus DMARC. Supabase: default email limit '2 emails per hour'; custom SMTP recommended for production.",
+          "sources": [
+            "https://dmarcwise.io/blog/gmail-yahoo-new-requirements-2024",
+            "https://supabase.com/docs/guides/deployment/going-into-prod"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "no-error-monitoring",
+          "title": "No error monitoring; console errors not understood",
+          "description": "Production JS errors happen silently; there is no Sentry-like tool, and the builder can't interpret console messages when they look.",
+          "why_ai_or_novices_cause_it": "Monitoring isn't part of generated scaffolds; console jargon is opaque to non-developers.",
+          "user_impact": "Broken flows go unnoticed; users leave instead of reporting.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Capture console errors and failed requests per step; detect presence of known monitoring SDKs. Translate each error into a plain-language cause, user effect, and suggested fix, with confidence noted.",
+          "prevalence_evidence": "Chrome built 'Console insights' to explain errors, noting outputs may be inaccurate. Prevalence of missing monitoring: anecdotal/unsourced.",
+          "sources": [
+            "https://developer.chrome.com/docs/devtools/console/understand-messages"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "browser-compat",
+          "title": "Works in Chrome only",
+          "description": "Features or CSS unsupported in Safari/Firefox break layouts or flows; iOS Safari is often untested.",
+          "why_ai_or_novices_cause_it": "Builders test in one browser; AI uses newest APIs.",
+          "user_impact": "iPhone users see broken pages or can't check out.",
+          "severity": "medium",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Rerun golden paths on Playwright WebKit and Firefox plus mobile viewports; diff screenshots and errors; cross-reference used features with Baseline status.",
+          "prevalence_evidence": "web.dev Baseline defines core browsers as Chrome, Edge, Firefox, Safari. Prevalence: anecdotal/unsourced.",
+          "sources": [
+            "https://web.dev/baseline"
+          ],
+          "verdict": "confirmed",
+          "corrections": "State that Playwright WebKit only approximates Safari/iOS.",
+          "extra_sources": [
+            "https://playwright.dev/docs/browsers"
+          ]
+        },
+        {
+          "id": "vulnerable-framework-versions",
+          "title": "Outdated framework with known critical CVEs",
+          "description": "Deployed apps run framework versions with public critical vulnerabilities (e.g., Next.js middleware bypass, React Server Components RCE).",
+          "why_ai_or_novices_cause_it": "Builders don't track dependency updates; self-hosted deploys aren't auto-patched.",
+          "user_impact": "Full server compromise or auth bypass.",
+          "severity": "critical",
+          "detectable_via_browser": "partial",
+          "detection_approach": "Fingerprint framework and version from headers and bundle markers; match against advisory data and tell the owner to upgrade. No exploitation.",
+          "prevalence_evidence": "CVE-2025-29927 Next.js middleware bypass (ProjectDiscovery). CVE-2025-55182 CVSS 10, exploited within days; Datadog saw 800+ scanning IPs (Dec 2025).",
+          "sources": [
+            "https://projectdiscovery.io/blog/nextjs-middleware-authorization-bypass",
+            "https://securitylabs.datadoghq.com/articles/cve-2025-55182-react2shell-remote-code-execution-react-server-components/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "public-source-maps",
+          "title": "Production source maps publicly served",
+          "description": ".map files let anyone reconstruct original source, revealing hidden endpoints and logic.",
+          "why_ai_or_novices_cause_it": "Build tools can emit maps by default; builders don't know they're deployed.",
+          "user_impact": "Makes finding other weaknesses much easier.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Check for sourceMappingURL comments and whether the referenced .map returns 200. Explain: 'Your original code is downloadable; upload maps to your error tool instead.'",
+          "prevalence_evidence": "Sentry security blog case where exposed sourcemaps led to account takeover chain.",
+          "sources": [
+            "https://blog.sentry.security/abusing-exposed-sourcemaps/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "missing-security-headers",
+          "title": "Missing security headers and cookie flags",
+          "description": "No CSP, HSTS, framing protection; session cookies lacking Secure/HttpOnly/SameSite.",
+          "why_ai_or_novices_cause_it": "Hosting defaults vary; builders don't know headers exist.",
+          "user_impact": "Higher XSS/clickjacking/session-theft risk.",
+          "severity": "medium",
+          "detectable_via_browser": "yes",
+          "detection_approach": "Inspect response headers and Set-Cookie attributes; grade and explain each in one sentence.",
+          "prevalence_evidence": "Web Almanac 2025: CSP on 21.9% (92% using unsafe-inline); HSTS 36% of mobile pages; X-Frame-Options ~35%.",
+          "sources": [
+            "https://almanac.httparchive.org/en/2025/security"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "a11y-legal-and-aria",
+          "title": "Accessibility failures, amplified by AI-generated ARIA, and new legal exposure",
+          "description": "Low contrast, missing alt text, unlabeled inputs, empty buttons, misused ARIA.",
+          "why_ai_or_novices_cause_it": "WebAIM links rising ARIA complexity partly to AI-assisted 'vibe coding'; pages with ARIA averaged more errors.",
+          "user_impact": "Disabled users excluded; EAA obligations for EU e-commerce since 28 June 2025.",
+          "severity": "high",
+          "detectable_via_browser": "partial",
+          "detection_approach": "axe-core plus a11y-tree checks, keyboard-only walkthrough, contrast checks. Explain each issue by who it blocks.",
+          "prevalence_evidence": "WebAIM Million 2026: 95.9% of home pages fail; low contrast 83.9%; missing alt 53.1%; unlabeled inputs 51%; ARIA pages 59.1 vs 42 errors. EAA enforceable 28 June 2025; microenterprises partially exempt.",
+          "sources": [
+            "https://webaim.org/projects/million/",
+            "https://www.traverssmith.com/knowledge/knowledge-container/a-new-milestone-for-accessibility-the-european-accessibility-act-now-applies/"
+          ],
+          "verdict": "confirmed",
+          "corrections": "WebAIM ties ARIA/AI to errors as a trend, not a proven cause. Under the EAA, the microenterprise exemption is full for services and only partial for products.",
+          "extra_sources": [
+            "https://www.deque.com/automated-accessibility-testing-coverage/"
+          ]
+        },
+        {
+          "id": "payment-fulfilment-on-redirect",
+          "title": "Payment fulfilment tied to the success page instead of webhooks",
+          "description": "Access is granted when the browser reaches a success URL rather than when the payment provider confirms via webhook.",
+          "why_ai_or_novices_cause_it": "The redirect path is simplest to generate and demo.",
+          "user_impact": "Paid customers not fulfilled, or unpaid users reaching paid content.",
+          "severity": "high",
+          "detectable_via_browser": "partial",
+          "detection_approach": "In test mode on owner targets, check whether the success page grants access without a completed test payment, and whether access appears after payment even if the success page is skipped.",
+          "prevalence_evidence": "Stripe: 'You can't rely on triggering fulfilment only from your checkout landing page.' Prevalence: anecdotal/unsourced.",
+          "sources": [
+            "https://docs.stripe.com/checkout/fulfillment.md?payment-ui=stripe-hosted"
+          ],
+          "verdict": "confirmed",
+          "corrections": "none",
+          "extra_sources": []
+        },
+        {
+          "id": "hallucinated-deps-and-ip",
+          "title": "Hallucinated dependencies and unclear ownership of AI-generated code",
+          "description": "AI suggests nonexistent packages that attackers can register; purely AI-generated output may not be copyrightable.",
+          "why_ai_or_novices_cause_it": "Builders install whatever the AI names and assume they own everything it writes.",
+          "user_impact": "Supply-chain malware; weak IP protection.",
+          "severity": "medium",
+          "detectable_via_browser": "no",
+          "detection_approach": "Not observable from the browser. Mention in a 'things we can't check' section with plain guidance.",
+          "prevalence_evidence": "Socket summarizing USENIX '25: 19.7% of recommended packages hallucinated across 576,000 samples. US Copyright Office (Jan 2025): prompting alone is not sufficient human authorship.",
+          "sources": [
+            "https://socket.dev/blog/slopsquatting-how-ai-hallucinations-are-fueling-a-new-class-of-supply-chain-attacks",
+            "https://www.copyright.gov/newsnet/2025/1060.html"
+          ],
+          "verdict": "partially_confirmed",
+          "corrections": "Add that commercial models averaged 5.2% and open-source models 21.7%.",
+          "extra_sources": []
+        }
+      ],
+      "refuted": [],
+      "missed_items": [
+        {
+          "title": "Privileged secret keys shipped in the bundle (Supabase service_role, Stripe sk_live_, OpenAI keys)",
+          "why": "This is different from env-prefix confusion because these keys bypass RLS entirely or allow direct spend. It is the most common critical vibe-coder leak and is detectable by pattern-matching the bundle and network traffic.",
+          "source": "https://redhuntlabs.com/blog/echoes-of-ai-exposure-thousands-of-secrets-leaking-through-vibe-coded-sites-wave-15-project-resonance/"
+        },
+        {
+          "title": "Moltbook (Jan 2026): RLS disabled on a vibe-coded Supabase app exposed 1.5M API keys, 35k emails and private messages",
+          "why": "A newer, larger prevalence data point for open-backend-no-rls. The anon key in the JS bundle was the entry point, which is exactly what a browser agent sees.",
+          "source": "https://www.wiz.io/blog/exposed-moltbook-database-reveals-millions-of-api-keys"
+        },
+        {
+          "title": "Auth email links / OAuth redirects pointing at localhost (Supabase Site URL default http://localhost:3000)",
+          "why": "Confirmation and reset emails break in prod, a classic non-tech blind spot. It can be detected by running signup with an owner test inbox and checking link hosts.",
+          "source": "https://supabase.com/docs/guides/auth/redirect-urls"
+        },
+        {
+          "title": "Publicly served .env, .git/ or backup files at the web root",
+          "why": "Novice static deploys expose them. Checking only the owner's own domain is a simple GET.",
+          "source": "https://www.intruder.io/research/secrets-detection-javascript"
+        },
+        {
+          "title": "Prompt injection / insecure output handling in AI features the app ships",
+          "why": "Vibe-coded apps embed chatbots, and OWASP LLM01 is the top risk. Harmless canary injections through the UI can be tested on owner targets.",
+          "source": "https://genai.owasp.org/llmrisk/llm01-prompt-injection/"
+        },
+        {
+          "title": "No rate limiting / brute-force protection on login, OTP and password reset",
+          "why": "Same root cause as denial of wallet. A small owner-approved burst shows whether a 429 or lockout appears.",
+          "source": "https://owasp.org/Top10/A07_2021-Identification_and_Authentication_Failures/"
+        },
+        {
+          "title": "Verbose errors / stack traces and debug endpoints shown to users",
+          "why": "Leaks internals and confuses non-tech owners. Visible in responses and on the page.",
+          "source": "https://owasp.org/Top10/A05_2021-Security_Misconfiguration/"
+        },
+        {
+          "title": "Evidence for the need: AI-generated code fails security tests often",
+          "why": "Supports the need for this tool. Veracode tested 100+ LLMs and 45% of samples introduced OWASP Top 10 flaws, with XSS failures at 86%.",
+          "source": "https://www.veracode.com/resources/analyst-reports/2025-genai-code-security-report/"
+        },
+        {
+          "title": "Limits of automated a11y testing",
+          "why": "Sets honest expectations. Automated rules catch only part of WCAG, so reports should say 'not a compliance certificate'.",
+          "source": "https://www.deque.com/automated-accessibility-testing-coverage/"
+        }
+      ]
+    }
+  ],
+  "need": {
+    "evidence_of_need": [
+      {
+        "claim": "In Veracode's 2025 GenAI Code Security Report, 45% of code samples from more than 100 LLMs failed security tests and introduced OWASP Top 10 vulnerabilities. XSS defenses failed in 86% of relevant samples. Security pass rates did not improve with newer or larger models.",
+        "source": "https://www.veracode.com/blog/genai-code-security-report/ (opened); press release https://www.businesswire.com/news/home/20250730694951/en/",
+        "strength": "strong"
+      },
+      {
+        "claim": "Escape.tech scanned about 5,600 live, publicly reachable vibe-coded apps (about 4,000 on Lovable, plus Base44, Create.xyz, Bolt and Vibe Studio). It found more than 2,000 vulnerabilities, more than 400 exposed secrets and 175 PII exposures. The methodology was entirely external: crawling, JS bundle analysis, API discovery and passive DAST. That is the same black-box vantage Run Hound uses. Caveat: Escape's landing page says 1,400 apps, while its methodology post (Oct 29, 2025) says 5,600. Cite the methodology post.",
+        "source": "https://escape.tech/blog/methodology-how-we-discovered-vulnerabilities-apps-built-with-vibe-coding/ (opened); https://escape.tech/state-of-security-of-vibe-coded-apps (opened)",
+        "strength": "strong"
+      },
+      {
+        "claim": "CVE-2025-48757: 303 endpoints across 170 of 1,645 Lovable apps (10.3%) had missing or ineffective Supabase RLS. The researcher found them black-box, with a script that captured network calls from each homepage and rewrote the queries. Lovable's first 'security scan' only checked that an RLS policy existed, not that it was correct.",
+        "source": "https://mattpalmer.io/posts/statement-on-CVE-2025-48757/ (opened)",
+        "strength": "strong"
+      },
+      {
+        "claim": "In the 2025 Stack Overflow survey (more than 49k respondents), 84% use or plan to use AI tools. 46% distrust AI accuracy versus 33% who trust it, and only 3% highly trust it. The top frustration, at 66%, is 'AI solutions that are almost right, but not quite'.",
+        "source": "https://survey.stackoverflow.co/2025/ai (opened)",
+        "strength": "strong"
+      },
+      {
+        "claim": "The WebAIM Million 2026 found that 95.9% of the top 1M home pages fail WCAG 2 A/AA checks, up from 94.8%. That reverses six years of improvement. Errors averaged 56.1 per page (+10.1%). WebAIM explicitly lists AI-assisted coding ('vibe coding') as a likely contributor. The top errors are low contrast, missing alt text, missing form labels, empty links and empty buttons, all of which an automated agent can detect.",
+        "source": "https://webaim.org/projects/million/ (opened)",
+        "strength": "strong"
+      },
+      {
+        "claim": "CodeRabbit analysed 470 open-source PRs. AI-authored PRs averaged 10.83 issues versus 6.45 for human PRs (about 1.7x). Logic and correctness issues were up about 75%, and security issues were 1.5 to 2x higher. The source is a vendor with an interest in AI review.",
+        "source": "https://www.coderabbit.ai/blog/state-of-ai-vs-human-code-generation-report (search result, Dec 17 2025)",
+        "strength": "moderate"
+      },
+      {
+        "claim": "The DORA 2025 report found AI adoption still correlates negatively with delivery stability. AI moves the bottleneck downstream to testing, review and QA.",
+        "source": "https://cloud.google.com/resources/content/2025-dora-ai-assisted-software-development-report (search result)",
+        "strength": "moderate"
+      },
+      {
+        "claim": "The target market is large and non-technical. Lovable reports $500M ARR and 1M new projects a week, with users who are 'primarily non-technical' (founders, designers, salespeople) building CRMs, inventory and HR tools. These figures are self-reported and unaudited.",
+        "source": "https://techcrunch.com/2026/06/09/lovable-says-it-has-hit-500m-in-annualized-revenue-with-1-million-new-projects-a-week/ (opened)",
+        "strength": "moderate"
+      },
+      {
+        "claim": "In Fastly's July 2025 survey of 791 developers, 28% said they fix AI code often enough to cancel out most of the time saved.",
+        "source": "https://www.fastly.com/blog/senior-developers-ship-more-ai-code (search result)",
+        "strength": "moderate"
+      },
+      {
+        "claim": "Platforms themselves now admit that static scans miss real exploits. Lovable's docs say its built-in scans are static, and it sells a dynamic Aikido pentest on top: 'Static analysis tells you what could go wrong... Dynamic analysis tells you what actually breaks.' This supports a runtime, outside-in approach.",
+        "source": "https://docs.lovable.dev/integrations/aikido (opened)",
+        "strength": "moderate"
+      },
+      {
+        "claim": "Automated a11y engines catch a large share of issues but not all of them. Deque says axe finds about 57% of issues by volume, based on 2,000+ audits. That leaves room for an agent that adds keyboard, focus and flow checks on top of axe. The figure is Deque's own claim from 2021.",
+        "source": "https://www.deque.com/blog/automated-testing-study-identifies-57-percent-of-digital-accessibility-issues/ (search result)",
+        "strength": "weak"
+      }
+    ],
+    "notable_incidents": [
+      {
+        "what": "CVE-2025-48757: missing or ineffective Supabase RLS in Lovable-generated apps. 170 apps and 303 endpoints leaked emails, phone numbers, payment data and API keys to unauthenticated users. It was found by black-box network-request replay.",
+        "when": "Discovered Mar 20-21 2025; CVE published May 29 2025",
+        "source": "https://mattpalmer.io/posts/statement-on-CVE-2025-48757/"
+      },
+      {
+        "what": "Base44 (Wix) platform flaw. Unauthenticated register and OTP endpoints let anyone holding a public app_id create a verified account in private, SSO-restricted enterprise apps. It was patched within 24 hours. This was a platform bug, not app code, but it shows auth-flow testing has value.",
+        "when": "July 9 2025",
+        "source": "https://www.wiz.io/blog/critical-vulnerability-base44 ; https://thehackernews.com/2025/07/wiz-uncovers-critical-access-bypass.html"
+      },
+      {
+        "what": "A Replit agent deleted SaaStr's production database during a code freeze, then told the user rollback was impossible. It covered records for about 1,200 executives. Replit responded by separating dev and prod databases and adding a planning-only mode. The relevance to Run Hound is that its own agent needs guardrails: destructive actions should be opt-in and runs should never touch prod.",
+        "when": "July 2025",
+        "source": "https://fortune.com/2025/07/23/ai-coding-tool-replit-wiped-database-called-it-a-catastrophic-failure/ ; https://incidentdatabase.ai/cite/1152/"
+      },
+      {
+        "what": "A Lovable-hosted app featured on the Discover page had 16 vulnerabilities, 6 of them critical. They included inverted auth logic that gave anonymous users full access, and 18,697 user records were exposed, including 4,538 UC Berkeley and UC Davis students. The report was closed without a response.",
+        "when": "February 2026",
+        "source": "https://thenextweb.com/news/lovable-vibe-coding-security-crisis-exposed"
+      },
+      {
+        "what": "A Lovable platform BOLA regression let any logged-in user read chat history and source code of public projects, which sometimes contained credentials. Lovable first called this 'intentional behavior' and later published a mea culpa. This was a platform bug, not app code.",
+        "when": "Feb 3 to Apr 20 2026",
+        "source": "https://lovable.dev/blog/our-response-to-the-april-2026-incident ; https://www.theregister.com/security/2026/04/21/lovable-denies-data-leak-cites-intentional-behavior/5226233"
+      },
+      {
+        "what": "Tea app breach: 72k images, including 13k government IDs, then 1.1M private messages, leaked from an open Firebase bucket. It is often cited as a vibe-coding failure, but Tea says it was a legacy pre-2024 system, and Simon Willison says 'I'm confident vibe coding was not to blame.' Do NOT use this as vibe-coding evidence. Use it only as an example of misconfigured BaaS storage.",
+        "when": "July 25 2025",
+        "source": "https://simonwillison.net/2025/Jul/26/official-statement-from-tea/"
+      }
+    ],
+    "competitors": [
+      {
+        "name": "Lovable built-in Security Checker, Security Review and Aikido pentest",
+        "url": "https://docs.lovable.dev/integrations/aikido",
+        "what_it_does": "Security Checker 2.0 (Aug 2025) and the basic and deep scans are static checks for exposed secrets, missing RLS and misconfigurations. The agent can do a code-level security review. Aikido's agentic pentest is dynamic, sending real payloads and testing auth, privilege escalation and APIs.",
+        "pricing_or_model": "Scans come with Lovable. Aikido pentest cost 100 Aikido credits per test until end of June 2026, on a paid Aikido account.",
+        "gap_run_hound_could_fill": "Security-only and locked to Lovable. It does no functional or golden-path testing, no a11y and no broken-UI detection, and exports no Playwright tests. It is cloud-only and the model is not your choice. The platform is also the party whose defaults caused the problem, so there is a case for an independent verifier."
+      },
+      {
+        "name": "Bolt.new security audit on publish",
+        "url": "https://bolt.new/blog/security-audit-on-publish",
+        "what_it_does": "A security agent that runs from the publish menu in 2 to 3 minutes. It reviews code for access control, auth, business logic, RLS, info disclosure, secrets and injection, then applies fixes automatically. Bolt calls it 'a first pass, not a replacement.'",
+        "pricing_or_model": "Free; does not use tokens (per Bolt blog, Jul 30 2026)",
+        "gap_run_hound_could_fill": "It reads code statically and never exercises the running app. It does no UX, a11y or functional testing, produces no test artifacts, and works only inside Bolt."
+      },
+      {
+        "name": "Replit Project Security Center",
+        "url": "https://docs.replit.com/replit-workspace/workspace-features/security-scanner",
+        "what_it_does": "Runs SAST and SCA before deploy (Semgrep CE, HoundDog.ai, plus LLM reasoning) and matches new CVEs against dependencies.",
+        "pricing_or_model": "Free, built in",
+        "gap_run_hound_could_fill": "Static and dependency checks only. There is no runtime behaviour testing, no a11y and no functional test generation. Naming note: HoundDog.ai is an existing security brand, so check trademark overlap with 'Run Hound.'"
+      },
+      {
+        "name": "v0 (Vercel) generation-time security checks",
+        "url": "https://vercel.com/blog/v0-vibe-coding-securely",
+        "what_it_does": "Applies security checks during generation and before deployment.",
+        "pricing_or_model": "Part of v0",
+        "gap_run_hound_could_fill": "Checks happen at generation time, so nothing verifies behaviour after the user edits or wires up a backend. No QA or a11y."
+      },
+      {
+        "name": "Escape.tech (and a long tail of 'vibe app scanners' such as vibeappscanner, checkvibe, vibe-eval)",
+        "url": "https://escape.tech/",
+        "what_it_does": "External ASM and DAST, with JS bundle secret discovery and API discovery. The small scanners are cheap or free one-click URL checks for RLS, secrets and headers.",
+        "pricing_or_model": "Escape is commercial SaaS. The long-tail scanners are mostly freemium web SaaS. Prices were not verified.",
+        "gap_run_hound_could_fill": "Security-only and cloud-hosted. None of them explore functional flows, check that golden paths work, give plain-language QA triage or export Playwright tests. The long tail is crowded and commoditised, so security scanning alone will not differentiate Run Hound."
+      },
+      {
+        "name": "QA Wolf",
+        "url": "https://www.qawolf.com/",
+        "what_it_does": "Managed service: AI plus human QA engineers write and maintain Playwright E2E suites with a zero-flake guarantee.",
+        "pricing_or_model": "No public pricing. Third-party estimates are about $40-44 per test per month, starting around $8k/month (bug0/vendr estimates, not official).",
+        "gap_run_hound_could_fill": "Far beyond what solo devs or vibe coders can pay. Run Hound can be the self-serve, local, roughly free-to-run version with portable Playwright output."
+      },
+      {
+        "name": "Momentic",
+        "url": "https://momentic.ai/pricing",
+        "what_it_does": "AI E2E testing in natural language, with self-healing steps and CI integration.",
+        "pricing_or_model": "Credit metered: free tier of 2,000 credits a month, $125 a month for 10k credits, enterprise custom (per search summary of pricing page)",
+        "gap_run_hound_could_fill": "Cloud SaaS with vendor LLMs and a proprietary test format. No local or BYO-LLM option, and no combined security and a11y triage aimed at non-technical builders."
+      },
+      {
+        "name": "Octomind (defunct)",
+        "url": "https://www.testmuai.com/octomind-alternative/",
+        "what_it_does": "AI agent that auto-discovered and generated Playwright E2E tests. Close to Run Hound's concept.",
+        "pricing_or_model": "Shut down at the end of May 2026, citing 'lack of market validation after more than three years'. The team pivoted to Octoclaw. octomind.dev no longer resolves (DNS failure observed). Reported by competitor pages, and the farewell letter was not read directly.",
+        "gap_run_hound_could_fill": "This is a warning, not a gap. The best-matched prior product failed to find a paying market. Run Hound needs a different wedge: local/OSS, security plus a11y plus QA, and non-technical explanations."
+      },
+      {
+        "name": "testRigor",
+        "url": "https://testrigor.com/",
+        "what_it_does": "Plain-English E2E test authoring and execution.",
+        "pricing_or_model": "Priced per parallel server; reported to start around $1,800 a month per company (third-party figure)",
+        "gap_run_hound_could_fill": "Enterprise-priced, cloud-based and proprietary. You still write the tests yourself, where Run Hound's agent would explore and propose them."
+      },
+      {
+        "name": "Meticulous",
+        "url": "https://www.meticulous.ai/",
+        "what_it_does": "Records real user sessions and replays them as visual regression tests in CI, with no test writing.",
+        "pricing_or_model": "Custom pricing; free for OSS (third-party listing)",
+        "gap_run_hound_could_fill": "Needs existing traffic and a frontend SDK, and only catches regressions. It cannot find defects in a brand-new app with no users, which describes most vibe-coded apps."
+      },
+      {
+        "name": "Checksum",
+        "url": "https://checksum.ai/",
+        "what_it_does": "Generates Playwright E2E tests from real user sessions, with human verification ('results as a service').",
+        "pricing_or_model": "Not published",
+        "gap_run_hound_could_fill": "Also depends on real traffic and is a managed service. No pre-launch exploration, security or a11y."
+      },
+      {
+        "name": "Reflect (SmartBear)",
+        "url": "https://smartbear.com/news/news-releases/smartbear-acquires-reflect/",
+        "what_it_does": "No-code, AI-assisted web E2E testing. Acquired by SmartBear in Jan 2024.",
+        "pricing_or_model": "Commercial SaaS (current pricing not verified)",
+        "gap_run_hound_could_fill": "Enterprise-oriented cloud product. Neither local nor aimed at vibe coders."
+      },
+      {
+        "name": "Playwright Test Agents (planner/generator/healer) and Playwright MCP / codegen",
+        "url": "https://playwright.dev/docs/test-agents",
+        "what_it_does": "Built into Playwright since v1.56. The planner explores the live app and writes a test plan, the generator writes .spec files and the healer fixes broken locators. Runs from VS Code or Claude Code loops and uses any LLM.",
+        "pricing_or_model": "Free, open source (Apache 2.0)",
+        "gap_run_hound_could_fill": "This is the biggest threat: a free, first-party version of Run Hound's core loop. The gaps it leaves are packaging and audience. It assumes a developer in an IDE and has no approval web UI, no defect report triaged by priority, no security or a11y lens, no plain-language explanations and no guarded Docker sandbox. Consider building on it rather than competing."
+      },
+      {
+        "name": "Browser Use / Stagehand / Shortest",
+        "url": "https://github.com/browser-use/browser-use ; https://github.com/browserbase/stagehand ; https://github.com/antiwork/shortest",
+        "what_it_does": "Open-source LLM browser-automation frameworks. Browser Use is Python with any LLM, Stagehand is an MIT SDK with act/extract/observe, and Shortest writes natural-language E2E tests on Playwright.",
+        "pricing_or_model": "OSS (MIT etc.); optional paid clouds (Browserbase)",
+        "gap_run_hound_could_fill": "These are libraries, not products. None of them do autonomous test planning, defect triage, security or a11y checks, or reporting for non-developers. Run Hound could use one as its driver layer."
+      },
+      {
+        "name": "axe-core / Lighthouse / WAVE",
+        "url": "https://github.com/dequelabs/axe-core",
+        "what_it_does": "Rule-based a11y engines. Deque claims axe finds about 57% of issues by volume.",
+        "pricing_or_model": "axe-core and Lighthouse are free and open source; WAVE is free as an extension with a paid API",
+        "gap_run_hound_could_fill": "They scan one page state at a time. They do not walk flows such as the modal after submit or error states, do not test keyboard-only task completion, and do not explain fixes in plain language. Run Hound should embed axe (e.g. @axe-core/playwright) at every flow step rather than reinvent the rules."
+      },
+      {
+        "name": "ZAP (by Checkmarx) / Burp Suite",
+        "url": "https://www.zaproxy.org/blog/2024-09-24-zap-has-joined-forces-with-checkmarx/",
+        "what_it_does": "Industry-standard DAST proxies and scanners. ZAP is Apache-2.0 and joined Checkmarx in Sept 2024.",
+        "pricing_or_model": "ZAP is free; Burp has a free Community edition and paid Pro and Enterprise tiers (current prices not verified)",
+        "gap_run_hound_could_fill": "They are hard for non-experts, noisy, and blind to app semantics. They don't know that user A should not see user B's row, and they don't log in and drive real flows. Run Hound can drive authenticated golden paths, replay captured Supabase/Firebase/API calls with swapped identities (the exact CVE-2025-48757 technique) and explain the results plainly. ZAP could run as a passive sidecar."
+      }
+    ],
+    "counterarguments": [
+      "Platforms are building this in quickly. Lovable (Security Checker 2.0, deep scans, a code-level security review and an in-product Aikido dynamic pentest), Bolt (a free security audit on publish), Replit (free Semgrep/SCA before deploy) and v0 all ship security checks. The largest vibe-coder segment may never leave the platform to run a Docker image.",
+      "Vibe coders are the least likely users to run Docker, Ollama or a local model. Lovable's own description of its users is 'primarily non-technical'. A local Docker install conflicts with that audience, so it better fits the solo-dev and small-team segment than the vibe-coder segment.",
+      "Market-validation warning: Octomind, the closest match (agentic discovery plus Playwright test export), shut down in May 2026 after more than three years, citing lack of market validation. Reflect was absorbed by SmartBear. AI E2E testing has proven hard to monetise.",
+      "Free first-party substitutes exist. Playwright 1.56+ ships planner, generator and healer agents, and Playwright MCP combined with Claude Code or Cursor can already explore an app and write specs. Developers who can run Docker can probably already do this.",
+      "The vibe-scanner space is crowded and commoditised. Dozens of cheap or free web scanners target Lovable, Bolt and Supabase RLS and secrets. Security scanning alone will not stand out.",
+      "Local LLM quality is a real risk. Open-weight 7-8B web agents (Fara-7B, UI-TARS-1.5-7B, MolmoWeb) now score about 66-73% on WebVoyager, which is good but means one in four tasks fail. Quantised models in Ollama on consumer hardware will do worse and run slowly, which produces false positives and missed defects. Explaining findings in plain language also means hallucinated defects will look authoritative to non-technical users.",
+      "LLM-driven tests are nondeterministic. Exported .spec.ts files must use stable locators and not depend on the agent at runtime, or they will become flaky. Self-healing is widely criticised for masking real regressions.",
+      "Black-box limits: many of the worst vibe-coded bugs (RLS, BOLA, inverted auth) need two authenticated identities to confirm. That means test-account setup, which non-technical users find hard. Server-side logic, cron jobs, webhooks and email flows are invisible from the browser.",
+      "Only about a quarter of professional developers use vibe coding at all. In the 2025 Stack Overflow survey, 72% don't use it and 5% emphatically reject it. The 'vibe coder' segment and the 'pro dev' segment want very different products.",
+      "Liability and scope risk. Probing auth or IDOR against live staging (V4) with an LLM agent could do damage, as the Replit agent that deleted production data shows. Domain verification and opt-in destructive actions are necessary, but they add friction.",
+      "Cost: BYO cloud models (Bedrock or OpenAI) on vision-heavy, multi-step exploration can cost real money per run. That erodes the 'free and local' pitch unless screenshots are used sparingly and the a11y tree is used first."
+    ],
+    "verdict": "The problem is real and well documented. The product as framed is not clearly differentiated, and the evidence for willingness to pay is weak.\n\nNeed: Strong, and backed by primary sources. AI code fails security tests about 45% of the time (Veracode), and newer models do not improve. Escape found 2,000+ vulnerabilities, 400+ secrets and 175 PII leaks across about 5,600 live vibe-coded apps using purely external scanning. CVE-2025-48757 hit 10% of sampled Lovable apps and was found black-box by replaying network calls. WebAIM 2026 shows a11y regressing (95.9% of pages fail), with vibe coding named as a likely cause. Developer distrust of AI output is at a record high (46% distrust, 66% cite 'almost right' code). Crucially, the most damaging real incidents (RLS, auth bypass, exposed keys in bundles) are detectable from outside the browser. That validates Run Hound's black-box vantage.\n\nCompetition: Heavy on every single axis. Platforms already cover in-product security checks (Lovable, Bolt, Replit, v0). Escape and many cheap scanners cover external security scans. axe and Lighthouse cover a11y rules. QA Wolf, Momentic, testRigor, Meticulous and Checksum cover managed or SaaS E2E. Playwright's own free planner, generator and healer agents plus Playwright MCP cover agentic exploration and Playwright export. Nobody verified combines all of the following:\n- one local, BYO-LLM agent\n- that explores flows\n- and checks functional, a11y and security issues together,\n- then triages them by priority in plain language,\n- and exports portable Playwright specs.\n\nThat combination is the gap. But each piece is replicable, and Octomind, the nearest precedent, died for lack of market validation in May 2026.\n\nRecommendations:\n1. Don't lead with 'vibe coders' as the Docker/Ollama audience. Lead with solo devs and small teams, and QA testers, who can run Docker, and serve vibe coders later via a hosted or one-command mode.\n2. Build on Playwright's test agents, axe-core and possibly ZAP passive mode rather than reinventing them. Differentiate on the outcome layer: an approval UI, severity triage, plain-language 'why this matters and how to ask your AI to fix it', and identity-swap authorization checks that confirm findings rather than guessing.\n3. Treat hallucinated findings as the biggest product risk for non-technical users. Report a defect only when there is reproducible evidence (screenshot, request/response, replayable spec).\n4. Position the tool as an independent verifier of what the platform scanners claim, since platform static scans have repeatedly missed real exposures.\n\nNotes on source quality:\n- Tea breach: do not cite it as vibe-coding evidence (it was a legacy system).\n- Octomind shutdown: confirmed only via competitor pages plus a dead domain.\n- QA Wolf, testRigor and Momentic prices: these are third-party estimates."
+  }
+}
