@@ -1,0 +1,15 @@
+{
+  "mode": "S01",
+  "mustFail": [
+    "bundle-secrets"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "bundle-secrets",
+      "severity": "critical"
+    }
+  ],
+  "notes": "Fake LLM-provider-shaped key (sk-proj-FAKE... style) in a separate script included only when S01 is on. The finding and every artifact must show the value redacted."
+}

@@ -1,0 +1,15 @@
+{
+  "mode": "A04",
+  "mustFail": [
+    "focus-visible"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "focus-visible",
+      "severity": "high"
+    }
+  ],
+  "notes": "Outline removed on inputs only. No axe rule measures focus visibility. Considered and rejected: keyboard-completion (fields are still reachable and operable)."
+}

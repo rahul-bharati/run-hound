@@ -1,0 +1,15 @@
+{
+  "mode": "F02",
+  "mustFail": [
+    "silent-failure"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "silent-failure",
+      "severity": "high"
+    }
+  ],
+  "notes": "Only 5xx handling changes (spinner, no message). Considered and rejected: verbose-errors (oversized/malformed input gets a 400, not a 5xx, and nothing is shown anyway); axe-states server-error state (a spinner alone violates no rule); double-submit (successful path unchanged)."
+}

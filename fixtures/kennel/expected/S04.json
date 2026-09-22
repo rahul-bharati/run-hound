@@ -1,0 +1,20 @@
+{
+  "mode": "S04",
+  "mustFail": [
+    "verbose-errors"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [
+    {
+      "checkId": "axe-states",
+      "reason": "axe-states captures the server-error state; with S04 on, that state renders a raw stack trace, typically in a <pre> with overflow:auto and no focusable content, which axe flags as scrollable-region-focusable (WCAG 2.1.1). The stack dump is the bug itself, so an extra axe finding on it is acceptable."
+    }
+  ],
+  "expectedFindings": [
+    {
+      "checkId": "verbose-errors",
+      "severity": "medium"
+    }
+  ],
+  "notes": "Server errors render a stack trace in the page. verbose-errors must be able to trigger it with oversized/malformed input (Kennel must throw on that path, not only for pet name Crash). Considered and rejected: silent-failure (the error is still visible and announced, inputs kept)."
+}

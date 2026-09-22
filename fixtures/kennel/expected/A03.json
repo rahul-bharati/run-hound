@@ -1,0 +1,15 @@
+{
+  "mode": "A03",
+  "mustFail": [
+    "keyboard-completion"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "keyboard-completion",
+      "severity": "high"
+    }
+  ],
+  "notes": "Pet type becomes clickable divs with no tabindex or role: not reachable by Tab, so the booking cannot be created by keyboard. Considered and rejected: axe-states (plain divs with click handlers violate no axe rule; if Kennel adds ARIA roles without required children, axe would flag aria-required-children and this golden needs revisiting), focus-visible (divs are not in the tab order), dead-control (clicking a div changes the DOM selection state), mouse-driven checks (options are still clickable)."
+}

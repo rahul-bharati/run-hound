@@ -1,0 +1,15 @@
+{
+  "mode": "F06",
+  "mustFail": [
+    "client-only-validation"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "client-only-validation",
+      "severity": "high"
+    }
+  ],
+  "notes": "Server skips only the end-on-or-after-start rule. The replayed request with end before start gets 2xx. Considered and rejected: verbose-errors (an accepted request exposes no internals)."
+}

@@ -1,0 +1,15 @@
+{
+  "mode": "A07",
+  "mustFail": [
+    "credential-fields"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "credential-fields",
+      "severity": "medium"
+    }
+  ],
+  "notes": "Paste blocked on confirm password only. Checks that fill fields use fill/typing, not clipboard paste, so no side effects. Paste blocked is a confirmed (not advisory) finding."
+}

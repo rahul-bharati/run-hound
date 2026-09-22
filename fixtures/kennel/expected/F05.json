@@ -1,0 +1,15 @@
+{
+  "mode": "F05",
+  "mustFail": [
+    "console-network-errors"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "console-network-errors",
+      "severity": "medium"
+    }
+  ],
+  "notes": "Every page load issues a request to undefined/api/availability (404). Only console-network-errors watches for failed requests; the bug changes nothing else (spec: each bug changes exactly one behaviour). Considered and rejected: verbose-errors (Kennel's 404 body has no stack trace or path)."
+}

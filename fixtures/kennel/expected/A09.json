@@ -1,0 +1,15 @@
+{
+  "mode": "A09",
+  "mustFail": [
+    "reflow-320"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "reflow-320",
+      "severity": "medium"
+    }
+  ],
+  "notes": "Fixed-width form at 320 px. Other checks run at the default viewport. Considered and rejected: axe-states (no axe rule measures reflow at the default viewport)."
+}

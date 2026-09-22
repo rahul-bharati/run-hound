@@ -1,0 +1,15 @@
+{
+  "mode": "F03",
+  "mustFail": [
+    "persistence"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "persistence",
+      "severity": "critical"
+    }
+  ],
+  "notes": "Special instructions are dropped server-side while the success toast still shows. Only persistence reloads and compares, so no other check can see it. The finding should name the Special instructions field."
+}

@@ -1,0 +1,15 @@
+{
+  "mode": "F04",
+  "mustFail": [
+    "double-submit"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "double-submit",
+      "severity": "high"
+    }
+  ],
+  "notes": "Book stays enabled while pending. The double click creates an extra booking, but persistence runs earlier in CHECK_IDS order and looks for its own canaries, so extra records must not fail it. Considered and rejected: persistence, keyboard-completion (single Enter), silent-failure (message still shown)."
+}

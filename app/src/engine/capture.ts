@@ -1,0 +1,91 @@
+import type { Page, Request } from "playwright";
+import type { Capture } from "../core/types.js";
+import { secretSpans } from "./redact.js";
+
+/** Largest response body kept, in characters. */
+const MAX_BODY = 64 * 1024;
+const TEXTUAL = /json|^text\/|javascript|xml/i;
+
+type CapturedRequest = Capture["requests"][number];
+
+function originOf(url: string): string | null {
+  try {
+    const origin = new URL(url).origin;
+    return origin === "null" ? null : origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cuts `body` to MAX_BODY characters, never in the middle of a secret: a value that straddles the
+ * limit is dropped whole, so half a key can never survive in an artifact.
+ */
+function truncate(body: string): string {
+  if (body.length <= MAX_BODY) return body;
+  let cut = MAX_BODY;
+  for (const span of secretSpans(body)) {
+    if (span.start < cut && span.end > cut) cut = span.start;
+  }
+  return `${body.slice(0, cut)}…[truncated ${body.length - cut} chars]`;
+}
+
+/**
+ * Starts recording requests, responses, console messages and page errors for the page.
+ * The returned object is live: it keeps filling as the page runs. Response bodies are kept
+ * only for same-origin text/JSON responses, truncated to 64 KB.
+ * "Same origin" means the origin of the page's latest top-level navigation.
+ */
+export function attachCapture(page: Page): Capture {
+  const capture: Capture = { requests: [], console: [], pageErrors: [] };
+  const entries = new WeakMap<Request, CapturedRequest>();
+  let pageOrigin: string | null = originOf(page.url());
+
+  page.on("request", (request) => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+      pageOrigin = originOf(request.url()) ?? pageOrigin;
+    }
+    const entry: CapturedRequest = {
+      url: request.url(),
+      method: request.method(),
+      resourceType: request.resourceType(),
+      postData: request.postData(),
+      status: null,
+      failure: null,
+      responseBody: null,
+    };
+    entries.set(request, entry);
+    capture.requests.push(entry);
+  });
+
+  page.on("response", async (response) => {
+    const entry = entries.get(response.request());
+    if (!entry) return;
+    entry.status = response.status();
+
+    const contentType = response.headers()["content-type"] ?? "";
+    const sameOrigin = pageOrigin !== null && originOf(entry.url) === pageOrigin;
+    // Redirects have no body to read.
+    if (!sameOrigin || !TEXTUAL.test(contentType) || (entry.status >= 300 && entry.status < 400)) return;
+    try {
+      entry.responseBody = truncate(await response.text());
+    } catch {
+      // The page navigated or closed before the body could be read; leave it null.
+    }
+  });
+
+  page.on("requestfailed", (request) => {
+    const entry = entries.get(request);
+    if (entry) entry.failure = request.failure()?.errorText || "request failed";
+  });
+
+  page.on("console", (message) => {
+    capture.console.push({ type: message.type(), text: message.text() });
+  });
+
+  page.on("pageerror", (error) => {
+    capture.pageErrors.push(error.name && error.name !== "Error" ? `${error.name}: ${error.message}` : error.message);
+  });
+
+  return capture;
+}

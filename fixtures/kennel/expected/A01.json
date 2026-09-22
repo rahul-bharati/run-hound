@@ -1,0 +1,15 @@
+{
+  "mode": "A01",
+  "mustFail": [
+    "axe-states"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "axe-states",
+      "severity": "high"
+    }
+  ],
+  "notes": "CONTRACT GAP: axe-core 4.13 'label' rule counts a non-empty placeholder as a label (check non-empty-placeholder), so the WCAG A/AA rule set passes a placeholder-only input. axe-states needs an extra rule for placeholder-only labels (or a different Kennel implementation) to catch A01; titleIncludes is left out until that finding's title is fixed. Severity follows the axe impact mapping critical->high."
+}

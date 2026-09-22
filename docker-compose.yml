@@ -1,0 +1,29 @@
+# Run Hound + Kennel (the deliberately broken demo target), local only.
+#   docker compose up --build          (or: podman-compose up --build)
+#   KENNEL_BUGS=none docker compose up (clean Kennel; default is every V0 bug on)
+#   KENNEL_HOST_PORT / KENNEL_ANALYTICS_HOST_PORT change the host-side ports if 3000/3001 are taken.
+# Then open http://localhost:4000 and test http://kennel:3000/book.
+services:
+  kennel:
+    build:
+      context: .
+      dockerfile: fixtures/kennel/Dockerfile
+    image: localhost/run-hound-kennel:dev
+    environment:
+      KENNEL_BUGS: ${KENNEL_BUGS:-all}
+    ports:
+      - "127.0.0.1:${KENNEL_HOST_PORT:-3000}:3000"
+      - "127.0.0.1:${KENNEL_ANALYTICS_HOST_PORT:-3001}:3001"
+
+  run-hound:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    image: localhost/run-hound:dev
+    init: true
+    environment:
+      RUNHOUND_ALLOWED_HOSTS: kennel
+    ports:
+      - "127.0.0.1:4000:4000"
+    depends_on:
+      - kennel

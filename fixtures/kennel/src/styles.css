@@ -1,0 +1,367 @@
+/* Kennel styles. Clean mode meets WCAG 2.2 AA; rules under .bug-xxx implement a single V0 bug each. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:root {
+  --text: #1f2937;
+  --muted: #4b5563;
+  --border: #6b7280;
+  --accent: #1d4ed8;
+  --accent-dark: #1e3a8a;
+  --error: #b91c1c;
+  --bg: #ffffff;
+  --panel: #f3f4f6;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.page {
+  width: 100%;
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+
+h1 {
+  font-size: 1.75rem;
+  margin: 0 0 0.25rem;
+}
+
+h2 {
+  font-size: 1.25rem;
+  margin: 2rem 0 0.75rem;
+}
+
+.intro,
+.availability {
+  margin: 0 0 1rem;
+}
+
+.booking-form {
+  width: 100%;
+  display: grid;
+  gap: 1rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+label,
+.label,
+legend {
+  font-weight: 600;
+}
+
+input:not([type="radio"]),
+textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.5rem;
+  padding: 0.5rem 0.625rem;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+textarea {
+  resize: vertical;
+}
+
+input[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border-color: var(--error);
+  border-width: 2px;
+}
+
+fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0.75rem 1rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+legend {
+  padding: 0 0.25rem;
+}
+
+.radios {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+}
+
+.radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+input[type="radio"] {
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.account {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.account .hint {
+  margin: 0;
+}
+
+.dates {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 1rem;
+}
+
+.with-button {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.error {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--error);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.primary,
+.secondary {
+  min-height: 2.75rem;
+  padding: 0.5rem 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.primary {
+  color: #ffffff;
+  background: var(--accent);
+  border: 2px solid var(--accent);
+}
+
+.primary:hover {
+  background: var(--accent-dark);
+}
+
+.primary:disabled {
+  cursor: progress;
+  background: var(--accent-dark);
+  border-color: var(--accent-dark);
+}
+
+.secondary {
+  color: var(--accent);
+  background: var(--bg);
+  border: 2px solid var(--accent);
+}
+
+.icon-button {
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.spinner {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgb(255 255 255 / 0.5);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 3s;
+  }
+}
+
+.status {
+  margin: 0;
+  min-height: 1.5rem;
+  font-weight: 600;
+}
+
+.alert-box {
+  padding: 0.75rem 1rem;
+  color: var(--error);
+  background: #fef2f2;
+  border: 2px solid var(--error);
+  border-radius: 8px;
+}
+
+.alert-box p {
+  margin: 0;
+  font-weight: 600;
+}
+
+.stack {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Picker used only by A03 (clickable divs). */
+.picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.option {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.option.selected {
+  color: #ffffff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.bookings ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.bookings li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--panel);
+  border-radius: 8px;
+}
+
+.bookings .details {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding-top: 0.5rem;
+}
+
+/* Visible keyboard focus everywhere. */
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- bugs ------------------------------------------------------------------------------------ */
+
+/* A04: inputs lose their focus outline with no replacement (buttons keep theirs). */
+.bug-a04 input:focus,
+.bug-a04 input:focus-visible,
+.bug-a04 textarea:focus,
+.bug-a04 textarea:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* A06: helper text drops to about 2:1 contrast. */
+.bug-a06 .hint {
+  color: #b3b3b3;
+}
+
+/* A08: remove buttons are 16x16 px and the list is packed tight, so the targets crowd each other. */
+.bug-a08 .bookings ul {
+  gap: 0;
+}
+
+.bug-a08 .bookings li {
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  border-radius: 0;
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.bug-a08 .bookings .details {
+  padding-top: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bug-a08 .remove {
+  width: 16px;
+  height: 16px;
+  border-width: 0;
+  border-radius: 2px;
+}
+
+.bug-a08 .remove svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* A09: the form has a fixed width and overflows narrow screens. */
+.bug-a09 .booking-form {
+  width: 36rem;
+  max-width: none;
+}

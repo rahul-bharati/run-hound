@@ -1,0 +1,8 @@
+{
+  "mode": "clean",
+  "mustFail": [],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [],
+  "notes": "Clean Kennel: every V0 check must pass with zero findings. Data persists across scenarios within a run (no reset between scenarios), so checks must tolerate bookings created by earlier scenarios."
+}

@@ -24,7 +24,7 @@ export default function TermsPage() {
 
       <h2 id="agreement">Agreement</h2>
       <p>
-        This website is operated by <strong>[LEGAL ENTITY NAME]</strong> (&ldquo;we&rdquo;, &ldquo;us&rdquo;). By
+        This website is operated by <strong>RAHUL BHARATI</strong> (&ldquo;we&rdquo;, &ldquo;us&rdquo;). By
         using it, you agree to these terms. If you do not agree, please do not use the site.
       </p>
 

@@ -1,0 +1,16 @@
+{
+  "mode": "F01",
+  "mustFail": [
+    "dead-control"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "dead-control",
+      "severity": "high",
+      "titleIncludes": "Save draft"
+    }
+  ],
+  "notes": "Only Save draft loses its handler. Considered and rejected: axe-states (the button keeps its name and role). Title must name the dead control by its accessible name."
+}

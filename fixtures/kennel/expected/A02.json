@@ -1,0 +1,16 @@
+{
+  "mode": "A02",
+  "mustFail": [
+    "axe-states"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "axe-states",
+      "severity": "high",
+      "titleIncludes": "discernible text"
+    }
+  ],
+  "notes": "axe rule button-name (impact critical -> high). Title is expected to carry the axe rule's help text ('Buttons must have discernible text'). Considered and rejected: dead-control (the clear button still clears), focus-visible (outline unchanged)."
+}

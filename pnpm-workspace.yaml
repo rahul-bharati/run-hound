@@ -1,0 +1,11 @@
+packages:
+  - app
+  - fixtures/kennel
+  - tests/acceptance
+
+allowBuilds:
+  esbuild: true
+
+# pnpm 12.3.4 fails to materialise peer-less variants of vitest for the kennel package;
+# the hoisted linker sidesteps it and keeps resolution simple for this small workspace.
+nodeLinker: hoisted

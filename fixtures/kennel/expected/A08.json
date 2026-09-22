@@ -1,0 +1,16 @@
+{
+  "mode": "A08",
+  "mustFail": [
+    "axe-states"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "axe-states",
+      "severity": "medium",
+      "titleIncludes": "touch targets"
+    }
+  ],
+  "notes": "axe rule target-size (WCAG 2.2 AA, impact serious -> medium). The remove buttons exist only once a booking is listed, so axe-states must run on the success state. Kennel must place the 16x16 buttons close enough that the 24px spacing exception does not apply, or axe passes. Title is expected to carry the axe help text ('All touch targets must be 24px large, or leave sufficient space')."
+}

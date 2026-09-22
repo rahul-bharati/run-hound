@@ -1,0 +1,10 @@
+{
+  "name": "run-hound-workspace",
+  "private": true,
+  "packageManager": "pnpm@12.3.4",
+  "scripts": {
+    "kennel": "pnpm --filter kennel start",
+    "serve": "pnpm --filter run-hound serve",
+    "test:acceptance": "pnpm --filter acceptance test"
+  }
+}

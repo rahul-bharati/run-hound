@@ -1,0 +1,10 @@
+# Build context is the repository root; keep host installs, build output and run artifacts out of it.
+**/node_modules
+**/dist
+**/runs
+**/test-results
+**/playwright-report
+**/*.log
+.git
+.env
+site

@@ -1,0 +1,15 @@
+{
+  "mode": "A05",
+  "mustFail": [
+    "error-announcement"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "error-announcement",
+      "severity": "high"
+    }
+  ],
+  "notes": "Client-side validation errors become red text only (no aria-invalid, no aria-describedby, no live region). Server-error message handling is unchanged, so silent-failure still passes. Considered and rejected: axe-states invalid state (missing aria-invalid violates no axe rule; red text must still meet contrast)."
+}

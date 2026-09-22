@@ -1,0 +1,20 @@
+{
+  "name": "acceptance",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "update-golden": "UPDATE_GOLDEN=1 vitest run"
+  },
+  "dependencies": {
+    "kennel": "workspace:*",
+    "run-hound": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.2",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
+  }
+}

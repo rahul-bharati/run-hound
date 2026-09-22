@@ -2,6 +2,50 @@
 
 AI-assisted automated UI testing agent that hunts for the holes AI-generated apps ship with.
 
+## Running V0 locally
+
+V0 tests one form on a local app: point it at the form, approve the plan, get a report. Needs Node 22+, pnpm and Chromium.
+
+```sh
+pnpm install
+pnpm --filter run-hound exec playwright install chromium   # once, and its system deps if prompted
+pnpm --filter kennel build                                 # build the demo target (Vite bundle)
+KENNEL_BUGS=all pnpm kennel                                # Kennel on http://localhost:3000/book (KENNEL_BUGS=none for clean mode)
+```
+
+With Kennel running, in a second terminal:
+
+```sh
+pnpm serve                                                 # web UI + API on http://127.0.0.1:4000
+```
+
+Open <http://localhost:4000>, enter `http://localhost:3000/book`, approve the plan and watch the run.
+
+Same thing from the command line:
+
+```sh
+cd app
+pnpm exec tsx src/cli.ts run http://localhost:3000/book    # --approve all | --allow-destructive | --json
+```
+
+Reports land in `app/runs/<runId>/`: `report.html`, `report.md`, `report.json`, screenshots and a `specs/` folder of runnable Playwright tests. `run` exits 0 with no findings, 1 with findings and 2 on an error (including a refused target).
+
+Both services in containers (host ports bound to `127.0.0.1`):
+
+```sh
+docker compose up --build                                  # UI on http://localhost:4000, target http://kennel:3000/book
+```
+
+Safety while you try it: the target must be `localhost`, a private address, or listed in `RUNHOUND_ALLOWED_HOSTS`; the browser is pinned to the address the gate approved and is stopped if a page navigates off it; destructive scenarios only run with `--allow-destructive`. The UI and API answer only on loopback names and IP addresses — add others with `RUNHOUND_SERVER_HOSTS`.
+
+Running the suites:
+
+```sh
+pnpm --filter run-hound test          # unit + browser tests for the engine and checks
+pnpm --filter run-hound exec tsc --noEmit
+pnpm test:acceptance                  # Run Hound against Kennel, clean mode and every planted bug
+```
+
 ## Problem statement
 
 - AI can build an app from a single-line prompt, but AI-generated apps often ship with holes: untested paths, unhandled edge cases, broken flows, weak error handling and inaccessible UI. Some of these, such as gaps in auth or payment handling, can lead to data breaches or privacy issues.

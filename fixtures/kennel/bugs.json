@@ -1,0 +1,32 @@
+{
+  "$comment": "Ground truth for Kennel. Each V0 bug is enabled with KENNEL_BUGS=<ids> and must be caught by `detectedBy`. V2 bugs are listed for later and not built yet.",
+  "bugs": [
+    { "id": "F01", "version": "V0", "category": "broken-feature", "severity": "high", "title": "\"Save draft\" button has no handler", "detectedBy": "dead-control" },
+    { "id": "F02", "version": "V0", "category": "broken-feature", "severity": "high", "title": "Server errors leave the form spinning with no message", "detectedBy": "silent-failure" },
+    { "id": "F03", "version": "V0", "category": "broken-feature", "severity": "critical", "title": "\"Special instructions\" shows a success toast but is never saved", "detectedBy": "persistence" },
+    { "id": "F04", "version": "V0", "category": "broken-feature", "severity": "high", "title": "Book button stays enabled while sending, so a double click books twice", "detectedBy": "double-submit" },
+    { "id": "F05", "version": "V0", "category": "broken-feature", "severity": "medium", "title": "Availability request uses an undefined env var (undefined/api/...)", "detectedBy": "console-network-errors" },
+    { "id": "F06", "version": "V0", "category": "validation", "severity": "high", "title": "End date before start date is only blocked in the browser", "detectedBy": "client-only-validation" },
+    { "id": "A01", "version": "V0", "category": "accessibility", "severity": "high", "title": "Phone input uses a placeholder as its only label", "detectedBy": "axe-states" },
+    { "id": "A02", "version": "V0", "category": "accessibility", "severity": "high", "title": "Icon-only \"clear\" button has no accessible name", "detectedBy": "axe-states" },
+    { "id": "A03", "version": "V0", "category": "accessibility", "severity": "high", "title": "Pet-type picker is clickable divs", "detectedBy": "keyboard-completion" },
+    { "id": "A04", "version": "V0", "category": "accessibility", "severity": "high", "title": "Focus outline removed on inputs with no replacement", "detectedBy": "focus-visible" },
+    { "id": "A05", "version": "V0", "category": "accessibility", "severity": "high", "title": "Validation errors are red text only, never announced", "detectedBy": "error-announcement" },
+    { "id": "A06", "version": "V0", "category": "accessibility", "severity": "medium", "title": "Helper text contrast too low", "detectedBy": "axe-states" },
+    { "id": "A07", "version": "V0", "category": "accessibility", "severity": "medium", "title": "Paste blocked on the confirm-password field", "detectedBy": "credential-fields" },
+    { "id": "A08", "version": "V0", "category": "accessibility", "severity": "medium", "title": "Remove-pet icon buttons are 16x16 px", "detectedBy": "axe-states" },
+    { "id": "A09", "version": "V0", "category": "accessibility", "severity": "medium", "title": "Fixed-width form breaks at 320 px", "detectedBy": "reflow-320" },
+    { "id": "S01", "version": "V0", "category": "security", "severity": "critical", "title": "Fake LLM-provider-shaped key shipped in the JavaScript bundle", "detectedBy": "bundle-secrets" },
+    { "id": "S02", "version": "V0", "category": "security", "severity": "critical", "title": "Supabase-style service_role key shipped in the JavaScript bundle", "detectedBy": "bundle-secrets" },
+    { "id": "S03", "version": "V0", "category": "security", "severity": "high", "title": "Customer email sent to the mock analytics service in a query string", "detectedBy": "pii-leak" },
+    { "id": "S04", "version": "V0", "category": "security", "severity": "medium", "title": "Server error shows a stack trace in the page", "detectedBy": "verbose-errors" },
+
+    { "id": "D01", "version": "V2", "category": "security", "severity": "critical", "title": "bookings table has RLS disabled", "detectedBy": null },
+    { "id": "D02", "version": "V2", "category": "security", "severity": "critical", "title": "pets policy is USING (true)", "detectedBy": null },
+    { "id": "D03", "version": "V2", "category": "security", "severity": "high", "title": "profiles update policy lets a user change their own role", "detectedBy": null },
+    { "id": "D04", "version": "V2", "category": "security", "severity": "high", "title": "/admin guarded only in the browser", "detectedBy": null },
+    { "id": "D05", "version": "V2", "category": "security", "severity": "critical", "title": "Booking detail API has no ownership check", "detectedBy": null },
+    { "id": "D06", "version": "V2", "category": "security", "severity": "high", "title": "vet-records storage bucket is public", "detectedBy": null },
+    { "id": "D07", "version": "V2", "category": "security", "severity": "critical", "title": "Premium granted by the success page, not a verified webhook", "detectedBy": null }
+  ]
+}

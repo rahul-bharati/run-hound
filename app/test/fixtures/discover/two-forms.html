@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Two forms</title></head>
+<body>
+<header>
+  <form id="search" role="search">
+    <label for="q">Search</label>
+    <input id="q" name="q" type="search">
+    <button type="submit">Go</button>
+  </form>
+</header>
+<main>
+  <form id="signup">
+    <h2>Create an account</h2>
+    <label for="fullName">Full name</label>
+    <input id="fullName" name="fullName" type="text" required>
+    <label for="signupEmail">Email</label>
+    <input id="signupEmail" name="email" type="email" required>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" required autocomplete="new-password">
+    <label for="confirm">Confirm password</label>
+    <input id="confirm" name="confirm" type="password" required autocomplete="new-password">
+    <button type="submit">Sign up</button>
+  </form>
+</main>
+</body>
+</html>

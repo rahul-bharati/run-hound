@@ -1,0 +1,15 @@
+{
+  "mode": "S02",
+  "mustFail": [
+    "bundle-secrets"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "bundle-secrets",
+      "severity": "critical"
+    }
+  ],
+  "notes": "Supabase-style JWT whose payload has role service_role, in the separate secrets script. The anon key must not be reported (allowed). Value redacted in every artifact."
+}

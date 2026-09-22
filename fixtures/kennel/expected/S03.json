@@ -1,0 +1,15 @@
+{
+  "mode": "S03",
+  "mustFail": [
+    "pii-leak"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "pii-leak",
+      "severity": "high"
+    }
+  ],
+  "notes": "Email canary sent to the mock analytics origin (different port = third party) in a query string. Analytics answers 2xx, so console-network-errors still passes."
+}
