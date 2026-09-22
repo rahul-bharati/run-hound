@@ -9,8 +9,8 @@ export const site = {
   // Planned image name; the image is not published yet.
   dockerCommand: "docker run -p 4000:4000 ghcr.io/rahul-bharati/run-hound",
   // Placeholders until real addresses exist.
-  contactEmail: "[CONTACT EMAIL]",
-  securityEmail: "[SECURITY EMAIL]",
+  contactEmail: "contact@rahulbharati.dev",
+  securityEmail: "contact@rahulbharati.dev",
 } as const;
 
 export const mainNav = [
