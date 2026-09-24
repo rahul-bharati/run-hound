@@ -41,8 +41,12 @@ describe("client-only-validation: contract", () => {
     expectPlan(check, sampleForm("http://localhost:3000/book"), "danger");
   });
 
-  it("plans nothing for a non-localhost target", () => {
-    expect(check.plan(sampleForm("https://shop.example.com/book"))).toEqual([]);
+  it("still plans the scenario for a non-localhost target, saying it will be skipped", () => {
+    // Leaving it out of the plan hid the check from the plan and the report; it is now planned and skipped with a reason.
+    const [scenario, ...rest] = check.plan(sampleForm("https://shop.example.com/book"));
+    expect(rest).toEqual([]);
+    expect(scenario!.description).toMatch(/skipped/i);
+    expect(scenario!.description).toMatch(/localhost/i);
   });
 });
 
@@ -104,6 +108,27 @@ describe("client-only-validation: BAD", () => {
     const { results } = await runCheck(check, s.url);
     expectFailure(results, ID, "validation", ["high", "critical", "medium"]);
     expect(s.api.bookings.length).toBeLessThanOrEqual(results.length);
+  });
+});
+
+describe("client-only-validation: a server error is not a rejection", () => {
+  it("fails (medium) when the server answers the invalid replay with 5xx instead of 4xx", async () => {
+    const s = await startBookingApp(
+      { dateOrderCheck: true },
+      {},
+      {
+        routes: {
+          "POST /api/bookings": (_req, res) => {
+            res.writeHead(500, { "content-type": "application/json" });
+            res.end('{"error":"Something went wrong"}');
+          },
+        },
+      },
+    );
+    servers.push(s);
+    const { results } = await runCheck(check, s.url);
+    const findings = expectFailure(results, ID, "validation", ["medium"]);
+    expect(findings.map(findingText).join("\n")).toMatch(/500/);
   });
 });
 

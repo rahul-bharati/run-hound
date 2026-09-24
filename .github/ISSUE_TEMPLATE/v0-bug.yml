@@ -1,0 +1,59 @@
+name: V0 bug
+description: Run Hound itself broke (install, start-up, a crash, a report that won't open, Docker trouble).
+title: "[V0 bug] "
+labels: ["bug", "v0"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when Run Hound itself misbehaves. For a finding you think is wrong, or a bug it missed in your app, use **V0 tester feedback** instead.
+  - type: input
+    id: version
+    attributes:
+      label: Run Hound version
+      description: "`run-hound --version`, or `runHoundVersion` in report.json."
+      placeholder: run-hound 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system, Node and pnpm versions (or Docker/Podman version)
+      placeholder: "Fedora 44, Node 24.21, pnpm 12.3.4 / macOS 16, Docker Desktop 4.50"
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did it break?
+      options:
+        - Install (pnpm install, playwright install)
+        - Starting the web UI or the command line
+        - Planning (finding the form)
+        - During a run
+        - Writing or opening the report
+        - Docker or Podman
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands you ran and the URL shape you entered (e.g. `http://localhost:5173/signup`).
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Error output
+      description: The terminal output, including the exit code (`echo $?` right after the run).
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Attach report.md or a zipped run folder if a run got that far. Check screenshots first; they are not redacted.

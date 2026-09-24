@@ -194,6 +194,9 @@ describe("discoverForm choosing a form", () => {
       expect(await page.locator(form.selector).evaluate((el) => el.id)).toBe("signup");
       expect(form.fields.map((f) => f.key).sort()).toEqual(["confirm", "email", "fullName", "password"]);
       expect(form.fields.find((f) => f.key === "password")?.type).toBe("password");
+      // The autocomplete hint is recorded (it tells a sign-in form from a sign-up form); fields without one have none.
+      expect(form.fields.find((f) => f.key === "password")?.autocomplete).toBe("new-password");
+      expect(form.fields.filter((f) => !f.autocomplete).length).toBeGreaterThan(0);
       expect(form.controls.filter((c) => c.isSubmit).map((c) => c.text)).toEqual(["Sign up"]);
       expect(form.name).toBe("Create an account");
     } finally {

@@ -2,7 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { closeBrowser, runCheck } from "../../test-support/harness.js";
 import { startBookingApp, sampleForm, type ApiOptions, type BookingServer, type ClientOptions } from "../../test/fixtures/checks/_behavior/booking-app.js";
 import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectPlan } from "../../test/fixtures/checks/_behavior/expectations.js";
-import { check } from "./console-network-errors.js";
+import { check, DEV_SERVER_NOISE } from "./console-network-errors.js";
 
 const ID = "console-network-errors" as const;
 const servers: BookingServer[] = [];
@@ -97,5 +97,29 @@ describe("console-network-errors: BAD", () => {
     const findings = expectFailure(results, ID, "broken-feature", ["medium", "high"]);
     expect(evidenceText(findings)).toContain("/api/bookings");
     expect(evidenceText(findings)).toMatch(/500/);
+  });
+});
+
+describe("console-network-errors: dev-server plumbing is not the app", () => {
+  it("DEV_SERVER_NOISE matches hot-reload sockets and pings of common dev servers, not app URLs", () => {
+    for (const noise of [
+      "http://localhost:3000/_next/webpack-hmr",
+      "WebSocket connection to 'ws://host.docker.internal:3000/_next/webpack-hmr' failed:",
+      "http://localhost:5173/@vite/client",
+      "[vite] failed to connect to websocket.",
+      "http://localhost:8080/sockjs-node/info?t=1",
+      "Blocked cross-origin request to Next.js dev resource /_next/webpack-hmr from \"host.docker.internal\".",
+    ]) {
+      expect(DEV_SERVER_NOISE.test(noise), noise).toBe(true);
+    }
+    for (const app of ["http://localhost:3000/api/bookings", "http://localhost:5173/src/main.tsx", "Uncaught TypeError: x is undefined"]) {
+      expect(DEV_SERVER_NOISE.test(app), app).toBe(false);
+    }
+  });
+
+  it("GOOD: a failing hot-reload request (and its console line) on an otherwise clean page passes", async () => {
+    const s = await app({ extraScript: 'fetch("/_next/webpack-hmr?id=1").catch(() => {});' });
+    const { results } = await runCheck(check, s.url);
+    expectCleanPass(results, ID);
   });
 });

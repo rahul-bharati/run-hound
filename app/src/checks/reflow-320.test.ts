@@ -50,7 +50,27 @@ describe("reflow-320 check", () => {
     expect(evidence).toMatch(/scrollWidth/);
     expect(evidence).toMatch(/\b320\b/);
     expect(evidence).toMatch(/\b6\d\d\b/);
-    // A screenshot at 320 px is the most useful evidence for a layout bug.
-    expect(f.evidence.some((e) => e.kind === "screenshot" && typeof e.path === "string")).toBe(true);
+    // A capture at 320 px is the most useful evidence for a layout bug (an annotated "frame" per docs/v0-spec.md "Evidence").
+    expect(f.evidence.some((e) => (e.kind === "frame" || e.kind === "screenshot") && typeof e.path === "string")).toBe(true);
+  });
+
+  it("ADVISORY: only a long test value saved by Run Hound spills past the screen -> low, advisory, the value is named", async () => {
+    const { results, findings } = await run(fixtures.longTestValue);
+    expect(overallStatus(results)).toBe("fail");
+    expect(findings).toHaveLength(1);
+    const f = findings[0]!;
+    expect(f.confidence).toBe("advisory");
+    expect(f.severity).toBe("low");
+    expect(f.title).toMatch(/long unbroken text/i);
+    expect(f.meaning).toMatch(/saved by Run Hound/);
+    expect(f.fix).toMatch(/overflow-wrap/);
+    expect(f.location).toMatch(/#saved-email/);
+  });
+
+  it("BAD: the page's own long text spills past the screen -> confirmed, and the element it comes from is named", async () => {
+    const { findings } = await run(fixtures.longPageText);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.confidence).toBe("confirmed");
+    expect(findings[0]!.location).toMatch(/#long-code/);
   });
 });

@@ -71,6 +71,16 @@ describe("dead-control: contract", () => {
     expectPlan(check, sampleForm(), "golden");
   });
 
+  it("names the buttons it will click in a readable list", () => {
+    const base = sampleForm();
+    const submit = base.controls.find((c) => c.isSubmit)!;
+    const button = (name: string) => ({ ...submit, accessibleName: name, text: name, isSubmit: false, selector: `#${name.replace(/\W/g, "")}` });
+    const one = check.plan({ ...base, controls: [submit, button("Save draft")] })[0]!.description;
+    expect(one).toMatch(/^Click "Save draft" and check that it causes /);
+    const two = check.plan({ ...base, controls: [submit, button("Clear pet name"), button("Save draft")] })[0]!.description;
+    expect(two).toMatch(/^Click "Clear pet name" and "Save draft" one at a time and check that each causes /);
+  });
+
   it("plans nothing when the only control is the submit button", () => {
     const form: DiscoveredForm = { ...sampleForm(), controls: sampleForm().controls.filter((c) => c.isSubmit) };
     expect(check.plan(form)).toEqual([]);
@@ -113,6 +123,14 @@ describe("dead-control: BAD", () => {
     const text = findings.map(findingText).join("\n");
     expect(text).toMatch(/Save draft/);
     expect(text).toMatch(/Clear pet name/);
+    // One problem, two buttons: one finding listing both (docs/v0-spec.md, "Tester release").
+    expect(findings).toHaveLength(1);
+    const f = findings[0]!;
+    expect(f.title).toMatch(/\b2\b/);
+    expect(f.locations).toHaveLength(2);
+    expect(f.location).toBe(f.locations![0]);
+    expect(f.locations!.join("\n")).toMatch(/Save draft/);
+    expect(f.locations!.join("\n")).toMatch(/Clear pet name/);
   });
 });
 

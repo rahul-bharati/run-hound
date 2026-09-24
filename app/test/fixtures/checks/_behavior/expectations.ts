@@ -77,7 +77,7 @@ export function expectWellFormedFinding(f: Finding, checkId: CheckId, category: 
   expect(f.fix.trim().length).toBeGreaterThan(0);
   expect(f.evidence.length).toBeGreaterThanOrEqual(1);
   for (const e of f.evidence) {
-    expect(["screenshot", "network", "console", "dom", "axe", "note"]).toContain(e.kind);
+    expect(["frame", "gif", "card", "screenshot", "network", "console", "dom", "axe", "note"]).toContain(e.kind);
     expect(e.label.trim().length).toBeGreaterThan(0);
   }
   expect(f.spec).toBeDefined();

@@ -35,3 +35,31 @@ export const outlineReplacedByBackground: BookingVariant = {
 export const autofocus: BookingVariant = {
   script: 'document.getElementById("petName").focus();',
 };
+
+/**
+ * BAD for the text inputs, GOOD for the date field: every outline is removed, but a native date field still shows
+ * focus by highlighting its first segment, so only the text inputs may be reported.
+ */
+export const dateSegmentOnly: BookingVariant = {
+  css: "input:focus, input:focus-visible { outline: none; box-shadow: none; }",
+  replace: [
+    [
+      '<input id="ownerEmail" name="ownerEmail" type="email" required autocomplete="email">',
+      '<input id="ownerEmail" name="ownerEmail" type="email" required autocomplete="email"><label for="startDate">Start date</label><input id="startDate" name="startDate" type="date">',
+    ],
+  ],
+};
+
+/**
+ * GOOD: a Next.js dev-tools host (<nextjs-portal>, a shadow root with a button that has no focus style) is injected
+ * into the page, as `next dev` does. It is not part of the app and must not be reported.
+ */
+export const devToolsOverlay: BookingVariant = {
+  script: `customElements.define("nextjs-portal", class extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" }).innerHTML = '<style>button { outline: none; border: 0; background: #111; color: #fff; }</style><button>Issues</button>';
+  }
+});
+document.body.append(document.createElement("nextjs-portal"));`,
+};

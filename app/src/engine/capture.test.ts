@@ -15,6 +15,10 @@ beforeAll(async () => {
         res.writeHead(200, { "content-type": "application/json", "access-control-allow-origin": "*" });
         res.end(JSON.stringify({ thirdParty: "cross-origin-body" }));
       },
+      "POST /save": (_req, res) => {
+        res.writeHead(201, { "content-type": "application/json", "access-control-allow-origin": "*" });
+        res.end(JSON.stringify({ saved: true }));
+      },
     },
   });
 
@@ -33,6 +37,7 @@ beforeAll(async () => {
             await fetch("/api/boom");
             await fetch("/api/drop").catch(() => {});
             await fetch("${thirdParty.url}/data");
+            await fetch("${thirdParty.url}/save", { method: "POST", body: "x" }).then((r) => r.text());
             setTimeout(() => { throw new Error("kaboom from page"); }, 0);
             document.body.dataset.done = "yes";
           })();
@@ -157,11 +162,23 @@ describe("attachCapture", () => {
   it("records console messages with their type", () => {
     expect(capture.console).toEqual(
       expect.arrayContaining([
-        { type: "log", text: "hello from the page" },
-        { type: "warning", text: "careful now" },
-        { type: "error", text: "something broke" },
+        expect.objectContaining({ type: "log", text: "hello from the page" }),
+        expect.objectContaining({ type: "warning", text: "careful now" }),
+        expect.objectContaining({ type: "error", text: "something broke" }),
       ]),
     );
+  });
+
+  it("records where a console message came from (the resource, for a failed load)", () => {
+    const failedLoad = capture.console.find((c) => /Failed to load resource/.test(c.text) && c.url?.endsWith("/api/missing"));
+    expect(failedLoad, JSON.stringify(capture.console)).toBeDefined();
+  });
+
+  it("keeps the answer of a write to another local origin (the app's API on another port), never of a read", async () => {
+    const save = capture.requests.find((r) => r.url === `${thirdParty.url}/save`);
+    expect(save).toBeDefined();
+    await expect.poll(() => save!.responseBody).toBe(JSON.stringify({ saved: true }));
+    expect(capture.requests.find((r) => r.url === `${thirdParty.url}/data`)!.responseBody).toBeNull();
   });
 
   it("records uncaught page errors", () => {

@@ -4,8 +4,10 @@
  */
 import { createHash } from "node:crypto";
 import type { Page, Response } from "playwright";
+import { isSaveRequest } from "../../core/saves.js";
 import type { DiscoveredForm, FormField } from "../../core/types.js";
 import { submitControl } from "./a11y-common.js";
+import { controlLocator, fieldLocator } from "./functional-finding.js";
 
 /** Test values that carry the run token, so they can be recognised in any request. */
 export interface Canaries {
@@ -112,18 +114,34 @@ export async function fillValid(page: Page, form: DiscoveredForm, values: Canari
   }
 }
 
-/** Playwright source lines that fill the form like fillValid and click submit, for exported specs. */
+/**
+ * Playwright source lines that fill the form like fillValid and click submit, for exported specs. Uses the same
+ * role/label/placeholder locators as the behaviour checks' specs (never positional CSS), so a spec keeps working
+ * after the developer fixes an unrelated bug that changes the page's structure.
+ */
 export function fillAndSubmitSpec(form: DiscoveredForm, values: Canaries): string {
   const q = (v: string) => JSON.stringify(v);
-  const lines = fillActions(form, values).map((a) => {
-    const target = `page.locator(${q(a.selector)}).first()`;
-    if (a.op === "click") return `await ${target}.click();`;
-    if (a.op === "check") return `await ${target}.check();`;
-    if (a.op === "select") return `await ${target}.selectOption({ label: ${q(a.label)} });`;
-    return `await ${target}.fill(${q(a.value)});`;
-  });
+  const anyPasswordRequired = form.fields.some((f) => f.type === "password" && f.required);
+  const lines: string[] = [];
+  for (const field of form.fields) {
+    if (!shouldFill(field) && !(anyPasswordRequired && field.type === "password")) continue;
+    const first = field.options?.[0];
+    if (field.type === "radio") {
+      if (first) lines.push(`await page.getByRole("radio", { name: ${q(first.label)}, exact: true }).check();`);
+    } else if (field.type === "custom") {
+      // Clicking the option's text also works once the picker becomes a native radio group (the text is its label).
+      if (first) lines.push(`await page.getByText(${q(first.label)}, { exact: true }).first().click();`);
+    } else if (field.type === "checkbox") {
+      lines.push(`await ${fieldLocator(field)}.check();`);
+    } else if (field.type === "select" || field.type === "select-one") {
+      if (first) lines.push(`await ${fieldLocator(field)}.selectOption({ label: ${q(first.label)} });`);
+    } else {
+      const value = textValueFor(field, values);
+      if (value !== null) lines.push(`await ${fieldLocator(field)}.fill(${q(value)});`);
+    }
+  }
   const submit = submitControl(form);
-  if (submit) lines.push(`await page.locator(${q(submit.selector)}).first().click();`);
+  if (submit) lines.push(`await ${controlLocator(submit)}.click();`);
   return lines.join("\n");
 }
 
@@ -137,14 +155,27 @@ export function sameOrigin(url: string, base: string): boolean {
 }
 
 /**
- * Clicks the submit control and waits for the first same-origin non-GET response (the create request).
- * Returns null when no such request happened within `timeoutMs`.
+ * Clicks the submit control and waits for the form's save request to be answered (core/saves.ts: a non-GET request
+ * to the target's origin, including a classic page post, or to another origin carrying the run's test values).
+ * Returns its response, or null when no save request was answered within `timeoutMs`.
+ * A page post answered with a redirect returns the 3xx response; the browser then loads the page it points to.
  */
-export async function submitAndWait(page: Page, form: DiscoveredForm, timeoutMs = 10_000): Promise<Response | null> {
+export async function submitAndWait(
+  page: Page,
+  form: DiscoveredForm,
+  options: { targetUrl?: string; runToken?: string; timeoutMs?: number } = {},
+): Promise<Response | null> {
   const submit = submitControl(form);
   if (!submit) return null;
+  const target = options.targetUrl ?? page.url();
   const response = page
-    .waitForResponse((r) => r.request().method() !== "GET" && sameOrigin(r.url(), page.url()), { timeout: timeoutMs })
+    .waitForResponse(
+      (r) => {
+        const req = r.request();
+        return isSaveRequest({ method: req.method(), resourceType: req.resourceType(), url: req.url(), postData: req.postData() }, target, options.runToken ?? "");
+      },
+      { timeout: options.timeoutMs ?? 10_000 },
+    )
     .catch(() => null);
   await page.locator(submit.selector).first().click();
   const res = await response;

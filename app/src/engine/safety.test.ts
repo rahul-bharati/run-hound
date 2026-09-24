@@ -263,3 +263,10 @@ describe("isAllowedUrl", () => {
     expect(await isAllowedUrl("file:///etc/passwd", { lookup })).toBe(false);
   });
 });
+
+describe("0.0.0.0", () => {
+  it("is refused with a hint to use localhost, keeping the port", async () => {
+    await expect(assertAllowedTarget("http://0.0.0.0:5173/signup")).rejects.toThrow(/use http:\/\/localhost:5173 instead/);
+    await expect(assertAllowedTarget("http://[::]/")).rejects.toThrow(/use http:\/\/localhost instead/);
+  });
+});

@@ -62,6 +62,14 @@ describe("focus-visible check", () => {
     expect(overallStatus(results)).toBe("pass");
   });
 
+  it("a native date field's segment highlight counts as visible focus; text inputs without one are still reported", async () => {
+    const { results, findings } = await run(fixtures.dateSegmentOnly);
+    expect(overallStatus(results)).toBe("fail");
+    const titles = findings.map((f) => `${f.title} | ${f.location ?? ""}`).join("\n");
+    expect(titles).toMatch(/pet name/i);
+    expect(titles).not.toMatch(/start date/i);
+  });
+
   it("BAD (A04): outline:none with no replacement on text inputs -> fail naming those inputs only", async () => {
     const { results, findings } = await run(fixtures.outlineRemoved);
     expect(overallStatus(results)).toBe("fail");
@@ -80,5 +88,11 @@ describe("focus-visible check", () => {
     expect(all).toMatch(/owner email|#ownerEmail\b/i);
     // Buttons, radios and password fields keep their outline and must not be reported.
     expect(all).not.toMatch(/"location":"[^"]*(Book|Pet type|Password|Confirm password|Clear pet name)/);
+  });
+
+  it("GOOD: a dev-server overlay (Next.js <nextjs-portal>) with no focus style is not part of the app and is not reported", async () => {
+    const { results, findings } = await run(fixtures.devToolsOverlay);
+    expect(findings).toEqual([]);
+    expect(overallStatus(results)).toBe("pass");
   });
 });

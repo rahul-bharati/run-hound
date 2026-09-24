@@ -1,12 +1,22 @@
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { chromium } from "playwright";
+import { chromium, type LaunchOptions } from "playwright";
 import type { Check, CheckResult, Plan, Report, Scenario } from "../core/types.js";
 import { createCheckContext } from "./context.js";
 import { discoverForm } from "./discover.js";
-import { TargetNotAllowedError } from "./errors.js";
+import {
+  cleanErrorMessage,
+  containerLocalhostHint,
+  explainNavigationError,
+  explainNoForm,
+  inContainer,
+  NoFormFoundError,
+  normalizeTargetUrl,
+  TargetNotAllowedError,
+  TargetUnreachableError,
+} from "./errors.js";
 import { guardContext, guardSummary } from "./guard.js";
 import { buildPlan } from "./plan.js";
 import { redactSecrets } from "./redact.js";
@@ -30,13 +40,43 @@ export interface RunOptions {
   onProgress?: (event: ProgressEvent) => void;
   /** Run id to use (letters, digits, "_" and "-"). Generated when omitted; the server passes its own. */
   runId?: string;
+  /** Stream JPEG frames of the page under test as "frame" progress events (the web UI's live view). Default false. */
+  live?: boolean;
+  /** Open a visible browser window instead of headless Chromium, so a person can watch. Default false. */
+  headed?: boolean;
 }
 
 export type ProgressEvent =
   | { type: "scenario-start"; scenarioId: string; index: number; total: number }
-  | { type: "scenario-end"; scenarioId: string; result: CheckResult };
+  | { type: "scenario-end"; scenarioId: string; result: CheckResult }
+  /**
+   * A check reported what it is doing (CheckContext.step) or the engine started a phase (discovery, report).
+   * Engine steps outside any scenario carry ENGINE_STEP ("") as their scenarioId.
+   */
+  | { type: "step"; scenarioId: string; label: string; url: string; at: string }
+  /** A page finished loading in the browser under test (main frame only). Feeds report.pagesVisited. */
+  | { type: "page"; scenarioId: string; url: string; at: string }
+  /** Latest screencast frame of the page under test; only when RunOptions.live. Secrets can't be redacted from pixels. */
+  | { type: "frame"; scenarioId: string; url: string; jpeg: Buffer; at: string };
 
-const VERSION: string = (() => {
+/**
+ * Whether a visible browser window (headed mode) can open here: always on macOS and Windows, and on Linux only with a
+ * display server (DISPLAY or WAYLAND_DISPLAY). A container has none, and Chromium then fails with a long banner.
+ */
+export function canShowBrowser(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): boolean {
+  if (platform === "darwin" || platform === "win32") return true;
+  return Boolean(env.DISPLAY || env.WAYLAND_DISPLAY);
+}
+
+/** Why headed mode is unavailable, in plain words. */
+export const NO_DISPLAY_MESSAGE =
+  "There is no display on the machine running Run Hound (no DISPLAY or WAYLAND_DISPLAY, as in a container), so a browser window can't be shown. Run without it; the live view in the web UI works either way.";
+
+/** scenarioId of step events the engine reports outside any scenario (discovery, launching, writing the report). */
+export const ENGINE_STEP = "";
+
+/** Run Hound's version, from app/package.json: printed by --version, stored in every report, shown in the web UI. */
+export const RUN_HOUND_VERSION: string = (() => {
   try {
     const pkg = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version?: string };
     return pkg.version ?? "0.0.0";
@@ -54,6 +94,16 @@ function safetyOptions(options: RunOptions): SafetyOptions {
   return { allowedHosts: allowedHosts(options), lookup: options.lookup };
 }
 
+/** Launch options shared by discovery and the run: pinned host, and a visible window when headed. */
+function launchOptions(target: Awaited<ReturnType<typeof checkTarget>>, options: RunOptions): LaunchOptions {
+  return { args: pinArgs(target), headless: !options.headed };
+}
+
+/** Reports an engine phase (not tied to a scenario) to onProgress. */
+function engineStep(options: RunOptions, label: string, url: string): void {
+  options.onProgress?.({ type: "step", scenarioId: ENGINE_STEP, label, url: redactSecrets(url), at: new Date().toISOString() });
+}
+
 /** Loaded lazily so the engine does not pull in the whole check library when callers pass their own checks. */
 async function resolveChecks(options: RunOptions): Promise<Check[]> {
   if (options.checks) return options.checks;
@@ -67,27 +117,97 @@ export function newRunId(): string {
   return `${stamp}-${randomBytes(3).toString("hex")}`;
 }
 
-/** Safety gate (host checked and pinned), open the target, discover the form, build the plan. */
-export async function discoverAndPlan(url: string, options: RunOptions = {}): Promise<Plan> {
+/** How long to wait for the network to go quiet after "load"; apps that poll or stream never go idle. */
+export const NETWORK_IDLE_TIMEOUT_MS = 5_000;
+
+/**
+ * Safety gate (host checked and pinned), open the target, discover the form, build the plan.
+ * "localhost:3000/book" (no scheme) is read as http://localhost:3000/book. A target that doesn't answer is reported
+ * as a TargetUnreachableError with one plain sentence, not Playwright's call log.
+ */
+export async function discoverAndPlan(rawUrl: string, options: RunOptions = {}): Promise<Plan> {
+  const url = normalizeTargetUrl(rawUrl);
   const safety = safetyOptions(options);
   const target = await checkTarget(url, safety);
   const checks = await resolveChecks(options);
-  const browser = await chromium.launch({ args: pinArgs(target) });
+  engineStep(options, "Opening the page to find the form", url);
+  const browser = await chromium.launch(launchOptions(target, options));
   try {
     const context = await browser.newContext();
     const guard = await guardContext(context, safety);
     const page = await context.newPage();
+    let status: number | null = null;
     try {
-      await page.goto(url, { waitUntil: "networkidle" });
+      status = (await page.goto(url, { waitUntil: "load" }))?.status() ?? null;
+      await page.waitForLoadState("networkidle", { timeout: NETWORK_IDLE_TIMEOUT_MS }).catch(() => undefined);
     } catch (err) {
       if (guard.escaped.length > 0) throw new TargetNotAllowedError(url, guardSummary(guard)!);
-      throw err;
+      const explained = explainNavigationError(err, url);
+      // In a container, "localhost" is the container: say so instead of only "nothing is answering".
+      const hint = explained instanceof TargetUnreachableError && inContainer(existsSync) ? containerLocalhostHint(url) : undefined;
+      throw hint ? new TargetUnreachableError(url, `${(explained as Error).message} ${hint}`) : explained;
     }
     if (guard.escaped.length > 0) throw new TargetNotAllowedError(url, guardSummary(guard)!);
-    const form = await discoverForm(page);
-    return buildPlan(url, form, checks);
+    engineStep(options, "Reading the form", page.url());
+    try {
+      const form = await discoverForm(page);
+      return buildPlan(url, form, checks);
+    } catch (err) {
+      if (!(err instanceof NoFormFoundError)) throw err;
+      const text = String(await page.evaluate("document.body ? document.body.innerText.slice(0, 400) : ''").catch(() => ""));
+      throw new NoFormFoundError(url, explainNoForm({ requested: url, final: page.url(), status, text }));
+    }
   } finally {
     await browser.close();
+  }
+}
+
+/**
+ * Things a person should know before approving the plan: the page the form was found on is not the page they asked
+ * for (a redirect, often to a sign-in page, so a different form would be tested).
+ */
+export function planWarnings(plan: Plan): string[] {
+  const warnings: string[] = [];
+  try {
+    const asked = new URL(plan.target);
+    const found = new URL(plan.form.url);
+    if (asked.origin !== found.origin || asked.pathname !== found.pathname) {
+      const login = /log-?in|sign-?in|auth/i.test(found.pathname) ? " It looks like a sign-in page: pages behind a login aren't supported in V0." : "";
+      warnings.push(`${plan.target} redirected to ${plan.form.url}, so the form on that page is the one being tested.${login}`);
+    }
+  } catch {
+    // An unparseable URL can't be compared; the safety gate has already judged it.
+  }
+  return warnings;
+}
+
+/** The approval is empty or names scenarios the plan doesn't have. The CLI and the API report it as a usage error. */
+export class NothingToRunError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NothingToRunError";
+  }
+}
+
+/**
+ * Finding ids and spec file names must be unique across the run: checks number their findings per scenario, and
+ * two scenarios of one check could otherwise produce the same id or overwrite each other's spec file.
+ * Later duplicates get "-2", "-3", ... (ids) or "-2.spec.ts" (files). Mutates the findings in place.
+ */
+function makeUnique(findings: Report["findings"]): void {
+  const ids = new Set<string>();
+  const files = new Set<string>();
+  for (const f of findings) {
+    let id = f.id;
+    for (let n = 2; ids.has(id); n++) id = `${f.id}-${n}`;
+    ids.add(id);
+    f.id = id;
+    if (!f.spec) continue;
+    const base = f.spec.filename.replace(/\.spec\.ts$/, "");
+    let file = f.spec.filename;
+    for (let n = 2; files.has(file.toLowerCase()); n++) file = `${base}-${n}.spec.ts`;
+    files.add(file.toLowerCase());
+    f.spec.filename = file;
   }
 }
 
@@ -125,7 +245,11 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
   const checks = await resolveChecks(options);
   const allowDestructive = options.allowDestructive ?? false;
   const approvedIds = new Set(options.approved ?? plan.scenarios.filter((s) => s.defaultSelected).map((s) => s.id));
+  const unknown = [...approvedIds].filter((id) => !plan.scenarios.some((s) => s.id === id));
+  if (unknown.length > 0) throw new NothingToRunError(`Unknown scenario id(s): ${unknown.join(", ")}.`);
   const toRun = plan.scenarios.filter((s) => approvedIds.has(s.id));
+  // A run with nothing in it would report "0 findings" and look like a clean pass.
+  if (toRun.length === 0) throw new NothingToRunError("No scenarios were approved, so there is nothing to run. Approve at least one scenario.");
 
   const startedAt = new Date().toISOString();
   const dir = join(resolve(options.runsDir ?? "runs"), runId);
@@ -133,7 +257,23 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
   await mkdir(artifactsDir, { recursive: true });
 
   const results: CheckResult[] = [];
-  const browser = await chromium.launch({ args: pinArgs(target) });
+  // One token for the whole run: every test value carries it, so any scenario can recognise test data an earlier
+  // scenario left in the app (reflow-320 names it as the cause of an overflow instead of blaming the layout).
+  const runToken = randomBytes(4).toString("hex");
+  // Save requests the app accepted, summed over every scenario (report.testRecordsCreated).
+  let testRecordsCreated = 0;
+  // One evidence file counter for the whole run, so artifact numbers follow the order evidence was taken.
+  const fileCounter = { value: 0 };
+  // Every page any scenario loaded, in first-visit order (Map keeps insertion order).
+  const pagesVisited = new Map<string, string[]>();
+  const recordVisit = (url: string, scenarioId: string) => {
+    const ids = pagesVisited.get(url) ?? [];
+    if (!ids.includes(scenarioId)) ids.push(scenarioId);
+    pagesVisited.set(url, ids);
+  };
+
+  engineStep(options, options.headed ? "Opening a browser window" : "Starting the browser", plan.target);
+  const browser = await chromium.launch(launchOptions(target, options));
   try {
     for (const [index, scenario] of toRun.entries()) {
       options.onProgress?.({ type: "scenario-start", scenarioId: scenario.id, index, total: toRun.length });
@@ -154,15 +294,28 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
 
     // A fresh CheckContext per scenario, so every scenario gets its own browser contexts.
     const log = options.log ?? ((line: string) => process.stderr.write(`${line}\n`));
+    const scenarioId = scenario.id;
+    const progress = options.onProgress;
     const ctx = createCheckContext({
       browser,
       form: plan.form,
       targetUrl: plan.target,
       artifactsDir,
       allowDestructive,
+      runToken,
       allowedHosts: safety.allowedHosts,
       lookup: safety.lookup,
       log: (message) => log(`[${scenario.id}] ${message}`),
+      fileCounter,
+      checkId: scenario.checkId,
+      scenarioTitle: scenario.title,
+      // The context redacts step labels and URLs before these hooks see them.
+      onStep: progress && ((step) => progress({ type: "step", scenarioId, ...step })),
+      onPageLoad: (page) => {
+        recordVisit(page.url, scenarioId);
+        progress?.({ type: "page", scenarioId, ...page });
+      },
+      onFrame: progress && options.live ? (frame) => progress({ type: "frame", scenarioId, ...frame }) : undefined,
     });
     const started = Date.now();
     const base = { checkId: scenario.checkId, scenarioId: scenario.id };
@@ -176,27 +329,32 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
       return { ...result, ...base, ...(notes ? { notes } : {}) };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const notes = ctx.escaped.length > 0 ? guardSummary(ctx)! : redactSecrets(message);
+      const notes = ctx.escaped.length > 0 ? guardSummary(ctx)! : redactSecrets(cleanErrorMessage(message));
       return { ...base, status: "error", findings: [], durationMs: Date.now() - started, notes };
     } finally {
+      testRecordsCreated += ctx.testRecordsCreated();
       await ctx.dispose();
     }
   }
 
+  engineStep(options, "Writing the report", plan.target);
   const findings = results.flatMap((r) => r.findings);
+  makeUnique(findings);
   // Callers (CLI, server) get the same redacted report that was written to disk.
   const report: Report = redactReport({
     runId,
     target: plan.target,
     startedAt,
     finishedAt: new Date().toISOString(),
-    runHoundVersion: VERSION,
+    runHoundVersion: RUN_HOUND_VERSION,
     plan,
     approved: toRun.map((s) => s.id),
     results,
     findings,
     summary: summarize(results, findings),
     notVisible: [...NOT_VISIBLE],
+    pagesVisited: [...pagesVisited].map(([url, scenarioIds]) => ({ url, scenarioIds })),
+    testRecordsCreated,
   });
   await writeReport(report, dir);
   return { report, dir };

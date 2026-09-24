@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Finding, Report } from "../core/types.js";
-import { NotImplementedError } from "./errors.js";
 import { NOT_VISIBLE, renderHtml, renderMarkdown, writeReport } from "./report.js";
 
 /** Obviously fake, but shaped like a real OpenAI project key so the redactor must catch it. */
@@ -185,7 +184,8 @@ describe("writeReport", () => {
       () => undefined,
       (e: unknown) => e,
     );
-    expect(err).not.toBeInstanceOf(NotImplementedError);
+    // Either outcome is fine; the file must not land outside dir.
+    void err;
     await expect(readFile(join(dir, "..", escapeName), "utf8")).rejects.toThrow();
     await expect(readFile(join(dir, escapeName), "utf8")).rejects.toThrow();
   });
@@ -197,4 +197,44 @@ describe("writeReport", () => {
     await writeReport(report, dir);
     expect(JSON.stringify(report)).toBe(before);
   });
+});
+
+describe("what was tested, in every format", () => {
+  function partialReport(): Report {
+    const report = makeReport([]);
+    report.plan.scenarios.push(
+      { id: "cov:1", checkId: "client-only-validation", title: "Replay invalid", description: "c", kind: "danger", priority: "high", destructive: false, defaultSelected: true },
+      { id: "kb:1", checkId: "keyboard-completion", title: "Keyboard only", description: "k", kind: "golden", priority: "high", destructive: false, defaultSelected: true },
+      { id: "ax:1", checkId: "axe-states", title: "Axe on every state", description: "a", kind: "golden", priority: "high", destructive: false, defaultSelected: true },
+    );
+    report.approved = ["ds:1", "rf:1", "cov:1", "kb:1"];
+    report.results.push(
+      { checkId: "client-only-validation", scenarioId: "cov:1", status: "skipped", findings: [], durationMs: 0, notes: "Only runs against localhost targets." },
+      { checkId: "keyboard-completion", scenarioId: "kb:1", status: "error", findings: [], durationMs: 5, notes: "Nothing is answering at http://127.0.0.1:3000." },
+    );
+    return report;
+  }
+
+  for (const [name, render] of [
+    ["markdown", renderMarkdown],
+    ["html", renderHtml],
+  ] as const) {
+    it(`${name}: says why a scenario errored or was skipped`, () => {
+      const text = render(partialReport());
+      expect(text).toContain("Only runs against localhost targets.");
+      expect(text).toContain("Nothing is answering at http://127.0.0.1:3000.");
+    });
+
+    it(`${name}: lists planned scenarios that were not approved, and passed notes`, () => {
+      const text = render(partialReport());
+      expect(text).toMatch(/not approved/i);
+      expect(text).toContain("Axe on every state");
+      expect(text).toContain("No horizontal overflow");
+      expect(text).toMatch(/4 of 5 planned scenarios/);
+    });
+
+    it(`${name}: lists checks that had nothing to test on the form`, () => {
+      expect(render(partialReport())).toMatch(/nothing to test on this form[\s\S]*pii-leak/i);
+    });
+  }
 });

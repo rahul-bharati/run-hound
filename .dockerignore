@@ -1,4 +1,5 @@
-# Build context is the repository root; keep host installs, build output and run artifacts out of it.
+# Build context is the repository root; keep host installs, build output, run artifacts and anything the
+# images don't use out of it (the Dockerfiles COPY only what they need).
 **/node_modules
 **/dist
 **/runs
@@ -6,5 +7,9 @@
 **/playwright-report
 **/*.log
 .git
+.github
 .env
 site
+docs
+tests
+fixtures/samples

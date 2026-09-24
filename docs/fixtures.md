@@ -1,5 +1,7 @@
 # Test fixture: Kennel
 
+> **Status:** this page describes the full fixture planned for V2. The V0 Kennel that exists today is a single booking form (`/book`) on a small in-memory Node server with a mock analytics service, no Supabase, signup, profile or admin pages. Its contract is [fixtures/kennel/CONTRACT.md](../fixtures/kennel/CONTRACT.md) and its bugs are the `V0` entries in [bugs.json](../fixtures/kennel/bugs.json).
+
 Kennel is a small, deliberately broken app that Run Hound is developed and scored against. It is a pet-sitting booking app with signup, a booking form, a profile page, and an admin page, backed by a **local Supabase** (`supabase start`) so every check runs against infrastructure we own.
 
 It gives us a ground truth: we know exactly which bugs are planted, so we can measure what Run Hound finds, what it misses, and what it makes up.

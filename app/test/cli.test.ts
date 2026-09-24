@@ -17,8 +17,8 @@ interface CliResult {
 }
 
 /** Runs `pnpm exec tsx src/cli.ts ...args` asynchronously (the fixture server lives in this process). */
-function runCli(args: string[], timeoutMs = 240_000): Promise<CliResult> {
-  const env = { ...process.env };
+function runCli(args: string[], timeoutMs = 240_000, extraEnv: NodeJS.ProcessEnv = {}): Promise<CliResult> {
+  const env = { ...process.env, ...extraEnv };
   delete env.RUNHOUND_ALLOWED_HOSTS;
   const started = Date.now();
   return new Promise((resolve) => {
@@ -109,13 +109,14 @@ describe("run-hound run", () => {
   });
 
   it(
-    "writes a report and exits 0 with no findings or 1 with findings (--json prints the report)",
+    "writes a report and exits 0 with no confirmed findings or 1 with a confirmed finding (--json prints the report)",
     async () => {
       const res = await runCli(["run", `${site.url}/plain`, "--json", "--runs-dir", runsDir]);
       expect([0, 1], res.stderr).toContain(res.code);
       const report = parseJsonReport(res.stdout);
       expect(report.target).toBe(`${site.url}/plain`);
-      expect(res.code).toBe(report.findings.length > 0 ? 1 : 0);
+      // Advisory findings are reported but don't fail the run (docs/v0-spec.md, "Tester release").
+      expect(res.code).toBe(report.findings.some((f) => f.confidence === "confirmed") ? 1 : 0);
       expect(await readdir(runsDir)).toEqual([report.runId]);
       const onDisk = JSON.parse(await readFile(join(runsDir, report.runId, "report.json"), "utf8")) as Report;
       expect(onDisk.runId).toBe(report.runId);
@@ -125,13 +126,72 @@ describe("run-hound run", () => {
   );
 
   it(
-    "exits 1 when the run has findings",
+    "exits 1 when the run has confirmed findings",
     async () => {
       const res = await runCli(["run", `${site.url}/broken`, "--approve", "all", "--json", "--runs-dir", runsDir]);
       expect(res.code, res.stderr).toBe(1);
       const report = parseJsonReport(res.stdout);
-      expect(report.findings.length).toBeGreaterThan(0);
+      expect(report.findings.some((f) => f.confidence === "confirmed")).toBe(true);
     },
     300_000,
   );
+});
+
+describe("run-hound help, version and bad input", () => {
+  it("prints usage for help, --help and run --help, and exits 0", async () => {
+    for (const args of [["help"], ["--help"], ["run", "--help"]]) {
+      const res = await runCli(args, 60_000);
+      expect(res.code, args.join(" ")).toBe(0);
+      expect(res.stdout).toMatch(/Usage:/);
+      expect(res.stdout).toMatch(/--plan-only/);
+    }
+  });
+
+  it("prints the version", async () => {
+    const res = await runCli(["--version"], 60_000);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toMatch(/^run-hound \d+\.\d+\.\d+/);
+  });
+
+  it("exits 2 with usage for an unknown option", async () => {
+    const res = await runCli(["run", "http://localhost:1/", "--nope"], 60_000);
+    expect(res.code).toBe(2);
+    expect(res.stderr).toMatch(/Usage:/);
+  });
+
+  it("explains an unreachable target in plain words (no Playwright call log)", async () => {
+    const dead = await startFixtureServer({ pages: {} });
+    const target = `${dead.url.replace(/^http:\/\//, "")}/book`;
+    await dead.close();
+    const res = await runCli(["run", target, "--runs-dir", runsDir], 120_000);
+    expect(res.code).toBe(2);
+    expect(res.stderr).toMatch(/Nothing is answering at http:\/\/127\.0\.0\.1:\d+/);
+    expect(res.stderr).not.toMatch(/\u001b|Call log/);
+  });
+});
+
+describe("run-hound run: what gets run", () => {
+  it("--plan-only lists the scenario ids and runs nothing", async () => {
+    const res = await runCli(["run", `${site.url}/plain`, "--plan-only", "--runs-dir", runsDir], 120_000);
+    expect(res.code, res.stderr).toBe(0);
+    expect(res.stdout).toMatch(/console-network-errors|golden|danger/);
+    // Each scenario's description is printed under it, so the test-record disclosure is seen before approving.
+    expect(res.stdout).toMatch(/\n {6}\S.*Creates one test record/);
+    expect(await readdir(runsDir)).toEqual([]);
+  });
+
+  it.skipIf(process.platform === "darwin" || process.platform === "win32")("--headed without a display exits 2 with a plain reason, after the target was checked", async () => {
+    const env = { DISPLAY: "", WAYLAND_DISPLAY: "" };
+    const res = await runCli(["run", `${site.url}/plain`, "--headed", "--plan-only", "--runs-dir", runsDir], 120_000, env);
+    expect(res.code).toBe(2);
+    expect(res.stderr).toMatch(/--headed: There is no display/);
+    expect(res.stderr).not.toMatch(/XServer|Call log/);
+  });
+
+  it("exits 2 for an approval that names no scenarios, instead of a clean-looking pass", async () => {
+    const res = await runCli(["run", `${site.url}/plain`, "--approve", ",", "--runs-dir", runsDir], 120_000);
+    expect(res.code).toBe(2);
+    expect(res.stderr).toMatch(/no scenarios|nothing/i);
+    expect(await readdir(runsDir)).toEqual([]);
+  });
 });

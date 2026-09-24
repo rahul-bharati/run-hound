@@ -9,10 +9,12 @@
  */
 import { AxeBuilder } from "@axe-core/playwright";
 import type { Page } from "playwright";
-import type { Check, CheckContext, DiscoveredForm, Evidence, Scenario, Severity } from "../core/types.js";
+import { isPagePost, isSaveRequest } from "../core/saves.js";
+import type { Check, CheckContext, DiscoveredForm, Evidence, Fact, Highlight, Scenario, Severity } from "../core/types.js";
 import { redactSecrets } from "../engine/redact.js";
-import { checkResult, evalIn, FindingList, guarded, playwrightSpec, scenarioFor, submitControl } from "./lib/a11y-common.js";
-import { canaries, fillAndSubmitSpec, fillValid, sameOrigin, settle, submitAndWait } from "./lib/a11y-form.js";
+import { checkResult, clip, evalIn, FindingList, guarded, playwrightSpec, scenarioFor, submitControl, uniquePlaces } from "./lib/a11y-common.js";
+import { canaries, fillAndSubmitSpec, fillValid, settle, submitAndWait } from "./lib/a11y-form.js";
+import { isRefusedSignIn, simulatedResponse, STOPPED_PAGE_POST_HTML } from "./lib/functional-form.js";
 
 export const AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
@@ -22,6 +24,8 @@ interface AxeNode {
   target: string[];
   html: string;
   failureSummary: string;
+  /** How a person would name the element ("Remove booking for Rex", "Phone"), read from the page; empty when it has none. */
+  name?: string;
 }
 
 interface RuleHit {
@@ -30,10 +34,33 @@ interface RuleHit {
   help: string;
   helpUrl: string;
   description: string;
+  tags: string[];
   nodes: Map<string, AxeNode>;
   states: StateName[];
-  screenshot?: Evidence;
+  /** Annotated frames: the first state the rule failed in, plus a frame for nodes first seen in a later state. */
+  frames: Evidence[];
+  /** Keys of the nodes a frame has tried to mark. */
+  marked: Set<string>;
+  /** Marks actually drawn across the frames. */
+  drawn: number;
 }
+
+/** At most this many violating nodes are marked on a frame, and across a rule's frames. */
+const MAX_MARKED = 10;
+
+/** A short name for each selector's element, as a person would describe it: label, aria-label, text, alt, placeholder. */
+const NAMES = `(selectors) => selectors.map((sel) => {
+  let el = null;
+  try { el = sel ? document.querySelector(sel) : null; } catch { el = null; }
+  if (!el) return "";
+  const text = (n) => ((n && n.textContent) || "").replace(/\\s+/g, " ").trim();
+  const by = (el.getAttribute("aria-labelledby") || "").split(/\\s+/).filter(Boolean).map((id) => text(document.getElementById(id))).join(" ").trim();
+  const labels = el.labels ? [...el.labels].map(text).join(" ").trim() : "";
+  const name = (el.getAttribute("aria-label") || "").trim() || by || labels || (el.matches("input,select,textarea") ? "" : text(el)) ||
+    (el.getAttribute("alt") || "").trim() || (el.getAttribute("title") || "").trim() || (el.getAttribute("placeholder") || "").trim() ||
+    (el.getAttribute("name") || "").trim();
+  return name.length > 60 ? name.slice(0, 59) + "…" : name;
+})`;
 
 /** axe impact -> Run Hound severity. */
 const SEVERITY: Record<string, Severity> = { critical: "high", serious: "medium", moderate: "low", minor: "low" };
@@ -57,7 +84,7 @@ const PLAIN: Record<string, { meaning: string; impact: string; fix: string }> = 
   },
   "target-size": {
     meaning: "Some buttons are smaller than 24x24 px and packed too close together to tap reliably.",
-    impact: "People with tremors or limited dexterity, and anyone on a touch screen, will hit the wrong button (for example removing the wrong booking).",
+    impact: "People with tremors or limited dexterity, and anyone on a touch screen, will hit the wrong button (for example removing the wrong item).",
     fix: "Make each target at least 24x24 px (44x44 is better), or leave enough space between small targets.",
   },
 };
@@ -81,16 +108,64 @@ const PLACEHOLDER_ONLY = `() => {
   }));
 }`;
 
-/** Answers every same-origin non-GET request with 500, simulating a server fault. */
-async function failWrites(page: Page): Promise<void> {
+/** WCAG success criteria from axe tags ("wcag412" -> "4.1.2"). */
+export function wcagCriteria(tags: string[]): string[] {
+  return tags.flatMap((tag) => {
+    const m = /^wcag(\d)(\d)(\d+)$/.exec(tag);
+    return m ? [`${m[1]}.${m[2]}.${m[3]}`] : [];
+  });
+}
+
+/** axe's failure summary as one line, without the "Fix any/all of the following:" preamble. */
+function summaryLine(summary: string): string {
+  return summary
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !/^fix (any|all) of the following:?$/i.test(line))
+    .slice(0, 2)
+    .join("; ");
+}
+
+/** Callout for one violating node: the rule id plus the measured value when axe gives one. */
+function nodeCallout(ruleId: string, node: AxeNode): string {
+  const summary = node.failureSummary;
+  const contrast = /contrast of ([\d.]+)/i.exec(summary);
+  if (contrast) return `${ruleId} ${contrast[1]}:1`;
+  const size = /\(([\d.]+)px by ([\d.]+)px/i.exec(summary);
+  if (size) return `${ruleId} ${Math.round(Number(size[1]))}×${Math.round(Number(size[2]))} px`;
+  if (ruleId === "label" && /placeholder/i.test(summary)) return "label: placeholder is the only label";
+  const short: Record<string, string> = { label: "field has no label", "button-name": "no accessible name", "link-name": "no accessible name", "image-alt": "no alt text" };
+  return short[ruleId] ? `${ruleId}: ${short[ruleId]}` : ruleId;
+}
+
+/** A CSS selector for an axe target, or null for targets inside iframes or shadow roots. */
+function targetSelector(node: AxeNode): string | null {
+  return node.target.length === 1 && typeof node.target[0] === "string" && !node.target[0].includes(",") ? node.target[0] : null;
+}
+
+/**
+ * Answers the form's save request (core/saves.ts) with 500, simulating a server fault. A classic page post is not
+ * simulated: the browser would show Run Hound's own stand-in page, and scanning that says nothing about the app.
+ * It is answered with a small valid page instead (so nothing is saved) and reported through `pagePost`.
+ */
+async function failWrites(page: Page, ctx: CheckContext): Promise<{ pagePost: boolean }> {
+  const state = { pagePost: false };
   await page.route("**/*", async (route) => {
     const request = route.request();
-    if (request.method() !== "GET" && sameOrigin(request.url(), page.url())) {
-      await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Something went wrong" }) });
-    } else {
-      await route.fallback();
+    const info = { method: request.method(), resourceType: request.resourceType(), url: request.url(), postData: request.postData() };
+    if (!isSaveRequest(info, ctx.targetUrl, ctx.runToken)) return route.fallback();
+    if (isPagePost(info)) {
+      state.pagePost = true;
+      return route.fulfill(simulatedResponse(request, 200, STOPPED_PAGE_POST_HTML, "text/html; charset=utf-8"));
     }
+    await route.fulfill(simulatedResponse(request, 500, JSON.stringify({ error: "Something went wrong" })));
   });
+  return state;
+}
+
+/** True when the discovered form is on the page (it is gone after a page post led to another page). */
+async function formIsShown(page: Page, form: DiscoveredForm): Promise<boolean> {
+  return (await page.locator(form.selector).count().catch(() => 0)) > 0;
 }
 
 /** Spec lines that bring the page into `state` before axe runs. */
@@ -110,9 +185,46 @@ await page.waitForTimeout(1000);`;
     case "success":
       return `${fillAndSubmitSpec(form, canaries(runToken, "ax"))}
 await page.waitForLoadState("networkidle");
+// A classic form post leads to another page: open the form again for the second submission.
+if ((await page.locator(${JSON.stringify(form.selector)}).count()) === 0) await page.goto(TARGET);
 ${fillAndSubmitSpec(form, canaries(runToken, "ay"))}
 await page.waitForLoadState("networkidle");`;
   }
+}
+
+/** "1 element", "3 elements". */
+function elements(n: number): string {
+  return `${n} element${n === 1 ? "" : "s"}`;
+}
+
+/** Highlights, facts and caption for the frame of one rule in one state. */
+function frameFor(hit: RuleHit, nodes: AxeNode[], state: StateName, maxMarks = MAX_MARKED) {
+  const highlights: Highlight[] = [];
+  const callouts = new Set<string>();
+  for (const node of nodes) {
+    const selector = targetSelector(node);
+    if (!selector || highlights.length >= maxMarks) continue;
+    // Repeats of the same callout are shortened to the rule id, so a dense list of nodes stays readable.
+    const callout = nodeCallout(hit.ruleId, node);
+    highlights.push({ selector, label: callouts.has(callout) ? hit.ruleId : callout });
+    callouts.add(callout);
+  }
+  const criteria = wcagCriteria(hit.tags);
+  const facts: Fact[] = [
+    { label: "Rule", value: `${hit.ruleId}: ${hit.help}` },
+    { label: "Impact", value: hit.impact },
+    { label: "WCAG criteria", value: criteria.length > 0 ? criteria.join(", ") : "best practice (no WCAG criterion)" },
+    { label: "Form state", value: state },
+    { label: "Failing nodes", value: `${nodes.length}${nodes.length > maxMarks ? ` (first ${maxMarks} marked)` : ""}` },
+    { label: "Failure summary", value: clip(summaryLine(nodes[0]?.failureSummary ?? ""), 220) || "(none given)" },
+  ];
+  return {
+    highlights,
+    facts,
+    fullPage: true,
+    step: `axe scan: ${state} state`,
+    caption: `${elements(nodes.length)} ${nodes.length === 1 ? "fails" : "fail"} the axe rule "${hit.ruleId}" (${hit.help}) in the ${state} state of the form.`,
+  };
 }
 
 export const check: Check = {
@@ -125,7 +237,7 @@ export const check: Check = {
       scenarioFor("axe-states", "four-states", {
         title: "Scan the form with axe-core before, during and after submitting",
         description:
-          "Runs the axe-core WCAG 2.2 AA rules on the empty form, after an empty submit, after a simulated server error and after two successful test bookings. Creates two test bookings.",
+          "Runs the axe-core WCAG 2.2 AA rules on the empty form, after an empty submit, after a simulated server error and after two successful test submissions. Creates two test records.",
         priority: "high",
       }),
     ];
@@ -146,7 +258,8 @@ export const check: Check = {
           help: v.help,
           helpUrl: v.helpUrl,
           description: v.description,
-          nodes: v.nodes.map((n) => ({ target: n.target.map(String), html: n.html, failureSummary: n.failureSummary ?? "" })),
+          tags: v.tags,
+          nodes: v.nodes.map((n): AxeNode => ({ target: n.target.map(String), html: n.html, failureSummary: n.failureSummary ?? "" })),
         }));
         const placeholderOnly = await evalIn<AxeNode[]>(page, PLACEHOLDER_ONLY);
         if (placeholderOnly.length > 0) {
@@ -156,55 +269,90 @@ export const check: Check = {
             help: "Form elements must have labels",
             helpUrl: "https://dequeuniversity.com/rules/axe/4.13/label",
             description: "Ensures every form element has a label (a placeholder alone does not count)",
+            tags: ["wcag2a", "wcag131", "wcag412"],
             nodes: placeholderOnly,
           });
         }
-        const fresh: RuleHit[] = [];
+        const allNodes = violations.flatMap((v) => v.nodes);
+        const names = await evalIn<string[]>(page, NAMES, allNodes.map((n) => targetSelector(n) ?? "")).catch(() => allNodes.map(() => ""));
+        allNodes.forEach((n, i) => (n.name = redactSecrets(names[i] ?? "")));
+        // Nodes a rule has not marked yet, by rule: every node of a new rule, and nodes first seen in this state.
+        const toMark: { hit: RuleHit; nodes: AxeNode[] }[] = [];
         for (const v of violations) {
           let hit = hits.get(v.ruleId);
           if (!hit) {
-            hit = { ...v, nodes: new Map(), states: [] };
+            hit = { ...v, nodes: new Map(), states: [], frames: [], marked: new Set(), drawn: 0 };
             hits.set(v.ruleId, hit);
-            fresh.push(hit);
           }
           if (!hit.states.includes(state)) hit.states.push(state);
+          const unmarked: AxeNode[] = [];
           for (const node of v.nodes) {
             const key = node.target.join(" ");
             if (!hit.nodes.has(key)) hit.nodes.set(key, { ...node, html: redactSecrets(node.html).slice(0, 500) });
+            if (!hit.marked.has(key)) unmarked.push(node);
           }
+          if (unmarked.length > 0 && hit.drawn < MAX_MARKED) toMark.push({ hit, nodes: unmarked });
         }
-        if (fresh.length > 0) {
-          const shot = await ctx.screenshot(page, `axe violations in the ${state} state`);
-          for (const hit of fresh) hit.screenshot = shot;
+        // A frame per rule in the state it first failed in, plus one for nodes that first fail in a later state,
+        // so every failing node (up to 10) is marked somewhere.
+        for (const { hit, nodes } of toMark) {
+          const first = hit.frames.length === 0;
+          ctx.step(`Marking the ${elements(nodes.length)} that ${first ? "fail" : "also fail"} "${hit.ruleId}"`, page);
+          const frame = await ctx.capture(page, `axe ${hit.ruleId} in the ${state} state`, frameFor(hit, nodes, state, MAX_MARKED - hit.drawn));
+          for (const node of nodes) hit.marked.add(node.target.join(" "));
+          hit.drawn += (frame.highlights ?? []).length;
+          hit.frames.push(frame);
         }
       };
 
       const submit = submitControl(ctx.form);
       const first = await ctx.openPage();
+      ctx.step("Scanning the empty form with axe", first.page);
       await analyze(first.page, "initial");
 
       if (submit) {
+        ctx.step("Submitting the empty form", first.page);
         await first.page.locator(submit.selector).first().click();
         await settle(first.page, 1_000);
+        ctx.step("Scanning the form after an empty submit", first.page);
         await analyze(first.page, "invalid submit");
 
         const failing = await ctx.openPage();
-        await failWrites(failing.page);
+        const simulated = await failWrites(failing.page, ctx);
+        ctx.step("Filling the form; the server will answer 500", failing.page);
         await fillValid(failing.page, ctx.form, canaries(ctx.runToken, "ax"));
-        await submitAndWait(failing.page, ctx.form);
+        await submitAndWait(failing.page, ctx.form, { targetUrl: ctx.targetUrl, runToken: ctx.runToken });
         await settle(failing.page, 1_000);
-        await analyze(failing.page, "server error");
+        if (simulated.pagePost) {
+          notes.push("server error state not scanned: the form is sent as a regular page post, so after a server error the browser shows the server's own error page, not this form");
+        } else {
+          ctx.step("Scanning the form after a server error", failing.page);
+          await analyze(failing.page, "server error");
+        }
 
-        // Two bookings, so lists that grow after a booking are scanned with neighbouring items.
+        // Two submissions, so lists that grow after a save are scanned with neighbouring items. A classic form post
+        // leads to another page (a thank-you page); the form is opened again for the second submission, and the
+        // page the last one led to is what gets scanned.
         const ok = await ctx.openPage();
         const statuses: (number | null)[] = [];
         for (const variant of ["ax", "ay"]) {
+          if (!(await formIsShown(ok.page, ctx.form))) {
+            ctx.step("Opening the form again (the last submission led to another page)", ok.page);
+            await ok.page.goto(ctx.targetUrl, { waitUntil: "load" });
+            await settle(ok.page, 300);
+          }
+          ctx.step(`Submitting with test values (${variant === "ax" ? "1st" : "2nd"} submission)`, ok.page);
           await fillValid(ok.page, ctx.form, canaries(ctx.runToken, variant));
-          statuses.push((await submitAndWait(ok.page, ctx.form))?.status() ?? null);
+          statuses.push((await submitAndWait(ok.page, ctx.form, { targetUrl: ctx.targetUrl, runToken: ctx.runToken }))?.status() ?? null);
         }
         await settle(ok.page, 500);
+        ctx.step("Scanning the page after two submissions", ok.page);
         await analyze(ok.page, "success");
-        if (statuses.some((s) => s === null || s >= 300)) notes.push(`success state: create responses ${statuses.join(", ")}`);
+        if (statuses.some((s) => isRefusedSignIn(ctx.form, s))) {
+          notes.push(`success state: the sign-in was refused (${statuses.join(", ")}), as expected for made-up credentials, so the page scanned shows the sign-in error`);
+        } else if (statuses.some((s) => s === null || s >= 400)) {
+          notes.push(`success state: save responses ${statuses.map((s) => s ?? "none").join(", ")}`);
+        }
       } else {
         notes.push("no submit control: only the initial state was scanned");
       }
@@ -213,7 +361,9 @@ export const check: Check = {
       for (const hit of hits.values()) {
         const nodes = [...hit.nodes.values()];
         const plain = PLAIN[hit.ruleId];
-        const where = nodes.map((n) => n.target.join(" ")).slice(0, 5);
+        const places = uniquePlaces(nodes.map((n) => ({ name: n.name || n.target.join(" "), selector: n.target.join(" ") })));
+        const where = places.slice(0, 5);
+        const more = places.length > where.length ? ` and ${places.length - where.length} more` : "";
         const stateText = hit.states.join(", ");
         const firstState = hit.states[0]!;
         const specBody = `${stateSteps(firstState, ctx.form, ctx.runToken)}
@@ -228,19 +378,21 @@ expect(unlabelled).toEqual([]);
 }const results = await new AxeBuilder({ page }).withTags(${JSON.stringify(AXE_TAGS)}).withRules(${JSON.stringify(hit.ruleId)}).analyze();
 expect(results.violations).toEqual([]);`;
         findings.add({
-          title: hit.help,
+          // The count is in the title when the rule fails on several elements: one finding per rule, never per element.
+          title: nodes.length > 1 ? `${hit.help} (${elements(nodes.length)})` : hit.help,
           severity: SEVERITY[hit.impact] ?? "low",
-          meaning: `${plain?.meaning ?? `${hit.description}.`} Found on ${nodes.length} element(s) (${where.join(", ")}) in the ${stateText} state${hit.states.length > 1 ? "s" : ""} of the form.`,
+          meaning: `${plain?.meaning ?? `${hit.description}.`} Found on ${elements(nodes.length)} (${where.join(", ")}${more}) in the ${stateText} state${hit.states.length > 1 ? "s" : ""} of the form.`,
           impact: plain?.impact ?? "Some people using assistive technology, or with limited vision or dexterity, may not be able to use this part of the form.",
-          fix: `${plain?.fix ?? `Follow axe's guidance for "${hit.ruleId}": ${hit.helpUrl}`} Affected: ${where.join(", ")}.`,
-          location: where[0] ?? hit.ruleId,
+          fix: `${plain?.fix ?? `Follow axe's guidance for "${hit.ruleId}": ${hit.helpUrl}`} Affected: ${where.join(", ")}${more}.`,
+          location: places[0] ?? hit.ruleId,
+          ...(places.length > 1 ? { locations: places } : {}),
           evidence: [
             {
               kind: "axe",
               label: `axe rule "${hit.ruleId}" (${hit.impact}), seen in: ${stateText}`,
               data: { ruleId: hit.ruleId, impact: hit.impact, helpUrl: hit.helpUrl, states: hit.states, nodes },
             },
-            ...(hit.screenshot ? [hit.screenshot] : []),
+            ...hit.frames,
           ],
           spec: playwrightSpec(
             "axe-states",
