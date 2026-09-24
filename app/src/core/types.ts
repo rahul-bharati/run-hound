@@ -74,15 +74,94 @@ export interface DiscoveredForm {
   controls: FormControl[];
 }
 
-export type EvidenceKind = "screenshot" | "network" | "console" | "dom" | "axe" | "note";
+/**
+ * "frame": an annotated screenshot (see CheckContext.capture). "gif": an animated recording of a flow.
+ * "card": a rendered text card (request, response, code excerpt, console lines).
+ * "screenshot": a plain screenshot (legacy; new evidence should use "frame").
+ */
+export type EvidenceKind = "frame" | "gif" | "card" | "screenshot" | "network" | "console" | "dom" | "axe" | "note";
+
+/** A rectangle in CSS pixels. */
+export interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Something to mark on an evidence image: the element or area the finding is about. */
+export interface Highlight {
+  /** Element to mark, resolved when the frame is captured. Missing or hidden elements are listed in the frame's facts instead. */
+  selector?: string;
+  /** Page coordinates (CSS px) to mark when there is no selector. */
+  box?: Box;
+  /** Short callout printed next to the mark, e.g. "No focus ring", "Clicked twice". */
+  label: string;
+  /** "fail" (default) marks the problem; "pass" and "info" mark context. */
+  tone?: "fail" | "pass" | "info";
+}
+
+/** A labelled piece of data behind a finding, printed on the frame and in the report, e.g. { label: "Requests sent", value: "2" }. */
+export interface Fact {
+  label: string;
+  value: string;
+}
 
 export interface Evidence {
   kind: EvidenceKind;
   label: string;
-  /** Path relative to the run's artifacts directory (screenshots, HAR slices, etc.). */
+  /** Path relative to the run's artifacts directory (PNG for frame/card/screenshot, GIF for gif). */
   path?: string;
   /** Small structured payload (request summary, axe node, console line). Secrets must already be redacted. */
   data?: unknown;
+  /** Page URL when the evidence was captured (frames and GIFs). */
+  url?: string;
+  /** ISO 8601 time of capture (the first frame, for GIFs). */
+  capturedAt?: string;
+  /** What the check was doing, e.g. "Double-click Book". */
+  step?: string;
+  /** Browser viewport at capture time. */
+  viewport?: { width: number; height: number };
+  /** Marks drawn on the image, with boxes in the saved image's pixel coordinates. */
+  highlights?: (Highlight & { box: Box })[];
+  /** The data behind the finding; also printed on the image. Redacted. */
+  facts?: Fact[];
+  /** GIF only: number of frames and total play time of one loop. */
+  frames?: number;
+  durationMs?: number;
+}
+
+/** Options for an annotated evidence frame. */
+export interface FrameOptions {
+  highlights?: Highlight[];
+  facts?: Fact[];
+  /** One sentence printed under the screenshot, e.g. "Two save requests reached the server from one double-click." */
+  caption?: string;
+  /** What the check is doing, printed in the header ("Double-click Book"). */
+  step?: string;
+  /** Capture the whole page instead of the viewport. Default false: the viewport, scrolled so the first highlight is visible. */
+  fullPage?: boolean;
+}
+
+/** A text card rendered as an image, for evidence that isn't visual (requests, responses, code, console lines). */
+export interface EvidenceCard {
+  /** e.g. "POST /api/bookings (sent twice)". */
+  title: string;
+  /** e.g. the script or request URL. */
+  subtitle?: string;
+  /** Monospace lines; `mark` highlights the line that proves the finding. Long lines are wrapped; at most 40 lines are shown. */
+  lines: { text: string; mark?: boolean }[];
+  /** Number printed next to the first line (default 1), so an excerpt of a file shows the file's own line numbers. */
+  firstLineNumber?: number;
+  facts?: Fact[];
+}
+
+/** A step-by-step recording that becomes an animated GIF. */
+export interface Recording {
+  /** Captures an annotated frame now (same annotations as capture()). Frames are shown in order. */
+  step(label: string, options?: Omit<FrameOptions, "step" | "fullPage">): Promise<void>;
+  /** Encodes the frames as a looping GIF under artifactsDir and returns its evidence. Rejects if no frames were captured. */
+  finish(options?: { label?: string }): Promise<Evidence>;
 }
 
 export interface Finding {
@@ -162,8 +241,19 @@ export interface CheckContext {
     page: Page;
     capture: Capture;
   }>;
-  /** Saves a screenshot under artifactsDir and returns evidence pointing at it. */
+  /** Saves a plain screenshot under artifactsDir. Legacy: prefer capture(). */
   screenshot(page: Page, label: string): Promise<Evidence>;
+  /**
+   * Saves an annotated evidence frame: a header with the page URL, capture time, check and step; the screenshot with
+   * each highlight boxed and labelled; the caption; and a facts panel. Text on the frame is redacted.
+   */
+  capture(page: Page, label: string, options?: FrameOptions): Promise<Evidence>;
+  /** Saves a text card (request, response, code excerpt) as an image with the same header. Text is redacted. */
+  captureCard(label: string, card: EvidenceCard): Promise<Evidence>;
+  /** Starts a step-by-step recording of `page` that finish() turns into an animated GIF. */
+  record(page: Page, label: string): Recording;
+  /** Tells the live view what the check is doing now ("Double-clicking Book"). Cheap; call it at every meaningful step. */
+  step(label: string, page?: Page): void;
   log(message: string): void;
 }
 
@@ -196,4 +286,9 @@ export interface Report {
   summary: { critical: number; high: number; medium: number; low: number; passed: number; failed: number; errored: number; skipped: number };
   /** Things a browser can't see; always listed so a clean report isn't mistaken for a clean app. */
   notVisible: string[];
+  /**
+   * Every page URL the run loaded, in first-visit order, with the scenarios that loaded it. The runner always sets it;
+   * it is optional only so reports written before it existed can still be read.
+   */
+  pagesVisited?: { url: string; scenarioIds: string[] }[];
 }

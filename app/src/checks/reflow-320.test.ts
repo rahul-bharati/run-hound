@@ -50,7 +50,7 @@ describe("reflow-320 check", () => {
     expect(evidence).toMatch(/scrollWidth/);
     expect(evidence).toMatch(/\b320\b/);
     expect(evidence).toMatch(/\b6\d\d\b/);
-    // A screenshot at 320 px is the most useful evidence for a layout bug.
-    expect(f.evidence.some((e) => e.kind === "screenshot" && typeof e.path === "string")).toBe(true);
+    // A capture at 320 px is the most useful evidence for a layout bug (an annotated "frame" per docs/v0-spec.md "Evidence").
+    expect(f.evidence.some((e) => (e.kind === "frame" || e.kind === "screenshot") && typeof e.path === "string")).toBe(true);
   });
 });

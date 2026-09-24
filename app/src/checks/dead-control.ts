@@ -3,9 +3,9 @@
  * when a click causes no request, DOM change, navigation, storage change, value change or focus change.
  */
 import type { Page } from "playwright";
-import type { Check, FormControl, Scenario } from "../core/types.js";
-import { controlLocator, evidence, fillLines, findingFactory, guarded, result, specSource, tryScreenshot } from "./lib/functional-finding.js";
-import { canaryValues, controlName, fillForm, settle, waitFor, type FieldValue } from "./lib/functional-form.js";
+import type { Check, CheckContext, Evidence, FormControl, Scenario } from "../core/types.js";
+import { controlLocator, evidence, fillLines, findingFactory, guarded, recordFlow, result, specSource } from "./lib/functional-finding.js";
+import { canaryValues, controlName, fillForm, settle, sleep, waitFor, type FieldValue } from "./lib/functional-form.js";
 
 const ID = "dead-control" as const;
 
@@ -116,6 +116,55 @@ async function probe(
   }
 }
 
+/**
+ * Replays the click on a dead control with a recording: filled form, the click, and the page after the
+ * reaction window, with what was measured as facts. The control did nothing the first time, so this is safe.
+ */
+async function recordDeadClick(
+  ctx: CheckContext,
+  page: Page,
+  capture: { requests: unknown[] },
+  control: FormControl,
+  values: FieldValue[],
+): Promise<Evidence[]> {
+  const name = controlName(control);
+  await page.goto(ctx.targetUrl, { waitUntil: "load" });
+  await settle(page);
+  await fillForm(page, values);
+  const flow = recordFlow(ctx, page, `clicking ${name} does nothing`);
+  const watched = { label: "Watched for", value: `${REACTION_MS} ms after the click` };
+  const target = { label: "Control", value: `"${name}" ${control.role === "button" ? "button" : `<${control.tag}>`}, visible and enabled` };
+  await flow.step(`Before clicking "${name}"`, {
+    highlights: [{ selector: control.selector, label: `About to click "${name}"`, tone: "info" }],
+    caption: `The form is filled in. Next: one click on "${name}", then ${(REACTION_MS / 1000).toFixed(1)} s of watching for any reaction.`,
+    facts: [target, watched],
+  });
+  await page.evaluate(ARM_SCRIPT.replace("__SELECTOR__", JSON.stringify(control.selector))).catch(() => undefined);
+  const before = await state(page);
+  const requestsBefore = capture.requests.length;
+  const urlBefore = page.url();
+  const clickedAt = Date.now();
+  await page.locator(control.selector).first().click({ timeout: 5000 });
+  // No frame inside the watch window: taking a screenshot changes the DOM (Playwright hides the caret with a style).
+  await sleep(Math.max(0, REACTION_MS - (Date.now() - clickedAt)));
+  const after = await state(page);
+  const changed = (a?: string, b?: string) => (a === b ? 0 : 1);
+  const facts = [
+    { label: "Requests sent", value: String(capture.requests.length - requestsBefore) },
+    { label: "DOM changes", value: String(after?.mutations ?? 0) },
+    { label: "Storage changes", value: String(changed(before?.local, after?.local) + changed(before?.session, after?.session)) },
+    { label: "Focus or value changes", value: String((after?.focusMoved ? 1 : 0) + changed(before?.values, after?.values)) },
+    { label: "Navigation", value: page.url() === urlBefore ? "none" : page.url() },
+    watched,
+  ];
+  await flow.step(`${(REACTION_MS / 1000).toFixed(1)} s after clicking "${name}"`, {
+    highlights: [{ selector: control.selector, label: "Clicked: nothing happened" }],
+    caption: `Clicked "${name}" and watched for ${(REACTION_MS / 1000).toFixed(1)} s: no request, no page change, no storage change, focus did not move.`,
+    facts,
+  });
+  return flow.finish(`clicking ${name} does nothing`);
+}
+
 export const check: Check = {
   id: ID,
   title: "Every button does something",
@@ -160,6 +209,7 @@ export const check: Check = {
           notes.push(`"${name}": skipped (looks destructive; run again with --allow-destructive to include it)`);
           continue;
         }
+        ctx.step(`Clicking "${name}" and watching for a reaction`, page);
         const { reaction, skipped } = await probe(page, capture, ctx.targetUrl, control, values);
         if (skipped) {
           notes.push(`"${name}": skipped (${skipped})`);
@@ -170,7 +220,8 @@ export const check: Check = {
           continue;
         }
         notes.push(`"${name}": no reaction`);
-        const shots = await tryScreenshot(ctx, page, `after clicking ${name}`);
+        ctx.step(`"${name}" did nothing; recording the click as evidence`, page);
+        const shots = await recordDeadClick(ctx, page, capture, control, values).catch(() => []);
         const locator = controlLocator(control);
         findings.push(
           make({
@@ -181,24 +232,37 @@ export const check: Check = {
             impact: `People who click "${name}" think it worked (or keep clicking) and lose whatever they expected it to do for them.`,
             fix: `Ask your AI or developer: "The ${name} button (${control.selector}) has no working click handler. Connect it to the intended action and show a confirmation when it succeeds."`,
             evidence: [
+              ...shots,
               evidence("dom", `Clicked "${name}" and watched for ${REACTION_MS} ms`, {
                 control: { name, role: control.role, tag: control.tag, selector: control.selector },
                 observed: "no request, navigation, DOM change, storage change, value change or focus change",
               }),
-              ...shots,
             ],
             spec: {
               name: `${name}-does-something`,
               source: specSource(ctx.targetUrl, `clicking "${name}" does something`, [
                 ...fillLines(values),
-                `const snapshot = () => page.evaluate(() => JSON.stringify([document.body.innerHTML, { ...localStorage }, { ...sessionStorage }, location.href]));`,
+                `// The same reactions Run Hound looks for: DOM, storage, URL, field values, a request, or focus moving elsewhere.`,
+                `const snapshot = () =>`,
+                `  page.evaluate(() =>`,
+                `    JSON.stringify([`,
+                `      document.body.innerHTML,`,
+                `      { ...localStorage },`,
+                `      { ...sessionStorage },`,
+                `      location.href,`,
+                `      [...document.querySelectorAll("input, select, textarea")].map((e) => { const i = e as HTMLInputElement; return i.type === "checkbox" || i.type === "radio" ? i.checked : i.value; }),`,
+                `    ]),`,
+                `  );`,
+                `const control = ${locator};`,
                 `const requests: string[] = [];`,
                 `page.on("request", (r) => requests.push(r.url()));`,
                 `const before = await snapshot();`,
-                `await ${locator}.click();`,
+                `await page.evaluate(() => { (window as unknown as { focusBefore: Element | null }).focusBefore = document.activeElement; });`,
+                `await control.click();`,
                 `await page.waitForTimeout(${REACTION_MS});`,
                 `const after = await snapshot();`,
-                `expect(after !== before || requests.length > 0, ${JSON.stringify(`"${name}" should change something`)}).toBe(true);`,
+                `const focusMoved = await control.evaluate((c) => { const a = document.activeElement; return !!a && a !== c && a !== document.body && a !== (window as unknown as { focusBefore: Element | null }).focusBefore; });`,
+                `expect(after !== before || requests.length > 0 || focusMoved, ${JSON.stringify(`"${name}" should change something`)}).toBe(true);`,
               ]),
             },
           }),

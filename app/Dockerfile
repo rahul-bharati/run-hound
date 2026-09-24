@@ -28,4 +28,5 @@ WORKDIR /repo/app
 
 EXPOSE 4000
 # --init in `docker run` (or init: true in compose) is recommended so Chromium child processes get reaped.
-CMD ["./node_modules/.bin/tsx", "src/cli.ts", "serve", "--host", "0.0.0.0", "--port", "4000"]
+# With nodeLinker: hoisted the binaries live in the workspace root, not app/node_modules.
+CMD ["/repo/node_modules/.bin/tsx", "src/cli.ts", "serve", "--host", "0.0.0.0", "--port", "4000"]

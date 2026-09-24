@@ -40,7 +40,8 @@ export function fieldName(field: FormField): string {
 
 /** The user-facing name of a control. */
 export function controlName(control: FormControl): string {
-  return control.accessibleName ?? (control.text || control.selector);
+  // A CSS path ("#root > main > form > div > button") means nothing to a reader; the evidence frame marks the element.
+  return control.accessibleName ?? (control.text || `unnamed ${control.role === "button" || control.tag === "button" ? "button" : control.tag}`);
 }
 
 function fit(value: string, field: FormField): string {

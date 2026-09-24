@@ -4,8 +4,8 @@
  * alert role, or focus moves to it) and the inputs keep their values.
  */
 import type { Page } from "playwright";
-import type { Check, Scenario } from "../core/types.js";
-import { controlLocator, evidence, fillLines, findingFactory, guarded, result, specSource, tryScreenshot } from "./lib/functional-finding.js";
+import type { Check, Fact, Highlight, Scenario } from "../core/types.js";
+import { controlLocator, endpointOf, fieldLocator, evidence, fillLines, findingFactory, guarded, markText, recordFlow, result, specSource } from "./lib/functional-finding.js";
 import { canaryValues, fieldName, fillForm, isCreatePlaywrightRequest, sleep, submitControl, submitForm, waitFor, type FieldValue } from "./lib/functional-form.js";
 
 const ID = "silent-failure" as const;
@@ -103,10 +103,29 @@ export const check: Check = {
         await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Something went wrong" }) });
       });
 
+      ctx.step("Filling the form with valid test values", page);
       await fillForm(page, values);
+      const submit = submitControl(ctx.form);
+      const flow = recordFlow(ctx, page, "submit while the server fails");
+      await flow.step("Form filled with valid data", {
+        highlights: submit ? [{ selector: submit.selector, label: "Submitting next", tone: "info" }] : [],
+        facts: [
+          { label: "Fields filled", value: String(values.length) },
+          { label: "Server answer", value: "500, simulated by Run Hound (nothing is saved)" },
+        ],
+      });
       await page.evaluate(ARM_SCRIPT);
       await submitForm(page, ctx.form);
       const submittedAt = Date.now();
+      await waitFor(() => (intercepted as unknown) !== null, 1000);
+      const firstHit = intercepted as { method: string; url: string } | null;
+      await flow.step("Submitted; the save request was answered with 500", {
+        facts: [
+          { label: "Injected status", value: "500 (simulated; the request never reached the server)" },
+          { label: "Request", value: firstHit ? endpointOf(firstHit.method, firstHit.url) : "waiting for the save request" },
+        ],
+      });
+      ctx.step(`Waiting up to ${BUDGET_MS / 1000} s for an error message`, page);
 
       let probe: Probe = { announced: false, how: null, text: null };
       let lastVisible: string | null = null;
@@ -124,11 +143,42 @@ export const check: Check = {
       const seenAfterMs = Date.now() - submittedAt;
       // Give a form reset that runs with the message a moment to land.
       await sleep(300);
+      ctx.step("Checking the typed values are still there", page);
       const lost = await lostInputs(page, values);
 
       const make = findingFactory(ID, "broken-feature", scenario);
-      const submit = submitControl(ctx.form);
-      const shots = !probe.announced || lost.length > 0 ? await tryScreenshot(ctx, page, "after simulated server error") : [];
+      const failed = !probe.announced || lost.length > 0;
+      const visibleText = lastVisible ?? probe.text;
+      const waited = `${(seenAfterMs / 1000).toFixed(1)} s after submitting`;
+      const highlights: Highlight[] = [];
+      if (!probe.announced) {
+        const message = visibleText ? (await markText(page, visibleText.split("\n")[0]!.slice(0, 80), "rh-silent", 1))[0] : undefined;
+        if (message) highlights.push({ selector: message, label: "Shown, but not announced to screen readers" });
+        else highlights.push({ selector: ctx.form.selector, label: `No error shown after ${(seenAfterMs / 1000).toFixed(0)} s` });
+      }
+      for (const { field } of values.filter((v) => lost.includes(fieldName(v.field))).slice(0, 4)) {
+        highlights.push({ selector: field.selector, label: "Emptied after the error" });
+      }
+      const facts: Fact[] = [
+        { label: "Injected status", value: "500 (simulated; the request never reached the server)" },
+        { label: "Request", value: endpointOf(hit.method, hit.url) },
+        { label: "Waited for an error", value: waited },
+        {
+          label: "Error message",
+          value: probe.announced ? `"${probe.text}" (announced via ${probe.how})` : visibleText ? `"${visibleText}" (visible, not announced)` : "none",
+        },
+        { label: "Values kept", value: lost.length ? `no: ${lost.join(", ")} emptied` : `yes, all ${values.length} fields` },
+      ];
+      await flow.step(`${(seenAfterMs / 1000).toFixed(1)} s after the failed save`, {
+        highlights,
+        caption: !probe.announced
+          ? visibleText
+            ? "The save failed and a message appeared, but it is not in an alert or live region, so screen readers say nothing."
+            : `The save failed with a 500, and ${(seenAfterMs / 1000).toFixed(0)} s later the page still shows no error.`
+          : `The save failed and the form cleared ${lost.join(", ")}.`,
+        facts,
+      });
+      const shots = failed ? await flow.finish("submit while the server fails") : [];
       const baseSpec = [
         `await page.route(${JSON.stringify(hit.url)}, (route) =>`,
         `  route.request().method() === ${JSON.stringify(hit.method)} ? route.fulfill({ status: 500, json: { error: "Something went wrong" } }) : route.fallback());`,
@@ -147,20 +197,20 @@ export const check: Check = {
             location: submit ? `"${submit.accessibleName ?? submit.text}" button` : "Form submit",
             meaning: visible
               ? "When the server fails, the page shows a message, but screen readers are not told about it: it is not in an alert or live region and focus does not move to it."
-              : `When the server fails to save the booking, nothing tells the user within ${BUDGET_MS / 1000} seconds. The form just sits there (often with a spinner), so it looks like it is still working or like it worked.`,
+              : `When the server fails to save the form, nothing tells the user within ${BUDGET_MS / 1000} seconds. The form just sits there (often with a spinner), so it looks like it is still working or like it worked.`,
             impact: visible
-              ? "Blind and low-vision users submit, hear nothing, and do not know their booking failed."
-              : "People leave thinking their booking went through when it did not, or give up and never come back.",
+              ? "Blind and low-vision users submit, hear nothing, and do not know their submission failed."
+              : "People leave thinking their submission went through when it did not, or give up and never come back.",
             fix: visible
               ? `Ask your AI or developer: "Put the submit error message in an element with role=\\"alert\\" (or an aria-live region that exists from page load), or move focus to it."`
               : `Ask your AI or developer: "When the submit request fails (any non-2xx response or network error), stop the spinner, re-enable the button and show a clear error in an element with role=\\"alert\\" within a second or two."`,
             evidence: [
+              ...shots,
               interceptEvidence,
               evidence("dom", visible ? "Visible message with no announcement" : `No error message within ${BUDGET_MS / 1000} s`, {
                 visibleMessage: visible,
                 waitedMs: seenAfterMs,
               }),
-              ...shots,
             ],
             spec: {
               name: "server-error-is-announced",
@@ -182,7 +232,7 @@ export const check: Check = {
             meaning: "When saving fails, the form clears the user's answers instead of keeping them for another try.",
             impact: "People have to type everything again after an error, and many give up instead.",
             fix: `Ask your AI or developer: "When the submit request fails, keep every field's value (${lost.join(", ")}) so the user can simply try again. Only reset the form after a successful save."`,
-            evidence: [interceptEvidence, evidence("dom", "Fields emptied after the error", { lost }), ...shots],
+            evidence: [...shots, interceptEvidence, evidence("dom", "Fields emptied after the error", { lost })],
             spec: {
               name: "server-error-keeps-input",
               source: specSource(ctx.targetUrl, "a server error keeps the typed values", [
@@ -190,7 +240,7 @@ export const check: Check = {
                 `await page.waitForTimeout(${BUDGET_MS});`,
                 ...values
                   .filter((v) => lost.includes(fieldName(v.field)) && !v.field.options && v.field.type !== "radio")
-                  .map((v) => `await expect(${`page.getByLabel(${JSON.stringify(fieldName(v.field))}, { exact: true })`}).toHaveValue(${JSON.stringify(v.value)});`),
+                  .map((v) => `await expect(${fieldLocator(v.field)}).toHaveValue(${JSON.stringify(v.value)});`),
               ]),
             },
           }),

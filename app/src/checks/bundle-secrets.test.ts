@@ -117,3 +117,27 @@ describe("bundle-secrets does not follow redirects off the target", () => {
     expect(results[0]!.status).toBe("pass");
   });
 });
+
+describe("bundle-secrets excerpt and claims", () => {
+  it("numbers the excerpt as the file does, without a second gutter in the text", async () => {
+    const { excerptAround } = await import("./bundle-secrets.js");
+    const text = ["// 1", "// 2", "// 3", "// 4", "// 5", `const key = "${fixtures.FAKE_LLM_KEY}";`, "// 7"].join("\n");
+    const excerpt = excerptAround(text, text.indexOf(fixtures.FAKE_LLM_KEY), "openai-key");
+    expect(excerpt.line).toBe(6);
+    expect(excerpt.firstLine).toBe(2);
+    expect(excerpt.lines[0]!.text).toBe("// 2");
+    expect(excerpt.lines.find((l) => l.mark)!.text).toContain("[REDACTED:openai-key]");
+    expect(excerpt.lines.some((l) => /│/.test(l.text))).toBe(false);
+  });
+
+  it("reads the role claim of a service_role JWT without returning any part of the token", async () => {
+    const { jwtClaims } = await import("./bundle-secrets.js");
+    const text = `key: "${fixtures.FAKE_SERVICE_ROLE_JWT}"`;
+    const claims = jwtClaims(text, text.indexOf("eyJ"));
+    expect(claims.find((c) => /role/i.test(c.label))?.value).toBe("service_role");
+    const [, payload, signature] = fixtures.FAKE_SERVICE_ROLE_JWT.split(".");
+    expect(JSON.stringify(claims)).not.toContain(payload);
+    expect(JSON.stringify(claims)).not.toContain(signature);
+    expect(jwtClaims("not a token", 0)).toEqual([]);
+  });
+});

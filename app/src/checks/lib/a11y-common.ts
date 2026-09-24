@@ -135,3 +135,31 @@ export function fieldName(field: FormField): string {
 export function submitControl(form: DiscoveredForm) {
   return form.controls.find((c) => c.isSubmit) ?? null;
 }
+
+/** Attribute Run Hound puts on the focused element so evidence frames can mark it by selector. */
+const FOCUS_MARK = "data-rh-focus";
+
+/**
+ * Tags the element that has keyboard focus (and untags any earlier one) and returns a selector for it, or null when
+ * focus is on the page body. Only an attribute changes; nothing visible does.
+ */
+export async function markFocused(page: Page): Promise<string | null> {
+  const marked = await evalIn<boolean>(
+    page,
+    `(attr) => {
+      for (const el of document.querySelectorAll("[" + attr + "]")) el.removeAttribute(attr);
+      const el = document.activeElement;
+      if (!el || el === document.body || el === document.documentElement) return false;
+      el.setAttribute(attr, "");
+      return true;
+    }`,
+    FOCUS_MARK,
+  );
+  return marked ? `[${FOCUS_MARK}]` : null;
+}
+
+/** Shortens `text` to `max` characters with an ellipsis, for facts and callouts. */
+export function clip(text: string, max = 120): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}

@@ -3,7 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "bin": { "run-hound": "./src/cli.ts" },
+  "bin": {
+    "run-hound": "./src/cli.ts"
+  },
   "scripts": {
     "serve": "tsx src/cli.ts serve",
     "run": "tsx src/cli.ts run",
@@ -13,12 +15,15 @@
   "dependencies": {
     "@axe-core/playwright": "4.13.0",
     "@hono/node-server": "2.1.1",
+    "gifenc": "1.0.3",
     "hono": "4.13.8",
     "playwright": "1.63.0",
+    "pngjs": "7.0.0",
     "tsx": "4.23.15"
   },
   "devDependencies": {
     "@types/node": "26.6.2",
+    "@types/pngjs": "6.0.5",
     "typescript": "7.0.2",
     "vitest": "5.0.1"
   }

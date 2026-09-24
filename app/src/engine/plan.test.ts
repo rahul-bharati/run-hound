@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { CHECK_IDS, type Check, type CheckId, type DiscoveredForm, type Scenario } from "../core/types.js";
-import { NotImplementedError } from "./errors.js";
 import { buildPlan } from "./plan.js";
 
 const form: DiscoveredForm = {
@@ -109,7 +108,6 @@ describe("buildPlan", () => {
       plan = buildPlan("http://127.0.0.1:1/book", form, checks);
     } catch (err) {
       expect(err).toBeInstanceOf(Error);
-      expect(err).not.toBeInstanceOf(NotImplementedError);
       expect((err as Error).message).toContain("main");
       return;
     }

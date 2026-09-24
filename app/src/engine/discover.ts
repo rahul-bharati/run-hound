@@ -47,7 +47,7 @@ const SCAN_SCRIPT = String.raw`(() => {
   const selectorFor = (el) => {
     if (el.id && unique("#" + CSS.escape(el.id), el)) return "#" + CSS.escape(el.id);
     const tag = el.tagName.toLowerCase();
-    for (const attr of ["data-testid", "data-test", "data-kennel"]) {
+    for (const attr of ["data-testid", "data-test", "data-cy", "data-qa"]) {
       const v = el.getAttribute(attr);
       if (v && unique("[" + attr + '="' + str(v) + '"]', el)) return "[" + attr + '="' + str(v) + '"]';
     }

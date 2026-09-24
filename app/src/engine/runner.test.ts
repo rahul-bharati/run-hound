@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
 import type { Check, CheckContext, CheckId, CheckResult, Finding, Plan, Report, Scenario } from "../core/types.js";
 import { TargetNotAllowedError } from "./errors.js";
-import { discoverAndPlan, runPlan, type ProgressEvent } from "./runner.js";
+import { discoverAndPlan, NothingToRunError, runPlan, type ProgressEvent } from "./runner.js";
 
 const FORM_PAGE = `<!doctype html><html lang="en"><head><title>Runner fixture</title></head><body>
 <form id="booking">
@@ -348,5 +348,77 @@ describe("runner safety hardening", () => {
     const { report, dir } = await runPlan(plan, { checks: [leaky], runsDir, log: () => undefined });
     expect(resultFor(report, "dc:leaky")?.notes).not.toContain("sk-proj-FAKE");
     expect(await readFile(join(dir, "report.json"), "utf8")).not.toContain("sk-proj-FAKE");
+  });
+});
+
+describe("runPlan: what gets run", () => {
+  let plan: Plan;
+
+  beforeEach(async () => {
+    plan = await discoverAndPlan(url(), { checks });
+  });
+
+  it("refuses an empty approval instead of reporting a clean pass", async () => {
+    const launch = vi.spyOn(chromium, "launch");
+    await expect(runPlan(plan, { checks, runsDir, approved: [] })).rejects.toBeInstanceOf(NothingToRunError);
+    expect(launch).not.toHaveBeenCalled();
+    expect(await readdir(runsDir)).toEqual([]);
+  });
+
+  it("refuses scenario ids the plan doesn't have", async () => {
+    await expect(runPlan(plan, { checks, runsDir, approved: ["nope"] })).rejects.toThrow(/nope/);
+  });
+
+  it("numbers evidence files across the whole run, not per scenario", async () => {
+    const shooter = (id: CheckId, sid: string): Check => ({
+      id,
+      title: id,
+      category: "broken-feature",
+      plan: () => [scenario(id, sid)],
+      async run(ctx, s) {
+        const { page } = await ctx.openPage();
+        await ctx.screenshot(page, "shot");
+        return { checkId: id, scenarioId: s.id, status: "pass", findings: [], durationMs: 1 };
+      },
+    });
+    const two = [shooter("dead-control", "a"), shooter("persistence", "b")];
+    const p = await discoverAndPlan(url(), { checks: two });
+    const { dir } = await runPlan(p, { checks: two, runsDir });
+    expect((await readdir(join(dir, "artifacts"))).sort()).toEqual(["001-shot.png", "002-shot.png"]);
+  });
+
+  it("keeps finding ids and spec file names unique across scenarios of one check", async () => {
+    const twice: Check = {
+      id: "silent-failure",
+      title: "twice",
+      category: "broken-feature",
+      plan: () => [scenario("silent-failure", "one"), scenario("silent-failure", "two")],
+      async run(_ctx, s) {
+        return { checkId: "silent-failure", scenarioId: s.id, status: "fail", findings: [finding("silent-failure", 1)], durationMs: 1 };
+      },
+    };
+    const p = await discoverAndPlan(url(), { checks: [twice] });
+    const { report, dir } = await runPlan(p, { checks: [twice], runsDir });
+    expect(report.findings.map((f) => f.id)).toEqual(["silent-failure#1", "silent-failure#1-2"]);
+    expect((await readdir(join(dir, "specs"))).sort()).toEqual(["silent-failure-1-2.spec.ts", "silent-failure-1.spec.ts"]);
+  });
+});
+
+describe("discoverAndPlan: what people type", () => {
+  it("reads a URL without a scheme as http://", async () => {
+    const plan = await discoverAndPlan(url().replace(/^http:\/\//, ""), { checks });
+    expect(plan.target).toBe(url());
+  });
+
+  it("explains an unreachable target in one plain sentence", async () => {
+    const dead = await startFixtureServer({ pages: {} });
+    const target = `${dead.url}/book`;
+    await dead.close();
+    const err = await discoverAndPlan(target, { checks }).then(
+      () => undefined,
+      (e: unknown) => e as Error,
+    );
+    expect(err?.message).toMatch(/Nothing is answering at http:\/\/127\.0\.0\.1:\d+\./);
+    expect(err?.message).not.toMatch(/\u001b|Call log/);
   });
 });

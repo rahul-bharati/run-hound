@@ -35,3 +35,17 @@ export const outlineReplacedByBackground: BookingVariant = {
 export const autofocus: BookingVariant = {
   script: 'document.getElementById("petName").focus();',
 };
+
+/**
+ * BAD for the text inputs, GOOD for the date field: every outline is removed, but a native date field still shows
+ * focus by highlighting its first segment, so only the text inputs may be reported.
+ */
+export const dateSegmentOnly: BookingVariant = {
+  css: "input:focus, input:focus-visible { outline: none; box-shadow: none; }",
+  replace: [
+    [
+      '<input id="ownerEmail" name="ownerEmail" type="email" required autocomplete="email">',
+      '<input id="ownerEmail" name="ownerEmail" type="email" required autocomplete="email"><label for="startDate">Start date</label><input id="startDate" name="startDate" type="date">',
+    ],
+  ],
+};

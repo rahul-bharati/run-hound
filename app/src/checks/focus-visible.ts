@@ -3,10 +3,32 @@
  * visible focus indicator: an outline (non-"none", width > 0, not transparent), or a box-shadow,
  * border, background or text-decoration that differs from its unfocused style (WCAG 2.4.7).
  */
-import type { Check, CheckContext, DiscoveredForm, Evidence, Scenario } from "../core/types.js";
-import { checkResult, evalIn, fieldName, FindingList, guarded, playwrightSpec, scenarioFor } from "./lib/a11y-common.js";
+import { PNG } from "pngjs";
+import type { Page } from "playwright";
+import type { Box, Check, CheckContext, DiscoveredForm, Evidence, Fact, Scenario } from "../core/types.js";
+import { checkResult, clip, evalIn, fieldName, FindingList, guarded, playwrightSpec, scenarioFor } from "./lib/a11y-common.js";
 
 const MAX_TABS = 300;
+/** At most this many failing controls get their own frame. */
+const MAX_FRAMES = 10;
+/** Evidence is recorded at this size: the desktop layout, with the facts panel still readable once a GIF is scaled. */
+const RECORD_VIEWPORT = { width: 1024, height: 720 };
+/**
+ * A focus change this large (pixels that differ, and their share of the area around the control) is visible even
+ * when no computed style changed. A text caret is hidden in the comparison, so it never counts.
+ */
+const VISIBLE_PIXELS = 40;
+const VISIBLE_SHARE = 0.005;
+/** Gap between a control and the mark drawn around it, so the control's own edge (and any focus style) stays visible. */
+const MARK_GAP = 8;
+
+/** The focused element's box in viewport pixels, grown by MARK_GAP on every side; null when nothing is focused. */
+const FOCUSED_BOX = `(gap) => {
+  const el = document.activeElement;
+  if (!el || el === document.body || el === document.documentElement) return null;
+  const r = el.getBoundingClientRect();
+  return { x: r.x - gap, y: r.y - gap, width: r.width + 2 * gap, height: r.height + 2 * gap };
+}`;
 
 /** The style properties a page can use to show focus, as computed values. */
 interface FocusStyle {
@@ -25,6 +47,141 @@ interface FocusStep {
   visible: boolean;
   focused: FocusStyle;
   unfocused: FocusStyle | null;
+  /** 1-based position in the Tab order (set by tabThrough). */
+  n: number;
+}
+
+type Known = { selector: string; name: string }[];
+
+/**
+ * Records resting styles, then presses Tab until focus wraps (or MAX_TABS) and describes each new tab stop.
+ * `onStop` runs while focus is on the stop.
+ */
+async function tabThrough(page: Page, known: Known, onStop?: (step: FocusStep) => Promise<void>): Promise<FocusStep[]> {
+  await evalIn(page, SNAPSHOT);
+  const stops: FocusStep[] = [];
+  const visited = new Set<number>();
+  let previous = -2;
+  let bodyHits = 0;
+  for (let i = 0; i < MAX_TABS; i++) {
+    await page.keyboard.press("Tab");
+    const step = await evalIn<FocusStep>(page, STEP, known);
+    if (step.index === -1) {
+      if (++bodyHits > 1 || visited.size > 0) break;
+      continue;
+    }
+    // Tab can stay on one element (date inputs have several segments); wrapping to an earlier one ends the pass.
+    if (step.index === previous) continue;
+    if (visited.has(step.index)) break;
+    visited.add(step.index);
+    previous = step.index;
+    step.n = stops.length + 1;
+    stops.push(step);
+    await onStop?.(step);
+  }
+  return stops;
+}
+
+/**
+ * Pixel proof for a frame: screenshots the area around the focused control, blurs it, screenshots the same area at
+ * rest, and puts focus back. Counts pixels that differ by more than a faint anti-aliasing change. Null when the area
+ * is off screen or the screenshots fail. The caret is hidden and transitions are finished in both screenshots.
+ */
+async function pixelsChangedByFocus(page: Page, box: Box): Promise<{ changed: number; total: number } | null> {
+  const viewport = page.viewportSize();
+  if (!viewport) return null;
+  const x = Math.max(0, Math.floor(box.x));
+  const y = Math.max(0, Math.floor(box.y));
+  const clip = { x, y, width: Math.min(viewport.width, Math.ceil(box.x + box.width)) - x, height: Math.min(viewport.height, Math.ceil(box.y + box.height)) - y };
+  if (clip.width < 2 || clip.height < 2) return null;
+  try {
+    const focused = PNG.sync.read(await page.screenshot({ clip, caret: "hide", animations: "disabled" }));
+    await page.evaluate(`(() => { window.__rhRefocus = document.activeElement; document.activeElement?.blur?.(); })()`);
+    const rest = PNG.sync.read(await page.screenshot({ clip, caret: "hide", animations: "disabled" }));
+    if (focused.width !== rest.width || focused.height !== rest.height) return null;
+    let changed = 0;
+    for (let i = 0; i < focused.data.length; i += 4) {
+      const d = Math.max(Math.abs(focused.data[i]! - rest.data[i]!), Math.abs(focused.data[i + 1]! - rest.data[i + 1]!), Math.abs(focused.data[i + 2]! - rest.data[i + 2]!));
+      if (d > 24) changed++;
+    }
+    return { changed, total: focused.width * focused.height };
+  } catch {
+    return null;
+  } finally {
+    await page.evaluate(`window.__rhRefocus?.focus?.({ preventScroll: true })`).catch(() => undefined);
+  }
+}
+
+/** Resting vs focused value of each style property that can show focus. */
+function styleFacts(step: FocusStep): Fact[] {
+  const rows: [string, keyof FocusStyle][] = [
+    ["Outline", "outline"],
+    ["Box-shadow", "boxShadow"],
+    ["Border", "border"],
+    ["Background", "background"],
+  ];
+  return rows.flatMap(([label, key]) => [
+    { label: `${label} at rest`, value: clip(step.unfocused?.[key] ?? "unknown", 70) },
+    { label: `${label} focused`, value: clip(step.focused[key], 70) },
+  ]);
+}
+
+/**
+ * Tabs through the page again on a fresh page: one annotated frame per failing control (up to MAX_FRAMES) and a GIF
+ * of the Tab sequence around them. Returns the frames by tab position, and the GIF.
+ */
+async function recordEvidence(ctx: CheckContext, known: Known, stops: FocusStep[]): Promise<{ frames: Map<number, Evidence>; gif: Evidence }> {
+  const failing = stops.filter((s) => !s.visible).map((s) => s.n);
+  // The GIF shows the failing stops, plus the first stop and the stop before each failure as context, at most 12.
+  const chosen = new Set<number>([1]);
+  for (const n of failing) {
+    if (chosen.size >= 11) break;
+    if (n > 1 && chosen.size < 10) chosen.add(n - 1);
+    chosen.add(n);
+  }
+  const names = stops.filter((s) => !s.visible).map((s) => s.name);
+  const summary: Fact[] = [
+    { label: "Tab stops", value: String(stops.length) },
+    { label: "No visible focus on", value: clip(names.join(", "), 200) },
+  ];
+
+  const { page } = await ctx.openPage({ viewport: RECORD_VIEWPORT });
+  ctx.step("Recording the Tab sequence", page);
+  const recording = ctx.record(page, "Tab sequence");
+  const frames = new Map<number, Evidence>();
+  await tabThrough(page, known, async (step) => {
+    const wanted = chosen.has(step.n);
+    const failed = !step.visible && failing.includes(step.n);
+    if (!wanted && !(failed && frames.size < MAX_FRAMES)) return;
+    // A box around the control rather than its selector: the mark stays clear of the control's own edge.
+    const box = await evalIn<Box | null>(page, FOCUSED_BOX, MARK_GAP);
+    const label = `Tab ${step.n}: ${clip(step.name, 30)}`;
+    ctx.step(label, page);
+    const mark = box ? [{ box, label: "No visible focus" }] : [];
+    if (failed && frames.size < MAX_FRAMES) {
+      // Computed styles can miss a ring drawn some other way; comparing the pixels themselves settles it.
+      const pixels = box ? await pixelsChangedByFocus(page, box) : null;
+      const frame = await ctx.capture(page, `Focus on ${step.name}`, {
+        step: `${label} (focused)`,
+        highlights: mark,
+        facts: [
+          ...(pixels ? [{ label: "Pixels that change on focus", value: `${pixels.changed} of ${pixels.total} around the control (focused vs blurred screenshot)` }] : []),
+          ...styleFacts(step),
+          ...summary,
+        ],
+        caption: `"${step.name}" has keyboard focus, but its outline, shadow, border and background look the same as at rest.`,
+      });
+      frames.set(step.n, frame);
+    }
+    if (wanted) {
+      await recording.step(failed ? `${label}: no visible focus` : `${label}: focus visible`, {
+        // Only failures are marked, so a visible focus ring is never covered.
+        highlights: failed ? mark : [],
+        facts: summary,
+      });
+    }
+  });
+  return { frames, gif: await recording.finish({ label: "Tab sequence through the page" }) };
 }
 
 /**
@@ -120,27 +277,19 @@ export const check: Check = {
         ...ctx.form.fields.map((f) => ({ selector: f.selector, name: fieldName(f) })),
         ...ctx.form.controls.map((c) => ({ selector: c.selector, name: c.accessibleName ?? c.text })),
       ];
-      await evalIn(page, SNAPSHOT);
+      ctx.step("Pressing Tab through every control", page);
+      // Computed styles miss native focus cues (a date field highlights its first segment): a control whose styles
+      // look unchanged is only reported when its pixels don't change either.
+      const stops = await tabThrough(page, known, async (step) => {
+        if (step.visible) return;
+        const box = await evalIn<Box | null>(page, FOCUSED_BOX, MARK_GAP);
+        const pixels = box ? await pixelsChangedByFocus(page, box) : null;
+        if (pixels && pixels.changed >= VISIBLE_PIXELS && pixels.changed / pixels.total >= VISIBLE_SHARE) step.visible = true;
+      });
+      const failing = stops.filter((s) => !s.visible);
+      const { frames, gif } = failing.length > 0 ? await recordEvidence(ctx, known, stops) : { frames: new Map<number, Evidence>(), gif: null };
 
-      const visited = new Set<number>();
-      const reported = new Set<number>();
-      let previous = -2;
-      let bodyHits = 0;
-      for (let i = 0; i < MAX_TABS; i++) {
-        await page.keyboard.press("Tab");
-        const step = await evalIn<FocusStep>(page, STEP, known);
-        if (step.index === -1) {
-          if (++bodyHits > 1 || visited.size > 0) break;
-          continue;
-        }
-        // Tab can stay on one element (date inputs have several segments); wrapping to an earlier one ends the pass.
-        if (step.index === previous) continue;
-        if (visited.has(step.index)) break;
-        visited.add(step.index);
-        previous = step.index;
-        if (step.visible || reported.has(step.index)) continue;
-        reported.add(step.index);
-
+      for (const step of failing) {
         const evidence: Evidence[] = [
           {
             kind: "dom",
@@ -148,7 +297,9 @@ export const check: Check = {
             data: { selector: step.selector, focused: step.focused, unfocused: step.unfocused },
           },
         ];
-        if (reported.size <= 5) evidence.push(await ctx.screenshot(page, `Focus on ${step.name} (no visible indicator)`));
+        const frame = frames.get(step.n);
+        if (frame) evidence.push(frame);
+        if (gif) evidence.push(gif);
         findings.add({
           title: `No visible focus indicator on "${step.name}"`,
           severity: "high",
@@ -181,7 +332,7 @@ expect(focused.outlineShown || focused.style !== resting.style).toBe(true);`,
           ),
         });
       }
-      return checkResult("focus-visible", scenario, startedAt, findings.items, `Tabbed through ${visited.size} focusable element(s)`);
+      return checkResult("focus-visible", scenario, startedAt, findings.items, `Tabbed through ${stops.length} focusable element${stops.length === 1 ? "" : "s"}`);
     });
   },
 };

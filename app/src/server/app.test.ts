@@ -361,3 +361,53 @@ describe("secrets never leave through the API", () => {
     expect(await res.text()).not.toContain(SECRET);
   });
 });
+
+describe("POST /api/runs refuses runs that would look like a clean pass", () => {
+  it("400 for an empty approval", async () => {
+    const { planId } = await createPlan();
+    const res = await post("/api/runs", { planId, approved: [] });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toMatch(/at least one/i);
+  });
+
+  it("400 for scenario ids the plan doesn't have", async () => {
+    const { planId } = await createPlan();
+    const res = await post("/api/runs", { planId, approved: ["nope"] });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain("nope");
+  });
+
+  it("400 for a flag that is not true or false", async () => {
+    const { planId } = await createPlan();
+    const res = await post("/api/runs", { planId, approved: ["dc:controls"], allowDestructive: "yes" });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /api/plan extras", () => {
+  it("returns the check titles for the plan's groups", async () => {
+    const res = await post("/api/plan", { url: `${site.url}/book` });
+    const body = (await res.json()) as { checks: Record<string, string> };
+    expect(body.checks["dead-control"]).toBe("Fake dead control");
+  });
+
+  it("accepts a URL typed without http://", async () => {
+    const res = await post("/api/plan", { url: `${site.url.replace(/^http:\/\//, "")}/book` });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { plan: Plan }).plan.target).toBe(`${site.url}/book`);
+  });
+});
+
+describe("finished runs survive a restart", () => {
+  it("serves a run's status and report from disk when this process never saw it", async () => {
+    const { planId } = await createPlan();
+    const runId = await startRun({ planId, approved: ["dc:controls"] });
+    expect((await waitForRun(runId)).status).toBe("done");
+    const fresh = createApp({ checks: fakeChecks, runsDir });
+    const status = await fresh.request(`/api/runs/${runId}`);
+    expect(status.status).toBe(200);
+    expect(((await status.json()) as RunStatus).status).toBe("done");
+    expect((await fresh.request(`/api/runs/${runId}/report.html`)).status).toBe(200);
+    expect((await fresh.request(`/api/runs/..%2F..%2Fetc/report.json`)).status).toBe(404);
+  });
+});

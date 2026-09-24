@@ -53,7 +53,7 @@ export function expectWellFormedFinding(
 
   expect(finding.evidence.length, "finding.evidence is empty").toBeGreaterThan(0);
   for (const ev of finding.evidence) {
-    expect(["screenshot", "network", "console", "dom", "axe", "note"]).toContain(ev.kind);
+    expect(["frame", "gif", "card", "screenshot", "network", "console", "dom", "axe", "note"]).toContain(ev.kind);
     expect(ev.label.trim().length).toBeGreaterThan(0);
     expect(ev.path !== undefined || ev.data !== undefined, "evidence needs a path or data").toBe(true);
   }

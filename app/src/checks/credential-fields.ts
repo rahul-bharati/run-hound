@@ -4,19 +4,35 @@
  * event the page prevents; a missing autocomplete token is advisory.
  */
 import type { Check, CheckContext, DiscoveredForm, FormField, Scenario } from "../core/types.js";
-import { checkResult, fieldName, FindingList, guarded, playwrightSpec, scenarioFor } from "./lib/a11y-common.js";
+import { checkResult, evalIn, fieldName, FindingList, guarded, playwrightSpec, scenarioFor } from "./lib/a11y-common.js";
 
 function isCredentialField(field: FormField): boolean {
   return field.type === "password" || /otp|one-?time|2fa|mfa|verification-?code/i.test(field.key);
 }
 
-/** Dispatches a cancelable paste event; returns true when the page did NOT prevent it. */
-const PASTE_ALLOWED = `(selector) => {
-  const el = document.querySelector(selector);
-  if (!el) return true;
+/** The text Run Hound pastes. Not a real credential. */
+const PASTED = "Pasted-Test-Value-123";
+
+interface PasteResult {
+  /** False when the page cancelled the paste event. */
+  allowed: boolean;
+  /** Length of the field's value after the paste. */
+  valueLength: number;
+}
+
+/**
+ * Focuses the field and pastes into it: a cancelable paste event, then (when the page lets it through) the text is
+ * inserted the way the browser would. Reports whether the page cancelled it and what the field holds afterwards.
+ */
+const PASTE = `(args) => {
+  const el = document.querySelector(args.selector);
+  if (!el) return { allowed: true, valueLength: 0 };
+  el.focus();
   const dt = new DataTransfer();
-  dt.setData("text/plain", "Pasted-Test-Value-123");
-  return el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  dt.setData("text/plain", args.text);
+  const allowed = el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  if (allowed) document.execCommand("insertText", false, args.text);
+  return { allowed, valueLength: typeof el.value === "string" ? el.value.length : 0 };
 }`;
 
 const AUTOCOMPLETE = `(selector) => {
@@ -50,10 +66,33 @@ export const check: Check = {
       const findings = new FindingList("credential-fields", "accessibility");
       const { page } = await ctx.openPage();
       const fields = ctx.form.fields.filter(isCredentialField);
+      // Paste into every field first, so a field that accepted the paste can be shown next to one that blocked it.
+      const pastes: PasteResult[] = [];
       for (const field of fields) {
+        ctx.step(`Pasting a test value into "${fieldName(field)}"`, page);
+        pastes.push(await evalIn<PasteResult>(page, PASTE, { selector: field.selector, text: PASTED }));
+      }
+      const accepted = fields.find((_, i) => pastes[i]!.allowed && pastes[i]!.valueLength > 0);
+      for (const [i, field] of fields.entries()) {
         const name = fieldName(field);
-        const pasteOk = await page.evaluate(`(${PASTE_ALLOWED})(${JSON.stringify(field.selector)})`);
-        if (pasteOk === false) {
+        const paste = pastes[i]!;
+        const autocomplete = String(await page.evaluate(`(${AUTOCOMPLETE})(${JSON.stringify(field.selector)})`)).trim();
+        const autocompleteFact = { label: "autocomplete attribute", value: autocomplete ? `"${autocomplete}"` : "missing" };
+        if (!paste.allowed) {
+          const frame = await ctx.capture(page, `Paste into ${name}`, {
+            step: `Paste ${PASTED.length} characters into "${name}"`,
+            highlights: [
+              { selector: field.selector, label: "Paste blocked" },
+              ...(accepted ? [{ selector: accepted.selector, label: `Same paste accepted in "${fieldName(accepted)}"`, tone: "pass" as const }] : []),
+            ],
+            facts: [
+              { label: "Pasted text length", value: `${PASTED.length} characters` },
+              { label: "Value length after paste", value: `${paste.valueLength} characters` },
+              { label: "Paste event", value: "cancelled by the page (preventDefault)" },
+              autocompleteFact,
+            ],
+            caption: `${PASTED.length} characters were pasted into "${name}"; the page cancelled the paste and the field holds ${paste.valueLength}.`,
+          });
           findings.add({
             title: `Paste is blocked in "${name}"`,
             severity: "medium",
@@ -61,7 +100,10 @@ export const check: Check = {
             impact: "People with memory or motor difficulties, and anyone using a password manager, have to type a long password by hand, and many will give up or pick a weaker one.",
             fix: `Remove the code that cancels paste on "${name}" (an onPaste/"paste" handler calling preventDefault or returning false).`,
             location: name,
-            evidence: [{ kind: "dom", label: `Paste event on ${field.selector} was cancelled by the page`, data: { selector: field.selector, pasteAllowed: false } }],
+            evidence: [
+              { kind: "dom", label: `Paste event on ${field.selector} was cancelled by the page`, data: { selector: field.selector, pasteAllowed: false, pastedLength: PASTED.length, valueLength: paste.valueLength } },
+              frame,
+            ],
             spec: playwrightSpec(
               "credential-fields",
               findings.items.length + 1,
@@ -76,9 +118,14 @@ expect(allowed).toBe(true);`,
             ),
           });
         }
-        const autocomplete = String(await page.evaluate(`(${AUTOCOMPLETE})(${JSON.stringify(field.selector)})`)).trim();
         if (!autocomplete || autocomplete === "off") {
           const token = expectedToken(field);
+          const frame = await ctx.capture(page, `autocomplete on ${name}`, {
+            step: `Read the autocomplete attribute of "${name}"`,
+            highlights: [{ selector: field.selector, label: "No autocomplete hint" }],
+            facts: [autocompleteFact, { label: "Expected autocomplete", value: token }],
+            caption: `"${name}" doesn't tell password managers what it holds (autocomplete is ${autocompleteFact.value}).`,
+          });
           findings.add({
             title: `"${name}" has no autocomplete hint`,
             severity: "low",
@@ -87,7 +134,10 @@ expect(allowed).toBe(true);`,
             impact: "People who rely on autofill have to type or remember credentials, which is harder for people with memory or motor difficulties.",
             fix: `Add autocomplete="${token}" to the "${name}" field.`,
             location: name,
-            evidence: [{ kind: "dom", label: `autocomplete attribute on ${field.selector}`, data: { selector: field.selector, autocomplete: autocomplete || null, suggested: token } }],
+            evidence: [
+              { kind: "dom", label: `autocomplete attribute on ${field.selector}`, data: { selector: field.selector, autocomplete: autocomplete || null, suggested: token } },
+              frame,
+            ],
             spec: playwrightSpec(
               "credential-fields",
               findings.items.length + 1,

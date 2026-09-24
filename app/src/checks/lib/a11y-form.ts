@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import type { Page, Response } from "playwright";
 import type { DiscoveredForm, FormField } from "../../core/types.js";
 import { submitControl } from "./a11y-common.js";
+import { controlLocator, fieldLocator } from "./functional-finding.js";
 
 /** Test values that carry the run token, so they can be recognised in any request. */
 export interface Canaries {
@@ -112,18 +113,34 @@ export async function fillValid(page: Page, form: DiscoveredForm, values: Canari
   }
 }
 
-/** Playwright source lines that fill the form like fillValid and click submit, for exported specs. */
+/**
+ * Playwright source lines that fill the form like fillValid and click submit, for exported specs. Uses the same
+ * role/label/placeholder locators as the behaviour checks' specs (never positional CSS), so a spec keeps working
+ * after the developer fixes an unrelated bug that changes the page's structure.
+ */
 export function fillAndSubmitSpec(form: DiscoveredForm, values: Canaries): string {
   const q = (v: string) => JSON.stringify(v);
-  const lines = fillActions(form, values).map((a) => {
-    const target = `page.locator(${q(a.selector)}).first()`;
-    if (a.op === "click") return `await ${target}.click();`;
-    if (a.op === "check") return `await ${target}.check();`;
-    if (a.op === "select") return `await ${target}.selectOption({ label: ${q(a.label)} });`;
-    return `await ${target}.fill(${q(a.value)});`;
-  });
+  const anyPasswordRequired = form.fields.some((f) => f.type === "password" && f.required);
+  const lines: string[] = [];
+  for (const field of form.fields) {
+    if (!shouldFill(field) && !(anyPasswordRequired && field.type === "password")) continue;
+    const first = field.options?.[0];
+    if (field.type === "radio") {
+      if (first) lines.push(`await page.getByRole("radio", { name: ${q(first.label)}, exact: true }).check();`);
+    } else if (field.type === "custom") {
+      // Clicking the option's text also works once the picker becomes a native radio group (the text is its label).
+      if (first) lines.push(`await page.getByText(${q(first.label)}, { exact: true }).first().click();`);
+    } else if (field.type === "checkbox") {
+      lines.push(`await ${fieldLocator(field)}.check();`);
+    } else if (field.type === "select" || field.type === "select-one") {
+      if (first) lines.push(`await ${fieldLocator(field)}.selectOption({ label: ${q(first.label)} });`);
+    } else {
+      const value = textValueFor(field, values);
+      if (value !== null) lines.push(`await ${fieldLocator(field)}.fill(${q(value)});`);
+    }
+  }
   const submit = submitControl(form);
-  if (submit) lines.push(`await page.locator(${q(submit.selector)}).first().click();`);
+  if (submit) lines.push(`await ${controlLocator(submit)}.click();`);
   return lines.join("\n");
 }
 
