@@ -480,7 +480,7 @@ h1 .accent { color:var(--accent); }
 .target { margin:0; font:.9rem/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
 .runmeta { margin:.35rem 0 0; color:var(--muted); font-size:.95rem; }
 section { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:1rem 1.25rem 1.1rem; margin:1rem 0; overflow-x:auto; }
-h2 { margin:0 0 .75rem; font-size:1.15rem; font-weight:750; letter-spacing:-.01em; }
+h2 { margin:0 0 .75rem; font-size:1.15rem; font-weight:800; letter-spacing:-.02em; }
 section[aria-labelledby="findings"] h2:not(#findings) { font:600 .75rem/1.4 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--dim); margin:1.25rem 0 .5rem; }
 h3 { font-size:1rem; margin:1rem 0 .4rem; }
 .muted, .meta, dt { color: var(--muted); }

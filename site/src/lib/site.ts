@@ -18,6 +18,8 @@ export const site = {
   // Placeholders until real addresses exist.
   contactEmail: "contact@rahulbharati.dev",
   securityEmail: "contact@rahulbharati.dev",
+  // The one "ask for access" link used across the site while the repository is invite-only.
+  accessMail: "mailto:contact@rahulbharati.dev?subject=Run%20Hound%20V0%20access",
   // Google Analytics 4 measurement id ("G-..."), set at build time. Empty: no analytics and no consent banner.
   gaMeasurementId: process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID || "",
   // Date shown as "Last updated" on the legal pages.

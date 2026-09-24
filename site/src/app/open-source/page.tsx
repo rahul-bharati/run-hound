@@ -100,7 +100,7 @@ export default function OpenSourcePage() {
       >
         <p className="max-w-2xl text-[15px] leading-relaxed text-dim">
           V0 {site.version} is a tester preview. The repository is invite-only while it is tested;{" "}
-          <a href={`mailto:${site.contactEmail}?subject=Run%20Hound%20V0%20access`} className={externalLink}>
+          <a href={site.accessMail} className={externalLink}>
             ask for access
           </a>
           .

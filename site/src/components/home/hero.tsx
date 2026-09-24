@@ -46,7 +46,7 @@ export function Hero() {
 
           <h1
             id="hero-heading"
-            className="font-display text-[2.6rem] font-extrabold leading-[0.98] tracking-[-0.035em] sm:text-6xl xl:text-[5rem]"
+            className="font-display text-[2.6rem] font-extrabold leading-[0.98] tracking-[-0.03em] sm:text-6xl xl:text-[5rem]"
           >
             Find the bugs your AI forgot <span className="text-accent">to test.</span>
           </h1>

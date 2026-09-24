@@ -30,7 +30,7 @@ const toc = [
   { id: "feedback", label: "Sending feedback" },
 ] as const;
 
-const accessMail = `mailto:${site.contactEmail}?subject=Run%20Hound%20V0%20access`;
+const accessMail = site.accessMail;
 
 const severities: { level: Severity; meaning: string }[] = [
   { level: "critical", meaning: "Data or money is at risk right now, for example a secret key shipped to every visitor." },
@@ -68,11 +68,11 @@ pnpm exec tsx src/cli.ts run http://localhost:5173/signup --approve all`;
 
 const dockerLinux = `docker compose build run-hound      # once
 mkdir -p runs
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" localhost/run-hound:dev \\
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.1.0 \\
   run http://localhost:5173/signup --approve all
 
 # the web UI on the host network, bound to loopback only
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" localhost/run-hound:dev \\
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.1.0 \\
   serve --host 127.0.0.1 --port 4310`;
 
 const dockerDesktop = `docker compose run --rm run-hound run http://host.docker.internal:5173/signup --approve all`;

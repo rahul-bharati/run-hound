@@ -181,7 +181,7 @@ export default function DemoPage() {
             <p className="text-sm text-dim">
               Invite-only preview:{" "}
               <a
-                href={`mailto:${site.contactEmail}?subject=Run%20Hound%20V0%20access`}
+                href={site.accessMail}
                 className="text-muted underline underline-offset-4 hover:text-accent"
               >
                 ask for access

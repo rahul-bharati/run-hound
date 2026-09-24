@@ -5,7 +5,7 @@ export const links = {
   tryLocally: `${site.github}/blob/main/TESTING.md`,
   github: site.github,
   changelog: `${site.github}/blob/main/CHANGELOG.md`,
-  requestAccess: `mailto:${site.contactEmail}?subject=${encodeURIComponent("Run Hound V0 preview access")}`,
+  requestAccess: site.accessMail,
 } as const;
 
 /**

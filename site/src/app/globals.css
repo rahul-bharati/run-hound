@@ -22,9 +22,6 @@
   --color-pass: #5ee6a3;
   --color-fail: #ff6b6b;
   --color-warn: #f5b642;
-  /* Legacy names: nothing in the shared components uses them; remove once the home page has moved to accent. */
-  --color-amber: #5ee6a3;
-  --color-amber-ink: #04150d;
 
   /* Light "app under test" colours used inside product mockups. */
   --color-paper: #f4f4f0;
