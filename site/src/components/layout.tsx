@@ -30,8 +30,11 @@ export function PageHeader({
 }) {
   return (
     <div className="hero-glow relative overflow-hidden">
-      {/* Faint hound behind the title, like the reference homepage. Decorative, wide screens only. */}
-      <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-10 hidden opacity-[0.05] lg:block">
+      {/* Faint hound centred behind the title, as on the homepage hero. Decorative; hidden on small screens. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute left-1/2 top-0 hidden -translate-x-1/2 opacity-[0.05] md:block lg:-top-10 lg:opacity-[0.07]"
+      >
         <LogoMark size={420} />
       </div>
       <Container className="relative flex flex-col gap-6 pb-12 pt-16 sm:pt-24">
