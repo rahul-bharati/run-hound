@@ -131,7 +131,7 @@ export default function PrivacyPage() {
       <h2 id="contact">Contact</h2>
       <p>
         Questions about this policy: <MailLink address={site.contactEmail} />. Data controller:{" "}
-        <strong>[LEGAL ENTITY NAME]</strong>, <strong>[POSTAL ADDRESS]</strong>.
+        <strong>Rahul Bharati</strong>, <strong>Mumbai, India</strong>.
       </p>
     </>
   );

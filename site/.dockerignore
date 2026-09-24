@@ -1,0 +1,11 @@
+node_modules
+.next
+out
+tsconfig.tsbuildinfo
+next-env.d.ts
+.env*
+*.pem
+npm-debug.log*
+.pnpm-debug.log*
+Dockerfile
+.dockerignore

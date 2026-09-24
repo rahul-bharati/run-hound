@@ -54,7 +54,7 @@ export default function TermsPage() {
         To the fullest extent the law allows, we are not liable for any indirect, incidental, special, consequential
         or punitive damages, or for any loss of data, profits or business, arising from your use of the website or
         the software. Nothing in these terms limits liability that cannot be limited under the law of{" "}
-        <strong>[JURISDICTION]</strong>.
+        <strong>India</strong>.
       </p>
 
       <h2 id="your-responsibility">Your responsibility</h2>
@@ -100,8 +100,8 @@ export default function TermsPage() {
 
       <h2 id="governing-law">Governing law</h2>
       <p>
-        These terms are governed by the laws of <strong>[JURISDICTION]</strong>, and disputes will be handled by the
-        courts of <strong>[JURISDICTION]</strong>, unless the law where you live gives you the right to bring a claim
+        These terms are governed by the laws of <strong>India</strong>, and disputes will be handled by the
+        courts of <strong>India</strong>, unless the law where you live gives you the right to bring a claim
         elsewhere.
       </p>
 

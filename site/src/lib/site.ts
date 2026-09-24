@@ -3,7 +3,8 @@ export const site = {
   tagline: "Your AI said it's done. Let's check.",
   description:
     "An open-source AI testing agent that explores your app in a real browser, asks before it tests, and reports broken flows, accessibility failures and leaks with proof.",
-  url: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
+  // `||`, not `??`: Docker passes an unset build arg as an empty string.
+  url: process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
   github: "https://github.com/rahul-bharati/run-hound",
   license: "Apache-2.0",
   // Planned image name; the image is not published yet.
