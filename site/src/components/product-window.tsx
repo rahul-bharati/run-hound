@@ -1,6 +1,7 @@
+import { ChevronDown, ChevronRight, Circle, CircleAlert, CircleCheck, LoaderCircle, RotateCw, Timer } from "lucide-react";
 import Image from "next/image";
 import type { ReactNode } from "react";
-import { ChevronIcon, ClockIcon, ReloadIcon } from "@/components/home/icons";
+import { Icon } from "@/components/icon";
 import motion from "@/components/home/motion.module.css";
 
 type RowStatus = "finding" | "pass" | "running" | "queued";
@@ -30,31 +31,12 @@ const nav = [
   { name: "Report", active: false },
 ];
 
+/** Row status in the live view: pass = accent, finding = fail, running = spinning accent, queued = dim. */
 function StatusDot({ status }: { status: RowStatus }) {
-  if (status === "pass") {
-    return (
-      <span className="grid size-[18px] shrink-0 place-items-center rounded-full bg-accent text-accent-ink">
-        <svg viewBox="0 0 12 12" className="size-2.5" fill="none" stroke="currentColor" strokeWidth="2.2">
-          <path d="m2.5 6.2 2.2 2.2 4.8-4.9" />
-        </svg>
-      </span>
-    );
-  }
-  if (status === "finding") {
-    return (
-      <span className="grid size-[18px] shrink-0 place-items-center rounded-full bg-fail font-mono text-[11px] font-bold text-bg-deep">
-        !
-      </span>
-    );
-  }
-  if (status === "running") {
-    return (
-      <span
-        className={`size-[18px] shrink-0 rounded-full border-2 border-accent/25 border-t-accent ${motion.spin}`}
-      />
-    );
-  }
-  return <span className="size-[18px] shrink-0 rounded-full border-[1.5px] border-line-strong" />;
+  if (status === "pass") return <Icon icon={CircleCheck} size={18} className="text-accent" />;
+  if (status === "finding") return <Icon icon={CircleAlert} size={18} className="text-fail" />;
+  if (status === "running") return <Icon icon={LoaderCircle} size={18} className={`text-accent ${motion.spin}`} />;
+  return <Icon icon={Circle} size={18} className="text-dim" />;
 }
 
 function Field({ label, children, className = "" }: { label: string; children: ReactNode; className?: string }) {
@@ -142,7 +124,7 @@ export function ProductWindow({ tilt = false }: { tilt?: boolean }) {
                 <div className={`h-full w-[17%] rounded-full bg-accent ${motion.shimmer}`} />
               </div>
               <span className="flex items-center gap-1 font-mono text-[11px] text-dim">
-                <ClockIcon size={12} />
+                <Icon icon={Timer} size={14} />
                 00:21
               </span>
             </div>
@@ -150,7 +132,7 @@ export function ProductWindow({ tilt = false }: { tilt?: boolean }) {
             <div className="flex flex-col">
               <div className="flex items-center justify-between border-b border-line-soft pb-2">
                 <span className="flex items-center gap-1.5 text-[12.5px] font-semibold">
-                  <ChevronIcon size={13} className="rotate-90 text-accent" />
+                  <Icon icon={ChevronDown} size={14} className="text-accent" />
                   Accessibility
                 </span>
                 <span className="font-mono text-[11px] text-dim">6 scenarios</span>
@@ -183,7 +165,7 @@ export function ProductWindow({ tilt = false }: { tilt?: boolean }) {
                   className="flex items-center justify-between border-t border-line-soft py-2.5 text-[12.5px]"
                 >
                   <span className="flex items-center gap-1.5 text-muted">
-                    <ChevronIcon size={13} className="text-dim" />
+                    <Icon icon={ChevronRight} size={14} className="text-dim" />
                     {group.name}
                   </span>
                   <span className="font-mono text-[11px] text-dim">{group.count} scenarios</span>
@@ -205,7 +187,7 @@ export function ProductWindow({ tilt = false }: { tilt?: boolean }) {
             </div>
             <div className="overflow-hidden rounded-lg border border-line">
               <div className="flex items-center gap-2 bg-surface-2 px-2.5 py-1.5">
-                <ReloadIcon size={11} className="text-dim" />
+                <Icon icon={RotateCw} size={14} className="text-dim" />
                 <span className="min-w-0 flex-1 truncate rounded-md bg-bg-deep px-2 py-1 font-mono text-[10.5px] text-muted">
                   http://localhost:3150/book
                 </span>

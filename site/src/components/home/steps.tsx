@@ -1,11 +1,12 @@
+import { CircleCheck, ClipboardList, FileText, Play } from "lucide-react";
+import { Icon } from "@/components/icon";
 import { Container } from "@/components/layout";
-import { CheckCircleIcon, DocIcon, PlayIcon, ReportIcon } from "./icons";
 
 const steps = [
-  { name: "Plan", text: "Plans scenarios from your form", Icon: DocIcon },
-  { name: "Approve", text: "Review and select what to run", Icon: CheckCircleIcon },
-  { name: "Run", text: "Deterministic checks in a real browser", Icon: PlayIcon, current: true },
-  { name: "Report", text: "Annotated evidence and Playwright tests", Icon: ReportIcon },
+  { name: "Plan", text: "Plans scenarios from your form", icon: ClipboardList },
+  { name: "Approve", text: "Review and select what to run", icon: CircleCheck },
+  { name: "Run", text: "Real checks in a real browser", icon: Play, current: true },
+  { name: "Report", text: "Annotated evidence and Playwright tests", icon: FileText },
 ];
 
 /** The four V0 steps under the hero; "Run" is lit to match the product window. */
@@ -14,7 +15,7 @@ export function Steps() {
     <Container className="pb-16 sm:pb-20">
       <h2 className="sr-only">How a run works</h2>
       <ol className="grid gap-x-6 gap-y-8 border-t border-line-soft pt-10 sm:grid-cols-2 lg:grid-cols-4">
-        {steps.map(({ name, text, Icon, current }, i) => (
+        {steps.map(({ name, text, icon, current }, i) => (
           <li key={name} className="relative flex items-center gap-4">
             <span
               className={`grid size-14 shrink-0 place-items-center rounded-full border ${
@@ -23,7 +24,7 @@ export function Steps() {
                   : "border-line-strong text-muted"
               }`}
             >
-              <Icon size={22} />
+              <Icon icon={icon} size={24} />
             </span>
             <span className="flex flex-col gap-1">
               <span className={`font-semibold ${current ? "text-accent" : "text-fg"}`}>

@@ -8,13 +8,13 @@ import { Direction } from "@/components/home/direction";
 import { Evidence } from "@/components/home/evidence";
 import { Groups } from "@/components/home/groups";
 import { Hero } from "@/components/home/hero";
-import { ArrowIcon, GitHubIcon } from "@/components/home/icons";
+import { ArrowIcon, GitHubIcon } from "@/components/button-link";
 import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: { absolute: `${site.name}: Find the bugs your AI forgot to test` },
   description:
-    "Open-source V0 tester preview. Point Run Hound at a form on your local app: it plans 15 checks across accessibility, features and security, runs them in a real browser after you approve, and reports each finding with annotated evidence and a Playwright test.",
+    "AI-assisted UI testing for AI-built apps, open source, now in V0 tester preview (AI planning coming soon). Point Run Hound at a form on your local app: it plans 15 checks across accessibility, features and security, runs them in a real browser after you approve, and reports each finding with annotated evidence and a Playwright test.",
 };
 
 const principles = [
@@ -28,7 +28,7 @@ const principles = [
   },
   {
     title: "No evidence, no finding",
-    text: "Pass or fail comes from Playwright assertions, axe-core rules and captured traffic. V0's planning is rule-based; model-assisted planning is planned.",
+    text: "AI plans and explains; real checks decide. Pass or fail comes from Playwright assertions, axe-core and captured traffic in a real browser, never from a model's guess. AI planning is coming soon.",
   },
 ];
 

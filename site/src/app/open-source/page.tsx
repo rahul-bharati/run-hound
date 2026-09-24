@@ -21,7 +21,7 @@ const openCore: { core: string; later: string }[] = [
     later: "Hosted runner: test a deployed app behind domain-ownership verification",
   },
   {
-    core: "Planned: bring your own model (Ollama, Bedrock or any OpenAI-compatible endpoint)",
+    core: "Bring your own model · coming soon: local via Ollama, or any cloud provider (Bedrock or any OpenAI-compatible endpoint)",
     later: "Team dashboard: run history, trends and regressions across runs",
   },
   {
@@ -45,7 +45,7 @@ const roadmap: RoadmapStage[] = [
     status: "tester preview",
     summary:
       "Point it at a form on localhost. It plans 13 to 15 golden- and danger-path scenarios in three groups (Accessibility, Features, Security), you approve them, it runs them and reports with evidence, timings and exported Playwright tests.",
-    adds: "0.1.0 is with invited testers now. Planning and every result are rule-based; no AI model yet.",
+    adds: "0.1.0 is with invited testers now. AI planning and explanations are coming soon; every result already comes from a real check with evidence.",
   },
   {
     version: "V1",
@@ -242,7 +242,8 @@ export default function OpenSourcePage() {
           <ul className="flex list-disc flex-col gap-3 pl-5 leading-relaxed text-muted marker:text-dim">
             <li>
               <strong className="font-semibold text-fg">It runs locally.</strong> Run Hound runs on your machine,
-              with Node or in your Docker. V0 uses no AI model at all.
+              with Node or in your Docker. The current preview sends nothing to any AI provider; AI features
+              are coming soon and will be opt-in, with a local model option.
             </li>
             <li>
               <strong className="font-semibold text-fg">No telemetry about the app you test.</strong> Nothing about

@@ -47,4 +47,10 @@ Blue-green near-black with a mint accent, taken from the logo.
 
 ## Voice
 
-Calm, specific, evidence first. Show proof, not adjectives. Never claim what V0 doesn't do: no "AI generates" (V0 planning is rule-based), no "bring your own model" (planned), no invented users or numbers.
+Calm, specific, evidence first. Show proof, not adjectives.
+
+- **Lead with AI-assisted positioning:** Run Hound is AI-assisted UI testing for AI-built apps.
+- **Label AI capabilities "coming soon" until they ship:** AI planning (a model proposes scenarios from your app), AI explanations and "Bring your own model" (local via Ollama, or any cloud provider) all carry a visible "Coming soon".
+- **Never claim V0 uses a model today.** Marketing copy avoids "no AI", "rule-based only" or "deterministic only" framing; legal pages stay factually precise about data flows (the preview sends nothing to any AI provider; AI features will be opt-in).
+- **Every verdict is backed by a real check and evidence:** "AI plans and explains; real checks decide." Pass or fail comes from a real check in a real browser, never from a model guessing.
+- No invented users or numbers.

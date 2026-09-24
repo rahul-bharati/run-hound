@@ -34,7 +34,8 @@ const steps: { number: string; name: string; title: string; body: ReactNode; moc
       <>
         From what it found, it plans 13 to 15 scenarios under three groups: Accessibility, Features and Security. Golden
         paths are what a real user does; danger paths are what breaks things, like double clicks, server errors and
-        keyboard-only use. In V0 the planning is rule-based; model-assisted planning is planned.
+        keyboard-only use. In V0 the plan comes from what it found on the page. AI planning, where a model proposes
+        scenarios from your app, is coming soon.
       </>
     ),
     mock: <PlanMock />,
@@ -96,8 +97,8 @@ const steps: { number: string; name: string; title: string; body: ReactNode; moc
 
 const principles = [
   {
-    title: "Deterministic checks decide.",
-    body: "Pass or fail comes from Playwright assertions, axe-core rules and captured traffic. V0 uses no AI model at all; when model-assisted planning arrives, it will still never decide a result. Findings that rely on judgement are marked advisory.",
+    title: "AI plans and explains. Real checks decide.",
+    body: "Pass or fail comes from Playwright assertions, axe-core and captured traffic in a real browser, never from a model guessing. AI planning and plain-language explanations are coming soon; when they arrive, a model will propose and explain, and a real check with evidence will still decide every result. Findings that rely on judgement are marked advisory.",
   },
   {
     title: "No evidence, no finding.",
@@ -179,7 +180,7 @@ export default function HowItWorksPage() {
       <Section
         className="bg-band"
         title="Design principles"
-        intro="The rules Run Hound is built around. They exist to keep findings trustworthy and scans safe."
+        intro="The principles Run Hound is built around. They exist to keep findings trustworthy and scans safe."
       >
         <ul className="grid gap-5 md:grid-cols-2">
           {principles.map((principle) => (

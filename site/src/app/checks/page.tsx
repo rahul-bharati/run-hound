@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { EyeOff } from "lucide-react";
 import Link from "next/link";
 import { ArrowIcon, ButtonLink } from "@/components/button-link";
+import { Icon } from "@/components/icon";
 import { AdvisoryBadge, CheckCard, VersionBadge } from "@/components/checks/check-card";
 import { categories, notVisible, v0Groups, versionMeaning, type Version } from "@/components/checks/data";
 import { Container, Eyebrow, PageHeader, Section } from "@/components/layout";
@@ -89,7 +91,7 @@ export default function ChecksPage() {
             In V0 today: <span className="text-accent">15 checks, 3 groups.</span>
           </>
         }
-        intro="V0 tests the main form on one page of your local app. On a typical form it plans these 15 checks, and the plan, the run and the report all follow the same three groups. Every pass and fail is decided by rules: V0 uses no AI model."
+        intro="V0 tests the main form on one page of your local app. On a typical form it plans these 15 checks, and the plan, the run and the report all follow the same three groups. Every pass and fail comes from a real check in a real browser, with evidence."
       >
         <div className="grid gap-5 lg:grid-cols-3">
           {v0Groups.map((g) => (
@@ -157,7 +159,7 @@ export default function ChecksPage() {
       <Section
         id="advisory"
         title="Advisory checks are labelled"
-        intro="Some findings rely on judgement rather than a deterministic rule. In V0 that is a few small hints, such as a missing autocomplete attribute. Planned checks like alt-text quality, generic link and button labels, and placeholder or demo data arrive from V1 onward. Reports mark all of them advisory, and advisory findings never fail a run."
+        intro="Some findings rely on judgement rather than a pass-or-fail check. In V0 that is a few small hints, such as a missing autocomplete attribute. Planned checks like alt-text quality, generic link and button labels, and placeholder or demo data arrive from V1 onward. Reports mark all of them advisory, and advisory findings never fail a run."
       >
         <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
           <AdvisoryBadge />
@@ -174,18 +176,7 @@ export default function ChecksPage() {
         <ul className="grid gap-4 sm:grid-cols-2">
           {notVisible.map((item) => (
             <li key={item.name} className="flex gap-4 rounded-2xl border border-line bg-surface p-5 sm:p-6">
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 24 24"
-                className="mt-0.5 size-5 shrink-0 text-dim"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect x="4" y="4" width="16" height="16" rx="3" />
-              </svg>
+              <Icon icon={EyeOff} size={20} className="mt-0.5 text-dim" />
               <div className="flex flex-col gap-1">
                 <h3 className="font-semibold text-fg">{item.name}</h3>
                 <p className="text-sm leading-relaxed text-muted">{item.line}</p>

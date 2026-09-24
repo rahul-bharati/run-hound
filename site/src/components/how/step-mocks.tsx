@@ -1,5 +1,7 @@
+import { Check } from "lucide-react";
 import type { ReactNode } from "react";
 import { StatusLabel, type Status } from "@/components/finding";
+import { Icon } from "@/components/icon";
 
 /** Frame shared by the small static mock panels on the How it works page. */
 function MockPanel({ label, caption, children }: { label: string; caption: string; children: ReactNode }) {
@@ -12,14 +14,6 @@ function MockPanel({ label, caption, children }: { label: string; caption: strin
       </div>
       {children}
     </figure>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <path d="M3.5 8.5l3 3 6-7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   );
 }
 
@@ -156,7 +150,7 @@ export function ApproveMock() {
                   }`}
                   aria-hidden="true"
                 >
-                  {on ? <CheckIcon /> : null}
+                  {on ? <Icon icon={Check} size={14} /> : null}
                 </span>
                 <span>{item.name}</span>
                 <span className="ml-auto shrink-0 font-mono text-[11px] tracking-widest">

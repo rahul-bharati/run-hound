@@ -158,8 +158,9 @@ export default function DocsPage() {
                   <li>log in: pages behind a login aren&apos;t supported, and a login form can only be partly tested;</li>
                   <li>test public websites: only your own machine and private network addresses;</li>
                   <li>
-                    use an AI model: <strong>planning and every pass or fail decision are rule-based</strong> in V0.
-                    Model-assisted planning and choosing your own model are planned;
+                    plan with AI: AI planning (a model proposes scenarios from your app) and bringing your own model
+                    are <strong>coming soon</strong>. In V0 the plan comes from what Run Hound finds on the page, and
+                    every pass or fail comes from a real check with evidence;
                   </li>
                   <li>delete the test records it creates (see <a href="#safety">Safety and test records</a>).</li>
                 </ul>
@@ -440,7 +441,7 @@ export default function DocsPage() {
                 <h3>Confirmed and advisory</h3>
                 <ul>
                   <li>
-                    <strong>Confirmed</strong>: decided by a deterministic check (a request was sent twice, axe found a
+                    <strong>Confirmed</strong>: decided by a real check (a request was sent twice, axe found a
                     rule violation, a value was missing after reload). These should always be right. If one is
                     wrong, please report it.
                   </li>

@@ -170,8 +170,8 @@ export default function PrivacyPage() {
           no page content, screenshots, reports or findings. It has no telemetry.
         </li>
         <li>
-          <strong>No AI model yet.</strong> The current preview makes every decision with fixed rules and sends
-          nothing to any AI provider. Later versions may let you use a model you choose: a local one, where page
+          <strong>AI features are coming soon, and opt-in.</strong> The current preview uses no AI model and
+          sends nothing to any AI provider. Later versions may let you use a model you choose: a local one, where page
           content stays on your machine, or a cloud provider, which would receive page content and screenshots under
           its own terms. We will describe this here before it ships.
         </li>

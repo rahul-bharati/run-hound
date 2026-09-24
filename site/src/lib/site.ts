@@ -2,7 +2,7 @@ export const site = {
   name: "Run Hound",
   tagline: "Your AI said it's done. Let's check.",
   description:
-    "Open-source UI testing for AI-built apps. Point it at a form on your local app, approve the plan, and get a report of broken flows, accessibility failures and leaks, each with evidence and a Playwright test.",
+    "Open-source, AI-assisted UI testing for AI-built apps (AI planning coming soon). Point it at a form on your local app, approve the plan, and get a report of broken flows, accessibility failures and leaks, each with evidence and a Playwright test.",
   // Current release: the V0 tester preview.
   version: "0.1.0",
   // `||`, not `??`: Docker passes an unset build arg as an empty string.
