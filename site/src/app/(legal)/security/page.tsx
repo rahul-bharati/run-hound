@@ -88,7 +88,7 @@ export default function SecurityPage() {
         <li>forks and modified versions we do not maintain;</li>
         <li>denial of service, load testing, spam and social engineering of people;</li>
         <li>
-          missing best-practice headers or configuration on this static website without a demonstrated security
+          missing best-practice headers or configuration on this website without a demonstrated security
           impact;
         </li>
         <li>issues that need a compromised machine or physical access to the user&apos;s device.</li>

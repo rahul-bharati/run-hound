@@ -89,8 +89,8 @@ export default function TermsPage() {
       <h3 id="content">Content and trademarks</h3>
       <p>
         Website text and images are provided for information only. The Apache-2.0 license covers the code; it does
-        not grant rights to use the {site.name} name or logo. Sample reports and mockups on this site are labelled
-        samples, not results from real apps.
+        not grant rights to use the {site.name} name or logo. Screenshots and evidence on this site come from runs on
+        Kennel, our deliberately broken demo app, not from real apps; anything else is labelled as a sample.
       </p>
 
       <h3 id="links">Links to other sites</h3>

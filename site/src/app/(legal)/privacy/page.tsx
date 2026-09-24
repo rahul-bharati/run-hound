@@ -39,8 +39,8 @@ export default function PrivacyPage() {
 
       <h2 id="website">This website</h2>
       <p>
-        This is a static website: every page is a pre-built file, and there is no account system, database or form.
-        It does not collect anything you type.
+        Every page of this website is built ahead of time; a small server delivers the pages and resizes images to
+        fit your screen. There is no account system, database or form, and it does not collect anything you type.
       </p>
 
       <h3 id="hosting">Hosting and server logs</h3>

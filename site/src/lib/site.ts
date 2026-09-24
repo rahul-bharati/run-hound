@@ -23,7 +23,7 @@ export const site = {
   // Google Analytics 4 measurement id ("G-..."), set at build time. Empty: no analytics and no consent banner.
   gaMeasurementId: process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID || "",
   // Date shown as "Last updated" on the legal pages.
-  legalUpdated: "24 September 2026",
+  legalUpdated: "25 September 2026",
 } as const;
 
 export const mainNav = [

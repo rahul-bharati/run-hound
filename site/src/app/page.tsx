@@ -4,10 +4,10 @@ import type { ReactNode } from "react";
 import { ButtonLink } from "@/components/button-link";
 import { Container, Section } from "@/components/layout";
 import { links, totalChecks } from "@/components/home/data";
-import { Direction } from "@/components/home/direction";
 import { Evidence } from "@/components/home/evidence";
 import { Groups } from "@/components/home/groups";
 import { Hero } from "@/components/home/hero";
+import { SeeItRun } from "@/components/home/see-it-run";
 import { ArrowIcon, GitHubIcon } from "@/components/button-link";
 import { site } from "@/lib/site";
 
@@ -67,6 +67,8 @@ export default function Home() {
     <>
       <Hero />
 
+      <SeeItRun />
+
       <Section
         title="What a finding looks like"
         intro="Every finding carries proof you can check without rerunning anything: annotated frames, step-by-step GIFs and cards with the exact requests."
@@ -116,8 +118,6 @@ export default function Home() {
           ))}
         </ul>
       </Section>
-
-      <Direction />
 
       <section aria-labelledby="closing-heading" className="relative isolate overflow-hidden py-20 sm:py-28">
         <div

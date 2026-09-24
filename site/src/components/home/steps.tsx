@@ -9,7 +9,7 @@ const steps = [
   { name: "Report", text: "Annotated evidence and Playwright tests", icon: FileText },
 ];
 
-/** The four V0 steps under the hero; "Run" is lit to match the product window. */
+/** The four V0 steps under the hero; "Run" is lit to match the live-view screenshot above. */
 export function Steps() {
   return (
     <Container className="pb-16 sm:pb-20">

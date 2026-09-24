@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { ArrowIcon, ButtonLink } from "@/components/button-link";
-import { FindingDetail } from "@/components/finding";
-import { ApproveMock, ExecuteMock, ExploreMock, PlanMock } from "@/components/how/step-mocks";
+import { stepScreens } from "@/components/screens";
+import { Screenshot } from "@/components/screenshot";
 import { Card, Container, Eyebrow, PageHeader, Section } from "@/components/layout";
 import { site } from "@/lib/site";
 
@@ -12,7 +12,11 @@ export const metadata: Metadata = {
     "Run Hound finds the form on your local page, plans checks in three groups, waits for your approval, runs them in a real browser with evidence and timing at every step, and reports each defect in plain language.",
 };
 
-const steps: { number: string; name: string; title: string; body: ReactNode; mock: ReactNode }[] = [
+// The step's screenshot column: 7/12 of the 1136 px container from xl, 7/12 of the viewport on lg, full width below.
+const shotSizes =
+  "(min-width: 1280px) 650px, (min-width: 1024px) 56vw, (min-width: 640px) calc(100vw - 48px), calc(100vw - 32px)";
+
+const steps: { number: string; name: string; title: string; body: ReactNode; shot: ReactNode }[] = [
   {
     number: "01",
     name: "EXPLORE",
@@ -24,7 +28,7 @@ const steps: { number: string; name: string; title: string; body: ReactNode; moc
         readers rely on.
       </>
     ),
-    mock: <ExploreMock />,
+    shot: <Screenshot screen={stepScreens.explore} sizes={shotSizes} />,
   },
   {
     number: "02",
@@ -38,7 +42,7 @@ const steps: { number: string; name: string; title: string; body: ReactNode; moc
         scenarios from your app, is coming soon.
       </>
     ),
-    mock: <PlanMock />,
+    shot: <Screenshot screen={stepScreens.plan} sizes={shotSizes} />,
   },
   {
     number: "03",
@@ -51,7 +55,7 @@ const steps: { number: string; name: string; title: string; body: ReactNode; moc
         or delete data stay off unless you opt in.
       </>
     ),
-    mock: <ApproveMock />,
+    shot: <Screenshot screen={stepScreens.approve} sizes={shotSizes} />,
   },
   {
     number: "04",
@@ -60,11 +64,11 @@ const steps: { number: string; name: string; title: string; body: ReactNode; moc
     body: (
       <>
         The approved scenarios run group by group in a real browser. A live view shows the page under test, the
-        current scenario, the elapsed time and every page loaded. Screenshots, console and network traffic are kept,
+        current scenario and its steps as they happen, the elapsed time and a timestamped log. Screenshots, console and network traffic are kept,
         so every result traces back to what actually happened.
       </>
     ),
-    mock: <ExecuteMock />,
+    shot: <Screenshot screen={stepScreens.run} sizes={shotSizes} />,
   },
   {
     number: "05",
@@ -77,28 +81,14 @@ const steps: { number: string; name: string; title: string; body: ReactNode; moc
         fix.
       </>
     ),
-    mock: (
-      <div className="flex flex-col gap-3">
-        <p className="font-mono text-xs tracking-widest text-dim">SAMPLE FINDING</p>
-        <FindingDetail
-          category="Broken feature"
-          severity="high"
-          headingLevel={4}
-          title="One click, two bookings"
-          meaning="The Book button stays active while the booking is being sent, so a quick double click books the sitter twice."
-          impact="Customers get charged or scheduled twice and have to contact you to undo it."
-          fix="Disable the Book button while the request is pending, and make the booking endpoint ignore duplicate submissions."
-          evidence="evidence: GIF of the double click · 2 POST /api/bookings cards · double-submit spec"
-        />
-      </div>
-    ),
+    shot: <Screenshot screen={stepScreens.report} sizes={shotSizes} />,
   },
 ];
 
 const principles = [
   {
     title: "AI plans and explains. Real checks decide.",
-    body: "Pass or fail comes from Playwright assertions, axe-core and captured traffic in a real browser, never from a model guessing. AI planning and plain-language explanations are coming soon; when they arrive, a model will propose and explain, and a real check with evidence will still decide every result. Findings that rely on judgement are marked advisory.",
+    body: "Pass or fail comes from Playwright assertions, axe-core and captured traffic in a real browser, never from a model guessing. AI planning and AI explanations are coming soon; when they arrive, a model will propose and explain, and a real check with evidence will still decide every result. Findings that rely on judgement are marked advisory.",
   },
   {
     title: "No evidence, no finding.",
@@ -152,7 +142,9 @@ export default function HowItWorksPage() {
         }
         lede="Run Hound finds the form on your page, drafts a test plan and waits for your approval. Then it runs the plan in a real browser and reports what broke, with proof."
       >
-        <p className="font-mono text-xs tracking-widest text-dim">V0 TESTER PREVIEW {site.version} · PANELS BELOW ARE SAMPLES</p>
+        <p className="font-mono text-xs tracking-widest text-dim">
+          V0 TESTER PREVIEW {site.version} · REAL SCREENSHOTS FROM A RUN ON KENNEL, OUR DELIBERATELY BROKEN DEMO APP
+        </p>
       </PageHeader>
 
       <section aria-labelledby="steps-heading" className="py-14 sm:py-20">
@@ -162,7 +154,12 @@ export default function HowItWorksPage() {
           </h2>
           <ol className="flex flex-col gap-16 sm:gap-24">
             {steps.map((step, index) => (
-              <li key={step.name} className="grid items-center gap-8 lg:grid-cols-2 lg:gap-16">
+              <li
+                key={step.name}
+                className={`grid items-center gap-8 lg:gap-14 ${
+                  index % 2 === 1 ? "lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]" : "lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]"
+                }`}
+              >
                 <div className={`flex flex-col gap-4 ${index % 2 === 1 ? "lg:order-2" : ""}`}>
                   <Eyebrow>
                     {step.number} · {step.name}
@@ -170,7 +167,7 @@ export default function HowItWorksPage() {
                   <h3 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">{step.title}</h3>
                   <p className="text-lg leading-relaxed text-muted">{step.body}</p>
                 </div>
-                <div className={`min-w-0 ${index % 2 === 1 ? "lg:order-1" : ""}`}>{step.mock}</div>
+                <div className={`min-w-0 ${index % 2 === 1 ? "lg:order-1" : ""}`}>{step.shot}</div>
               </li>
             ))}
           </ol>

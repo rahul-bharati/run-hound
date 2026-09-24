@@ -3,16 +3,9 @@ import Link from "next/link";
 import { ArrowIcon, ButtonLink } from "@/components/button-link";
 import { EvidenceFigure } from "@/components/demo/evidence-figure";
 import { CodeBlock } from "@/components/docs/code-block";
+import { evidence } from "@/components/evidence";
 import { Card, Eyebrow, PageHeader, Section } from "@/components/layout";
 import { site } from "@/lib/site";
-import doubleSubmitGif from "@/components/demo/media/double-submit-recording.gif";
-import doubleSubmitStill from "@/components/demo/media/double-submit-recording-still.webp";
-import doubleSubmitCard from "@/components/demo/media/double-submit-two-requests.webp";
-import emailCard from "@/components/demo/media/email-to-third-party.webp";
-import focusFrame from "@/components/demo/media/no-visible-focus.webp";
-import secretCard from "@/components/demo/media/secret-key-in-bundle.webp";
-import silentGif from "@/components/demo/media/silent-failure-recording.gif";
-import silentStill from "@/components/demo/media/silent-failure-recording-still.webp";
 
 export const metadata: Metadata = {
   title: "Demo",
@@ -74,20 +67,17 @@ export default function DemoPage() {
       <Section
         id="features"
         title="One click, two bookings"
-        intro="The double-submit check double-clicks “Book” and counts the save requests that reach the server. Kennel accepted both, so the report shows the recording and the two requests, 0.4 ms apart, with two different record ids."
+        intro="The double-submit check double-clicks “Book” and counts the save requests that reach the server. Kennel accepted both, so the report shows the recording and the two requests, 0.2 ms apart, with two different record ids."
         className="pt-4 sm:pt-6"
       >
         <div className="grid items-start gap-5 lg:grid-cols-2">
           <EvidenceFigure
-            src={doubleSubmitGif}
-            still={doubleSubmitStill}
-            alt="Recording of the Kennel booking form: the form is filled, Book is double-clicked, and two identical bookings appear, marked Saved copy 1 and Saved copy 2."
+            shot={evidence.doubleSubmitRecording}
             label="DOUBLE-SUBMIT · RECORDING"
             caption="The recording from the report: form filled, “Book” double-clicked, two identical rows saved."
           />
           <EvidenceFigure
-            src={doubleSubmitCard}
-            alt="Request card: POST /api/bookings sent 2 times by one double click, at +23.7 ms and +24.1 ms, each answered 201 with a different record id."
+            shot={evidence.doubleSubmitCard}
             label="DOUBLE-SUBMIT · REQUEST CARD"
             caption="The data behind it: both POST /api/bookings requests and the server's 201 answers."
           />
@@ -102,9 +92,8 @@ export default function DemoPage() {
       >
         <div className="grid items-center gap-8 lg:grid-cols-[1.4fr_1fr]">
           <EvidenceFigure
-            src={silentGif}
-            still={silentStill}
-            alt="Recording of the Kennel booking form after a failed save: the Book button keeps spinning and, 5.1 seconds later, no error message has appeared."
+            shot={evidence.silentFailureRecording}
+            sizes="(min-width: 1280px) 660px, (min-width: 1024px) 58vw, (min-width: 640px) calc(100vw - 48px), calc(100vw - 32px)"
             label="SILENT-FAILURE · RECORDING"
             caption="5.1 s after the failed save, the page still shows no error. The facts panel records the injected status and that all 9 values were kept."
           />
@@ -124,8 +113,8 @@ export default function DemoPage() {
         intro="The focus-visible check tabs through the page and compares each control focused and at rest. On Kennel, “Pet name” changes 0 of 31,552 pixels around it: no outline, shadow, border or background change."
       >
         <EvidenceFigure
-          src={focusFrame}
-          alt="Annotated screenshot of the Kennel form with Pet name focused and boxed in red, labelled No visible focus, beside a facts panel listing identical outline, shadow, border and background values at rest and focused."
+          shot={evidence.noVisibleFocus}
+          sizes="(min-width: 1280px) 1136px, (min-width: 1024px) calc(100vw - 144px), (min-width: 640px) calc(100vw - 48px), calc(100vw - 32px)"
           label="FOCUS-VISIBLE · ANNOTATED FRAME"
           caption="An annotated frame: the element boxed, and the measured facts beside it. Keyboard users can't tell where they are."
         />
@@ -139,14 +128,12 @@ export default function DemoPage() {
       >
         <div className="grid items-start gap-5 lg:grid-cols-2">
           <EvidenceFigure
-            src={secretCard}
-            alt="Script card: an AI provider secret key found in /config/ai-client.js at line 6, column 12, shown redacted."
+            shot={evidence.secretKey}
             label="BUNDLE-SECRETS · SCRIPT CARD"
             caption="A secret key in the page's JavaScript, with file, line and column. The key is redacted in the report."
           />
           <EvidenceFigure
-            src={emailCard}
-            alt="Request card: a GET request to a third-party analytics origin carrying the test email address as plain text in the query string."
+            shot={evidence.emailLeak}
             label="PII-LEAK · REQUEST CARD"
             caption="The customer's email in a third-party analytics URL, in plain text, marked."
           />

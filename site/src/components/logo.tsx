@@ -1,24 +1,24 @@
 import Image from "next/image";
 import Link from "next/link";
 import { site } from "@/lib/site";
+// The brand files stay in public/brand for the app UI and reports (docs/brand.md). Importing the file gives the
+// site a hashed, immutable copy that next/image resizes for every mark size.
+import houndMark from "../../public/brand/hound-mark-light.png";
 
 // The mark is 640 x 368; keep that ratio at every size.
-const RATIO = 640 / 368;
+const RATIO = houndMark.width / houndMark.height;
 
 /**
  * The hound mark (light strokes, mint highlight) for dark backgrounds. `size` is its height in px.
  * Decorative: the wordmark or a label always sits next to it.
  */
 export function LogoMark({ size = 28, className = "" }: { size?: number; className?: string }) {
-  const src = size > 46 ? "/brand/hound-mark-light.png" : "/brand/hound-mark-light-160.png";
   return (
     <Image
-      src={src}
+      src={houndMark}
       alt=""
       width={Math.round(size * RATIO)}
       height={size}
-      // Static export: serve the file as it is.
-      unoptimized
       className={`shrink-0 select-none ${className}`}
       draggable={false}
     />

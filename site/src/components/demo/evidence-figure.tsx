@@ -1,28 +1,24 @@
-import { getImageProps, type StaticImageData } from "next/image";
 import type { ReactNode } from "react";
+import type { EvidenceShot } from "@/components/evidence";
+import { EvidenceImage } from "@/components/evidence-image";
 
 /**
- * A real evidence image from a Run Hound report, framed like a window. For GIFs pass `still`: people who
- * prefer reduced motion get that frame instead of the animation.
+ * A real evidence image from a Run Hound report, framed like a window. Recordings (GIFs) show their last frame to
+ * people who prefer reduced motion. `sizes` defaults to half the page on large screens.
  */
 export function EvidenceFigure({
-  src,
-  still,
-  alt,
+  shot,
   label,
   caption,
+  sizes = "(min-width: 1280px) 560px, (min-width: 1024px) 50vw, (min-width: 640px) calc(100vw - 48px), calc(100vw - 32px)",
   className = "",
 }: {
-  src: StaticImageData;
-  still?: StaticImageData;
-  alt: string;
+  shot: EvidenceShot;
   label: string;
   caption: ReactNode;
+  sizes?: string;
   className?: string;
 }) {
-  const { props } = getImageProps({ src, alt, unoptimized: true, sizes: "(min-width: 1024px) 50vw, 100vw" });
-  const stillSrc = still ? getImageProps({ src: still, alt: "", unoptimized: true }).props.src : null;
-
   return (
     <figure className={`flex min-w-0 flex-col overflow-hidden rounded-2xl border border-line bg-surface ${className}`}>
       <div className="flex items-center gap-3 border-b border-line px-4 py-3">
@@ -33,10 +29,15 @@ export function EvidenceFigure({
         </span>
         <span className="min-w-0 truncate font-mono text-[11px] tracking-widest text-dim">{label}</span>
       </div>
-      <picture className="block bg-bg-deep">
-        {stillSrc ? <source media="(prefers-reduced-motion: reduce)" srcSet={stillSrc} /> : null}
-        <img {...props} alt={alt} loading="lazy" decoding="async" className="block h-auto w-full" />
-      </picture>
+      <div className="bg-bg-deep">
+        <EvidenceImage
+          src={shot.src}
+          still={shot.still}
+          alt={shot.alt}
+          sizes={sizes}
+          className="block h-auto w-full"
+        />
+      </div>
       <figcaption className="border-t border-line px-4 py-3.5 text-sm leading-relaxed text-muted">{caption}</figcaption>
     </figure>
   );
