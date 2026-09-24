@@ -18,7 +18,8 @@ import { createApp } from "./app.js";
  * - GET /api/runs/:id serves a run written before a restart: status "done" with its report.
  * - POST /api/runs/:id/stop -> 202 while running (the run ends with report.stopped === true, the scenario in
  *   progress and the rest "skipped" with notes "Stopped by you"); 409 once the run has ended; 404 unknown run.
- * - POST /api/runs/:id/rerun -> 202 {runId}: a new run of the same target approving the same scenario ids; 404 unknown.
+ * - POST /api/runs/:id/rerun -> 202 {runId}: plans the same target again and starts a run approving the previous
+ *   scenario ids still in the new plan (400 when none are); 404 unknown.
  * - GET /api/settings -> {version, runsDir, allowedHosts, serverHosts}.
  * - GET /api/runs/:id/live includes `browser` (string once known, e.g. "Chromium 153.0...", or null).
  * - The Host and Origin guards cover the new endpoints.
@@ -341,6 +342,72 @@ describe("POST /api/runs/:id/rerun", () => {
 
   it("returns 404 for an unknown run", async () => {
     expect((await post("/api/runs/20990101-000000-ffffff/rerun")).status).toBe(404);
+  });
+
+  it("plans the target again and approves only the previous scenario ids still in the new plan", async () => {
+    // One scenario per field, so changing the page's fields changes the plan's scenario ids.
+    const perField: Check = {
+      id: "focus-visible",
+      title: "Fake per-field check",
+      category: "accessibility",
+      plan: (form) => form.fields.map((f) => scenario("focus-visible", `field:${f.key}`)),
+      async run(ctx, s) {
+        const { page } = await ctx.openPage();
+        ctx.step(`Checking ${s.id}`, page);
+        return { checkId: "focus-visible", scenarioId: s.id, status: "pass", findings: [], durationMs: 5 };
+      },
+    };
+    const staticCheck = fakeCheck("credential-fields", "security", "sec:static");
+    const formWith = (fields: string[]) => `<!doctype html><html lang="en"><head><title>Changing form</title></head><body>
+<form id="changing"><h1>Changing form</h1>
+${fields.map((f) => `<label for="${f}">${f}</label><input id="${f}" name="${f}">`).join("\n")}
+<button type="submit">Send</button></form></body></html>`;
+    let html = formWith(["petName", "ownerEmail"]);
+    const changing = await startFixtureServer({
+      routes: {
+        "GET /form": (_req, res) => {
+          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          res.end(html);
+        },
+      },
+    });
+    const own = createApp({ checks: [perField, staticCheck], runsDir, canShowBrowser: false, maxConcurrentRuns: 10 });
+    try {
+      const planRes = await post("/api/plan", { url: `${changing.url}/form` }, {}, own);
+      expect(planRes.status).toBe(200);
+      const { planId, plan } = (await planRes.json()) as { planId: string; plan: Plan };
+      expect(plan.scenarios.map((s) => s.id).sort()).toEqual(["field:ownerEmail", "field:petName", "sec:static"]);
+      const approved = ["field:petName", "field:ownerEmail", "sec:static"];
+      const startRes = await post("/api/runs", { planId, approved }, {}, own);
+      expect(startRes.status).toBe(202);
+      const firstId = ((await startRes.json()) as { runId: string }).runId;
+      expect((await waitForDone(firstId, own)).status).toBe("done");
+
+      // The page changed: ownerEmail is gone, phone is new.
+      html = formWith(["petName", "phone"]);
+      const res = await post(`/api/runs/${firstId}/rerun`, {}, {}, own);
+      expect(res.status).toBe(202);
+      const { runId } = (await res.json()) as { runId: string };
+      const second = await waitForDone(runId, own);
+      expect(second.status).toBe("done");
+      // The new run uses the new plan...
+      expect(second.report?.plan.scenarios.map((s) => s.id).sort()).toEqual(["field:petName", "field:phone", "sec:static"]);
+      // ...approving what was approved before and still exists; the new field's scenario is not approved.
+      expect([...(second.report?.approved ?? [])].sort()).toEqual(["field:petName", "sec:static"]);
+      expect(second.report?.results.map((r) => r.scenarioId).sort()).toEqual(["field:petName", "sec:static"]);
+
+      // A run whose only scenarios are gone from the new plan can't be re-run.
+      html = formWith(["ownerEmail"]);
+      const plan2 = (await (await post("/api/plan", { url: `${changing.url}/form` }, {}, own)).json()) as { planId: string };
+      const onlyEmail = (await (await post("/api/runs", { planId: plan2.planId, approved: ["field:ownerEmail"] }, {}, own)).json()) as { runId: string };
+      await waitForDone(onlyEmail.runId, own);
+      html = formWith(["nickname"]);
+      const none = await post(`/api/runs/${onlyEmail.runId}/rerun`, {}, {}, own);
+      expect(none.status).toBe(400);
+      expect(((await none.json()) as { error?: unknown }).error).toEqual(expect.any(String));
+    } finally {
+      await changing.close();
+    }
   });
 });
 

@@ -233,7 +233,9 @@ async function checkTitles(checks: Check[] | undefined): Promise<Record<string, 
  *   GET  /api/runs                   {runs: [{runId, target, formName, status, startedAt, finishedAt?, durationMs?, summary?,
  *                                     completed, total}]}: runs in memory and finished runs in runsDir, newest first
  *   POST /api/runs/:runId/stop       202 {runId} (the run ends "done" with report.stopped) | 409 already ended or stopping | 404
- *   POST /api/runs/:runId/rerun      202 {runId}: a new run of the same plan approving the same scenario ids | 404 | 409 busy
+ *   POST /api/runs/:runId/rerun      202 {runId}: plans the same target again and runs it approving the previous run's
+ *                                   scenario ids that are still in the new plan | 400 none left or the target can't
+ *                                   be planned | 404 | 409 busy
  *   GET  /api/settings               {version, runsDir, allowedHosts, serverHosts}
  * The live state also carries `browser` ("Chromium 153..."): null until the first scenario starts, then the Chromium
  * build Playwright launches (bundledChromium), replaced by report.browser (what the browser itself reported) at the end.
@@ -503,10 +505,24 @@ export function createApp(options: ServerOptions = {}): Hono {
   app.post("/api/runs/:runId/rerun", async (c) => {
     const state = await runState(c.req.param("runId"));
     if (!state) return c.json({ error: "Unknown run." }, 404);
-    const known = new Set(state.plan.scenarios.map((s) => s.id));
+    // Don't open a browser to plan when the run couldn't start anyway (startRun checks again after planning).
+    const running = [...runs.values()].filter((r) => r.status === "running").length;
+    if (running >= maxRuns) return c.json({ error: `${running} run${running === 1 ? " is" : "s are"} already in progress. Wait for ${running === 1 ? "it" : "one"} to finish.` }, 409);
+    // Plan the target again: the page may have changed since, so scenario ids are matched against the new plan.
+    let plan: Plan;
+    try {
+      plan = await discoverAndPlan(state.plan.target, { checks: options.checks, allowedHosts: options.allowedHosts });
+    } catch (err) {
+      const message = redactSecrets(cleanErrorMessage(err instanceof Error ? err.message : String(err)));
+      if (isUserError(err)) return c.json({ error: message }, 400);
+      return c.json({ error: `Could not plan the run again: ${message}` }, 500);
+    }
+    const known = new Set(plan.scenarios.map((s) => s.id));
     const approved = state.approved.filter((id) => known.has(id));
-    if (approved.length === 0) return c.json({ error: "This run has no scenarios to run again." }, 400);
-    const started = startRun(state.plan, approved, { allowDestructive: state.allowDestructive, headed: state.headed && headedAvailable });
+    if (approved.length === 0) {
+      return c.json({ error: "None of this run's scenarios are in the new plan (the page has changed). Start a new run instead." }, 400);
+    }
+    const started = startRun(plan, approved, { allowDestructive: state.allowDestructive, headed: state.headed && headedAvailable });
     if ("error" in started) return c.json({ error: started.error }, started.code);
     return c.json({ runId: started.runId }, 202);
   });

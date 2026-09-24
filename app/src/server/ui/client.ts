@@ -51,16 +51,17 @@ export const CLIENT = String.raw`
     s.innerHTML = ICONS[name] || "";
     return s;
   }
+  /** Lucide status icons (CONFIG.icons); the big verdict variants reuse them at 64 px. */
   const RINGS = {
-    pass: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="currentColor"/><path class="ink" d="M7.2 12.4l3.1 3.1 6.5-6.6" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    fail: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="currentColor"/><path class="ink" d="M12 6.6v6.6" stroke-width="2.6" stroke-linecap="round"/><circle class="dot-ink" cx="12" cy="17.1" r="1.5"/></svg>',
-    error: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7v6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="12" cy="16.8" r="1.4" fill="currentColor"/></svg>',
-    running: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-opacity=".28" stroke-width="2"/><circle class="arc" cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-dasharray="22 41"/></svg>',
-    skipped: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3.2 3"/><path d="M8.5 12h7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
-    queued: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
-    bigPass: '<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="29" fill="rgb(94 230 163 / .06)" stroke="currentColor" stroke-width="3"/><path d="M20 33l8.5 8.5L45 25" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    bigSkipped: '<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="29" fill="none" stroke="currentColor" stroke-width="3" stroke-dasharray="7 6"/><path d="M22 32h20" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></svg>',
-    bigFail: '<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="29" fill="rgb(255 107 107 / .07)" stroke="currentColor" stroke-width="3"/><path d="M32 18v18" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"/><circle cx="32" cy="45" r="3" fill="currentColor"/></svg>',
+    pass: ICONS.statusPass,
+    fail: ICONS.statusFail,
+    error: ICONS.statusFail,
+    running: ICONS.statusRunning,
+    skipped: ICONS.statusSkipped,
+    queued: ICONS.statusQueued,
+    bigPass: ICONS.statusPass,
+    bigSkipped: ICONS.statusSkipped,
+    bigFail: ICONS.statusFail,
   };
   /** A status ring; the status is spoken by a visually hidden word (the SVG is decorative). */
   function ring(status, opts) {
@@ -680,7 +681,7 @@ export const CLIENT = String.raw`
         h("div", { class: "addressbar" }, icon("reload"), h("span", { class: "visually-hidden", text: "Current page: " }), ui.address),
         h("div", { class: "viewport" }, ui.frame, ui.placeholder)),
       h("section", { class: "card activity", id: "activity", "aria-labelledby": "activity-h" },
-        h("div", { class: "activity-head" }, icon("steps"), h("h2", { id: "activity-h", text: "Live activity" }), ui.stepCount),
+        h("div", { class: "activity-head" }, icon("activity"), h("h2", { id: "activity-h", text: "Live activity" }), ui.stepCount),
         ui.logScroll));
     ui.root = h("div", { class: "run-grid", id: "running" }, left, right);
     return ui;
@@ -935,7 +936,7 @@ export const CLIENT = String.raw`
     const b = h("button", { type: "button", class: "btn accent-outline" }, icon("rerun"), label);
     b.addEventListener("click", async () => {
       b.disabled = true;
-      label.textContent = "Starting…";
+      label.textContent = "Planning again…";
       try {
         const { runId } = await api("/api/runs/" + enc(id) + "/rerun", {});
         location.hash = "#/runs/" + runId;

@@ -80,25 +80,26 @@ h1:focus, h2:focus, h1:focus-visible, h2:focus-visible { outline:none; }
 .icon-btn { display:inline-grid; place-items:center; width:34px; height:34px; border-radius:var(--r-sm); border:1px solid var(--line); background:var(--surface-2); color:var(--muted); flex:none; }
 .icon-btn:hover { color:var(--fg); border-color:var(--line-strong); }
 
-/* Status rings */
+/* Status rings: Lucide circle icons coloured per status; pass and fail get a faint tinted fill. */
 .ring { display:inline-grid; place-items:center; flex:none; width:24px; height:24px; }
 .ring svg { width:100%; height:100%; display:block; overflow:visible; }
-.ring .ink { stroke: var(--accent-ink); }
 .ring.st-pass { color: var(--accent); }
+.ring.st-pass svg circle { fill: rgb(94 230 163 / .12); }
 .ring.st-fail { color: var(--fail); }
-.ring.st-fail .ink { stroke: #1A0707; }
-.ring.st-fail .dot-ink { fill: #1A0707; }
+.ring.st-fail svg circle { fill: rgb(255 107 107 / .14); }
 .ring.st-error { color: var(--fail); }
 .ring.st-skipped { color: var(--dim); }
-.ring.st-queued { color: var(--line-strong); }
+.ring.st-queued { color: var(--dim); }
 .ring.st-running { color: var(--accent); }
-.ring.st-running .arc { transform-origin: 12px 12px; animation: spin 1.1s linear infinite; }
+.ring.st-running svg { animation: spin 1.1s linear infinite; }
 .ring.big { width:64px; height:64px; }
-.ring.big.st-skipped { color: var(--dim); }
+.ring.big.st-pass svg circle { fill: rgb(94 230 163 / .06); }
+.ring.big.st-fail svg circle { fill: rgb(255 107 107 / .07); }
 .ring.sev-medium { color: var(--warn); }
-.ring.sev-medium .ink { stroke: #1A1204; }
-.ring.sev-medium .dot-ink { fill: #1A1204; }
+.ring.sev-medium svg circle { fill: rgb(245 182 66 / .14); }
 .ring.sev-low { color: var(--dim); }
+.ring.sev-low svg circle { fill: none; }
+#stop-run svg rect { fill: currentColor; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* Stepper */
