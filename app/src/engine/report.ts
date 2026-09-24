@@ -159,6 +159,32 @@ function pagesTested(report: Report): { url: string; count: number }[] | undefin
   return report.pagesVisited?.map((p) => ({ url: p.url, count: new Set(p.scenarioIds).size }));
 }
 
+/** Every place a finding is about: its locations, else its single location. */
+export function findingPlaces(f: Finding): string[] {
+  if (f.locations && f.locations.length > 0) return f.locations;
+  return f.location ? [f.location] : [];
+}
+
+/**
+ * One sentence on the test data the run left behind, e.g. "This run sent 2 save requests that your app accepted, so
+ * it may have created 2 test records. Run Hound does not delete them." Null for reports written before the count existed.
+ */
+export function testDataSentence(report: Report): string | null {
+  const n = report.testRecordsCreated;
+  if (n === undefined) return null;
+  if (n === 0) return "This run sent no save requests that your app accepted, so it created no test records.";
+  return `This run sent ${n} save ${n === 1 ? "request" : "requests"} that your app accepted, so it may have created ${n} test ${
+    n === 1 ? "record" : "records"
+  } (fewer if your app merges repeats). Run Hound does not delete them; they hold made-up values (emails end in @example.test).`;
+}
+
+/** "3 findings (2 confirmed, 1 advisory)". */
+export function findingCounts(findings: Finding[]): string {
+  const confirmed = findings.filter((f) => f.confidence === "confirmed").length;
+  const advisory = findings.length - confirmed;
+  return `${findings.length} ${findings.length === 1 ? "finding" : "findings"} (${confirmed} confirmed, ${advisory} advisory)`;
+}
+
 function scenarioCount(n: number): string {
   return `${n} ${n === 1 ? "scenario" : "scenarios"}`;
 }
@@ -181,7 +207,11 @@ export function renderMarkdown(report: Report): string {
     `|---|---|---|---|---|---|---|---|`,
     `| ${s.critical} | ${s.high} | ${s.medium} | ${s.low} | ${s.passed} | ${s.failed} | ${s.errored} | ${s.skipped} |`,
     "",
-    `${report.approved.length} of ${report.plan.scenarios.length} planned scenarios were approved and run.`,
+    `${report.approved.length} of ${report.plan.scenarios.length} planned scenarios were approved and run. ${findingCounts(report.findings)}; advisory findings rely on judgement and don't fail the run.`,
+    "",
+    "## Test data",
+    "",
+    testDataSentence(report) ?? "Not recorded for this run.",
     "",
     "## Findings",
     "",
@@ -194,7 +224,9 @@ export function renderMarkdown(report: Report): string {
     for (const f of group) {
       lines.push(`#### ${f.title}`, "");
       lines.push(`- Check: ${f.checkId} · severity: ${f.severity} · confidence: ${f.confidence}`);
-      if (f.location) lines.push(`- Where: ${f.location}`);
+      const places = findingPlaces(f);
+      if (places.length === 1) lines.push(`- Where: ${oneLine(places[0]!)}`);
+      else if (places.length > 1) lines.push(`- Where (${places.length} places):`, ...places.map((p) => `  - ${oneLine(p)}`));
       lines.push(`- What it means: ${f.meaning}`, `- Impact: ${f.impact}`, `- Fix: ${f.fix}`);
       if (f.spec) lines.push(`- Reproduce: specs/${safeSpecFilename(f.spec.filename)}`);
       if (f.evidence.length > 0) {
@@ -270,6 +302,7 @@ function evidenceItemHtml(e: Evidence): string {
 }
 
 function findingHtml(f: Finding): string {
+  const places = findingPlaces(f);
   const visual = f.evidence.filter(isVisual);
   const other = f.evidence.filter((e) => !isVisual(e) || e.data !== undefined);
   const figures = visual.length ? `<div class="figures">${visual.map(figureHtml).join("\n")}</div>` : "";
@@ -283,7 +316,8 @@ function findingHtml(f: Finding): string {
     : "";
   return `<article class="finding sev-${esc(f.severity)}">
 <h3>${esc(f.title)}</h3>
-<p class="meta">${esc(f.checkId)} · <span class="sev">${esc(f.severity)}</span> · ${esc(f.confidence)}${f.location ? ` · ${esc(f.location)}` : ""}</p>
+<p class="meta">${esc(f.checkId)} · <span class="sev">${esc(f.severity)}</span> · ${esc(f.confidence)}${places.length === 1 ? ` · ${esc(places[0]!)}` : ""}</p>
+${places.length > 1 ? `<p class="where">Where (${places.length} places):</p><ul class="where">${places.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}
 <dl><dt>What it means</dt><dd>${esc(f.meaning)}</dd><dt>Impact</dt><dd>${esc(f.impact)}</dd><dt>Fix</dt><dd>${esc(f.fix)}</dd></dl>
 ${spec}${figures}${details}
 </article>`;
@@ -365,6 +399,8 @@ figcaption strong { color:var(--text); }
 dl.facts { display:grid; grid-template-columns:max-content 1fr; gap:.25rem .75rem; margin:.5rem 0 0; font-size:.9rem; }
 dl.facts dd { margin:0; }
 code { overflow-wrap:anywhere; }
+p.where { margin:.25rem 0 0; color:var(--muted); }
+ul.where { margin:.25rem 0 .5rem; padding-left:1.2rem; overflow-wrap:anywhere; }
 </style>
 </head>
 <body>
@@ -373,7 +409,8 @@ code { overflow-wrap:anywhere; }
 <p class="muted">Target: ${esc(report.target)}<br>Run ${esc(report.runId)} · ${esc(report.startedAt)} to ${esc(report.finishedAt)} · Run Hound ${esc(report.runHoundVersion)}</p>
 <section aria-labelledby="summary"><h2 id="summary">Summary</h2><div class="stats">
 ${cell("critical", s.critical)}${cell("high", s.high)}${cell("medium", s.medium)}${cell("low", s.low)}${cell("scenarios passed", s.passed)}${cell("scenarios failed", s.failed)}${cell("scenarios errored", s.errored)}${cell("scenarios skipped", s.skipped)}
-</div><p class="muted">${report.approved.length} of ${report.plan.scenarios.length} planned scenarios were approved and run.</p></section>
+</div><p class="muted">${report.approved.length} of ${report.plan.scenarios.length} planned scenarios were approved and run. ${esc(findingCounts(report.findings))}; advisory findings rely on judgement and don't fail the run.</p></section>
+<section aria-labelledby="test-data"><h2 id="test-data">Test data</h2><p>${esc(testDataSentence(report) ?? "Not recorded for this run.")}</p></section>
 <section aria-labelledby="findings"><h2 id="findings">Findings</h2>
 ${report.findings.length ? findings : '<p class="pass">No findings in the scenarios that ran.</p>'}
 </section>

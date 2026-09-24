@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { closeBrowser, runCheck } from "../../test-support/harness.js";
+import { json } from "../../test-support/server.js";
 import { startBookingApp, sampleForm, type BookingServer, type ClientOptions } from "../../test/fixtures/checks/_behavior/booking-app.js";
 import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectPlan } from "../../test/fixtures/checks/_behavior/expectations.js";
 import { check } from "./double-submit.js";
@@ -67,5 +68,27 @@ describe("double-submit: BAD", () => {
     expect(s.api.bookings.length).toBeGreaterThanOrEqual(2);
     // Evidence lists the duplicate create requests.
     expect(evidenceText(findings)).toContain("/api/bookings");
+  });
+});
+
+describe("double-submit: a server that turns a repeated post into the same record", () => {
+  it("GOOD: two posts that come back with the same record id (an idempotency key) saved only once -> pass", async () => {
+    const s = await startBookingApp(
+      { submitGuard: "none" },
+      {},
+      {
+        routes: {
+          "POST /api/bookings": async (req, res) => {
+            await new Promise((r) => setTimeout(r, 800));
+            json(res, 201, { id: "booking-1", ...(JSON.parse(req.body) as object) });
+          },
+        },
+      },
+    );
+    servers.push(s);
+    const { results } = await runCheck(check, s.url);
+    expect(s.createRequests().length).toBeGreaterThanOrEqual(2);
+    expectCleanPass(results, ID);
+    expect(results[0]!.notes).toMatch(/same record \(booking-1\)/);
   });
 });

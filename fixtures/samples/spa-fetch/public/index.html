@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contact us - Lantern Support</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css">
+<script type="module" src="/app.js"></script>
+</head>
+<body>
+<main>
+  <h1 id="form-title">Contact us</h1>
+  <p>Send the Lantern support team a message. Fields marked "required" must be filled in.</p>
+
+  <form id="contact" aria-labelledby="form-title" novalidate>
+    <div class="field">
+      <label for="name">Your name (required)</label>
+      <input type="text" id="name" name="name" autocomplete="name" required maxlength="80" aria-describedby="name-error">
+      <p class="error" id="name-error"></p>
+    </div>
+    <div class="field">
+      <label for="email">Email address (required)</label>
+      <p class="hint" id="email-hint">We reply to this address.</p>
+      <input type="email" id="email" name="email" autocomplete="email" spellcheck="false" required maxlength="254" aria-describedby="email-hint email-error">
+      <p class="error" id="email-error"></p>
+    </div>
+    <div class="field">
+      <label for="topic">Topic</label>
+      <select id="topic" name="topic" aria-describedby="topic-error">
+        <option>General question</option>
+        <option>Billing</option>
+        <option>Feedback</option>
+      </select>
+      <p class="error" id="topic-error"></p>
+    </div>
+    <div class="field">
+      <label for="message">Message (required)</label>
+      <textarea id="message" name="message" required maxlength="1000" aria-describedby="message-error"></textarea>
+      <p class="error" id="message-error"></p>
+    </div>
+    <button type="submit" id="send">Send message</button>
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+  </form>
+
+  <section aria-labelledby="sent-title">
+    <h2 id="sent-title">Messages you've sent</h2>
+    <p id="empty" class="meta">No messages yet.</p>
+    <ul class="list" id="messages"></ul>
+  </section>
+</main>
+</body>
+</html>

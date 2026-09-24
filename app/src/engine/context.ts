@@ -2,7 +2,8 @@ import { randomBytes } from "node:crypto";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Browser, BrowserContext, CDPSession, Page } from "playwright";
-import type { Box, CheckContext, DiscoveredForm, Evidence, Fact, FrameOptions, Highlight, Recording } from "../core/types.js";
+import { SIMULATED_RESPONSE_HEADER, type Box, type CheckContext, type DiscoveredForm, type Evidence, type Fact, type FrameOptions, type Highlight, type Recording } from "../core/types.js";
+import { isAcceptedStatus, isSaveRequest } from "../core/saves.js";
 import { attachCapture } from "./capture.js";
 import { composeFrame, encodeGif, gifScale, renderCard, resolveHighlights, type FrameHeader } from "./evidence.js";
 import { explainNavigationError } from "./errors.js";
@@ -40,6 +41,26 @@ export interface ContextOptions extends SafetyOptions {
 const NETWORK_IDLE_TIMEOUT_MS = 5_000;
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 800 };
+
+/**
+ * Chromium answers Page.captureScreenshot with "Unable to capture screenshot" when the compositor does not
+ * produce a frame in time, which happens on a busy machine. It is transient: the same capture moments later
+ * works. Any other screenshot error (page closed, crashed) is real and is not retried.
+ */
+const TRANSIENT_SCREENSHOT_ERROR = /Unable to capture screenshot/;
+const SCREENSHOT_RETRY_DELAYS_MS = [250, 750];
+
+async function takeScreenshot(page: Page, options: Parameters<Page["screenshot"]>[0]): Promise<Buffer> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await page.screenshot(options);
+    } catch (err) {
+      const delay = SCREENSHOT_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined || !TRANSIENT_SCREENSHOT_ERROR.test(String((err as Error)?.message ?? err))) throw err;
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+}
 
 /** Short lowercase token; lowercase so canary emails hash the same before and after normalisation. */
 function newRunToken(): string {
@@ -102,6 +123,23 @@ export interface RunningCheckContext extends CheckContext {
   readonly blocked: string[];
   /** Refused hosts a redirect reached anyway; the browser context was closed when it happened. */
   readonly escaped: string[];
+  /** Save requests the app accepted on pages opened through openPage so far (see isAcceptedSave). */
+  testRecordsCreated(): number;
+}
+
+/**
+ * Whether a response may mean the app created a record: a save request (core/saves.ts: a non-GET fetch, XHR or form
+ * post to the target's origin, or to another origin with the run's test values in its body) that the app answered
+ * with a 2xx or 3xx status. Analytics beacons carry no test values in a body and preflights are OPTIONS, so neither
+ * counts; nor does a response a check simulated. An upper bound: an app may turn a repeated post into one record.
+ */
+export function isAcceptedSave(
+  r: { method: string; resourceType: string; url: string; status: number | null; postData: string | null; simulated?: boolean },
+  targetUrl: string,
+  runToken: string,
+): boolean {
+  if (r.simulated) return false;
+  return isSaveRequest(r, targetUrl, runToken) && isAcceptedStatus(r.status);
 }
 
 /**
@@ -115,6 +153,8 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
   const guards: NavigationGuard[] = [];
   const screencasts: { cdp: CDPSession; stopped: boolean }[] = [];
   const counter = options.fileCounter ?? { value: 0 };
+  let acceptedSaves = 0;
+  const runToken = options.runToken ?? newRunToken();
   /** URL of the page the check touched last; cards carry it in their header. */
   let lastUrl = options.targetUrl;
   const headerTitle = redactSecrets([options.checkId, options.scenarioTitle].filter(Boolean).join(" · ") || "Run Hound");
@@ -137,7 +177,7 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
     const obstacles = resolved.length > 0 ? await controlBoxes(page, fullPage) : [];
     const viewport = page.viewportSize() ?? DEFAULT_VIEWPORT;
     const capturedAt = new Date().toISOString();
-    const screenshot = await page.screenshot({ fullPage });
+    const screenshot = await takeScreenshot(page, { fullPage });
     const url = redactSecrets(page.url());
     lastUrl = page.url();
 
@@ -161,16 +201,23 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
     screencasts.push(cast);
     let lastSent = 0;
     cdp.on("Page.screencastFrame", ({ data, sessionId }) => {
+      // The URL when the frame arrived, not after the rate-limit delay: by then the page may have navigated.
+      const url = page.url();
+      const ack = () => cdp.send("Page.screencastFrameAck", { sessionId }).catch(() => undefined);
+      // The screencast starts before the first goto, and a busy machine paints the empty about:blank page
+      // first. That frame shows nothing of the page under test, so it is skipped (but acknowledged, or
+      // Chromium sends no more frames).
+      if (url === "about:blank") return void ack();
       const deliver = () => {
         if (cast.stopped) return;
         lastSent = Date.now();
         try {
-          onFrame({ jpeg: Buffer.from(data, "base64"), url: redactSecrets(page.url()), at: new Date().toISOString() });
+          onFrame({ jpeg: Buffer.from(data, "base64"), url: redactSecrets(url), at: new Date().toISOString() });
         } catch {
           // A failing live view must never break the check.
         }
         // Chromium sends the next frame only after this one is acknowledged; the delay caps the frame rate.
-        cdp.send("Page.screencastFrameAck", { sessionId }).catch(() => undefined);
+        ack();
       };
       const wait = SCREENCAST_MIN_INTERVAL_MS - (Date.now() - lastSent);
       if (wait > 0) setTimeout(deliver, wait);
@@ -192,7 +239,11 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
     targetUrl: options.targetUrl,
     artifactsDir: options.artifactsDir,
     allowDestructive: options.allowDestructive ?? false,
-    runToken: options.runToken ?? newRunToken(),
+    runToken,
+
+    testRecordsCreated() {
+      return acceptedSaves;
+    },
 
     async openPage(pageOptions = {}) {
       const context = await options.browser.newContext({ viewport: pageOptions.viewport ?? DEFAULT_VIEWPORT });
@@ -200,6 +251,18 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
       guards.push(await guardContext(context, { allowedHosts: options.allowedHosts, lookup: options.lookup }));
       const page = await context.newPage();
       const capture = attachCapture(page);
+      page.on("response", (response) => {
+        const request = response.request();
+        const save = {
+          method: request.method(),
+          resourceType: request.resourceType(),
+          url: request.url(),
+          status: response.status(),
+          postData: request.postData(),
+          simulated: response.headers()[SIMULATED_RESPONSE_HEADER] !== undefined,
+        };
+        if (isAcceptedSave(save, options.targetUrl, runToken)) acceptedSaves += 1;
+      });
       page.on("framenavigated", (frame) => {
         if (frame !== page.mainFrame() || frame.url() === "about:blank") return;
         lastUrl = frame.url();
@@ -218,7 +281,7 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
 
     async screenshot(page, label): Promise<Evidence> {
       const file = await nextFile(label, "png");
-      await page.screenshot({ path: join(options.artifactsDir, file), fullPage: true });
+      await takeScreenshot(page, { path: join(options.artifactsDir, file), fullPage: true });
       return { kind: "screenshot", label, path: file };
     },
 

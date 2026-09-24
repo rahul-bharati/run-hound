@@ -100,29 +100,38 @@ export const check: Check = {
       const firstNew = capture.requests.length;
       let saveHeaders: Record<string, string> | null = null;
       page.on("request", (request) => {
-        if (!saveHeaders && isCreatePlaywrightRequest(request, ctx.targetUrl)) saveHeaders = request.headers();
+        if (!saveHeaders && isCreatePlaywrightRequest(request, ctx.targetUrl, ctx.runToken)) saveHeaders = request.headers();
       });
 
       ctx.step("Filling free-text fields with far too much text", page);
       await fillForm(page, values);
       ctx.step("Submitting the oversized input", page);
       await submitForm(page, ctx.form);
-      await waitForCreates(page, capture, ctx.targetUrl);
+      await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
 
       // Replay the save request with a body that is not valid JSON (or form data).
-      const save = createRequests(capture, ctx.targetUrl)[0];
+      const save = createRequests(capture, ctx.targetUrl, ctx.runToken)[0];
+      let replayed: Capture["requests"][number] | null = null;
       if (save) {
         const headers = Object.fromEntries(Object.entries(saveHeaders ?? {}).filter(([k]) => !/^(content-length|cookie|host)$/i.test(k)));
         ctx.step(`Replaying ${endpointOf(save.method, save.url)} with a malformed body`, page);
-        const script = `fetch(${JSON.stringify(save.url)}, { method: ${JSON.stringify(save.method)}, headers: ${JSON.stringify(headers)}, body: ${JSON.stringify(MALFORMED_BODY)} }).then((r) => r.text()).catch(() => "")`;
-        await page.evaluate(script).catch(() => undefined);
-        await waitForCreates(page, capture, ctx.targetUrl);
+        // The answer is read in the page: the browser only keeps a response body the page reads, and many apps never
+        // read the body of an error (or of a save on another origin).
+        const script = `fetch(${JSON.stringify(save.url)}, { method: ${JSON.stringify(save.method)}, headers: ${JSON.stringify(headers)}, body: ${JSON.stringify(MALFORMED_BODY)}, redirect: "manual" })
+          .then(async (r) => ({ status: r.status, text: (await r.text()).slice(0, 65536) })).catch(() => null)`;
+        const answer = (await page.evaluate(script).catch(() => null)) as { status: number; text: string } | null;
+        if (answer && answer.status > 0) {
+          replayed = { url: save.url, method: save.method, resourceType: "fetch", postData: MALFORMED_BODY, status: answer.status, failure: null, responseBody: answer.text };
+        }
+        await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
       }
       await settle(page);
 
-      const responses = capture.requests
+      const captured = capture.requests
         .slice(firstNew)
         .filter((r) => ["fetch", "xhr", "document"].includes(r.resourceType) && r.responseBody);
+      // The replay's own capture entry holds the same answer when the capture could read it; count it once.
+      const responses = replayed && !captured.some((r) => r.postData === MALFORMED_BODY && r.responseBody) ? [...captured, replayed] : captured;
       const findings = [];
       const make = findingFactory(ID, "security", scenario);
       const submit = submitControl(ctx.form);

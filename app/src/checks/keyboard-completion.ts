@@ -1,13 +1,16 @@
 /**
  * keyboard-completion: fill and submit the form using only Tab, arrow keys, Space, Enter and typing.
  * Every required field (and every custom picker, whose "required" state the page can't tell us) must
- * be reachable with Tab and settable from the keyboard, and the submission must be accepted (2xx).
+ * be reachable with Tab and settable from the keyboard, and the submission must be accepted (2xx, or a 3xx redirect
+ * after a classic form post; a sign-in form refusing made-up credentials also proves the form was sent).
  */
 import type { Page } from "playwright";
 import type { Check, CheckContext, DiscoveredForm, Evidence, Fact, Finding, FormField, Highlight, Scenario } from "../core/types.js";
-import { checkResult, clip, evalIn, fieldName, FindingList, guarded, markFocused, playwrightSpec, scenarioFor, submitControl } from "./lib/a11y-common.js";
-import { canaries, sameOrigin, settle, textValueFor, type Canaries } from "./lib/a11y-form.js";
+import { checkResult, clip, evalIn, fieldName, FindingList, guarded, listOf, markFocused, playwrightSpec, scenarioFor, submitControl, uniquePlaces } from "./lib/a11y-common.js";
+import { isAcceptedStatus, isSaveRequest } from "../core/saves.js";
+import { canaries, settle, textValueFor, type Canaries } from "./lib/a11y-form.js";
 import { controlLocator, fieldLocator } from "./lib/functional-finding.js";
+import { isRefusedSignIn } from "./lib/functional-form.js";
 
 const MAX_TABS = 200;
 
@@ -216,38 +219,52 @@ function locatorFor(field: FormField): string {
 /**
  * A spec that fails while the problem is present, for each kind of problem:
  * unreachable / submit: Tab never reaches the control; inoperable: Tab reaches it but the keys don't set a value;
- * rejected: filling every field and pressing Enter on the submit button doesn't produce a 2xx save response.
+ * rejected: filling every field and pressing Enter on the submit button doesn't produce a 2xx (or redirect) save response.
  */
-function keyboardSpec(ctx: CheckContext, no: number, kind: ProblemKind, name: string, field: FormField | null, targets: FormField[], values: Canaries) {
+function keyboardSpec(ctx: CheckContext, no: number, kind: ProblemKind, name: string, fields: FormField[], targets: FormField[], values: Canaries) {
   const submit = submitControl(ctx.form)!;
   const submitLocator = controlLocator(submit);
+  const many = fields.length > 1;
   const title: Record<ProblemKind, string> = {
-    unreachable: `${name} can be reached with the Tab key`,
+    unreachable: many ? "every field can be reached with the Tab key" : `${name} can be reached with the Tab key`,
     submit: `${name} can be reached with the Tab key`,
-    inoperable: `${name} can be set with the keyboard`,
+    inoperable: many ? "every field can be set with the keyboard" : `${name} can be set with the keyboard`,
     rejected: "the form can be filled in and submitted with the keyboard only",
   };
+  // Each field is checked from a freshly loaded page, so one failure doesn't depend on another.
+  const reload = (i: number) => (i > 0 ? [`await page.goto(TARGET, { waitUntil: "networkidle" });`] : []);
   let body: string;
-  if (kind === "unreachable" || kind === "submit") {
+  if (kind === "submit" || (kind === "unreachable" && fields.length === 0)) {
     body = `${TAB_TO}
-expect(await tabTo(${field ? locatorFor(field) : submitLocator})).toBe(true);`;
-  } else if (kind === "inoperable" && field) {
+expect(await tabTo(${submitLocator})).toBe(true);`;
+  } else if (kind === "unreachable") {
+    body = `${TAB_TO}
+${fields.flatMap((f, i) => [...reload(i), `expect(await tabTo(${locatorFor(f)}), ${JSON.stringify(fieldName(f))}).toBe(true);`]).join("\n")}`;
+  } else if (kind === "inoperable" && fields.length > 0) {
     body = `${TAB_TO}
 ${HAS_VALUE_SPEC}
-const target = ${locatorFor(field)};
-expect(await tabTo(target)).toBe(true);
-${operateLines(field, values).join("\n")}
-expect(await hasValue(target)).toBe(true);`;
+${fields
+  .flatMap((f, i) => [
+    ...reload(i),
+    `{`,
+    `  const target = ${locatorFor(f)};`,
+    `  expect(await tabTo(target)).toBe(true);`,
+    ...operateLines(f, values).map((l) => `  ${l}`),
+    `  expect(await hasValue(target), ${JSON.stringify(fieldName(f))}).toBe(true);`,
+    `}`,
+  ])
+  .join("\n")}`;
   } else {
     const steps = targets.flatMap((f) => [`expect(await tabTo(${locatorFor(f)})).toBe(true);`, ...operateLines(f, values)]);
     body = `${TAB_TO}
 ${steps.join("\n")}
 expect(await tabTo(${submitLocator})).toBe(true);
-const saved = page.waitForResponse((r) => r.request().method() !== "GET" && new URL(r.url()).origin === new URL(TARGET).origin);
+const saved = page.waitForResponse((r) => !["GET", "HEAD", "OPTIONS"].includes(r.request().method()) && ["fetch", "xhr", "document"].includes(r.request().resourceType()));
 await page.keyboard.press("Enter");
 const response = await saved;
+// 2xx, or a redirect after a classic form post.
 expect(response.status()).toBeGreaterThanOrEqual(200);
-expect(response.status()).toBeLessThan(300);`;
+expect(response.status()).toBeLessThan(400);`;
   }
   return playwrightSpec("keyboard-completion", no, title[kind], ctx.targetUrl, body);
 }
@@ -335,10 +352,18 @@ export const check: Check = {
       if (!submitReachable) problems.push({ field: null, kind: "submit" });
 
       let status: number | null = null;
+      let signInRefused = false;
       if (problems.length === 0) {
-        // Second pass: Tab to the submit button and press Enter.
+        // Second pass: Tab to the submit button and press Enter. The save request is the one core/saves.ts
+        // recognises: a JSON API on this origin or another one, or a classic page post.
         const response = page
-          .waitForResponse((r) => r.request().method() !== "GET" && sameOrigin(r.url(), page.url()), { timeout: 10_000 })
+          .waitForResponse(
+            (r) => {
+              const req = r.request();
+              return isSaveRequest({ method: req.method(), resourceType: req.resourceType(), url: req.url(), postData: req.postData() }, ctx.targetUrl, ctx.runToken);
+            },
+            { timeout: 10_000 },
+          )
           .catch(() => null);
         for (let i = 0; i < MAX_TABS; i++) {
           await page.keyboard.press("Tab");
@@ -347,7 +372,9 @@ export const check: Check = {
         await page.keyboard.press("Enter");
         status = (await response)?.status() ?? null;
         await settle(page);
-        if (status === null || status < 200 || status >= 300) problems.push({ field: null, kind: "rejected" });
+        // A sign-in form refuses made-up credentials: the answer proves the keyboard sent the form.
+        signInRefused = isRefusedSignIn(ctx.form, status);
+        if (!isAcceptedStatus(status) && !signInRefused) problems.push({ field: null, kind: "rejected" });
       }
 
       const evidence: Evidence[] = [];
@@ -385,35 +412,50 @@ export const check: Check = {
           );
         }
       }
-      for (const p of problems) {
+      // One finding per kind of problem, naming every field it affects.
+      const kinds: ProblemKind[] = ["unreachable", "inoperable", "submit", "rejected"];
+      for (const kind of kinds) {
+        const group = problems.filter((p) => p.kind === kind);
+        if (group.length === 0) continue;
         const no = findings.items.length + 1;
-        const name = p.field ? fieldName(p.field) : (submit.accessibleName ?? submit.text) || "Submit button";
-        const selector = p.field?.selector ?? submit.selector;
+        const groupFields = group.flatMap((p) => (p.field ? [p.field] : []));
+        const submitName = (submit.accessibleName ?? submit.text) || "Submit button";
+        const names = groupFields.length > 0 ? groupFields.map(fieldName) : [submitName];
+        const places = uniquePlaces(groupFields.length > 0 ? groupFields.map((f) => ({ name: fieldName(f), selector: f.selector })) : [{ name: submitName }]);
+        const many = names.length > 1;
+        const name = names[0]!;
+        const quoted = listOf(names);
         const base = {
           severity: "high" as const,
-          location: name,
+          location: places[0]!,
+          ...(many ? { locations: places } : {}),
           evidence: [
             {
               kind: "dom" as const,
               label: `Keyboard walk through the form (${walk.stops.length} stops)`,
-              data: { selector, problem: p.kind, tabStops: walk.stops.length, submitStatus: status },
+              data: {
+                selectors: groupFields.length > 0 ? groupFields.map((f) => f.selector) : [submit.selector],
+                problem: kind,
+                tabStops: walk.stops.length,
+                submitStatus: status,
+              },
             },
             ...evidence,
           ],
-          spec: keyboardSpec(ctx, no, p.kind, name, p.field, targets, values),
+          spec: keyboardSpec(ctx, no, kind, name, groupFields, targets, values),
         };
-        const texts: Record<typeof p.kind, Pick<Finding, "title" | "meaning" | "impact" | "fix">> = {
+        const texts: Record<ProblemKind, Pick<Finding, "title" | "meaning" | "impact" | "fix">> = {
           unreachable: {
-            title: `"${name}" can't be reached with the keyboard`,
-            meaning: `Pressing Tab never moves to "${name}", so someone using only a keyboard can't choose a value and can't finish the form.`,
+            title: many ? `${names.length} fields can't be reached with the keyboard` : `"${name}" can't be reached with the keyboard`,
+            meaning: `Pressing Tab never moves to ${quoted}, so someone using only a keyboard can't choose ${many ? "values" : "a value"} and can't finish the form.`,
             impact: "People who can't use a mouse (including many screen reader users and people with motor impairments) are completely blocked from completing the form.",
-            fix: `Build "${name}" from native controls (for example <input type="radio"> in a <fieldset> with a <legend>), or give the custom widget role="radiogroup"/role="radio", tabindex and arrow-key/Space handlers.`,
+            fix: `Build ${quoted} from native controls (for example <input type="radio"> in a <fieldset> with a <legend>), or give each custom widget role="radiogroup"/role="radio", tabindex and arrow-key/Space handlers.`,
           },
           inoperable: {
-            title: `"${name}" can't be set with the keyboard`,
-            meaning: `Tab reaches "${name}", but typing, Space and arrow keys don't change its value, so a keyboard user can't fill it in.`,
+            title: many ? `${names.length} fields can't be set with the keyboard` : `"${name}" can't be set with the keyboard`,
+            meaning: `Tab reaches ${quoted}, but typing, Space and arrow keys don't change ${many ? "their values" : "its value"}, so a keyboard user can't fill ${many ? "them" : "it"} in.`,
             impact: "Keyboard-only users can't complete the form.",
-            fix: `Make "${name}" respond to the keyboard: use a native control, or add key handlers for Space, Enter and the arrow keys.`,
+            fix: `Make ${quoted} respond to the keyboard: use native controls, or add key handlers for Space, Enter and the arrow keys.`,
           },
           submit: {
             title: `"${name}" can't be reached with the keyboard`,
@@ -423,20 +465,17 @@ export const check: Check = {
           },
           rejected: {
             title: "Form can't be completed with the keyboard",
-            meaning: `Every required field was filled in with the keyboard and the form was submitted with Enter, but nothing was saved (${status === null ? "no request was sent" : `the server answered ${status}`}).`,
+            meaning: `Every required field was filled in with the keyboard and the form was submitted with Enter, but nothing was saved (${status === null ? "no request was sent" : `the server answered ${status}`}). Run Hound's made-up test values may break one of the form's own rules, so check whether the same values are accepted when entered with a mouse.`,
             impact: "Keyboard-only users can't complete the form.",
             fix: "Check which fields don't take keyboard input and make them keyboard-operable; make sure pressing Enter on the submit button submits the form.",
           },
         };
-        findings.add({ ...base, ...texts[p.kind] });
+        // Every field was reached and set from the keyboard, so a refused or missing save may just as well mean the
+        // made-up test values broke one of the app's own rules: reported, but advisory.
+        findings.add({ ...base, ...texts[kind], ...(kind === "rejected" ? { confidence: "advisory" as const } : {}) });
       }
-      return checkResult(
-        "keyboard-completion",
-        scenario,
-        startedAt,
-        findings.items,
-        `Tab reached ${reached.size}/${targets.length} target field(s); submit status ${status ?? "not sent"}`,
-      );
+      const sent = status === null ? "not sent" : signInRefused ? `${status} (a sign-in form refusing made-up credentials, so the form was sent)` : String(status);
+      return checkResult("keyboard-completion", scenario, startedAt, findings.items, `Tab reached ${reached.size}/${targets.length} target field(s); submit status ${sent}`);
     });
   },
 };

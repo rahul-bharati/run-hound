@@ -29,6 +29,12 @@ export const CHECK_IDS = [
 
 export type CheckId = (typeof CHECK_IDS)[number];
 
+/**
+ * Response header a check sets when it answers a request itself (route.fulfill) instead of letting it reach the app,
+ * so the engine never counts that answer as a test record the app created.
+ */
+export const SIMULATED_RESPONSE_HEADER = "x-run-hound-simulated";
+
 /** A form control found on the target page, described by how a user reaches it. */
 export interface FormField {
   /** Stable key within the form: the name attribute, else id, else a generated key. */
@@ -47,6 +53,8 @@ export interface FormField {
   selector: string;
   /** For radio groups, selects and custom pickers: the options a user can choose. */
   options?: { label: string; selector: string }[];
+  /** The field's autocomplete hint, lowercased ("email", "current-password"), when it has one. */
+  autocomplete?: string;
   /** Native constraints, when present. */
   constraints?: { min?: string; max?: string; minLength?: number; maxLength?: number; pattern?: string };
 }
@@ -180,6 +188,11 @@ export interface Finding {
   fix: string;
   /** Where on the page, as a user would describe it: "Pet type picker", "Book button". */
   location?: string;
+  /**
+   * Every place the same problem was found, when there is more than one (e.g. the 6 controls with no visible focus).
+   * A check reports one finding per distinct problem, never one finding per element; the title states the count.
+   */
+  locations?: string[];
   evidence: Evidence[];
   /** Playwright spec that reproduces the finding, as source text. */
   spec?: { filename: string; source: string };
@@ -222,7 +235,8 @@ export interface Capture {
     /** Response body for same-origin JSON/text responses (truncated), else null. */
     responseBody: string | null;
   }[];
-  console: { type: string; text: string }[];
+  /** Console messages; `url` is where the message came from (for "Failed to load resource", the resource's URL). */
+  console: { type: string; text: string; url?: string }[];
   pageErrors: string[];
 }
 
@@ -291,4 +305,10 @@ export interface Report {
    * it is optional only so reports written before it existed can still be read.
    */
   pagesVisited?: { url: string; scenarioIds: string[] }[];
+  /**
+   * How many records the run may have created in the app under test: save requests (non-GET fetch, XHR or form
+   * posts to the target's origin, or carrying the run's test values to another origin) that the app accepted with
+   * a 2xx or 3xx status. Run Hound never deletes them; the report says so. Optional only for older reports.
+   */
+  testRecordsCreated?: number;
 }

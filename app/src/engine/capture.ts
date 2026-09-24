@@ -1,4 +1,5 @@
 import type { Page, Request } from "playwright";
+import { isLocalOrigin, isWrite } from "../core/saves.js";
 import type { Capture } from "../core/types.js";
 import { secretSpans } from "./redact.js";
 
@@ -32,8 +33,9 @@ function truncate(body: string): string {
 
 /**
  * Starts recording requests, responses, console messages and page errors for the page.
- * The returned object is live: it keeps filling as the page runs. Response bodies are kept
- * only for same-origin text/JSON responses, truncated to 64 KB.
+ * The returned object is live: it keeps filling as the page runs. Response bodies are kept only for same-origin
+ * text/JSON responses, and for writes (POST, PUT, ...) to another origin on this machine or the local network (an
+ * API on another port), truncated to 64 KB.
  * "Same origin" means the origin of the page's latest top-level navigation.
  */
 export function attachCapture(page: Page): Capture {
@@ -65,8 +67,12 @@ export function attachCapture(page: Page): Capture {
 
     const contentType = response.headers()["content-type"] ?? "";
     const sameOrigin = pageOrigin !== null && originOf(entry.url) === pageOrigin;
+    // A write to another origin on this machine or network (the app's API on another port) is the form being saved:
+    // its answer is kept like a same-origin one. Reads from other origins, and anything from the internet, are not.
+    const ownApiWrite =
+      !sameOrigin && isWrite(entry) && ["fetch", "xhr"].includes(entry.resourceType) && isLocalOrigin(entry.url, page.url());
     // Redirects have no body to read.
-    if (!sameOrigin || !TEXTUAL.test(contentType) || (entry.status >= 300 && entry.status < 400)) return;
+    if ((!sameOrigin && !ownApiWrite) || !TEXTUAL.test(contentType) || (entry.status >= 300 && entry.status < 400)) return;
     try {
       entry.responseBody = truncate(await response.text());
     } catch {
@@ -80,7 +86,8 @@ export function attachCapture(page: Page): Capture {
   });
 
   page.on("console", (message) => {
-    capture.console.push({ type: message.type(), text: message.text() });
+    const url = message.location()?.url;
+    capture.console.push({ type: message.type(), text: message.text(), ...(url ? { url } : {}) });
   });
 
   page.on("pageerror", (error) => {

@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { closeBrowser, overallStatus, runCheck } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
+import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
 import { bookingApp, type BookingVariant } from "../../test/fixtures/checks/booking-page.js";
 import {
   allFindings,
@@ -61,5 +61,17 @@ describe("keyboard-completion check", () => {
     // The keyboard user could not complete the booking.
     expect(created).toHaveLength(0);
     expect(findingText(picker!)).toMatch(/keyboard/i);
+  });
+
+  it("ADVISORY: every field is reached and set from the keyboard but the server refuses the values -> advisory, not confirmed", async () => {
+    const { results, findings } = await run({
+      ...fixtures.good,
+      routes: { "POST /api/bookings": (_req, res) => json(res, 422, { errors: { petName: "Choose another name" } }) },
+    });
+    expect(overallStatus(results)).toBe("fail");
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.confidence).toBe("advisory");
+    expect(findings[0]!.meaning).toMatch(/the server answered 422/);
+    expect(findings[0]!.meaning).toMatch(/made-up test values/);
   });
 });

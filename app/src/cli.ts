@@ -4,17 +4,22 @@
  * run-hound run <url> [--approve all|default|<id,id>] [--allow-destructive] [--headed] [--runs-dir <dir>] [--json] [--plan-only]
  *   --headed opens a visible Chromium window so you can watch. Progress lines on stderr name each step and page URL.
  *   --plan-only prints the planned scenarios (with the ids --approve takes) and exits 0 without running anything.
- *   Exit code: 0 no findings, 1 findings, 2 error (including a refused target, an unreachable page and an empty approval).
+ *   Exit code: 0 no confirmed findings (advisory findings are reported but don't fail the run), 1 at least one
+ *   confirmed finding, 2 error (including a refused target, an unreachable page and an empty approval).
  * With --json, stdout carries exactly one JSON document (the report, or the plan with --plan-only); progress, the run
  * folder and errors go to stderr.
- * run-hound help | --help | -h, run-hound --version
+ * run-hound help | --help | -h, run-hound --version (also run --version, serve --version)
  */
-import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { serve } from "@hono/node-server";
 import { redactSecrets } from "./engine/redact.js";
-import { discoverAndPlan, NothingToRunError, runPlan } from "./engine/runner.js";
+import { findingCounts, testDataSentence } from "./engine/report.js";
+import { canShowBrowser, discoverAndPlan, NO_DISPLAY_MESSAGE, NothingToRunError, planWarnings, RUN_HOUND_VERSION, runPlan } from "./engine/runner.js";
+import { exitQuietlyOnClosedPipe } from "./engine/stdio.js";
 import { createApp } from "./server/app.js";
+
+/** "1 field", "9 fields". */
+const count = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 const USAGE = `Usage:
   run-hound serve [--port 4000] [--host 127.0.0.1] [--runs-dir <dir>]
@@ -29,15 +34,16 @@ const USAGE = `Usage:
       --json                          print the report (or the plan) as JSON on stdout
   run-hound help | --version
 
-Exit codes for run: 0 no findings, 1 findings, 2 error.`;
+Exit codes for run:
+  0  no confirmed findings (advisory findings, which rely on judgement, are reported but don't fail the run)
+  1  at least one confirmed finding
+  2  an error: a refused or unreachable target, no form found, or bad arguments
 
-const VERSION: string = (() => {
-  try {
-    return (JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version?: string }).version ?? "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
-})();
+Run Hound only tests local and private-network addresses (localhost, 127.0.0.1, 10.x, 172.16-31.x, 192.168.x,
+fc00::/7, link-local); add other hosts you own to RUNHOUND_ALLOWED_HOSTS. Scenarios that submit the form create
+test records in your app; the report says how many. Run Hound does not delete them.`;
+
+const VERSION = RUN_HOUND_VERSION;
 
 class UsageError extends Error {}
 
@@ -70,10 +76,15 @@ async function runCommand(args: string[]): Promise<number> {
       json: { type: "boolean", default: false },
       "plan-only": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
+      version: { type: "boolean", short: "v", default: false },
     },
   }));
   if (values.help) {
     process.stdout.write(`${USAGE}\n`);
+    return 0;
+  }
+  if (values.version) {
+    process.stdout.write(`run-hound ${VERSION}\n`);
     return 0;
   }
   const url = positionals[0];
@@ -81,8 +92,12 @@ async function runCommand(args: string[]): Promise<number> {
 
   const log = (line: string) => process.stderr.write(`${redactSecrets(line)}\n`);
   const headed = values.headed;
-  const plan = await discoverAndPlan(url, { headed });
-  log(`Found ${plan.form.name ? `"${plan.form.name}"` : "a form"} with ${plan.form.fields.length} fields; ${plan.scenarios.length} scenarios planned.`);
+  // Discovery runs headless without a display; the gate still judges the target first, so a refused target is
+  // reported as refused, and only then is --headed refused.
+  const plan = await discoverAndPlan(url, { headed: headed && canShowBrowser() });
+  if (headed && !canShowBrowser()) throw new Error(`--headed: ${NO_DISPLAY_MESSAGE}`);
+  log(`Found ${plan.form.name ? `"${plan.form.name}"` : "a form"} with ${count(plan.form.fields.length, "field")}; ${count(plan.scenarios.length, "scenario")} planned.`);
+  for (const warning of planWarnings(plan)) log(`Warning: ${warning}`);
 
   if (values["plan-only"]) {
     if (values.json) process.stdout.write(`${JSON.stringify(JSON.parse(redactSecrets(JSON.stringify(plan))))}\n`);
@@ -91,6 +106,8 @@ async function runCommand(args: string[]): Promise<number> {
       for (const s of plan.scenarios) {
         const tags = [s.kind, s.destructive ? "destructive" : ""].filter(Boolean).join(", ");
         process.stdout.write(`  ${s.defaultSelected ? "*" : " "} ${s.id}  ${redactSecrets(s.title)} (${tags})\n`);
+        // What the scenario does, including whether it creates test records in the app, before anyone approves it.
+        process.stdout.write(`      ${redactSecrets(s.description)}\n`);
       }
     }
     return 0;
@@ -116,7 +133,10 @@ async function runCommand(args: string[]): Promise<number> {
         lastPage = "";
         log(`[${e.index + 1}/${e.total}] ${e.scenarioId}`);
       } else if (e.type === "scenario-end") {
-        log(`  ${e.result.status}${e.result.findings.length ? ` (${e.result.findings.length} findings)` : ""}`);
+        const n = e.result.findings.length;
+        // Skip notes start with "Skipped: " so they read on their own in the report; don't say it twice here.
+        const why = e.result.status === "skipped" && e.result.notes ? `: ${e.result.notes.replace(/^Skipped:\s*/i, "")}` : "";
+        log(`  ${e.result.status}${n ? ` (${count(n, "finding")})` : ""}${why}`);
       } else if (e.type === "step") {
         log(`  ${e.scenarioId ? "·" : "-"} ${e.label}  ${e.url}`);
       } else if (e.type === "page" && e.url !== lastPage) {
@@ -133,13 +153,22 @@ async function runCommand(args: string[]): Promise<number> {
   } else {
     const s = report.summary;
     process.stdout.write(
-      `${report.findings.length} findings (critical ${s.critical}, high ${s.high}, medium ${s.medium}, low ${s.low}); ` +
-        `${s.passed} passed, ${s.failed} failed, ${s.errored} errored, ${s.skipped} skipped.\n`,
+      `${findingCounts(report.findings)}; critical ${s.critical}, high ${s.high}, medium ${s.medium}, low ${s.low}. ` +
+        `Scenarios: ${s.passed} passed, ${s.failed} failed, ${s.errored} errored, ${s.skipped} skipped.\n`,
     );
-    for (const f of report.findings) process.stdout.write(`  [${f.severity}] ${f.title} (${f.checkId})\n`);
+    for (const f of report.findings) {
+      const places = f.locations && f.locations.length > 1 ? ` [${f.locations.length} places]` : "";
+      process.stdout.write(`  [${f.severity}${f.confidence === "advisory" ? ", advisory" : ""}] ${f.title} (${f.checkId})${places}\n`);
+    }
+    const testData = testDataSentence(report);
+    if (testData) process.stdout.write(`${testData}\n`);
     process.stdout.write(`Report: ${dir}/report.html\n`);
   }
-  return report.findings.length > 0 ? 1 : 0;
+  if (report.summary.errored > 0) {
+    log(`Note: ${count(report.summary.errored, "scenario")} errored and tested nothing; see "Checks that errored" in the report.`);
+  }
+  // Advisory findings rely on judgement: they are reported but never fail the run.
+  return report.findings.some((f) => f.confidence === "confirmed") ? 1 : 0;
 }
 
 function serveCommand(args: string[]): void {
@@ -151,10 +180,15 @@ function serveCommand(args: string[]): void {
       port: { type: "string", default: "4000" },
       host: { type: "string", default: "127.0.0.1" },
       "runs-dir": { type: "string" },
+      version: { type: "boolean", short: "v", default: false },
     },
   }));
   if (values.help) {
     process.stdout.write(`${USAGE}\n`);
+    return;
+  }
+  if (values.version) {
+    process.stdout.write(`run-hound ${VERSION}\n`);
     return;
   }
   if (positionals.length) throw new UsageError(`unexpected argument: ${positionals[0]}`);
@@ -202,4 +236,6 @@ async function main(argv: string[]): Promise<void> {
   }
 }
 
+exitQuietlyOnClosedPipe(process.stdout);
+exitQuietlyOnClosedPipe(process.stderr);
 await main(process.argv.slice(2));

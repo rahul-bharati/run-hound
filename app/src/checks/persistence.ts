@@ -4,9 +4,10 @@
  * they are either never shown or not unique enough to prove anything.
  */
 import type { Page } from "playwright";
-import type { Check, Finding, Scenario } from "../core/types.js";
+import type { Check, Evidence, Finding, Scenario } from "../core/types.js";
 import { bodyLines, clip, controlLocator, endpointOf, evidence, fillLines, findingFactory, guarded, markText, recordFlow, requestSummary, result, specSource, tryCard } from "./lib/functional-finding.js";
-import { canaryValues, createRequests, fieldName, fillForm, settle, submitControl, submitForm, waitForCreates } from "./lib/functional-form.js";
+import { isAcceptedStatus, isPagePost } from "../core/saves.js";
+import { canaryValues, createRequests, fieldName, fillForm, isRefusedSignIn, isSignInForm, settle, SIGN_IN_NOTE, submitControl, submitForm, waitForCreates } from "./lib/functional-form.js";
 
 const ID = "persistence" as const;
 
@@ -31,7 +32,9 @@ export const check: Check = {
         id: "canary-reload",
         checkId: ID,
         title: "Submit unique values, reload and look for them",
-        description: `Fill every field of ${form.name ?? "the form"} with unique test values, submit, reload the page and check that each value is still shown (passwords excepted). Creates one test record.`,
+        description: isSignInForm(form)
+          ? `Will be skipped: ${form.name ?? "this form"} looks like a sign-in form, and signing in saves nothing to look for after a reload.`
+          : `Fill every field of ${form.name ?? "the form"} with unique test values, submit, reload the page and check that each value is still shown (passwords excepted). Creates one test record.`,
         kind: "golden",
         priority: "high",
         destructive: false,
@@ -42,6 +45,7 @@ export const check: Check = {
 
   run(ctx, scenario) {
     return guarded(ID, scenario, ctx, async (started) => {
+      if (isSignInForm(ctx.form)) return { ...result(ID, scenario, started, []), status: "skipped", notes: SIGN_IN_NOTE };
       const { page, capture } = await ctx.openPage();
       const values = canaryValues(ctx.form, ctx.runToken, "keep");
       const canaries = values.filter((v) => v.canary);
@@ -54,26 +58,39 @@ export const check: Check = {
       });
       ctx.step("Submitting the form", page);
       await submitForm(page, ctx.form);
-      await waitForCreates(page, capture, ctx.targetUrl);
+      await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
 
-      const creates = createRequests(capture, ctx.targetUrl);
-      const saved = creates.find((r) => r.status !== null && r.status >= 200 && r.status < 300);
+      const creates = createRequests(capture, ctx.targetUrl, ctx.runToken);
+      // 2xx, or a 3xx: a classic form post answers "303 See Other" and the browser loads the page it points to.
+      const saved = creates.find((r) => isAcceptedStatus(r.status));
       if (!saved) {
-        const why = creates.length === 0 ? "no request was sent" : `the server answered ${creates.map((r) => r.status ?? r.failure).join(", ")}`;
-        return { ...result(ID, scenario, started, []), status: "error", notes: `Could not save the test values (${why}), so persistence could not be checked.` };
+        const statuses = creates.map((r) => r.status ?? r.failure).join(", ");
+        const refused = creates.find((r) => r.status !== null && r.status >= 400 && r.status < 500);
+        const skip = (notes: string) => ({ ...result(ID, scenario, started, []), status: "skipped" as const, notes });
+        if (creates.length === 0) {
+          return skip("Skipped: submitting the form sent nothing to the server (the page may have refused Run Hound's test values), so there was no saved record to look for.");
+        }
+        if (refused && isRefusedSignIn(ctx.form, refused.status)) return skip(SIGN_IN_NOTE);
+        if (refused) {
+          return skip(`Skipped: the app refused Run Hound's test values (it answered ${statuses}), so nothing was saved to look for. The made-up values may not meet one of this form's rules.`);
+        }
+        return skip(`Skipped: the app could not save Run Hound's test values (it answered ${statuses}), so there was no saved record to look for. The failed request is reported by the "No console errors or failed requests" check.`);
       }
 
       await flow.step("Submitted; the server saved it", {
         facts: [{ label: "Save request", value: `${endpointOf(saved.method, saved.url)} → ${saved.status}` }],
       });
 
-      ctx.step("Reloading the page and looking for every test value", page);
+      // A classic form post lands on the page the server redirected to (a thank-you or detail page): that page is
+      // where the saved values should show, so it is the page reloaded.
+      const landed = isPagePost(saved) && page.url() !== ctx.targetUrl ? ` (${new URL(page.url()).pathname}, where the form post led)` : "";
+      ctx.step(`Reloading the page${landed} and looking for every test value`, page);
       await page.reload({ waitUntil: "load" });
       await settle(page);
       const text = await visibleText(page);
       const missing = canaries.filter((v) => !text.includes(v.value));
       if (missing.length === 0) {
-        return result(ID, scenario, started, [], `All ${canaries.length} test values were visible after reload.`);
+        return result(ID, scenario, started, [], `All ${canaries.length} test values were visible after reload${landed}.`);
       }
 
       // Point at the saved record: where the other test values show up is where the missing ones belong.
@@ -104,59 +121,80 @@ export const check: Check = {
       const make = findingFactory(ID, "broken-feature", scenario);
       const submit = submitControl(ctx.form);
       const findings: Finding[] = [];
-      for (const m of missing) {
+      // One problem, however many fields it drops: one finding naming every field, with a card per field (up to 6).
+      const request = bodyLines(saved.postData);
+      const response = bodyLines(saved.responseBody);
+      const cards: Evidence[] = [];
+      const perField = missing.map((m) => {
         const name = fieldName(m.field);
-        const request = bodyLines(saved.postData);
-        const response = bodyLines(saved.responseBody);
         const inRequest = request.some((l) => l.includes(m.value));
         const inResponse = response.some((l) => l.includes(m.value));
+        return { m, name, inRequest, inResponse };
+      });
+      for (const { m, name, inRequest, inResponse } of perField.slice(0, 6)) {
         // The line that should carry the value: the value itself, else the field's key.
         const proves = (l: string) => l.includes(m.value) || l.includes(`"${m.field.key}"`);
-        const card = await tryCard(ctx, `${name} in the save request`, {
-          title: inRequest
-            ? `"${name}" was sent${inResponse ? " and saved, but is not shown after reload" : ", but the server's response drops it"}`
-            : `"${name}" was typed, but the save request does not carry it`,
-          subtitle: `${endpointOf(saved.method, saved.url)} → ${saved.status}  ${saved.url}`,
-          lines: [
-            { text: "Request body" },
-            ...request.map((l) => ({ text: `  ${clip(l)}`, mark: proves(l) })),
-            { text: `Response ${saved.status}` },
-            ...response.map((l) => ({ text: `  ${clip(l)}`, mark: inRequest && proves(l) })),
-          ],
-          facts: [
-            { label: "Canary value", value: m.value },
-            { label: "Field", value: name },
-            { label: "In request", value: inRequest ? "yes" : "no" },
-            { label: "In response", value: inResponse ? "yes" : "no" },
-          ],
-        });
-        findings.push(
-          make({
-            title: `"${name}" is not saved`,
-            severity: "critical",
-            location: `"${name}" field`,
-            meaning: `The form accepted a value in "${name}" and reported success, but after reloading the page that value is nowhere to be found. It was never saved (or is saved and not shown).`,
-            impact: `Anything people type into "${name}" is silently lost, so they rely on information that does not exist, for example a note or instruction that nobody ever sees.`,
-            fix: `Ask your AI or developer: "The ${name} field (${m.field.key}) is dropped between the form and the database. Make sure it is sent in the request, stored by the server and shown again after reload."`,
-            evidence: [
-              ...gif,
-              ...card,
-              evidence("network", "Save request and response", requestSummary(saved, true)),
-              evidence("dom", `"${name}" value missing after reload`, { field: m.field.key, submittedValue: m.value, searched: where }),
+        cards.push(
+          ...(await tryCard(ctx, `${name} in the save request`, {
+            title: inRequest
+              ? `"${name}" was sent${inResponse ? " and saved, but is not shown after reload" : ", but the server's response drops it"}`
+              : `"${name}" was typed, but the save request does not carry it`,
+            subtitle: `${endpointOf(saved.method, saved.url)} → ${saved.status}  ${saved.url}`,
+            lines: [
+              { text: "Request body" },
+              ...request.map((l) => ({ text: `  ${clip(l)}`, mark: proves(l) })),
+              { text: `Response ${saved.status}` },
+              ...response.map((l) => ({ text: `  ${clip(l)}`, mark: inRequest && proves(l) })),
             ],
-            spec: {
-              name: `${name}-is-saved`,
-              source: specSource(ctx.targetUrl, `"${name}" is still shown after saving and reloading`, [
-                ...fillLines(values),
-                submit ? `await ${controlLocator(submit)}.click();` : `await page.keyboard.press("Enter");`,
-                `await page.waitForLoadState("networkidle");`,
-                `await page.reload();`,
-                `await expect(page.getByText(${JSON.stringify(m.value)}).first()).toBeVisible();`,
-              ]),
-            },
-          }),
+            facts: [
+              { label: "Canary value", value: m.value },
+              { label: "Field", value: name },
+              { label: "In request", value: inRequest ? "yes" : "no" },
+              { label: "In response", value: inResponse ? "yes" : "no" },
+            ],
+          })),
         );
       }
+      const many = missing.length > 1;
+      const first = perField[0]!;
+      const quoted = perField.map((f) => `"${f.name}"`).join(", ");
+      findings.push(
+        make({
+          title: many ? `${missing.length} fields are not saved (${clip(perField.map((f) => f.name).join(", "), 60)})` : `"${first.name}" is not saved`,
+          severity: "critical",
+          location: `"${first.name}" field`,
+          locations: perField.map((f) => `"${f.name}" field`),
+          meaning: many
+            ? `The form accepted values in ${quoted} and reported success, but after reloading the page those values are nowhere to be found. They were never saved (or are saved and not shown).`
+            : `The form accepted a value in "${first.name}" and reported success, but after reloading the page that value is nowhere to be found. It was never saved (or is saved and not shown).`,
+          impact: many
+            ? `Anything people type into ${quoted} is silently lost, so they rely on information that does not exist.`
+            : `Anything people type into "${first.name}" is silently lost, so they rely on information that does not exist, for example a note or instruction that nobody ever sees.`,
+          fix: many
+            ? `Ask your AI or developer: "These fields are dropped between the form and the database: ${perField.map((f) => `${f.name} (${f.m.field.key})`).join(", ")}. Make sure each is sent in the request, stored by the server and shown again after reload."`
+            : `Ask your AI or developer: "The ${first.name} field (${first.m.field.key}) is dropped between the form and the database. Make sure it is sent in the request, stored by the server and shown again after reload."`,
+          evidence: [
+            ...gif,
+            ...cards,
+            evidence("network", "Save request and response", requestSummary(saved, true)),
+            evidence(
+              "dom",
+              many ? `${missing.length} values missing after reload` : `"${first.name}" value missing after reload`,
+              perField.map((f) => ({ field: f.m.field.key, name: f.name, submittedValue: f.m.value, inRequest: f.inRequest, inResponse: f.inResponse, searched: where })),
+            ),
+          ],
+          spec: {
+            name: many ? "every-field-is-saved" : `${first.name}-is-saved`,
+            source: specSource(ctx.targetUrl, many ? "every typed value is still shown after saving and reloading" : `"${first.name}" is still shown after saving and reloading`, [
+              ...fillLines(values),
+              submit ? `await ${controlLocator(submit)}.click();` : `await page.keyboard.press("Enter");`,
+              `await page.waitForLoadState("networkidle");`,
+              `await page.reload();`,
+              ...missing.map((m) => `await expect(page.getByText(${JSON.stringify(m.value)}).first()).toBeVisible();`),
+            ]),
+          },
+        }),
+      );
       return result(ID, scenario, started, findings);
     });
   },

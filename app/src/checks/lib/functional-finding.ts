@@ -2,6 +2,7 @@
  * Findings, evidence and exported Playwright specs for the behaviour checks.
  * Evidence is redacted here, so checks can pass raw captured data.
  */
+import { cleanErrorMessage } from "../../engine/errors.js";
 import { redactSecrets } from "../../engine/redact.js";
 import type { Page } from "playwright";
 import type { Capture, Category, CheckContext, CheckId, CheckResult, Evidence, EvidenceCard, Finding, FrameOptions, Scenario, Severity } from "../../core/types.js";
@@ -42,6 +43,8 @@ export interface FindingInput {
   impact: string;
   fix: string;
   location?: string;
+  /** Every place a grouped finding covers (more than one); the location is the first. */
+  locations?: string[];
   evidence: Evidence[];
   spec: { name: string; source: string };
 }
@@ -63,6 +66,7 @@ export function findingFactory(checkId: CheckId, category: Category, scenario: S
       impact: input.impact,
       fix: input.fix,
       ...(input.location ? { location: input.location } : {}),
+      ...(input.locations && input.locations.length > 1 ? { locations: input.locations } : {}),
       evidence: input.evidence,
       spec: { filename: `${checkId}-${slug}-${n}.spec.ts`, source: redactSecrets(input.spec.source) },
     };
@@ -104,7 +108,8 @@ export async function guarded(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     ctx.log(`${checkId}: ${message}`);
-    return errorResult(checkId, scenario, started, redactSecrets(message));
+    // One plain line in the report: never Playwright's call log.
+    return errorResult(checkId, scenario, started, redactSecrets(cleanErrorMessage(message)));
   }
 }
 

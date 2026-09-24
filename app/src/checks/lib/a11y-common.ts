@@ -3,6 +3,7 @@
  * focus-visible, error-announcement, credential-fields, bundle-secrets, pii-leak, reflow-320).
  */
 import type { Page } from "playwright";
+import { cleanErrorMessage } from "../../engine/errors.js";
 import { redactSecrets } from "../../engine/redact.js";
 import type {
   Category,
@@ -93,7 +94,8 @@ export async function guarded(
       status: "error",
       findings: [],
       durationMs: Date.now() - startedAt,
-      notes: redactSecrets(error instanceof Error ? error.message : String(error)),
+      // One plain line in the report: never Playwright's call log.
+      notes: redactSecrets(cleanErrorMessage(error instanceof Error ? error.message : String(error))),
     };
   }
 }
@@ -162,4 +164,34 @@ export async function markFocused(page: Page): Promise<string | null> {
 export function clip(text: string, max = 120): string {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+
+/**
+ * Names for the places one grouped finding covers, each listed once: a name shared by two elements gets the
+ * element's selector added ("Remove (#remove-2)"), and a number if that is still not enough.
+ */
+export function uniquePlaces(items: { name: string; selector?: string }[]): string[] {
+  const counts = new Map<string, number>();
+  for (const { name } of items) counts.set(name, (counts.get(name) ?? 0) + 1);
+  const used = new Set<string>();
+  return items.map(({ name, selector }) => {
+    let place = (counts.get(name) ?? 0) > 1 && selector ? `${name} (${selector})` : name;
+    for (let n = 2; used.has(place); n++) place = `${name} (${n})`;
+    used.add(place);
+    return place;
+  });
+}
+
+/** "3 controls" / "1 control". */
+export function plural(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** "a", "a and b", "a, b and c" (quoted with `quote`), cut after `max` items with "and N more". */
+export function listOf(items: string[], max = 6, quote = (s: string) => `"${s}"`): string {
+  const shown = items.slice(0, max).map(quote);
+  const rest = items.length - shown.length;
+  if (rest > 0) return `${shown.join(", ")} and ${rest} more`;
+  if (shown.length <= 1) return shown.join("");
+  return `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}`;
 }

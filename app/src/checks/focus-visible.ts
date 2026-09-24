@@ -6,11 +6,11 @@
 import { PNG } from "pngjs";
 import type { Page } from "playwright";
 import type { Box, Check, CheckContext, DiscoveredForm, Evidence, Fact, Scenario } from "../core/types.js";
-import { checkResult, clip, evalIn, fieldName, FindingList, guarded, playwrightSpec, scenarioFor } from "./lib/a11y-common.js";
+import { checkResult, clip, evalIn, fieldName, FindingList, guarded, listOf, playwrightSpec, plural, scenarioFor, uniquePlaces } from "./lib/a11y-common.js";
 
 const MAX_TABS = 300;
-/** At most this many failing controls get their own frame. */
-const MAX_FRAMES = 10;
+/** At most this many failing controls get their own frame (the finding still lists every one). */
+const MAX_FRAMES = 6;
 /** Evidence is recorded at this size: the desktop layout, with the facts panel still readable once a GIF is scaled. */
 const RECORD_VIEWPORT = { width: 1024, height: 720 };
 /**
@@ -49,6 +49,8 @@ interface FocusStep {
   unfocused: FocusStyle | null;
   /** 1-based position in the Tab order (set by tabThrough). */
   n: number;
+  /** True for a dev-server overlay or toolbar (not part of the app; never reported). */
+  devTool?: boolean;
 }
 
 type Known = { selector: string; name: string }[];
@@ -206,11 +208,26 @@ const SNAPSHOT = `() => {
   return map.size;
 }`;
 
+/**
+ * Hosts of dev-server overlays and toolbars (Next.js, Vite, Astro, Nuxt, webpack) that a dev build injects into the
+ * page. They are not part of the app, so their focus styles are never reported.
+ */
+export const DEV_TOOL_HOSTS = ["nextjs-portal", "vite-error-overlay", "astro-dev-toolbar", "astro-dev-overlay", "nuxt-devtools-frame", "#__nuxt_devtools__", "#webpack-dev-server-client-overlay", "#__next-build-watcher", "[data-nextjs-toast]", "[data-nextjs-dev-tools-button]"];
+
 /** Describes the focused element and whether its focus indicator is visible. */
 const STEP = `(known) => {
-  const el = document.activeElement;
   const empty = { outline: "", boxShadow: "", border: "", background: "", textDecoration: "" };
+  const devHosts = ${JSON.stringify(DEV_TOOL_HOSTS.join(","))};
+  let el = document.activeElement;
   if (!el || el === document.body || el === document.documentElement) return { index: -1, selector: "", name: "", visible: true, focused: empty, unfocused: null };
+  // Dev-server overlays live in their own element (often with a shadow root): not the app, never reported.
+  if (el.closest(devHosts)) {
+    const state = window.__rhFocus;
+    if (!state.ids.has(el)) state.ids.set(el, state.ids.size);
+    return { index: state.ids.get(el), selector: el.tagName.toLowerCase(), name: el.tagName.toLowerCase() + " (dev tools)", visible: true, devTool: true, focused: empty, unfocused: null };
+  }
+  // Focus inside a component's shadow root: judge the element that really has focus.
+  while (el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
   const state = window.__rhFocus;
   if (!state.ids.has(el)) state.ids.set(el, state.ids.size);
   const s = getComputedStyle(el);
@@ -289,46 +306,57 @@ export const check: Check = {
       const failing = stops.filter((s) => !s.visible);
       const { frames, gif } = failing.length > 0 ? await recordEvidence(ctx, known, stops) : { frames: new Map<number, Evidence>(), gif: null };
 
-      for (const step of failing) {
+      if (failing.length > 0) {
+        // One problem, however many controls it affects: one finding listing every control in Tab order.
+        const places = uniquePlaces(failing.map((step) => ({ name: step.name, selector: step.selector })));
+        const many = failing.length > 1;
         const evidence: Evidence[] = [
           {
             kind: "dom",
-            label: `Computed focus styles of ${step.selector}`,
-            data: { selector: step.selector, focused: step.focused, unfocused: step.unfocused },
+            label: many ? `Computed focus styles of the ${failing.length} controls` : `Computed focus styles of ${failing[0]!.selector}`,
+            data: failing.map((step) => ({ tabStop: step.n, name: step.name, selector: step.selector, focused: step.focused, unfocused: step.unfocused })),
           },
         ];
-        const frame = frames.get(step.n);
-        if (frame) evidence.push(frame);
+        for (const step of failing) {
+          const frame = frames.get(step.n);
+          if (frame) evidence.push(frame);
+        }
         if (gif) evidence.push(gif);
+        const names = listOf(failing.map((step) => step.name));
+        const selectors = failing.map((step) => step.selector);
         findings.add({
-          title: `No visible focus indicator on "${step.name}"`,
+          title: many ? `No visible focus indicator on ${failing.length} controls` : `No visible focus indicator on "${failing[0]!.name}"`,
           severity: "high",
-          meaning: `When someone moves to "${step.name}" with the Tab key, nothing on screen shows that it is focused, so keyboard users can't tell where they are.`,
+          meaning: `When someone moves to ${names} with the Tab key, nothing on screen shows that ${many ? "the control" : "it"} is focused, so keyboard users can't tell where they are.${many ? ` ${plural(failing.length, "control")} in total, in Tab order.` : ""}`,
           impact: "People who use a keyboard instead of a mouse (including many people with motor or vision impairments) get lost in the form and may type into the wrong field.",
-          fix: `Don't remove the focus outline on "${step.name}" (${step.selector}) without a replacement. Add a clear :focus-visible style, for example outline: 3px solid <brand colour>; outline-offset: 2px (a visible border, background or ring change works too).`,
-          location: step.name,
+          fix: `Don't remove the focus outline without a replacement on ${many ? "these controls" : `"${failing[0]!.name}"`} (${clip(selectors.join(", "), 200)}). Add a clear :focus-visible style, for example outline: 3px solid <brand colour>; outline-offset: 2px (a visible border, background or ring change works too).`,
+          location: places[0]!,
+          ...(many ? { locations: places } : {}),
           evidence,
           spec: playwrightSpec(
             "focus-visible",
             findings.items.length + 1,
-            `${step.name} shows a visible focus indicator`,
+            many ? `every control shows a visible focus indicator` : `${failing[0]!.name} shows a visible focus indicator`,
             ctx.targetUrl,
-            `const el = page.locator(${JSON.stringify(step.selector)}).first();
-const indicator = (e: Element) => {
+            `const indicator = (e: Element) => {
   const s = getComputedStyle(e);
   return {
     outlineShown: s.outlineStyle !== "none" && parseFloat(s.outlineWidth) > 0,
     style: [s.outlineStyle, s.outlineWidth, s.outlineColor, s.boxShadow, s.borderStyle, s.borderWidth, s.borderColor, s.backgroundColor, s.textDecorationLine].join(" | "),
   };
 };
-const resting = await el.evaluate(indicator);
-for (let i = 0; i < ${MAX_TABS}; i++) {
-  await page.keyboard.press("Tab");
-  if (await el.evaluate((e) => e === document.activeElement)) break;
-}
-const focused = await el.evaluate(indicator);
-// Focus must either draw an outline or change something visible about the control.
-expect(focused.outlineShown || focused.style !== resting.style).toBe(true);`,
+for (const selector of ${JSON.stringify(selectors)}) {
+  await page.goto(TARGET, { waitUntil: "networkidle" });
+  const el = page.locator(selector).first();
+  const resting = await el.evaluate(indicator);
+  for (let i = 0; i < ${MAX_TABS}; i++) {
+    await page.keyboard.press("Tab");
+    if (await el.evaluate((e) => e === document.activeElement)) break;
+  }
+  const focused = await el.evaluate(indicator);
+  // Focus must either draw an outline or change something visible about the control.
+  expect(focused.outlineShown || focused.style !== resting.style, selector).toBe(true);
+}`,
           ),
         });
       }

@@ -4,7 +4,8 @@
  */
 import type { Page } from "playwright";
 import type { Check, CheckContext, Evidence, FormControl, Scenario } from "../core/types.js";
-import { controlLocator, evidence, fillLines, findingFactory, guarded, recordFlow, result, specSource } from "./lib/functional-finding.js";
+import { clip, controlLocator, evidence, fillLines, findingFactory, guarded, recordFlow, result, specSource } from "./lib/functional-finding.js";
+import { listOf } from "./lib/a11y-common.js";
 import { canaryValues, controlName, fillForm, settle, sleep, waitFor, type FieldValue } from "./lib/functional-form.js";
 
 const ID = "dead-control" as const;
@@ -182,10 +183,11 @@ export const check: Check = {
         checkId: ID,
         title: "Click every button except the submit button",
         description:
-          `Click each of ${safe.map((c) => `"${controlName(c)}"`).join(", ")} and check that it causes a request, a page change, navigation, a storage change or a focus change. The submit button is never clicked.` +
-          (risky.length > 0
-            ? ` Left out unless you allow destructive scenarios: ${risky.map((c) => `"${controlName(c)}"`).join(", ")}.`
-            : ""),
+          (safe.length === 1
+            ? `Click ${listOf(safe.map(controlName))} and check that it causes`
+            : `Click ${listOf(safe.map(controlName), Infinity)} one at a time and check that each causes`) +
+          " a request, a page change, navigation, a storage change or a focus change. The submit button is never clicked; a button that saves something (a draft, for example) may create test records." +
+          (risky.length > 0 ? ` Left out unless you allow destructive scenarios: ${listOf(risky.map(controlName), Infinity)}.` : ""),
         kind: "golden",
         priority: "high",
         destructive: false,
@@ -202,6 +204,7 @@ export const check: Check = {
       const make = findingFactory(ID, "broken-feature", scenario);
       const findings = [];
       const notes: string[] = [];
+      const dead: { control: FormControl; name: string; shots: Evidence[] }[] = [];
 
       for (const control of controls) {
         const name = controlName(control);
@@ -222,25 +225,58 @@ export const check: Check = {
         notes.push(`"${name}": no reaction`);
         ctx.step(`"${name}" did nothing; recording the click as evidence`, page);
         const shots = await recordDeadClick(ctx, page, capture, control, values).catch(() => []);
-        const locator = controlLocator(control);
+        dead.push({ control, name, shots });
+      }
+
+      if (dead.length > 0) {
+        // One problem, however many buttons it affects: one finding naming every dead control.
+        const many = dead.length > 1;
+        const first = dead[0]!;
+        const quoted = dead.map((d) => `"${d.name}"`).join(", ");
+        /** Spec lines that click one control and expect some reaction. */
+        const probeLines = (control: FormControl, name: string) => [
+          `{`,
+          `  const control = ${controlLocator(control)};`,
+          `  const requests: string[] = [];`,
+          `  page.on("request", (r) => requests.push(r.url()));`,
+          `  const before = await snapshot();`,
+          `  await page.evaluate(() => { (window as unknown as { focusBefore: Element | null }).focusBefore = document.activeElement; });`,
+          `  await control.click();`,
+          `  await page.waitForTimeout(${REACTION_MS});`,
+          `  const after = await snapshot();`,
+          `  const focusMoved = await control.evaluate((c) => { const a = document.activeElement; return !!a && a !== c && a !== document.body && a !== (window as unknown as { focusBefore: Element | null }).focusBefore; });`,
+          `  expect(after !== before || requests.length > 0 || focusMoved, ${JSON.stringify(`"${name}" should change something`)}).toBe(true);`,
+          `}`,
+        ];
         findings.push(
           make({
-            title: `"${name}" button does nothing`,
+            title: many ? `${dead.length} buttons do nothing (${clip(dead.map((d) => d.name).join(", "), 80)})` : `"${first.name}" button does nothing`,
             severity: "high",
-            location: `"${name}" button`,
-            meaning: `Clicking "${name}" has no visible or hidden effect: nothing is saved, nothing changes on the page, no request is sent and focus does not move. The button looks like it works but is not connected to anything.`,
-            impact: `People who click "${name}" think it worked (or keep clicking) and lose whatever they expected it to do for them.`,
-            fix: `Ask your AI or developer: "The ${name} button (${control.selector}) has no working click handler. Connect it to the intended action and show a confirmation when it succeeds."`,
+            location: `"${first.name}" button`,
+            locations: dead.map((d) => `"${d.name}" button`),
+            meaning: many
+              ? `Clicking ${quoted} has no visible or hidden effect: nothing is saved, nothing changes on the page, no request is sent and focus does not move. The buttons look like they work but are not connected to anything.`
+              : `Clicking "${first.name}" has no visible or hidden effect: nothing is saved, nothing changes on the page, no request is sent and focus does not move. The button looks like it works but is not connected to anything.`,
+            impact: many
+              ? `People who click these buttons think it worked (or keep clicking) and lose whatever they expected the buttons to do for them.`
+              : `People who click "${first.name}" think it worked (or keep clicking) and lose whatever they expected it to do for them.`,
+            fix: many
+              ? `Ask your AI or developer: "These buttons have no working click handler: ${dead.map((d) => `${d.name} (${d.control.selector})`).join(", ")}. Connect each to its intended action and show a confirmation when it succeeds."`
+              : `Ask your AI or developer: "The ${first.name} button (${first.control.selector}) has no working click handler. Connect it to the intended action and show a confirmation when it succeeds."`,
             evidence: [
-              ...shots,
-              evidence("dom", `Clicked "${name}" and watched for ${REACTION_MS} ms`, {
-                control: { name, role: control.role, tag: control.tag, selector: control.selector },
-                observed: "no request, navigation, DOM change, storage change, value change or focus change",
-              }),
+              ...dead.slice(0, 6).flatMap((d) => d.shots),
+              evidence(
+                "dom",
+                many ? `Clicked ${dead.length} controls and watched each for ${REACTION_MS} ms` : `Clicked "${first.name}" and watched for ${REACTION_MS} ms`,
+                {
+                  controls: dead.map((d) => ({ name: d.name, role: d.control.role, tag: d.control.tag, selector: d.control.selector })),
+                  observed: "no request, navigation, DOM change, storage change, value change or focus change",
+                },
+              ),
             ],
             spec: {
-              name: `${name}-does-something`,
-              source: specSource(ctx.targetUrl, `clicking "${name}" does something`, [
+              name: many ? "every-button-does-something" : `${first.name}-does-something`,
+              source: specSource(ctx.targetUrl, many ? "every button does something" : `clicking "${first.name}" does something`, [
                 ...fillLines(values),
                 `// The same reactions Run Hound looks for: DOM, storage, URL, field values, a request, or focus moving elsewhere.`,
                 `const snapshot = () =>`,
@@ -253,16 +289,7 @@ export const check: Check = {
                 `      [...document.querySelectorAll("input, select, textarea")].map((e) => { const i = e as HTMLInputElement; return i.type === "checkbox" || i.type === "radio" ? i.checked : i.value; }),`,
                 `    ]),`,
                 `  );`,
-                `const control = ${locator};`,
-                `const requests: string[] = [];`,
-                `page.on("request", (r) => requests.push(r.url()));`,
-                `const before = await snapshot();`,
-                `await page.evaluate(() => { (window as unknown as { focusBefore: Element | null }).focusBefore = document.activeElement; });`,
-                `await control.click();`,
-                `await page.waitForTimeout(${REACTION_MS});`,
-                `const after = await snapshot();`,
-                `const focusMoved = await control.evaluate((c) => { const a = document.activeElement; return !!a && a !== c && a !== document.body && a !== (window as unknown as { focusBefore: Element | null }).focusBefore; });`,
-                `expect(after !== before || requests.length > 0 || focusMoved, ${JSON.stringify(`"${name}" should change something`)}).toBe(true);`,
+                ...dead.flatMap((d) => probeLines(d.control, d.name)),
               ]),
             },
           }),

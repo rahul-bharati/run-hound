@@ -8,6 +8,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "playwright";
 import type { Capture, Check, CheckContext, DiscoveredForm, Evidence, EvidenceCard, Highlight, Scenario } from "../core/types.js";
+import { isLocalOrigin, isWrite } from "../core/saves.js";
 import { redactSecrets } from "../engine/redact.js";
 import { checkResult, clip, FindingList, guarded, playwrightSpec, scenarioFor, submitControl } from "./lib/a11y-common.js";
 import { canaries, fillAndSubmitSpec, fillValid, settle, submitAndWait, type Canaries } from "./lib/a11y-form.js";
@@ -104,6 +105,19 @@ function requestLines(request: Capture["requests"][number], needle: Needle): Evi
 
 const DATA_NAMES: Record<DataKind, string> = { email: "email address", phone: "phone number" };
 
+/**
+ * The form's own save request to an API on another origin (another port of this machine, or a host on the local
+ * network, like the target): a write (POST, PUT, ...) sent by fetch, XHR or a form post, whose body carries at least
+ * two of the values typed into the form. That is the app saving the form, not a third party receiving data. An
+ * analytics call that only carries the email (or sends it in a URL) is still a third party.
+ */
+export function isOwnApiSave(request: { method: string; resourceType: string; url: string; postData: string | null }, targetUrl: string, values: Canaries): boolean {
+  if (!isWrite(request) || !isLocalOrigin(request.url, targetUrl) || !request.postData) return false;
+  const body = `${request.postData}\n${decode(request.postData)}`.toLowerCase();
+  const typed = [values.email, values.phone, values.name, values.text].filter((v) => body.includes(v.toLowerCase()));
+  return typed.length >= 2;
+}
+
 /** The filled form just before submit, with the fields holding the test values and the submit control marked. */
 async function captureAtSubmit(ctx: CheckContext, page: Page, values: Canaries): Promise<Evidence> {
   const email = ctx.form.fields.find((f) => f.type === "email" || /mail/i.test(f.key));
@@ -154,17 +168,21 @@ export const check: Check = {
       await fillValid(page, ctx.form, values);
       const atSubmit = await captureAtSubmit(ctx, page, values);
       ctx.step("Submitting and watching requests to other sites", page);
-      const response = await submitAndWait(page, ctx.form);
+      const response = await submitAndWait(page, ctx.form, { targetUrl: ctx.targetUrl, runToken: ctx.runToken });
       // Trackers often fire after the success response; give them a moment.
       await settle(page, 1_500);
 
-      const thirdParty = capture.requests.filter((r) => {
+      const otherOrigins = capture.requests.filter((r) => {
         try {
           return new URL(r.url).origin !== origin && /^https?:/.test(r.url);
         } catch {
           return false;
         }
       });
+      // The app's own API on another origin receives the form by design; everything else is a third party.
+      const ownApi = otherOrigins.filter((r) => isOwnApiSave(r, ctx.targetUrl, values));
+      const ownApiOrigins = [...new Set(ownApi.map((r) => new URL(r.url).origin))];
+      const thirdParty = otherOrigins.filter((r) => !ownApiOrigins.includes(new URL(r.url).origin));
 
       // One finding per (third-party host, kind of data, hashed or not).
       const groups = new Map<string, { host: string; needle: Needle; hits: Evidence[]; request: Capture["requests"][number]; where: string }>();
@@ -258,12 +276,13 @@ expect(leaks).toEqual([]);`,
       }
 
       const status = response?.status() ?? null;
+      const apiNote = ownApiOrigins.length > 0 ? `; the form saves to its own API at ${ownApiOrigins.map((o) => new URL(o).host).join(", ")}, which is not counted as a third party` : "";
       return checkResult(
         "pii-leak",
         scenario,
         startedAt,
         findings.items,
-        `Submitted canaries (save response ${status ?? "none"}); inspected ${thirdParty.length} third-party request(s)`,
+        `Submitted canaries (save response ${status ?? "none"}); inspected ${thirdParty.length} third-party request(s)${apiNote}`,
       );
     });
   },

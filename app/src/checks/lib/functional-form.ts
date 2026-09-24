@@ -3,7 +3,8 @@
  * and recognising the create request. Everything works from the DiscoveredForm, never from app-specific names.
  */
 import type { Page, Request } from "playwright";
-import type { Capture, DiscoveredForm, FormControl, FormField } from "../../core/types.js";
+import { isSameOrigin as sameOriginCore, isSaveRequest } from "../../core/saves.js";
+import { SIMULATED_RESPONSE_HEADER, type Capture, type DiscoveredForm, type FormControl, type FormField } from "../../core/types.js";
 
 /** What the checks put into one field. Choice fields record the option they picked. */
 export interface FieldValue {
@@ -166,40 +167,84 @@ export async function submitForm(page: Page, form: DiscoveredForm, how: "click" 
   if (first) await page.locator(first.selector).first().press("Enter");
 }
 
-function originOf(url: string): string | null {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return null;
-  }
-}
-
 /** Same origin as the target page. */
 export function isSameOrigin(url: string, pageUrl: string): boolean {
-  const a = originOf(url);
-  return a !== null && a !== "null" && a === originOf(pageUrl);
+  return sameOriginCore(url, pageUrl);
 }
 
 /**
- * A request that sends the form: a non-GET fetch/XHR (or form post) to the target's origin.
- * Third-party calls (analytics) never count.
+ * A request that sends the form (see core/saves.ts): a non-GET fetch/XHR or form post to the target's origin, or
+ * to another origin when its body carries the run's test values (`runToken`), such as an API on another port.
+ * Third-party calls without the test values (analytics) never count.
  */
-export function isCreateRequest(req: { method: string; resourceType: string; url: string }, pageUrl: string): boolean {
-  return (
-    !["GET", "HEAD", "OPTIONS"].includes(req.method.toUpperCase()) &&
-    ["fetch", "xhr", "document"].includes(req.resourceType) &&
-    isSameOrigin(req.url, pageUrl)
-  );
+export function isCreateRequest(req: { method: string; resourceType: string; url: string; postData?: string | null }, pageUrl: string, runToken = ""): boolean {
+  return isSaveRequest(req, pageUrl, runToken);
 }
 
 /** Same as isCreateRequest, for a live Playwright request. */
-export function isCreatePlaywrightRequest(req: Request, pageUrl: string): boolean {
-  return isCreateRequest({ method: req.method(), resourceType: req.resourceType(), url: req.url() }, pageUrl);
+export function isCreatePlaywrightRequest(req: Request, pageUrl: string, runToken = ""): boolean {
+  return isCreateRequest({ method: req.method(), resourceType: req.resourceType(), url: req.url(), postData: req.postData() }, pageUrl, runToken);
 }
 
 /** Create requests recorded in the capture so far. */
-export function createRequests(capture: Capture, pageUrl: string): Capture["requests"] {
-  return capture.requests.filter((r) => isCreateRequest(r, pageUrl));
+export function createRequests(capture: Capture, pageUrl: string, runToken = ""): Capture["requests"] {
+  return capture.requests.filter((r) => isCreateRequest(r, pageUrl, runToken));
+}
+
+/**
+ * A sign-in form: exactly one password field, marked autocomplete="current-password" or, without that hint, a
+ * short form whose name or submit button says "sign in" / "log in". Run Hound's made-up credentials are always
+ * refused there, so a 400/401/403/422 answer is the app working, and nothing is saved.
+ * A sign-up form (a "new-password" field, or password + confirm) is not a sign-in form.
+ */
+export function isSignInForm(form: DiscoveredForm): boolean {
+  const passwords = form.fields.filter((f) => f.type === "password");
+  if (passwords.length !== 1) return false;
+  const hint = passwords[0]!.autocomplete ?? "";
+  if (/new-password/.test(hint)) return false;
+  if (/current-password/.test(hint)) return true;
+  const submit = submitControl(form);
+  const words = `${form.name ?? ""} ${submit?.accessibleName ?? ""} ${submit?.text ?? ""}`;
+  const others = form.fields.filter((f) => !["password", "checkbox", "hidden"].includes(f.type));
+  return others.length <= 2 && /\b(sign|log)[\s-]?in\b|\blogin\b/i.test(words);
+}
+
+/** Statuses a sign-in form answers made-up credentials with. */
+export function isRefusedSignIn(form: DiscoveredForm, status: number | null | undefined): boolean {
+  return isSignInForm(form) && typeof status === "number" && [400, 401, 403, 422].includes(status);
+}
+
+/** Why a check that needs a saved record does not run on a sign-in form (a skipped scenario's note). */
+export const SIGN_IN_NOTE =
+  "Skipped: this is a sign-in form. Run Hound only has made-up credentials, which the app rightly refuses, and signing in saves nothing, so there is no record to check.";
+
+/** Why a check that intercepts a JavaScript save request does not run on a classic form post (a skipped scenario's note). */
+export const PAGE_POST_NOTE =
+  "Skipped: this form is sent as a regular page post (the browser loads the server's answer as a new page), not by JavaScript, so there is no save request for this check to work with.";
+
+/** A small, valid HTML page Run Hound answers a stopped page post with, so nothing reaches the app. */
+export const STOPPED_PAGE_POST_HTML =
+  '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Stopped by Run Hound</title></head><body><main><h1>Stopped by Run Hound</h1><p>Run Hound stopped this form post before it reached the app.</p></main></body></html>';
+
+/**
+ * route.fulfill() options for a response Run Hound makes up (a simulated 500, a captured save answered 201). It is
+ * marked with SIMULATED_RESPONSE_HEADER, and a request to another origin (an API on another port) gets CORS headers
+ * for the page's origin, or the browser would hide the answer from the page and report a network error instead.
+ */
+export function simulatedResponse(
+  request: Request,
+  status: number,
+  body: string,
+  contentType = "application/json",
+): { status: number; contentType: string; headers: Record<string, string>; body: string } {
+  const headers: Record<string, string> = { [SIMULATED_RESPONSE_HEADER]: "1" };
+  const origin = request.headers()["origin"];
+  if (origin && origin !== "null" && !isSameOrigin(request.url(), origin)) {
+    headers["access-control-allow-origin"] = origin;
+    headers["access-control-allow-credentials"] = "true";
+    headers["vary"] = "Origin";
+  }
+  return { status, contentType, headers, body };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -219,9 +264,29 @@ export async function settle(page: Page, timeoutMs = 5000): Promise<void> {
   await page.waitForLoadState("networkidle", { timeout: timeoutMs }).catch(() => undefined);
 }
 
-/** Waits until every create request so far has a response or failed, then for the page to settle. */
-export async function waitForCreates(page: Page, capture: Capture, pageUrl: string, timeoutMs = 10_000): Promise<void> {
-  await waitFor(() => createRequests(capture, pageUrl).every((r) => r.status !== null || r.failure !== null), timeoutMs);
+/**
+ * How long after a submit click a create request may take to show up. The click resolves before the page's
+ * fetch() reaches the capture (the request event arrives asynchronously), and later still on a busy machine.
+ */
+export const CREATE_GRACE_MS = 2_000;
+
+/**
+ * Called right after a submit: waits until the create request has shown up and every create request so far
+ * has a response or failed, then for the page to settle. Returns early when the page navigates (a GET form
+ * or a full-page post) and gives up on seeing a request after CREATE_GRACE_MS (client-side validation
+ * blocked the submit, or the form sends nothing).
+ *
+ * "No create request yet" is not "all create requests finished": the request event can arrive after the
+ * click resolves, and settle() does not wait for it (network idle was already reached when the page loaded).
+ */
+export async function waitForCreates(page: Page, capture: Capture, pageUrl: string, timeoutMs = 10_000, runToken = ""): Promise<void> {
+  const startUrl = page.url();
+  const graceEnd = Date.now() + Math.min(CREATE_GRACE_MS, timeoutMs);
+  await waitFor(() => {
+    const creates = createRequests(capture, pageUrl, runToken);
+    if (creates.length === 0) return page.url() !== startUrl || Date.now() >= graceEnd;
+    return creates.every((r) => r.status !== null || r.failure !== null);
+  }, timeoutMs);
   await settle(page);
 }
 

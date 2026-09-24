@@ -1,0 +1,84 @@
+name: V0 tester feedback
+description: Tell us how Run Hound 0.1.0 did on your app (a wrong finding, a bug it missed, a crash, or something confusing).
+title: "[V0 feedback] "
+labels: ["v0-feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing Run Hound V0. The most useful feedback names the finding (or the bug it missed) and attaches the report.
+        **Before attaching anything, look through it:** screenshots show whatever your page showed, and Run Hound can only redact text, not pixels.
+        See [TESTING.md](https://github.com/rahul-bharati/run-hound/blob/main/TESTING.md#sending-feedback) for what to include.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of feedback is this?
+      options:
+        - "False positive: a finding that is wrong"
+        - "Missed bug: a real problem Run Hound didn't report"
+        - "Crash or error: the run stopped, errored or never finished"
+        - "Confusing: a message, report or step I didn't understand"
+        - "It worked: a clean or useful run (tell us about it!)"
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Run Hound version
+      description: The output of `run-hound --version` (`pnpm exec tsx src/cli.ts --version` in `app/`), or `runHoundVersion` in report.json.
+      placeholder: run-hound 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and Node version
+      placeholder: "macOS 16.1, Node 24.21 / Ubuntu 24.04, Docker 29 / Windows 11 + WSL2"
+    validations:
+      required: true
+  - type: dropdown
+    id: how
+    attributes:
+      label: How did you run it?
+      options:
+        - Web UI, local install (pnpm serve)
+        - Command line, local install (run-hound run)
+        - Docker or Podman, web UI (docker compose up)
+        - Docker or Podman, command line (docker run / docker compose run)
+    validations:
+      required: true
+  - type: input
+    id: target
+    attributes:
+      label: What did you test?
+      description: The kind of app and form, the framework and the dev server. Not the URL if it's private.
+      placeholder: "Next.js 16 dev server, sign-up form that posts to a server action"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: For a wrong finding, quote its title and say why it's wrong. For a missed bug, describe the bug and how you'd reproduce it by hand.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+  - type: textarea
+    id: report
+    attributes:
+      label: Report
+      description: |
+        Drag in `report.md` from the run folder (runs/<runId>/), or a zip of the whole run folder. Paste the exit code and any error text from the terminal too.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before sending
+      options:
+        - label: I checked the attachments contain nothing I don't want to share (screenshots are not redacted).
+          required: true

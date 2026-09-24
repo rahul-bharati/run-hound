@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve, sep } from "node:path";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { closeBrowser, getBrowser } from "../../test-support/harness.js";
 import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
 import type { DiscoveredForm } from "../core/types.js";
@@ -146,6 +146,37 @@ describe("createCheckContext", () => {
 
       const second = await ctx.screenshot(page, "Initial state");
       expect(second.path).not.toBe(evidence.path);
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  it("retries a screenshot Chromium could not capture (a transient error on a busy machine)", async () => {
+    const ctx = await makeContext();
+    try {
+      const { page } = await ctx.openPage();
+      const real = page.screenshot.bind(page);
+      const spy = vi.spyOn(page, "screenshot");
+      spy.mockRejectedValueOnce(new Error("page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot"));
+      spy.mockRejectedValueOnce(new Error("page.screenshot: Protocol error (Page.captureScreenshot): Unable to capture screenshot"));
+      spy.mockImplementation(real);
+      const shot = await ctx.screenshot(page, "Busy machine");
+      expect((await stat(resolve(artifactsDir, shot.path!))).size).toBeGreaterThan(0);
+      const frame = await ctx.capture(page, "Busy machine frame");
+      expect((await stat(resolve(artifactsDir, frame.path!))).size).toBeGreaterThan(0);
+      expect(spy.mock.calls.length).toBeGreaterThanOrEqual(4);
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  it("does not retry other screenshot errors", async () => {
+    const ctx = await makeContext();
+    try {
+      const { page } = await ctx.openPage();
+      const spy = vi.spyOn(page, "screenshot").mockRejectedValue(new Error("page.screenshot: Target page, context or browser has been closed"));
+      await expect(ctx.screenshot(page, "Closed")).rejects.toThrow(/has been closed/);
+      expect(spy).toHaveBeenCalledTimes(1);
     } finally {
       await ctx.dispose();
     }

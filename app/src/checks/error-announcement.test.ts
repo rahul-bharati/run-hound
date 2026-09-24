@@ -83,3 +83,51 @@ describe("error-announcement check", () => {
     for (const field of requiredFields) expect(text).toMatch(field);
   });
 });
+
+/** Two required fields with no wrapper of their own; only the first gets a (visual-only) error message. */
+const SHARED_CONTAINER = `<!doctype html><html lang="en"><head><title>Join</title></head><body><main>
+<form id="join" novalidate><h1>Join the list</h1>
+<label for="name">Name</label><input id="name" name="name" required>
+<label for="email">Email</label><input id="email" name="email" type="email" required>
+<p id="name-msg"></p>
+<button type="submit">Join</button>
+</form>
+<script>document.getElementById("join").addEventListener("submit", (e) => { e.preventDefault(); document.getElementById("name-msg").textContent = "Enter your name"; });</script>
+</main></body></html>`;
+
+/** A required field with a valid default ("1"), next to an empty one. */
+const PREFILLED = `<!doctype html><html lang="en"><head><title>RSVP</title></head><body><main>
+<form id="rsvp" novalidate><h1>RSVP</h1>
+<div><label for="name">Name</label><input id="name" name="name" required aria-describedby="name-error"><p id="name-error"></p></div>
+<div><label for="guests">Guests</label><input id="guests" name="guests" type="number" value="1" required></div>
+<button type="submit">Send</button>
+</form>
+<script>document.getElementById("rsvp").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const name = document.getElementById("name");
+  if (!name.value) { name.setAttribute("aria-invalid", "true"); document.getElementById("name-error").textContent = "Enter your name"; }
+});</script>
+</main></body></html>`;
+
+describe("error-announcement on forms it was not built for", () => {
+  it("never shows another field's message as a field's visible error (a container holding other fields is not its wrapper)", async () => {
+    const server = await startFixtureServer({ pages: { "/join": SHARED_CONTAINER } });
+    servers.push(server);
+    const { results } = await runCheck(check, `${server.url}/join`);
+    const findings = allFindings(results);
+    expect(findings).toHaveLength(1);
+    const wiring = findings[0]!.evidence.find((e) => e.kind === "dom")!.data as { field: string; visibleError: string | null }[];
+    const email = wiring.find((w) => /email/i.test(w.field));
+    expect(email, JSON.stringify(wiring)).toBeDefined();
+    expect(email!.visibleError).not.toBe("Enter your name");
+  });
+
+  it("leaves out a required field that already holds a value, and says so", async () => {
+    const server = await startFixtureServer({ pages: { "/rsvp": PREFILLED } });
+    servers.push(server);
+    const { results } = await runCheck(check, `${server.url}/rsvp`);
+    expect(allFindings(results)).toEqual([]);
+    expect(overallStatus(results)).toBe("pass");
+    expect(results[0]!.notes).toMatch(/Checked 1 required field.*left out "Guests", which already had a value/);
+  });
+});

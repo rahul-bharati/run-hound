@@ -11,7 +11,8 @@ import {
   findingText,
 } from "../../test/fixtures/checks/assert-finding.js";
 import * as fixtures from "../../test/fixtures/checks/pii-leak/variants.js";
-import { check } from "./pii-leak.js";
+import { canaries } from "./lib/a11y-form.js";
+import { check, isOwnApiSave } from "./pii-leak.js";
 
 const servers: FixtureServer[] = [];
 let analytics: FixtureServer;
@@ -104,5 +105,29 @@ describe("pii-leak check", () => {
     expect(booking?.phone, "the check filled the phone field with a canary").toEqual(expect.any(String));
     expect(analytics.requests.some((r) => r.method === "POST" && r.body.includes(booking!.phone!))).toBe(true);
     expect(`${f.title} ${f.meaning}`).toMatch(/phone/i);
+  });
+});
+
+describe("isOwnApiSave: the form's own API on another origin is not a third party", () => {
+  const values = canaries("t3st");
+  const TARGET = "http://localhost:5173/rsvp";
+  const post = (over: Partial<Parameters<typeof isOwnApiSave>[0]> = {}) => ({
+    method: "POST",
+    resourceType: "fetch",
+    url: "http://localhost:5174/api/rsvps",
+    postData: JSON.stringify({ name: values.name, email: values.email }),
+    ...over,
+  });
+
+  it("is the form's save when a write to a local origin carries two or more of the typed values", () => {
+    expect(isOwnApiSave(post(), TARGET, values)).toBe(true);
+    expect(isOwnApiSave(post({ url: "http://127.0.0.1:9000/save", postData: `email=${encodeURIComponent(values.email)}&phone=${values.phone}` }), TARGET, values)).toBe(true);
+  });
+
+  it("is a third party: only the email, a read, a URL-only leak, or a host on the internet", () => {
+    expect(isOwnApiSave(post({ postData: JSON.stringify({ email: values.email, event: "signup" }) }), TARGET, values)).toBe(false);
+    expect(isOwnApiSave(post({ method: "GET", postData: null, url: `http://localhost:5174/collect?email=${values.email}&name=${values.name}` }), TARGET, values)).toBe(false);
+    expect(isOwnApiSave(post({ url: "https://crm.example.com/api/leads" }), TARGET, values)).toBe(false);
+    expect(isOwnApiSave(post({ resourceType: "image" }), TARGET, values)).toBe(false);
   });
 });

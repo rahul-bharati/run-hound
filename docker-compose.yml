@@ -1,8 +1,17 @@
-# Run Hound + Kennel (the deliberately broken demo target), local only.
-#   docker compose up --build          (or: podman-compose up --build)
-#   KENNEL_BUGS=none docker compose up (clean Kennel; default is every V0 bug on)
-#   KENNEL_HOST_PORT / KENNEL_ANALYTICS_HOST_PORT change the host-side ports if 3000/3001 are taken.
-# Then open http://localhost:4000 and test http://kennel:3000/book.
+# Run Hound + Kennel (the deliberately broken demo target), local only. See TESTING.md.
+#   mkdir -p runs && docker compose up --build     (or: podman-compose up --build)
+#   Open http://localhost:4000 and test http://kennel:3000/book.
+#
+# Environment (all optional):
+#   KENNEL_BUGS=none            clean Kennel (default: every V0 bug on)
+#   RUNHOUND_HOST_PORT=4400     host port for the Run Hound UI (default 4000)
+#   KENNEL_HOST_PORT / KENNEL_ANALYTICS_HOST_PORT   host ports for Kennel and its analytics (default 3000 / 3001)
+#
+# Reports are written to ./runs on your machine (one folder per run).
+#
+# Testing an app running on your machine: enter http://host.docker.internal:<port>/<page> in the UI. Your dev server
+# must listen on all interfaces and accept that host name (TESTING.md has the settings for Vite and Next.js).
+# On Linux, `docker run --network host` (TESTING.md) is simpler: it tests http://localhost:<port> directly.
 services:
   kennel:
     build:
@@ -22,8 +31,16 @@ services:
     image: localhost/run-hound:dev
     init: true
     environment:
-      RUNHOUND_ALLOWED_HOSTS: kennel
+      # Named hosts the safety gate accepts besides localhost and private addresses: the Kennel service and the
+      # names Docker and Podman give your machine. Nothing public is added.
+      RUNHOUND_ALLOWED_HOSTS: kennel,host.docker.internal,host.containers.internal
+      RUNHOUND_PUBLIC_URL: http://localhost:${RUNHOUND_HOST_PORT:-4000}
+    extra_hosts:
+      # Docker Desktop defines host.docker.internal itself; this adds it on Linux Docker and Podman too.
+      - "host.docker.internal:host-gateway"
     ports:
-      - "127.0.0.1:4000:4000"
+      - "127.0.0.1:${RUNHOUND_HOST_PORT:-4000}:4000"
+    volumes:
+      - ./runs:/repo/app/runs
     depends_on:
       - kennel

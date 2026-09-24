@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium, type LaunchOptions } from "playwright";
+import { chromium, type LaunchOptions, type Page } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
 import type { Check, CheckContext, CheckId, CheckResult, Plan, Report, Scenario } from "../core/types.js";
@@ -33,12 +33,30 @@ const pass = (checkId: CheckId, s: Scenario): CheckResult => ({ checkId, scenari
 
 let site: FixtureServer;
 let runsDir: string;
+/** Progress events of the current run when it is live, else null. */
+let liveEvents: ProgressEvent[] | null = null;
+
+/**
+ * Stays on `page` for 400 ms and, in a live run, until a frame of this page has reached the live view.
+ * Frames arrive asynchronously (first paint, JPEG encoding, CDP), and on a busy machine the first frame of a
+ * fresh page takes longer than any fixed pause: waiting for it keeps the frame test about behaviour, not timing.
+ */
+async function linger(page: Page, scenarioId: string) {
+  await page.waitForTimeout(400);
+  const events = liveEvents;
+  if (!events) return;
+  const url = page.url();
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline && !events.some((e) => e.type === "frame" && e.scenarioId === scenarioId && e.url === url)) {
+    await page.waitForTimeout(50);
+  }
+}
 
 /**
  * Two fake checks:
  *  - dead-control "dc:walk": steps without a page, opens /book, steps on it, navigates to /thanks, steps again.
  *  - silent-failure "sf:second": opens /book and steps once.
- * Each lingers briefly on a repainting page so the screencast (when live) has time to deliver frames.
+ * Each lingers on a repainting page (see linger()) so the screencast (when live) has time to deliver frames.
  */
 function liveChecks(): Check[] {
   return [
@@ -51,10 +69,10 @@ function liveChecks(): Check[] {
         ctx.step("Preparing test data");
         const { page } = await ctx.openPage();
         ctx.step("Clicking Book", page);
-        await page.waitForTimeout(400);
+        await linger(page, s.id);
         await page.goto(`${site.url}/thanks`, { waitUntil: "load" });
         ctx.step("Reading the thanks page", page);
-        await page.waitForTimeout(400);
+        await linger(page, s.id);
         return pass("dead-control", s);
       },
     },
@@ -66,7 +84,7 @@ function liveChecks(): Check[] {
       async run(ctx, s) {
         const { page } = await ctx.openPage();
         ctx.step("Looking at the form again", page);
-        await page.waitForTimeout(400);
+        await linger(page, s.id);
         return pass("silent-failure", s);
       },
     },
@@ -112,14 +130,19 @@ afterEach(async () => {
 
 async function run(extra: { live?: boolean; headed?: boolean } = {}): Promise<{ report: Report; dir: string; events: ProgressEvent[] }> {
   const events: ProgressEvent[] = [];
-  const { report, dir } = await runPlan(plan, {
-    checks,
-    runsDir,
-    approved: ["dc:walk", "sf:second"],
-    onProgress: (e) => events.push(e),
-    ...extra,
-  });
-  return { report, dir, events };
+  liveEvents = extra.live ? events : null;
+  try {
+    const { report, dir } = await runPlan(plan, {
+      checks,
+      runsDir,
+      approved: ["dc:walk", "sf:second"],
+      onProgress: (e) => events.push(e),
+      ...extra,
+    });
+    return { report, dir, events };
+  } finally {
+    liveEvents = null;
+  }
 }
 
 describe("runPlan live progress", () => {
@@ -211,6 +234,8 @@ describe("runPlan live progress", () => {
     }
     expect(frames.some((f) => f.scenarioId === "dc:walk")).toBe(true);
     expect(frames.some((f) => f.url === bookUrl() || f.url === thanksUrl())).toBe(true);
+    // The empty tab shown before the first page load is never streamed.
+    expect(frames.map((f) => f.url)).not.toContain("about:blank");
   });
 });
 

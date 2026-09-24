@@ -53,6 +53,15 @@ beforeAll(async () => {
         #spinner { width: 200px; height: 200px; margin: 100px; animation: spin 0.5s linear infinite; }
       </style></head><body><form id="f"><input id="name"><button id="book">Book</button></form><div id="spinner"></div></body></html>`,
     },
+    routes: {
+      // The /anim page, answered after 1 s: the tab shows about:blank meanwhile, with the screencast running.
+      "GET /slow-anim": async (_req, res) => {
+        await new Promise((r) => setTimeout(r, 1000));
+        const page = await fetch(`${server.url}/anim`).then((r) => r.text());
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(page);
+      },
+    },
   });
   form.url = `${server.url}/form`;
 });
@@ -345,6 +354,19 @@ describe("live view hooks", () => {
       expect(frames.length).toBeLessThanOrEqual(countAtDispose + 1);
     } finally {
       if (!disposed) await ctx.dispose();
+    }
+  });
+
+  it("onFrame never streams the empty about:blank tab shown before the page under test loads", async () => {
+    const frames: { jpeg: Buffer; url: string; at: string }[] = [];
+    const target = `${server.url}/slow-anim`;
+    const ctx = await makeContext({ targetUrl: target, onFrame: (f) => frames.push(f) });
+    try {
+      await ctx.openPage();
+      await waitFor(() => frames.length >= 3);
+      expect(frames.map((f) => f.url).filter((u) => u !== target)).toEqual([]);
+    } finally {
+      await ctx.dispose();
     }
   });
 });

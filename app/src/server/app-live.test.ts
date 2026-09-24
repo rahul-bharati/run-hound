@@ -59,7 +59,8 @@ let uiBrowser: Browser | undefined;
 beforeAll(async () => {
   site = await startFixtureServer({ pages: { "/book": FORM_PAGE } });
   runsDir = await mkdtemp(join(tmpdir(), "rh-server-live-"));
-  app = createApp({ checks: fakeChecks, runsDir });
+  // headed runs are launched headless by the spies below, so they work on a machine without a display too.
+  app = createApp({ checks: fakeChecks, runsDir, canShowBrowser: true });
 });
 
 afterAll(async () => {
@@ -365,7 +366,17 @@ describe("UI report evidence", () => {
       const figure = page.locator("#report .evidence figure").first();
       await figure.waitFor();
       const img = figure.locator("img");
-      await expect.poll(() => img.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0)).toBe(true);
+      // Wait for the image's own load/error event: it comes through the proxy route above, which can take
+      // well over expect.poll's 1 s default on a busy machine.
+      const loaded = await img.evaluate(
+        (i: HTMLImageElement) =>
+          new Promise<boolean>((resolve) => {
+            if (i.complete) return resolve(i.naturalWidth > 0);
+            i.addEventListener("load", () => resolve(i.naturalWidth > 0), { once: true });
+            i.addEventListener("error", () => resolve(false), { once: true });
+          }),
+      );
+      expect(loaded, "the evidence image loads").toBe(true);
       expect(await img.getAttribute("alt")).toMatch(/Pet name after reload/);
       expect(await figure.locator("a").getAttribute("href")).toMatch(new RegExp(`/api/runs/${runId}/artifacts/\\d{3}-pet-name-after-reload\\.png$`));
       const caption = (await figure.locator("figcaption").textContent()) ?? "";

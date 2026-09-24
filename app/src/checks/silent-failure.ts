@@ -4,9 +4,23 @@
  * alert role, or focus moves to it) and the inputs keep their values.
  */
 import type { Page } from "playwright";
+import { isPagePost } from "../core/saves.js";
 import type { Check, Fact, Highlight, Scenario } from "../core/types.js";
 import { controlLocator, endpointOf, fieldLocator, evidence, fillLines, findingFactory, guarded, markText, recordFlow, result, specSource } from "./lib/functional-finding.js";
-import { canaryValues, fieldName, fillForm, isCreatePlaywrightRequest, sleep, submitControl, submitForm, waitFor, type FieldValue } from "./lib/functional-form.js";
+import {
+  canaryValues,
+  fieldName,
+  fillForm,
+  isCreatePlaywrightRequest,
+  PAGE_POST_NOTE,
+  simulatedResponse,
+  sleep,
+  STOPPED_PAGE_POST_HTML,
+  submitControl,
+  submitForm,
+  waitFor,
+  type FieldValue,
+} from "./lib/functional-form.js";
 
 const ID = "silent-failure" as const;
 const BUDGET_MS = 5000;
@@ -83,7 +97,7 @@ export const check: Check = {
         id: "server-error-500",
         checkId: ID,
         title: "Submit while the server answers with an error",
-        description: `Fill ${form.name ?? "the form"} with valid data and submit it, answering the submit request with a simulated 500 error (the request never reaches your server). A visible, announced error must appear within 5 seconds and the typed values must stay.`,
+        description: `Fill ${form.name ?? "the form"} with valid data and submit it, answering the submit request with a simulated 500 error (the request never reaches your server, so no test records are created). A visible, announced error must appear within 5 seconds and the typed values must stay.`,
         kind: "danger",
         priority: "high",
         destructive: false,
@@ -97,10 +111,17 @@ export const check: Check = {
       const { page } = await ctx.openPage();
       const values = canaryValues(ctx.form, ctx.runToken, "silent");
       let intercepted: { method: string; url: string } | null = null;
+      let pagePost = false;
       await page.route("**/*", async (route, request) => {
-        if (!isCreatePlaywrightRequest(request, ctx.targetUrl) || request.resourceType() === "document") return route.fallback();
+        if (!isCreatePlaywrightRequest(request, ctx.targetUrl, ctx.runToken)) return route.fallback();
+        if (isPagePost({ resourceType: request.resourceType() })) {
+          // A classic form post: after a server error the browser shows whatever page the server sends, which Run
+          // Hound can't judge. Stopped here (nothing is saved) and the scenario is skipped.
+          pagePost = true;
+          return route.fulfill(simulatedResponse(request, 200, STOPPED_PAGE_POST_HTML, "text/html; charset=utf-8"));
+        }
         intercepted ??= { method: request.method(), url: request.url() };
-        await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Something went wrong" }) });
+        await route.fulfill(simulatedResponse(request, 500, JSON.stringify({ error: "Something went wrong" })));
       });
 
       ctx.step("Filling the form with valid test values", page);
@@ -117,7 +138,8 @@ export const check: Check = {
       await page.evaluate(ARM_SCRIPT);
       await submitForm(page, ctx.form);
       const submittedAt = Date.now();
-      await waitFor(() => (intercepted as unknown) !== null, 1000);
+      await waitFor(() => (intercepted as unknown) !== null || pagePost, 2000);
+      if (pagePost && !intercepted) return { ...result(ID, scenario, started, []), status: "skipped", notes: PAGE_POST_NOTE };
       const firstHit = intercepted as { method: string; url: string } | null;
       await flow.step("Submitted; the save request was answered with 500", {
         facts: [
@@ -138,7 +160,11 @@ export const check: Check = {
       // Assigned inside the route handler, which TypeScript's narrowing can't see.
       const hit = intercepted as { method: string; url: string } | null;
       if (!hit) {
-        return result(ID, scenario, started, [], "Submitting sent no request to the server (nothing to fail); nothing to check.");
+        return {
+          ...result(ID, scenario, started, []),
+          status: "skipped",
+          notes: "Skipped: submitting the form sent no save request (the page may have refused Run Hound's test values), so there was no server answer to turn into an error.",
+        };
       }
       const seenAfterMs = Date.now() - submittedAt;
       // Give a form reset that runs with the message a moment to land.
@@ -226,9 +252,13 @@ export const check: Check = {
       if (lost.length > 0) {
         findings.push(
           make({
-            title: `A save error wipes what the user typed (${lost.slice(0, 3).join(", ")}${lost.length > 3 ? ", …" : ""})`,
+            title:
+              lost.length > 1
+                ? `A save error wipes what the user typed in ${lost.length} fields (${lost.slice(0, 3).join(", ")}${lost.length > 3 ? ", …" : ""})`
+                : `A save error wipes what the user typed (${lost[0]})`,
             severity: "high",
-            location: lost.map((l) => `"${l}" field`).join(", "),
+            location: `"${lost[0]}" field`,
+            locations: lost.map((l) => `"${l}" field`),
             meaning: "When saving fails, the form clears the user's answers instead of keeping them for another try.",
             impact: "People have to type everything again after an error, and many give up instead.",
             fix: `Ask your AI or developer: "When the submit request fails, keep every field's value (${lost.join(", ")}) so the user can simply try again. Only reset the form after a successful save."`,

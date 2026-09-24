@@ -109,6 +109,10 @@ export async function checkTarget(url: string, options: SafetyOptions = {}): Pro
   if (allowed.includes(host)) return { host, addresses: [], resolved: false };
 
   if (isIP(host)) {
+    if (host === "0.0.0.0" || host === "::") {
+      const port = parsed.port ? `:${parsed.port}` : "";
+      throw refuse(`${host} means "every address of this machine" and is not an address to test; use http://localhost${port} instead`);
+    }
     if (!isPrivateAddress(host)) {
       throw refuse(
         `${host} is not a private address; Run Hound only tests localhost, private addresses or hosts listed in RUNHOUND_ALLOWED_HOSTS`,

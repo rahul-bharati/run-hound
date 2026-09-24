@@ -9,9 +9,22 @@
  * browser and navigation guard as everything else, never through a separate HTTP client with its own DNS lookup.
  */
 import type { Request } from "playwright";
+import { isPagePost, isSameOrigin } from "../core/saves.js";
 import type { Check, DiscoveredForm, Scenario } from "../core/types.js";
 import { bodyLines, clip, endpointOf, errorResult, evidence, findingFactory, guarded, result, specSource, tryCard } from "./lib/functional-finding.js";
-import { canaryValues, fieldName, fillForm, isCreatePlaywrightRequest, shiftDay, submitForm, waitFor, type FieldValue } from "./lib/functional-form.js";
+import {
+  canaryValues,
+  fieldName,
+  fillForm,
+  isCreatePlaywrightRequest,
+  PAGE_POST_NOTE,
+  shiftDay,
+  simulatedResponse,
+  STOPPED_PAGE_POST_HTML,
+  submitForm,
+  waitFor,
+  type FieldValue,
+} from "./lib/functional-form.js";
 
 const ID = "client-only-validation" as const;
 
@@ -146,25 +159,45 @@ export const check: Check = {
       const typed = values.filter((v) => v.value).map((v) => v.value);
       let captured: Request | null = null;
       let firstWrite: Request | null = null;
+      let pagePost = false;
       await page.route("**/*", async (route, request) => {
-        if (captured || !isCreatePlaywrightRequest(request, ctx.targetUrl) || request.resourceType() === "document") return route.fallback();
+        if (captured || pagePost || !isCreatePlaywrightRequest(request, ctx.targetUrl, ctx.runToken)) return route.fallback();
         const body = request.postData() ?? "";
+        if (isPagePost({ resourceType: request.resourceType() })) {
+          // A classic form post: its answer is a page, and a redirect is how it says "saved", so a replay could not
+          // tell an accepted request from a rejected one. Stopped here so nothing is saved; the scenario is skipped.
+          pagePost = true;
+          return route.fulfill(simulatedResponse(request, 200, STOPPED_PAGE_POST_HTML, "text/html; charset=utf-8"));
+        }
         if (!typed.some((value) => body.includes(value))) {
-          firstWrite ??= request;
+          // Only a write to the page's own origin is a candidate without the typed values (another origin never is).
+          if (isSameOrigin(request.url(), ctx.targetUrl)) firstWrite ??= request;
           return route.fallback();
         }
         captured = request;
         // Answer it ourselves so the valid record is never created.
-        await route.fulfill({ status: 201, contentType: "application/json", body: body || "{}" });
+        await route.fulfill(simulatedResponse(request, 201, body || "{}"));
       });
       ctx.step("Filling the form and capturing its save request (answered by Run Hound)", page);
       await fillForm(page, values);
       await submitForm(page, ctx.form);
-      await waitFor(() => captured !== null, 5000);
+      await waitFor(() => captured !== null || pagePost, 5000);
       await page.unrouteAll({ behavior: "ignoreErrors" });
 
+      if (pagePost && !captured) return errorResult(ID, scenario, started, PAGE_POST_NOTE, "skipped");
       const request = (captured ?? firstWrite) as Request | null;
-      if (!request) return errorResult(ID, scenario, started, "Submitting the form sent no save request to capture.");
+      if (!request) {
+        return errorResult(
+          ID,
+          scenario,
+          started,
+          "Skipped: submitting the form sent no save request (nothing carrying the typed values reached a server), so there was nothing to replay. The page may have refused Run Hound's test values.",
+          "skipped",
+        );
+      }
+      if (!isLocalTarget(request.url())) {
+        return errorResult(ID, scenario, started, `Skipped: the form saves to ${safeHost(request.url())}, which is not on this machine; replaying requests only runs against localhost.`, "skipped");
+      }
       const mutation = invalidate(request.postData() ?? "", values);
       if (!mutation) return errorResult(ID, scenario, started, "The save request body could not be changed (not JSON or form data, or no field to make invalid).", "skipped");
 

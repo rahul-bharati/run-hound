@@ -6,11 +6,13 @@ import { Hono } from "hono";
 import type { Check, Plan, Report } from "../core/types.js";
 import { cleanErrorMessage, NoFormFoundError, TargetNotAllowedError, TargetUnreachableError } from "../engine/errors.js";
 import { redactSecrets } from "../engine/redact.js";
-import { discoverAndPlan, newRunId, runPlan, type ProgressEvent, type RunOptions } from "../engine/runner.js";
+import { canShowBrowser, discoverAndPlan, newRunId, NO_DISPLAY_MESSAGE, planWarnings, RUN_HOUND_VERSION, runPlan, type ProgressEvent, type RunOptions } from "../engine/runner.js";
 
 export interface ServerOptions extends Pick<RunOptions, "checks" | "runsDir" | "allowedHosts"> {
   /** Runs allowed at the same time (each one drives its own Chromium). Default 2; more are refused with 409. */
   maxConcurrentRuns?: number;
+  /** Whether a visible browser window can open on this machine. Detected (canShowBrowser) when omitted. */
+  canShowBrowser?: boolean;
   /**
    * Extra host names this server answers to, besides loopback ones (RUNHOUND_SERVER_HOSTS).
    * Everything else is refused, so a public domain that resolves to 127.0.0.1 (DNS rebinding) can't
@@ -197,7 +199,11 @@ export function createApp(options: ServerOptions = {}): Hono {
     await next();
   });
 
-  app.get("/", (c) => c.html(UI_HTML));
+  const headedAvailable = options.canShowBrowser ?? canShowBrowser();
+  const uiHtml = headedAvailable
+    ? UI_HTML.replace("__HEADED_ATTRS__", "").replace("__HEADED_DESC__", "Opens a visible Chromium window on the machine running Run Hound. The live view below works either way.")
+    : UI_HTML.replace("__HEADED_ATTRS__", " disabled").replace("__HEADED_DESC__", "Not available here: the machine running Run Hound has no display (as in a container). The live view below shows the page under test.");
+  app.get("/", (c) => c.html(uiHtml));
 
   // Only accept JSON posts: a cross-site page can send text/plain without a CORS preflight, but not application/json.
   app.use("/api/*", async (c, next) => {
@@ -223,7 +229,8 @@ export function createApp(options: ServerOptions = {}): Hono {
       plans.set(planId, plan);
       prune();
       // The stored plan keeps the real target; what leaves the process is redacted.
-      return c.json({ planId, plan: redactPlan(plan), checks: await checkTitles(options.checks) }, 200);
+      const warnings = planWarnings(plan).map((w) => redactSecrets(w));
+      return c.json({ planId, plan: redactPlan(plan), checks: await checkTitles(options.checks), warnings }, 200);
     } catch (err) {
       const message = redactSecrets(cleanErrorMessage(err instanceof Error ? err.message : String(err)));
       if (isUserError(err)) return c.json({ error: message }, 400);
@@ -246,6 +253,7 @@ export function createApp(options: ServerOptions = {}): Hono {
     for (const flag of ["allowDestructive", "headed"] as const) {
       if (body[flag] !== undefined && typeof body[flag] !== "boolean") return c.json({ error: `${flag} must be true or false.` }, 400);
     }
+    if (body.headed === true && !headedAvailable) return c.json({ error: NO_DISPLAY_MESSAGE }, 400);
 
     const approved = body.approved as string[] | undefined;
     const unknown = (approved ?? []).filter((id) => !plan.scenarios.some((s) => s.id === id));
@@ -382,6 +390,7 @@ const UI_HTML = `<!doctype html>
 body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
 main { max-width: 52rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
 main.watching { max-width: 76rem; }
+footer.site-footer { max-width: 52rem; margin: 0 auto; padding: 0 1rem 2rem; color: var(--muted); font-size: .875rem; }
 h1 { margin: 0; color: var(--amber); font-size: 1.75rem; }
 h2 { font-size: 1.2rem; margin: 0 0 .75rem; }
 p.lead, .muted { color: var(--muted); }
@@ -402,6 +411,7 @@ legend { color: var(--amber); font-weight: 600; padding: 0 .25rem; }
 .tag { font-size: .75rem; border: 1px solid var(--line); border-radius: 999px; padding: 0 .45rem; margin-left: .35rem; color: var(--muted); }
 .tag.danger { color: var(--fail); border-color: var(--fail); }
 .error { color: var(--fail); }
+.warning { border-left: 4px solid var(--amber); padding: .25rem .75rem; margin: 0 0 1rem; }
 .pass { color: var(--pass); }
 .fail { color: var(--fail); }
 progress { width: 100%; height: .75rem; accent-color: var(--amber); }
@@ -485,7 +495,7 @@ ul.links { padding-left: 1.2rem; }
 <form id="target-form" novalidate>
 <label for="target-url">Page URL (localhost or a private address)</label>
 <div class="row">
-<input id="target-url" name="url" type="url" required placeholder="http://localhost:3000/book" autocomplete="url" aria-describedby="target-error">
+<input id="target-url" name="url" type="url" required placeholder="http://localhost:5173/signup" autocomplete="url" aria-describedby="target-error">
 <button id="plan-button" type="submit">Plan checks</button>
 </div>
 <p id="target-error" class="error" role="alert"></p>
@@ -495,6 +505,7 @@ ul.links { padding-left: 1.2rem; }
 <section class="card" id="plan-section" aria-labelledby="step-plan" hidden>
 <h2 id="step-plan">2. Approve the plan</h2>
 <p class="muted" id="plan-summary"></p>
+<div id="plan-warnings" class="warning" role="status" hidden></div>
 <form id="plan-form">
 <div id="scenarios"></div>
 <div class="scenario">
@@ -502,8 +513,8 @@ ul.links { padding-left: 1.2rem; }
 <label for="allow-destructive">Allow destructive scenarios<span class="desc">They may change or delete data beyond creating test records. Leave off unless this is a throwaway environment.</span></label>
 </div>
 <div class="scenario">
-<input id="headed" type="checkbox">
-<label for="headed">Show the browser window<span class="desc">Opens a visible Chromium window on the machine running Run Hound (it needs a display). The live view below works either way.</span></label>
+<input id="headed" type="checkbox"__HEADED_ATTRS__>
+<label for="headed">Show the browser window<span class="desc">__HEADED_DESC__</span></label>
 </div>
 <p id="plan-error" class="error" role="alert"></p>
 <button id="run-button" type="submit">Run approved checks</button>
@@ -554,6 +565,7 @@ ul.links { padding-left: 1.2rem; }
 <div id="report"></div>
 </section>
 </main>
+<footer class="site-footer"><p>Run Hound ${RUN_HOUND_VERSION.replace(/[^\w.+-]/g, "")} · tester release · tests only local and private-network addresses · test records it creates are counted in the report, not deleted</p></footer>
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
@@ -587,10 +599,13 @@ ul.links { padding-left: 1.2rem; }
     $("plan-button").disabled = true;
     $("plan-button").textContent = "Opening the page…";
     try {
-      const { planId: id, plan, checks } = await api("/api/plan", { url });
+      const { planId: id, plan, checks, warnings } = await api("/api/plan", { url });
       planId = id;
       checkTitles = checks || {};
       showPlan(plan);
+      const warn = $("plan-warnings");
+      warn.replaceChildren(...(warnings || []).map((w) => el("p", { textContent: w })));
+      warn.hidden = !(warnings && warnings.length);
     } catch (err) {
       // A failed plan must not leave the previous target's plan on screen, ready to run.
       planId = null;
@@ -780,7 +795,9 @@ ul.links { padding-left: 1.2rem; }
         $("status").textContent = "The run failed: " + state.error;
         $("live-step").textContent = "The run failed";
       } else {
-        $("status").textContent = "Done. " + state.report.findings.length + " finding" + (state.report.findings.length === 1 ? "" : "s") + ".";
+        const confirmed = state.report.findings.filter((f) => f.confidence === "confirmed").length;
+        const total = state.report.findings.length;
+        $("status").textContent = "Done. " + total + " finding" + (total === 1 ? "" : "s") + " (" + confirmed + " confirmed, " + (total - confirmed) + " advisory).";
         $("live-step").textContent = "Finished. The last frame is shown above.";
         showReport(runId, state.report);
       }
@@ -819,6 +836,11 @@ ul.links { padding-left: 1.2rem; }
     const base = "/api/runs/" + encodeURIComponent(runId) + "/";
     out.replaceChildren(
       el("p", { textContent: s.passed + " passed, " + s.failed + " failed, " + s.errored + " errored, " + s.skipped + " skipped. Findings: " + s.critical + " critical, " + s.high + " high, " + s.medium + " medium, " + s.low + " low." }),
+      ...(typeof report.testRecordsCreated === "number"
+        ? [el("p", { textContent: report.testRecordsCreated === 0
+            ? "Test data: this run created no test records."
+            : "Test data: this run may have created " + report.testRecordsCreated + " test record" + (report.testRecordsCreated === 1 ? "" : "s") + " in your app. Run Hound does not delete them." })]
+        : []),
       el("ul", { className: "links" },
         el("li", {}, el("a", { href: base + "report.html", textContent: "Full report (HTML)" })),
         el("li", {}, el("a", { href: base + "report.md", textContent: "Markdown report" })),
@@ -828,8 +850,12 @@ ul.links { padding-left: 1.2rem; }
     const sorted = [...report.findings].sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9));
     for (const f of sorted) {
       const item = el("article", { className: "finding" },
-        el("h3", { textContent: "[" + f.severity + "] " + f.title }),
-        el("p", { className: "muted", textContent: f.checkId + (f.location ? " · " + f.location : "") }),
+        el("h3", { textContent: "[" + f.severity + (f.confidence === "advisory" ? ", advisory" : "") + "] " + f.title }),
+        el("p", { className: "muted", textContent: f.checkId + (f.location && !(f.locations && f.locations.length > 1) ? " · " + f.location : "") }));
+      if (f.locations && f.locations.length > 1) {
+        item.append(el("p", { className: "muted", textContent: "Where (" + f.locations.length + " places):" }), el("ul", {}, ...f.locations.map((l) => el("li", { textContent: l }))));
+      }
+      item.append(
         el("p", { textContent: f.meaning }),
         el("p", { textContent: "Fix: " + f.fix }));
       const visual = (f.evidence || []).filter((e) => e.path && VISUAL_KINDS.includes(e.kind));

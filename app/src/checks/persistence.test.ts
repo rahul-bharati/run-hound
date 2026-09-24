@@ -54,6 +54,33 @@ describe("persistence: GOOD", () => {
   });
 });
 
+/**
+ * The save request starts 400 ms after the click (async validation before fetch), so it reaches the capture
+ * well after the click resolves: the check must wait for it instead of concluding "no request was sent".
+ * On a busy machine even a synchronous fetch() arrives after the click resolves; this makes that case certain.
+ */
+const ASYNC_VALIDATION: [string, string][] = [
+  ['res = await fetch("/api/bookings", {', 'await new Promise(function (r) { setTimeout(r, 400); }); res = await fetch("/api/bookings", {'],
+];
+
+describe("persistence: save request that starts after the click returns", () => {
+  it("GOOD: waits for the save request and passes", async () => {
+    const s = await startBookingApp({ replaceHtml: ASYNC_VALIDATION });
+    servers.push(s);
+    const { results } = await runCheck(check, s.url);
+    expectCleanPass(results, ID);
+    expect(s.api.bookings).toHaveLength(1);
+  });
+
+  it("BAD: waits for the save request and reports the dropped field", async () => {
+    const s = await startBookingApp({ replaceHtml: ASYNC_VALIDATION }, { dropFields: ["notes"] });
+    servers.push(s);
+    const { results } = await runCheck(check, s.url);
+    const findings = expectFailure(results, ID, "broken-feature", ["critical", "high"]);
+    expect(findings.map(findingText).join("\n")).toMatch(/special instructions|notes/i);
+  });
+});
+
 describe("persistence: BAD", () => {
   it('fails when "Special instructions" gets a success toast but is never saved (F03)', async () => {
     const s = await app({ dropFields: ["notes"] });

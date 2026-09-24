@@ -411,3 +411,49 @@ describe("finished runs survive a restart", () => {
     expect((await fresh.request(`/api/runs/..%2F..%2Fetc/report.json`)).status).toBe(404);
   });
 });
+
+describe("tester-release extras", () => {
+  it("disables 'Show the browser window' and says why when there is no display (as in a container)", async () => {
+    const headless = createApp({ checks: fakeChecks, runsDir, canShowBrowser: false });
+    const html = await (await headless.request("/")).text();
+    expect(html).toMatch(/<input id="headed" type="checkbox" disabled>/);
+    expect(html).toMatch(/Not available here: the machine running Run Hound has no display/);
+    const withDisplay = await (await createApp({ checks: fakeChecks, runsDir, canShowBrowser: true }).request("/")).text();
+    expect(withDisplay).toMatch(/<input id="headed" type="checkbox">/);
+    expect(withDisplay).not.toMatch(/__HEADED_/);
+  });
+
+  it("refuses a headed run with a plain reason when there is no display", async () => {
+    const headless = createApp({ checks: fakeChecks, runsDir, canShowBrowser: false });
+    const planRes = await headless.request("/api/plan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: `${site.url}/book` }) });
+    const { planId } = (await planRes.json()) as { planId: string };
+    const res = await headless.request("/api/runs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ planId, approved: ["dc:controls"], headed: true }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toMatch(/no display/);
+  });
+
+  it("returns plan warnings: none for the page asked for, one when the form is on a page it redirected to", async () => {
+    const plain = (await (await post("/api/plan", { url: `${site.url}/book` })).json()) as { warnings: string[] };
+    expect(plain.warnings).toEqual([]);
+    const redirecting = await startFixtureServer({
+      pages: { "/login": FORM_PAGE },
+      routes: {
+        "GET /account": (_req, res) => {
+          res.writeHead(302, { location: "/login" });
+          res.end();
+        },
+      },
+    });
+    try {
+      const body = (await (await post("/api/plan", { url: `${redirecting.url}/account` })).json()) as { warnings: string[] };
+      expect(body.warnings).toHaveLength(1);
+      expect(body.warnings[0]).toMatch(/redirected to .*\/login.*sign-in page/);
+    } finally {
+      await redirecting.close();
+    }
+  });
+});

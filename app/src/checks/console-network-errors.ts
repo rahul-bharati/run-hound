@@ -5,12 +5,23 @@
 import type { Check, Scenario } from "../core/types.js";
 import type { Fact } from "../core/types.js";
 import { clip, controlLocator, endpointOf, evidence, fillLines, findingFactory, guarded, requestSummary, result, specSource, tryCapture, tryCard } from "./lib/functional-finding.js";
-import { canaryValues, createRequests, fillForm, settle, sleep, submitControl, submitForm, waitForCreates } from "./lib/functional-form.js";
+import { canaryValues, createRequests, fillForm, isRefusedSignIn, settle, sleep, submitControl, submitForm, waitForCreates } from "./lib/functional-form.js";
 
 const ID = "console-network-errors" as const;
 
 /** Failures the browser reports for requests it cancelled itself (navigation, page close): not app bugs. */
 const IGNORED_FAILURES = /ERR_ABORTED|NS_BINDING_ABORTED|cancelled/i;
+
+/**
+ * Dev-server plumbing (hot reload sockets and pings of Next.js, Vite, webpack, Nuxt, Astro). A dev server can refuse
+ * these for a host it doesn't expect (Run Hound in a container), which says nothing about the app itself.
+ */
+export const DEV_SERVER_NOISE = /\/_next\/webpack-hmr|\/_next\/hmr|__nextjs_original-stack-frame|\/@vite\/client|__vite_ping|\/__vite_hmr|webpack-hmr|sockjs-node|\/_nuxt\/hmr|__nuxt_devtools__|\/__astro_dev_toolbar|\[vite\] (failed to connect|server connection lost)|\[HMR\]|Blocked cross-origin request to Next\.js dev resource/i;
+
+/** "Failed to load resource: the server responded with a status of 401 (Unauthorized)" for a given status. */
+function isResourceStatusLine(text: string, status: number): boolean {
+  return new RegExp(`Failed to load resource: the server responded with a status of ${status}\\b`).test(text);
+}
 
 
 export const check: Check = {
@@ -45,24 +56,43 @@ export const check: Check = {
       await fillForm(page, values);
       ctx.step("Submitting the form", page);
       await submitForm(page, ctx.form);
-      await waitForCreates(page, capture, ctx.targetUrl);
+      await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
       // Follow-up requests (list refresh, analytics) start after the create response.
       await sleep(500);
       await settle(page);
       ctx.step("Counting console errors, page errors and failed requests", page);
 
+      const creates = createRequests(capture, ctx.targetUrl, ctx.runToken);
+      // A sign-in form answers Run Hound's made-up credentials with 401 (or 400/403/422): the app working, not an
+      // error. Those answers, and the browser's matching "Failed to load resource" lines, are left out.
+      const refusedSignIns = creates.filter((r) => isRefusedSignIn(ctx.form, r.status));
+      const expectedStatusLines = refusedSignIns.map((r) => ({ status: r.status!, url: r.url }));
       const failedAt = capture.requests.flatMap((r, i) =>
-        !r.url.startsWith("data:") && ((r.status !== null && r.status >= 400) || (r.failure !== null && !IGNORED_FAILURES.test(r.failure))) ? [{ r, when: phase(i, loaded.requests) }] : [],
+        !r.url.startsWith("data:") &&
+        !refusedSignIns.includes(r) &&
+        !DEV_SERVER_NOISE.test(r.url) &&
+        ((r.status !== null && r.status >= 400) || (r.failure !== null && !IGNORED_FAILURES.test(r.failure)))
+          ? [{ r, when: phase(i, loaded.requests) }]
+          : [],
       );
-      const consoleAt = capture.console.flatMap((m, i) => (m.type === "error" ? [{ m, when: phase(i, loaded.console) }] : []));
+      const consoleAt = capture.console.flatMap((m, i) => {
+        if (m.type !== "error" || DEV_SERVER_NOISE.test(m.text) || (m.url && DEV_SERVER_NOISE.test(m.url))) return [];
+        const expected = expectedStatusLines.findIndex((e) => isResourceStatusLine(m.text, e.status) && (!m.url || m.url === e.url));
+        if (expected >= 0) {
+          expectedStatusLines.splice(expected, 1);
+          return [];
+        }
+        return [{ m, when: phase(i, loaded.console) }];
+      });
       const pageErrorsAt = capture.pageErrors.map((e, i) => ({ e, when: phase(i, loaded.pageErrors) }));
       const failed = failedAt.map((x) => x.r);
       const consoleErrors = consoleAt.map((x) => x.m);
       const pageErrors = pageErrorsAt.map((x) => x.e);
       // The submit itself, so the frame shows the form really was sent (and what the server said).
-      const saves = createRequests(capture, ctx.targetUrl).map((r) => `${endpointOf(r.method, r.url)} → ${r.status ?? r.failure ?? "no answer"}`);
+      const saves = creates.map((r) => `${endpointOf(r.method, r.url)} → ${r.status ?? r.failure ?? "no answer"}`);
       if (failed.length === 0 && consoleErrors.length === 0 && pageErrors.length === 0) {
-        return result(ID, scenario, started, [], `Loaded and submitted the form; ${capture.requests.length} requests, no errors.`);
+        const signIn = refusedSignIns.length > 0 ? ` The sign-in was refused (${refusedSignIns[0]!.status}), as expected for made-up credentials.` : "";
+        return result(ID, scenario, started, [], `Loaded and submitted the form; ${capture.requests.length} requests, no errors.${signIn}`);
       }
 
       const counts: Fact[] = [

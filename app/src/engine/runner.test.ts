@@ -5,8 +5,8 @@ import { chromium } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
 import type { Check, CheckContext, CheckId, CheckResult, Finding, Plan, Report, Scenario } from "../core/types.js";
-import { TargetNotAllowedError } from "./errors.js";
-import { discoverAndPlan, NothingToRunError, runPlan, type ProgressEvent } from "./runner.js";
+import { NoFormFoundError, TargetNotAllowedError } from "./errors.js";
+import { canShowBrowser, discoverAndPlan, NothingToRunError, planWarnings, runPlan, type ProgressEvent } from "./runner.js";
 
 const FORM_PAGE = `<!doctype html><html lang="en"><head><title>Runner fixture</title></head><body>
 <form id="booking">
@@ -93,7 +93,19 @@ let rec: Recorder;
 let checks: Check[];
 
 beforeAll(async () => {
-  server = await startFixtureServer({ pages: { "/book": FORM_PAGE } });
+  server = await startFixtureServer({
+    pages: { "/book": FORM_PAGE, "/login": FORM_PAGE.replace("Book a sitter", "Log in") },
+    routes: {
+      "GET /settings": (_req, res) => {
+        res.writeHead(302, { location: "/login?next=/settings" });
+        res.end();
+      },
+      "GET /blocked": (_req, res) => {
+        res.writeHead(403, { "content-type": "text/plain" });
+        res.end('Blocked request. This host ("host.docker.internal") is not allowed.');
+      },
+    },
+  });
 });
 
 afterAll(async () => {
@@ -124,6 +136,21 @@ describe("discoverAndPlan", () => {
     expect(rec.ran).toEqual([]);
   });
 
+  it("explains a page without a form: the status it answered, a dev server refusing the host name", async () => {
+    await expect(discoverAndPlan(`${server.url}/nope`, { checks })).rejects.toThrow(/No form found on .*\/nope: the page answered 404 \(not found\): check the path/);
+    const blocked = discoverAndPlan(`${server.url}/blocked`, { checks });
+    await expect(blocked).rejects.toBeInstanceOf(NoFormFoundError);
+    await expect(blocked).rejects.toThrow(/dev server refused the host name "host\.docker\.internal".*answered 403/);
+  });
+
+  it("warns when the form was found on another page than the one asked for (a redirect to a sign-in page)", async () => {
+    const plan = await discoverAndPlan(`${server.url}/settings`, { checks });
+    const warnings = planWarnings(plan);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/\/settings redirected to .*\/login\?next=\/settings, so the form on that page is the one being tested\. It looks like a sign-in page/);
+    expect(planWarnings(await discoverAndPlan(url(), { checks }))).toEqual([]);
+  });
+
   it("refuses a public target before opening a browser", async () => {
     const launch = vi.spyOn(chromium, "launch");
     await expect(discoverAndPlan("http://8.8.8.8/", { checks })).rejects.toBeInstanceOf(TargetNotAllowedError);
@@ -147,6 +174,17 @@ describe("runPlan", () => {
     // Unapproved scenarios are either omitted or reported as skipped, never run.
     for (const id of ["sf:500", "pe:reload"]) expect([undefined, "skipped"]).toContain(resultFor(report, id)?.status);
     expect(report.findings).toEqual([]);
+  });
+
+  it("gives every scenario the same run token, so test values from earlier scenarios can be recognised", async () => {
+    await runPlan(plan, { checks, runsDir, approved: ["cne:load", "dc:controls"] });
+    expect(rec.contexts).toHaveLength(2);
+    expect(rec.contexts[0]!.runToken).toMatch(/^[a-z0-9]{6,}$/);
+    expect(rec.contexts[1]!.runToken).toBe(rec.contexts[0]!.runToken);
+    // A new run gets a new token.
+    const first = rec.contexts[0]!.runToken;
+    await runPlan(plan, { checks, runsDir, approved: ["dc:controls"] });
+    expect(rec.contexts[2]!.runToken).not.toBe(first);
   });
 
   it("gives checks a real context for the target", async () => {
@@ -420,5 +458,15 @@ describe("discoverAndPlan: what people type", () => {
     );
     expect(err?.message).toMatch(/Nothing is answering at http:\/\/127\.0\.0\.1:\d+\./);
     expect(err?.message).not.toMatch(/\u001b|Call log/);
+  });
+});
+
+describe("canShowBrowser", () => {
+  it("is true on macOS and Windows, and on Linux only with a display server", () => {
+    expect(canShowBrowser({}, "darwin")).toBe(true);
+    expect(canShowBrowser({}, "win32")).toBe(true);
+    expect(canShowBrowser({ DISPLAY: ":0" }, "linux")).toBe(true);
+    expect(canShowBrowser({ WAYLAND_DISPLAY: "wayland-0" }, "linux")).toBe(true);
+    expect(canShowBrowser({}, "linux")).toBe(false);
   });
 });

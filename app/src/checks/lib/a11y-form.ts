@@ -4,6 +4,7 @@
  */
 import { createHash } from "node:crypto";
 import type { Page, Response } from "playwright";
+import { isSaveRequest } from "../../core/saves.js";
 import type { DiscoveredForm, FormField } from "../../core/types.js";
 import { submitControl } from "./a11y-common.js";
 import { controlLocator, fieldLocator } from "./functional-finding.js";
@@ -154,14 +155,27 @@ export function sameOrigin(url: string, base: string): boolean {
 }
 
 /**
- * Clicks the submit control and waits for the first same-origin non-GET response (the create request).
- * Returns null when no such request happened within `timeoutMs`.
+ * Clicks the submit control and waits for the form's save request to be answered (core/saves.ts: a non-GET request
+ * to the target's origin, including a classic page post, or to another origin carrying the run's test values).
+ * Returns its response, or null when no save request was answered within `timeoutMs`.
+ * A page post answered with a redirect returns the 3xx response; the browser then loads the page it points to.
  */
-export async function submitAndWait(page: Page, form: DiscoveredForm, timeoutMs = 10_000): Promise<Response | null> {
+export async function submitAndWait(
+  page: Page,
+  form: DiscoveredForm,
+  options: { targetUrl?: string; runToken?: string; timeoutMs?: number } = {},
+): Promise<Response | null> {
   const submit = submitControl(form);
   if (!submit) return null;
+  const target = options.targetUrl ?? page.url();
   const response = page
-    .waitForResponse((r) => r.request().method() !== "GET" && sameOrigin(r.url(), page.url()), { timeout: timeoutMs })
+    .waitForResponse(
+      (r) => {
+        const req = r.request();
+        return isSaveRequest({ method: req.method(), resourceType: req.resourceType(), url: req.url(), postData: req.postData() }, target, options.runToken ?? "");
+      },
+      { timeout: options.timeoutMs ?? 10_000 },
+    )
     .catch(() => null);
   await page.locator(submit.selector).first().click();
   const res = await response;

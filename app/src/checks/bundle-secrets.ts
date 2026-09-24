@@ -238,13 +238,15 @@ export const check: Check = {
             ...(entry.places.length > 1 ? [{ label: "Also found in", value: entry.places.slice(1, 4).join(", ") }] : []),
           ],
         });
+        const inScripts = entry.places.length > 1 ? ` (in ${entry.places.length} scripts)` : "";
         findings.add({
-          title: entry.kind === "supabase-service-role" ? "Supabase service_role key is shipped to every visitor" : `Secret key shipped to every visitor: ${what}`,
+          title: `${entry.kind === "supabase-service-role" ? "Supabase service_role key is shipped to every visitor" : `Secret key shipped to every visitor: ${what}`}${inScripts}`,
           severity: "critical",
-          meaning: `The page's JavaScript contains ${what}. Anything in the page's scripts can be read by anyone who opens the site, so this key is effectively public. It was found in ${place}.`,
+          meaning: `The page's JavaScript contains ${what}. Anything in the page's scripts can be read by anyone who opens the site, so this key is effectively public. It was found in ${entry.places.length > 1 ? `${entry.places.length} places: ${entry.places.join(", ")}` : place}.`,
           impact: "Anyone can copy the key and use it as you: run up bills on your account, read or change your data, or bypass your security rules.",
           fix: "Remove the key from the frontend code and move the call that needs it to your server (or an edge function). Then revoke the key and create a new one, because the old one has already been exposed.",
           location: place,
+          ...(entry.places.length > 1 ? { locations: entry.places } : {}),
           evidence: [
             {
               kind: "network",

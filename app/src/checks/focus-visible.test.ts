@@ -89,4 +89,10 @@ describe("focus-visible check", () => {
     // Buttons, radios and password fields keep their outline and must not be reported.
     expect(all).not.toMatch(/"location":"[^"]*(Book|Pet type|Password|Confirm password|Clear pet name)/);
   });
+
+  it("GOOD: a dev-server overlay (Next.js <nextjs-portal>) with no focus style is not part of the app and is not reported", async () => {
+    const { results, findings } = await run(fixtures.devToolsOverlay);
+    expect(findings).toEqual([]);
+    expect(overallStatus(results)).toBe("pass");
+  });
 });

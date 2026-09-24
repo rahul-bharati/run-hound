@@ -2,9 +2,11 @@
 
 AI-assisted automated UI testing agent that hunts for the holes AI-generated apps ship with.
 
+> **V0 tester preview (0.1.0).** V0 tests one form on an app running on your own machine. If you've been asked to try it, start with **[TESTING.md](TESTING.md)**: install, a 10-minute run on the Kennel demo, testing your own app (local or Docker), reading the report, and how to send feedback. Changes: [CHANGELOG.md](CHANGELOG.md).
+
 ## Running V0 locally
 
-V0 tests one form on a local app: point it at the form, approve the plan, watch the run, get a report with annotated evidence. Needs Node 22+, pnpm and Chromium.
+V0 tests one form on a local app: point it at the form, approve the plan, watch the run, get a report with annotated evidence. Needs Node 22+ (24 recommended), pnpm (`corepack enable`) and Chromium. The tester guide, [TESTING.md](TESTING.md), covers the same steps with more detail and troubleshooting.
 
 ```sh
 pnpm install
@@ -14,7 +16,7 @@ pnpm --filter kennel build                                 # build the demo targ
 
 ### Ports
 
-The defaults are Kennel on 3000 (its mock analytics service on 3001) and the Run Hound UI on 4000. If one of those is taken (on the dev machine 3000 is), pick free ports:
+The defaults are Kennel on 3000 (its mock analytics service on 3001) and the Run Hound UI on 4000. Port 3000 is often taken by another dev server, so the examples below use free ports instead:
 
 ```sh
 KENNEL_BUGS=all PORT=5310 ANALYTICS_PORT=5311 pnpm kennel   # Kennel on http://localhost:5310/book (KENNEL_BUGS=none for clean mode)
@@ -43,7 +45,7 @@ pnpm exec tsx src/cli.ts run http://localhost:5310/book --approve all         # 
 pnpm exec tsx src/cli.ts run localhost:5310/book --approve all --headed       # same, in a visible browser window
 ```
 
-Options: `--approve all|default|<id,id>`, `--plan-only`, `--allow-destructive`, `--headed`, `--runs-dir <dir>`, `--json` (report on stdout; progress and the run folder on stderr). Progress lines on stderr name each step and each page as it loads (`> page http://…`). `run-hound help` prints the usage, `--version` the version. `run` exits 0 with no findings, 1 with findings, and 2 on an error: a refused or unreachable target, a page without a form, or an approval that names no scenarios.
+Options: `--approve all|default|<id,id>`, `--plan-only`, `--allow-destructive`, `--headed`, `--runs-dir <dir>`, `--json` (report on stdout; progress and the run folder on stderr). Progress lines on stderr name each step and each page as it loads (`> page http://…`). `run-hound help` prints the usage, `--version` the version. `run` exits 0 with no confirmed findings (advisory findings are reported but don't fail the run), 1 with at least one confirmed finding, and 2 on an error: a refused or unreachable target, a page without a form, or an approval that names no scenarios.
 
 ### Reports and evidence
 
@@ -59,18 +61,29 @@ The exported specs need `@playwright/test` in the project that runs them (`npm i
 
 ### Containers
 
-Both services in containers (host ports bound to `127.0.0.1`):
+Both services in containers (host ports bound to `127.0.0.1`; Podman works with `podman-compose`):
 
 ```sh
+mkdir -p runs                    # reports land in ./runs; create it first so the files belong to you
 docker compose up --build        # UI on http://localhost:4000, target http://kennel:3000/book
-KENNEL_HOST_PORT=5310 KENNEL_ANALYTICS_HOST_PORT=5311 docker compose up --build   # when 3000/3001 are taken on the host
+RUNHOUND_HOST_PORT=4400 KENNEL_HOST_PORT=5310 KENNEL_ANALYTICS_HOST_PORT=5311 docker compose up --build   # other host ports
+docker compose run --rm run-hound run http://kennel:3000/book --approve all                          # the CLI in a container
 ```
 
-Reports are written inside the container under `/repo/app/runs`; open them through the UI, or copy them out with `docker compose cp run-hound:/repo/app/runs ./runs`. In the containers the target is `kennel`, not localhost, so the `client-only-validation` scenario (localhost only) is planned but skipped, and the report says why.
+Reports are written to `./runs/<runId>/` on your machine (the CLI prints the container path, `/repo/app/runs/<runId>`); the image runs as the owner of that folder, or as its non-root user when nothing is mounted. In the containers the target is `kennel`, not localhost, so the `client-only-validation` scenario (localhost only) is planned but skipped, and the report says why. **Show the browser window** needs a display, so it doesn't work in a container.
+
+To test an app running on your machine from a container:
+
+- **Linux**: share the host's network, so `localhost` is your machine and nothing in your app changes:
+  ```sh
+  docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" localhost/run-hound:dev run http://localhost:5173/signup --approve all
+  ```
+  For the UI this way, bind it to loopback: `... localhost/run-hound:dev serve --host 127.0.0.1 --port 4310`.
+- **Docker Desktop (Mac, Windows) or the compose UI**: enter `http://host.docker.internal:<port>/<page>`. In a container `localhost` is the container itself. Your dev server must listen on all interfaces (`vite --host`) and accept that host name (Vite `server.allowedHosts`, Next.js `allowedDevOrigins`); a frontend that calls its API on `localhost:<apiPort>` won't work this way. The compose file allows `host.docker.internal` and `host.containers.internal` through the safety gate with `RUNHOUND_ALLOWED_HOSTS`. Details in [TESTING.md](TESTING.md#test-your-own-app).
 
 ### Safety
 
-The target must be `localhost`, a private address, or listed in `RUNHOUND_ALLOWED_HOSTS`; the browser is pinned to the address the gate approved and is stopped if a page navigates off it; requests a check replays or re-fetches are sent from the page, so they get the same pinning. Destructive scenarios only run with `--allow-destructive`. The UI and API answer only on loopback names and IP addresses; add others with `RUNHOUND_SERVER_HOSTS`.
+The target must be `localhost`, a private address, or listed in `RUNHOUND_ALLOWED_HOSTS` (which skips the address check with no ownership check, so list only hosts you own); the browser is pinned to the address the gate approved and is stopped if a page navigates off it; requests a check replays or re-fetches are sent from the page, so they get the same pinning. Destructive scenarios only run with `--allow-destructive`. The UI and API answer only on loopback names and IP addresses; add others with `RUNHOUND_SERVER_HOSTS`.
 
 ### Running the suites
 
@@ -81,7 +94,7 @@ pnpm --filter kennel test                     # Kennel's own tests (clean mode a
 pnpm test:acceptance                          # Run Hound against Kennel, clean mode and every planted bug
 ```
 
-The suites pick random free ports, so they don't collide with anything already running.
+The suites pick random free ports, so they don't collide with anything already running. CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the type-check and all three suites on every push and pull request.
 
 ## Problem statement
 
@@ -199,6 +212,7 @@ Run Hound is developed and scored against **Kennel**, a deliberately broken book
 - Users must not be able to misuse Run Hound to scan websites/apps they don't own.
 - localhost and private IPs are allowed by default.
 - Any other domain requires ownership verification before it can be scanned: either a DNS TXT record or a nonce placed in a `<meta>` tag in the HTML header. The scan only runs where the nonce is found.
+- Status in V0: ownership verification isn't built yet. Other hosts are refused unless listed in `RUNHOUND_ALLOWED_HOSTS`, which is not checked for ownership, so list only hosts you own.
 - No destructive actions (real payments, deleting data) unless the user explicitly opts in.
 - Reports redact any secrets they find; keys are never used or tested.
 

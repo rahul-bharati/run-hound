@@ -207,6 +207,7 @@ const SCAN_SCRIPT = String.raw`(() => {
       selector: selectorFor(el),
       ...(options ? { options } : {}),
       ...(Object.keys(constraints).length ? { constraints } : {}),
+      ...(norm(el.getAttribute("autocomplete")) ? { autocomplete: norm(el.getAttribute("autocomplete")).toLowerCase() } : {}),
       fallbackName: nameFallback(el),
       nameSelector: null,
     });
