@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { isIP } from "node:net";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { Hono } from "hono";
-import type { Check, Plan, Report } from "../core/types.js";
+import { CHECK_GROUPS, type Check, type CheckGroup, type CheckResult, type Plan, type Report } from "../core/types.js";
 import { cleanErrorMessage, NoFormFoundError, TargetNotAllowedError, TargetUnreachableError } from "../engine/errors.js";
 import { redactSecrets } from "../engine/redact.js";
+import { renderUi } from "./ui/index.js";
 import { canShowBrowser, discoverAndPlan, newRunId, NO_DISPLAY_MESSAGE, planWarnings, RUN_HOUND_VERSION, runPlan, type ProgressEvent, type RunOptions } from "../engine/runner.js";
 
 export interface ServerOptions extends Pick<RunOptions, "checks" | "runsDir" | "allowedHosts"> {
@@ -26,15 +29,45 @@ interface RunState {
   completed: number;
   total: number;
   dir: string;
+  /** When the run was accepted (ISO); the same value on every poll. The report's own startedAt is set by runPlan. */
+  startedAt: string;
+  /** The whole run, once it has ended: report.durationMs when done, time until the failure when it errored. */
+  durationMs?: number;
   report?: Report;
   error?: string;
   live: LiveState;
+  /** What the run was started with (the unredacted plan stays in memory only), so it can be re-run. */
+  plan: Plan;
+  approved: string[];
+  allowDestructive: boolean;
+  headed: boolean;
+  /** Aborts the run (POST /api/runs/:id/stop); absent for runs read back from disk. */
+  controller?: AbortController;
+}
+
+/** One row of GET /api/runs. */
+interface RunSummary {
+  runId: string;
+  target: string;
+  formName: string | null;
+  status: RunState["status"];
+  startedAt: string;
+  finishedAt?: string;
+  durationMs?: number;
+  summary?: Report["summary"];
+  completed: number;
+  total: number;
 }
 
 /** What GET /api/runs/:id/live returns, plus the latest frame (served separately as live.jpg). */
 interface LiveState {
   scenarioId: string | null;
   scenarioTitle: string | null;
+  /** 1-based position of the current scenario among the approved ones (0 before the first). */
+  scenarioIndex: number;
+  /** The current group (CheckGroup id) and its label, from group-start/scenario-start; null before the first scenario. */
+  group: CheckGroup | null;
+  groupLabel: string | null;
   step: string | null;
   url: string | null;
   /** Counts frames received, so the UI only reloads live.jpg when there is a new one. */
@@ -42,6 +75,12 @@ interface LiveState {
   updatedAt: string;
   steps: { scenarioId: string; label: string; url: string; at: string }[];
   pagesVisited: string[];
+  /** Scenarios that have ended, in run order, with how long each took (the UI's step log shows it). */
+  finished: { scenarioId: string; status: CheckResult["status"]; durationMs: number }[];
+  /** The approved scenarios in run order, with their group, so the UI can list what is queued, running and done. */
+  scenarios: { id: string; title: string; group: CheckGroup | null; groupLabel: string | null }[];
+  /** The browser the run uses, e.g. "Chromium 153.0.8010.12"; null until the report says. */
+  browser: string | null;
   /** Only the latest frame is kept; it survives the end of the run so the UI can keep showing it. */
   frame?: Buffer;
 }
@@ -49,17 +88,62 @@ interface LiveState {
 /** How many steps the live log keeps (oldest dropped first). */
 const LIVE_STEPS = 100;
 
-function newLiveState(): LiveState {
-  return { scenarioId: null, scenarioTitle: null, step: null, url: null, frameSeq: 0, updatedAt: new Date().toISOString(), steps: [], pagesVisited: [] };
+function newLiveState(scenarios: LiveState["scenarios"] = []): LiveState {
+  return {
+    scenarioId: null,
+    scenarioTitle: null,
+    scenarioIndex: 0,
+    group: null,
+    groupLabel: null,
+    step: null,
+    url: null,
+    frameSeq: 0,
+    updatedAt: new Date().toISOString(),
+    steps: [],
+    pagesVisited: [],
+    finished: [],
+    scenarios,
+    browser: null,
+  };
 }
+
+/** The approved scenarios in the order the runner takes them: group by group (plan.groups), then any left over. */
+function runOrder(plan: Plan, approved: Set<string>): LiveState["scenarios"] {
+  const byId = new Map(plan.scenarios.map((s) => [s.id, s]));
+  const out: LiveState["scenarios"] = [];
+  const seen = new Set<string>();
+  for (const g of plan.groups ?? []) {
+    for (const id of g.scenarioIds) {
+      const s = byId.get(id);
+      if (!s || !approved.has(id) || seen.has(id)) continue;
+      seen.add(id);
+      out.push({ id, title: s.title, group: g.id, groupLabel: g.label });
+    }
+  }
+  for (const s of plan.scenarios) {
+    if (approved.has(s.id) && !seen.has(s.id)) out.push({ id: s.id, title: s.title, group: null, groupLabel: null });
+  }
+  return out;
+}
+
+const groupLabel = (id: CheckGroup): string => CHECK_GROUPS.find((g) => g.id === id)?.label ?? id;
 
 /** Folds one runner progress event into the live state. URLs and labels arrive already redacted by the engine. */
 function applyProgress(live: LiveState, plan: Plan, e: ProgressEvent): void {
   live.updatedAt = new Date().toISOString();
   switch (e.type) {
+    case "group-start":
+      live.group = e.group;
+      live.groupLabel = e.label;
+      break;
     case "scenario-start":
       live.scenarioId = e.scenarioId;
       live.scenarioTitle = plan.scenarios.find((s) => s.id === e.scenarioId)?.title ?? null;
+      live.scenarioIndex = e.index + 1;
+      if (e.group && e.group !== live.group) {
+        live.group = e.group;
+        live.groupLabel = groupLabel(e.group);
+      }
       live.step = null;
       break;
     case "step":
@@ -77,6 +161,7 @@ function applyProgress(live: LiveState, plan: Plan, e: ProgressEvent): void {
       live.frameSeq += 1;
       break;
     case "scenario-end":
+      live.finished.push({ scenarioId: e.scenarioId, status: e.result.status, durationMs: e.result.durationMs });
       break;
   }
 }
@@ -128,25 +213,39 @@ async function checkTitles(checks: Check[] | undefined): Promise<Record<string, 
 
 /**
  * Local UI + JSON API (served on port 4000 by the CLI):
- *   GET  /                          HTML UI: target URL -> plan with checkboxes -> approve -> progress -> report
+ *   GET  /                          HTML UI (ui/index.ts renderUi): the app shell with hash routes #/new (target -> plan),
+ *                                   #/runs, #/runs/<id> (running view, then the report) and #/settings
  *   POST /api/plan  {url}           200 {planId, plan, checks: {checkId: title}} | 400 {error} (bad URL, not allowed,
  *                                   unreachable, no form). "localhost:3000/book" is read as http://localhost:3000/book.
  *   POST /api/runs  {planId, approved: string[], allowDestructive?: boolean, headed?: boolean}  202 {runId}
  *                                   | 404 unknown plan | 400 empty approval, unknown scenario ids or a non-boolean flag
  *                                   | 409 too many runs in progress (maxConcurrentRuns)
- *   GET  /api/runs/:runId           {status: "running"|"done"|"error", completed, total, report?, error?}
+ *   GET  /api/runs/:runId           {status: "running"|"done"|"error", completed, total, startedAt, durationMs? (once
+ *                                   ended), report?, error?}
  *   GET  /api/runs/:runId/report.json | report.md | report.html
  *   GET  /api/runs/:runId/specs/:file
  *   GET  /api/runs/:runId/artifacts/:file   evidence images (PNG) and recordings (GIF) referenced by report.html
- *   GET  /api/runs/:runId/live       {status, scenarioId, scenarioTitle, step, url, frameSeq, updatedAt,
- *                                     steps: [{scenarioId, label, url, at}] (last 100), pagesVisited: string[]}
+ *   GET  /api/runs/:runId/live       {status, startedAt, elapsedMs, scenarioId, scenarioTitle, scenarioIndex, group,
+ *                                     groupLabel, step, url, frameSeq, updatedAt, steps: [{scenarioId, label, url, at}]
+ *                                     (last 100), pagesVisited: string[], finished: [{scenarioId, status, durationMs}],
+ *                                     scenarios: [{id, title, group, groupLabel}] (approved, in run order)}
  *   GET  /api/runs/:runId/live.jpg   latest frame of the browser under test (image/jpeg, no-store); 404 before the first frame
+ *   GET  /api/runs                   {runs: [{runId, target, formName, status, startedAt, finishedAt?, durationMs?, summary?,
+ *                                     completed, total}]}: runs in memory and finished runs in runsDir, newest first
+ *   POST /api/runs/:runId/stop       202 {runId} (the run ends "done" with report.stopped) | 409 already ended or stopping | 404
+ *   POST /api/runs/:runId/rerun      202 {runId}: plans the same target again and runs it approving the previous run's
+ *                                   scenario ids that are still in the new plan | 400 none left or the target can't
+ *                                   be planned | 404 | 409 busy
+ *   GET  /api/settings               {version, runsDir, allowedHosts, serverHosts}
+ * The live state also carries `browser` ("Chromium 153..."): null until the first scenario starts, then the Chromium
+ * build Playwright launches (bundledChromium), replaced by report.browser (what the browser itself reported) at the end.
  * POST /api/runs also accepts {headed?: boolean} to open a visible browser window on the machine running Run Hound.
- * While a run is in progress the UI shows a live view: the page URL, the current scenario and step, the latest
- * frame (refreshed about twice a second), the step log and the list of pages being tested.
+ * While a run is in progress the UI shows a live view: the numbered scenario list with the running scenario's steps,
+ * the browser, the page URL, the latest frame (refreshed about twice a second) and the step log.
  * Plans and run states live in memory (the newest 50 of each); a finished run that is no longer in memory, or was
  * written before a restart, is read back from runsDir/<runId>/report.json, so report links keep working.
- * The UI keeps the run id in the page's #run=<id> fragment, so reloading the page shows the same run.
+ * The UI keeps the run id in the page's #/runs/<id> fragment, so reloading the page shows the same run (old #run=<id>
+ * links still open it).
  */
 export function createApp(options: ServerOptions = {}): Hono {
   const app = new Hono();
@@ -175,12 +274,130 @@ export function createApp(options: ServerOptions = {}): Hono {
       if (!(await stat(dir)).isDirectory()) return undefined;
       const report = JSON.parse(await readFile(join(dir, "report.json"), "utf8")) as Report;
       if (report.runId !== runId) return undefined;
-      const live = newLiveState();
+      const live = newLiveState(runOrder(report.plan, new Set(report.approved ?? report.results.map((r) => r.scenarioId))));
       live.pagesVisited = (report.pagesVisited ?? []).map((p) => p.url);
-      return { status: "done", completed: report.results.length, total: report.results.length, dir, report, live };
+      live.finished = report.results.map((r) => ({ scenarioId: r.scenarioId, status: r.status, durationMs: r.durationMs }));
+      live.browser = report.browser ?? null;
+      const durationMs = report.durationMs ?? Date.parse(report.finishedAt) - Date.parse(report.startedAt);
+      const approved = report.approved ?? report.results.map((r) => r.scenarioId);
+      return {
+        status: "done",
+        completed: report.results.length,
+        total: report.results.length,
+        dir,
+        startedAt: report.startedAt,
+        durationMs,
+        report,
+        live,
+        plan: report.plan,
+        approved,
+        allowDestructive: false,
+        headed: false,
+      };
     } catch {
       return undefined;
     }
+  }
+
+  function summarize(runId: string, state: RunState): RunSummary {
+    const report = state.report;
+    const out: RunSummary = {
+      runId,
+      target: redactSecrets(report?.target ?? state.plan.target),
+      formName: (report?.plan ?? state.plan).form?.name ? redactSecrets((report?.plan ?? state.plan).form.name!) : null,
+      status: state.status,
+      startedAt: state.startedAt,
+      completed: state.completed,
+      total: state.total,
+    };
+    if (state.status !== "running") {
+      out.finishedAt = report?.finishedAt ?? new Date(Date.parse(state.startedAt) + (state.durationMs ?? 0)).toISOString();
+      if (state.durationMs !== undefined) out.durationMs = state.durationMs;
+      if (report) out.summary = report.summary;
+    }
+    return out;
+  }
+
+  /** Runs in memory plus finished runs on disk (runsDir/<id>/report.json), newest first. */
+  async function listRuns(): Promise<RunSummary[]> {
+    const out = [...runs].map(([id, state]) => summarize(id, state));
+    let names: string[] = [];
+    try {
+      names = (await readdir(runsDir, { withFileTypes: true })).filter((d) => d.isDirectory() && RUN_ID.test(d.name)).map((d) => d.name);
+    } catch {
+      // No runs folder yet.
+    }
+    const onDisk = await Promise.all(names.filter((id) => !runs.has(id)).map(async (id) => ({ id, state: await runState(id) })));
+    for (const { id, state } of onDisk) if (state) out.push(summarize(id, state));
+    return out.sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt) || (a.runId < b.runId ? 1 : a.runId > b.runId ? -1 : 0));
+  }
+
+  /** Starts a run in the background; returns its id, or an error response body and status. */
+  function startRun(
+    plan: Plan,
+    approved: string[],
+    flags: { allowDestructive: boolean; headed: boolean },
+  ): { runId: string } | { error: string; code: 409 } {
+    const running = [...runs.values()].filter((r) => r.status === "running").length;
+    if (running >= maxRuns) {
+      return { error: `${running} run${running === 1 ? " is" : "s are"} already in progress. Wait for ${running === 1 ? "it" : "one"} to finish.`, code: 409 };
+    }
+    const approvedSet = new Set(approved);
+    const runId = newRunId();
+    const controller = new AbortController();
+    const state: RunState = {
+      status: "running",
+      completed: 0,
+      total: plan.scenarios.filter((s) => approvedSet.has(s.id)).length,
+      dir: join(runsDir, runId),
+      startedAt: new Date().toISOString(),
+      live: newLiveState(runOrder(redactPlan(plan), approvedSet)),
+      plan,
+      approved: [...approvedSet],
+      allowDestructive: flags.allowDestructive,
+      headed: flags.headed,
+      controller,
+    };
+    runs.set(runId, state);
+    prune();
+
+    runPlan(plan, {
+      checks: options.checks,
+      allowedHosts: options.allowedHosts,
+      runsDir,
+      runId,
+      approved: state.approved,
+      allowDestructive: flags.allowDestructive,
+      headed: flags.headed,
+      signal: controller.signal,
+      // The UI always shows the live view, so the server always asks for the screencast.
+      live: true,
+      onProgress: (e) => {
+        if (e.type === "scenario-end") state.completed += 1;
+        // The runner names the browser only in the report; by the first scenario it has launched Playwright's own build.
+        if (e.type === "scenario-start" && state.live.browser === null) state.live.browser = bundledChromium();
+        applyProgress(state.live, plan, e);
+      },
+    }).then(
+      ({ report, dir }) => {
+        const durationMs = report.durationMs ?? Date.parse(report.finishedAt) - Date.parse(report.startedAt);
+        Object.assign(state, { status: "done", report, dir, durationMs, controller: undefined });
+        // The report is authoritative once written (it also covers pages seen before a frame or step).
+        if (report.pagesVisited) state.live.pagesVisited = report.pagesVisited.map((p) => p.url);
+        state.live.browser = report.browser ?? null;
+        state.live.updatedAt = new Date().toISOString();
+      },
+      (err: unknown) => {
+        Object.assign(state, {
+          status: "error",
+          controller: undefined,
+          durationMs: Date.now() - Date.parse(state.startedAt),
+          error: redactSecrets(cleanErrorMessage(err instanceof Error ? err.message : String(err))),
+        });
+        state.live.updatedAt = new Date().toISOString();
+      },
+    );
+    return { runId };
   }
 
   // Only answer requests addressed to this machine, and never act on a POST from another site.
@@ -200,9 +417,7 @@ export function createApp(options: ServerOptions = {}): Hono {
   });
 
   const headedAvailable = options.canShowBrowser ?? canShowBrowser();
-  const uiHtml = headedAvailable
-    ? UI_HTML.replace("__HEADED_ATTRS__", "").replace("__HEADED_DESC__", "Opens a visible Chromium window on the machine running Run Hound. The live view below works either way.")
-    : UI_HTML.replace("__HEADED_ATTRS__", " disabled").replace("__HEADED_DESC__", "Not available here: the machine running Run Hound has no display (as in a container). The live view below shows the page under test.");
+  const uiHtml = renderUi({ version: RUN_HOUND_VERSION, canShowBrowser: headedAvailable });
   app.get("/", (c) => c.html(uiHtml));
 
   // Only accept JSON posts: a cross-site page can send text/plain without a CORS preflight, but not application/json.
@@ -258,58 +473,64 @@ export function createApp(options: ServerOptions = {}): Hono {
     const approved = body.approved as string[] | undefined;
     const unknown = (approved ?? []).filter((id) => !plan.scenarios.some((s) => s.id === id));
     if (unknown.length > 0) return c.json({ error: `Unknown scenario id(s): ${redactSecrets(unknown.join(", "))}.` }, 400);
-    const approvedSet = new Set(approved ?? plan.scenarios.filter((s) => s.defaultSelected).map((s) => s.id));
+    const approvedIds = approved ?? plan.scenarios.filter((s) => s.defaultSelected).map((s) => s.id);
     // An empty run would report "0 findings" and look like a clean pass.
-    if (approvedSet.size === 0) return c.json({ error: "Select at least one scenario to run." }, 400);
-    const running = [...runs.values()].filter((r) => r.status === "running").length;
-    if (running >= maxRuns) {
-      return c.json({ error: `${running} run${running === 1 ? " is" : "s are"} already in progress. Wait for ${running === 1 ? "it" : "one"} to finish.` }, 409);
-    }
-    const runId = newRunId();
-    const state: RunState = {
-      status: "running",
-      completed: 0,
-      total: plan.scenarios.filter((s) => approvedSet.has(s.id)).length,
-      dir: join(runsDir, runId),
-      live: newLiveState(),
-    };
-    runs.set(runId, state);
-    prune();
+    if (approvedIds.length === 0) return c.json({ error: "Select at least one scenario to run." }, 400);
+    const started = startRun(plan, approvedIds, { allowDestructive: body.allowDestructive === true, headed: body.headed === true });
+    if ("error" in started) return c.json({ error: started.error }, started.code);
+    return c.json({ runId: started.runId }, 202);
+  });
 
-    runPlan(plan, {
-      checks: options.checks,
-      allowedHosts: options.allowedHosts,
+  app.get("/api/runs", async (c) => c.json({ runs: await listRuns() }, 200, { "cache-control": "no-store" }));
+
+  app.get("/api/settings", (c) =>
+    c.json({
+      version: RUN_HOUND_VERSION,
       runsDir,
-      runId,
-      approved,
-      allowDestructive: body.allowDestructive === true,
-      headed: body.headed === true,
-      // The UI always shows the live view, so the server always asks for the screencast.
-      live: true,
-      onProgress: (e) => {
-        if (e.type === "scenario-end") state.completed += 1;
-        applyProgress(state.live, plan, e);
-      },
-    }).then(
-      ({ report, dir }) => {
-        Object.assign(state, { status: "done", report, dir });
-        // The report is authoritative once written (it also covers pages seen before a frame or step).
-        if (report.pagesVisited) state.live.pagesVisited = report.pagesVisited.map((p) => p.url);
-        state.live.updatedAt = new Date().toISOString();
-      },
-      (err: unknown) => {
-        Object.assign(state, { status: "error", error: redactSecrets(cleanErrorMessage(err instanceof Error ? err.message : String(err))) });
-        state.live.updatedAt = new Date().toISOString();
-      },
-    );
+      allowedHosts: options.allowedHosts ?? (process.env.RUNHOUND_ALLOWED_HOSTS ?? "").split(",").map((h) => h.trim()).filter(Boolean),
+      serverHosts: extraHosts,
+    }),
+  );
 
-    return c.json({ runId }, 202);
+  app.post("/api/runs/:runId/stop", async (c) => {
+    const state = await runState(c.req.param("runId"));
+    if (!state) return c.json({ error: "Unknown run." }, 404);
+    if (state.status !== "running" || !state.controller) return c.json({ error: "This run has already ended." }, 409);
+    if (state.controller.signal.aborted) return c.json({ error: "This run is already stopping." }, 409);
+    state.controller.abort();
+    state.live.updatedAt = new Date().toISOString();
+    return c.json({ runId: c.req.param("runId") }, 202);
+  });
+
+  app.post("/api/runs/:runId/rerun", async (c) => {
+    const state = await runState(c.req.param("runId"));
+    if (!state) return c.json({ error: "Unknown run." }, 404);
+    // Don't open a browser to plan when the run couldn't start anyway (startRun checks again after planning).
+    const running = [...runs.values()].filter((r) => r.status === "running").length;
+    if (running >= maxRuns) return c.json({ error: `${running} run${running === 1 ? " is" : "s are"} already in progress. Wait for ${running === 1 ? "it" : "one"} to finish.` }, 409);
+    // Plan the target again: the page may have changed since, so scenario ids are matched against the new plan.
+    let plan: Plan;
+    try {
+      plan = await discoverAndPlan(state.plan.target, { checks: options.checks, allowedHosts: options.allowedHosts });
+    } catch (err) {
+      const message = redactSecrets(cleanErrorMessage(err instanceof Error ? err.message : String(err)));
+      if (isUserError(err)) return c.json({ error: message }, 400);
+      return c.json({ error: `Could not plan the run again: ${message}` }, 500);
+    }
+    const known = new Set(plan.scenarios.map((s) => s.id));
+    const approved = state.approved.filter((id) => known.has(id));
+    if (approved.length === 0) {
+      return c.json({ error: "None of this run's scenarios are in the new plan (the page has changed). Start a new run instead." }, 400);
+    }
+    const started = startRun(plan, approved, { allowDestructive: state.allowDestructive, headed: state.headed && headedAvailable });
+    if ("error" in started) return c.json({ error: started.error }, started.code);
+    return c.json({ runId: started.runId }, 202);
   });
 
   app.get("/api/runs/:runId", async (c) => {
     const state = await runState(c.req.param("runId"));
     if (!state) return c.json({ error: "Unknown run." }, 404);
-    const { dir: _dir, live: _live, ...status } = state;
+    const { dir: _dir, live: _live, plan: _plan, approved: _approved, allowDestructive: _d, headed: _h, controller: _c, ...status } = state;
     return c.json(status);
   });
 
@@ -317,7 +538,8 @@ export function createApp(options: ServerOptions = {}): Hono {
     const state = await runState(c.req.param("runId"));
     if (!state) return c.json({ error: "Unknown run." }, 404);
     const { frame: _frame, ...live } = state.live;
-    return c.json({ status: state.status, ...live }, 200, { "cache-control": "no-store" });
+    const elapsedMs = state.durationMs ?? Math.max(0, Date.now() - Date.parse(state.startedAt));
+    return c.json({ status: state.status, startedAt: state.startedAt, elapsedMs, ...live }, 200, { "cache-control": "no-store" });
   });
 
   // The latest screencast frame. Pixels can't be redacted, which is why this is only served on loopback-guarded hosts.
@@ -368,518 +590,28 @@ export function createApp(options: ServerOptions = {}): Hono {
   return app;
 }
 
+let bundledChromiumName: string | null | undefined;
+
+/**
+ * "Chromium 153.0.8010.12": the Chromium build the installed Playwright launches (runPlan uses chromium.launch with no
+ * channel or executablePath), read from playwright-core's browsers.json. Null if that file can't be read.
+ */
+function bundledChromium(): string | null {
+  if (bundledChromiumName !== undefined) return bundledChromiumName;
+  bundledChromiumName = null;
+  try {
+    const require = createRequire(import.meta.url);
+    const dir = dirname(require.resolve("playwright-core/package.json", { paths: [dirname(require.resolve("playwright"))] }));
+    const data = JSON.parse(readFileSync(join(dir, "browsers.json"), "utf8")) as { browsers?: { name: string; browserVersion?: string }[] };
+    const version = data.browsers?.find((b) => b.name === "chromium")?.browserVersion;
+    if (version && /^[\d.]+$/.test(version)) bundledChromiumName = `Chromium ${version}`;
+  } catch {
+    // Unknown layout: the browser shows up when the report is written.
+  }
+  return bundledChromiumName;
+}
+
 /** A plan with secrets redacted (its target URL may carry a token). */
 function redactPlan(plan: Plan): Plan {
   return JSON.parse(redactSecrets(JSON.stringify(plan))) as Plan;
 }
-
-/**
- * The single-page UI. Server-rendered shell plus a small inline script that talks to the JSON API.
- * Night Shift palette; every control is labelled, focus is always visible, progress goes to a live region.
- * The script builds DOM with textContent only, so report text is never parsed as HTML.
- */
-const UI_HTML = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Run Hound</title>
-<style>
-:root { --bg:#0E1012; --surface:#171A1D; --text:#E8E6E1; --muted:#B4B8BC; --amber:#F5B642; --pass:#6FCF97; --fail:#FF7A6B; --line:#2A2F34; }
-* { box-sizing: border-box; }
-body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-main { max-width: 52rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
-main.watching { max-width: 76rem; }
-footer.site-footer { max-width: 52rem; margin: 0 auto; padding: 0 1rem 2rem; color: var(--muted); font-size: .875rem; }
-h1 { margin: 0; color: var(--amber); font-size: 1.75rem; }
-h2 { font-size: 1.2rem; margin: 0 0 .75rem; }
-p.lead, .muted { color: var(--muted); }
-section.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.25rem; margin-top: 1.25rem; }
-label { display: block; font-weight: 600; margin-bottom: .35rem; }
-.row { display: flex; gap: .5rem; flex-wrap: wrap; }
-input[type=url] { flex: 1 1 16rem; min-width: 0; padding: .6rem .75rem; border-radius: 6px; border: 1px solid #4A5057; background: var(--bg); color: var(--text); font: inherit; }
-button { padding: .6rem 1.1rem; border-radius: 6px; border: 0; background: var(--amber); color: #0E1012; font: inherit; font-weight: 700; cursor: pointer; min-height: 44px; }
-button:disabled { opacity: .6; cursor: progress; }
-:focus-visible { outline: 3px solid var(--amber); outline-offset: 2px; }
-input[type=url]:focus-visible { outline-offset: 0; }
-fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 .75rem; padding: .5rem .75rem; }
-legend { color: var(--amber); font-weight: 600; padding: 0 .25rem; }
-.scenario { display: flex; gap: .6rem; align-items: flex-start; padding: .35rem 0; }
-.scenario input { width: 1.25rem; height: 1.25rem; margin-top: .2rem; accent-color: var(--amber); flex: none; }
-.scenario label { font-weight: 400; margin: 0; }
-.scenario .desc { display: block; color: var(--muted); font-size: .9rem; }
-.tag { font-size: .75rem; border: 1px solid var(--line); border-radius: 999px; padding: 0 .45rem; margin-left: .35rem; color: var(--muted); }
-.tag.danger { color: var(--fail); border-color: var(--fail); }
-.error { color: var(--fail); }
-.warning { border-left: 4px solid var(--amber); padding: .25rem .75rem; margin: 0 0 1rem; }
-.pass { color: var(--pass); }
-.fail { color: var(--fail); }
-progress { width: 100%; height: .75rem; accent-color: var(--amber); }
-.finding { border-left: 4px solid var(--fail); padding: .25rem .75rem; margin: .75rem 0; }
-.finding h3 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
-.finding p { margin: .25rem 0; }
-/* Evidence: each finding's frames, GIFs and cards inline, linked to the full-size file, with the data behind them. */
-.evidence { display: grid; gap: .75rem; margin: .5rem 0; }
-.evidence figure { margin: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); overflow: hidden; }
-.evidence img { display: block; width: 100%; height: auto; max-height: 36rem; object-fit: contain; object-position: left top; background: #0B0E13; }
-.evidence figcaption { padding: .4rem .6rem; font-size: .85rem; color: var(--muted); overflow-wrap: anywhere; }
-.evidence figcaption b { color: var(--text); font-weight: 600; }
-.evidence details { padding: 0 .6rem .5rem; font-size: .85rem; }
-.evidence summary { cursor: pointer; color: var(--amber); }
-.evidence dl { display: grid; grid-template-columns: minmax(8rem, max-content) minmax(0, 1fr); gap: .15rem .75rem; margin: .4rem 0 0; }
-.evidence dt { color: var(--muted); }
-.evidence dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
-a { color: var(--amber); }
-ul.links { padding-left: 1.2rem; }
-[hidden] { display: none !important; }
-/* Live view: a small browser window showing the page under test, with what is happening beside it. */
-#live { display: grid; gap: 1rem; }
-.live-top { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; }
-#status { margin: 0; font-weight: 600; flex: 1 1 20rem; }
-.live-top progress { flex: 1 1 12rem; }
-.live-grid { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
-@media (min-width: 60rem) { .live-grid { grid-template-columns: minmax(0, 1.9fr) minmax(16rem, 1fr); } }
-.browser { margin: 0; border: 1px solid #3A4046; border-radius: 10px; overflow: hidden; background: #0A0B0D; box-shadow: 0 8px 24px rgb(0 0 0 / .35); }
-.chrome { display: flex; align-items: center; gap: .6rem; padding: .5rem .75rem; background: #22262A; border-bottom: 1px solid #3A4046; }
-.dots { display: flex; gap: .35rem; flex: none; }
-.dots i { width: .7rem; height: .7rem; border-radius: 50%; background: #4A5057; }
-.address { flex: 1; min-width: 0; display: flex; align-items: center; gap: .5rem; background: var(--bg); border: 1px solid #3A4046; border-radius: 999px; padding: .3rem .8rem; }
-.address .label { font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; flex: none; }
-#live-url { font: .9rem/1.3 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.pill { flex: none; font-size: .75rem; font-weight: 700; letter-spacing: .06em; border-radius: 999px; padding: .15rem .55rem; border: 1px solid var(--line); color: var(--muted); }
-.pill.on { color: #0E1012; background: var(--fail); border-color: var(--fail); }
-.pill.on::before { content: ""; display: inline-block; width: .45rem; height: .45rem; border-radius: 50%; background: #0E1012; margin-right: .35rem; vertical-align: .05rem; animation: blink 1.2s steps(2, start) infinite; }
-@keyframes blink { to { visibility: hidden; } }
-@media (prefers-reduced-motion: reduce) { .pill.on::before { animation: none; } }
-.viewport { position: relative; aspect-ratio: 1280 / 800; background: #0A0B0D; }
-.viewport img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: top center; }
-.viewport .placeholder { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: var(--muted); text-align: center; padding: 1rem; }
-.now { display: flex; gap: .6rem; align-items: baseline; padding: .55rem .8rem; background: #22262A; border-top: 1px solid #3A4046; }
-.now .label { color: var(--amber); font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; flex: none; }
-#live-step { overflow-wrap: anywhere; }
-.side { display: grid; gap: 1rem; align-content: start; min-width: 0; }
-.side h3 { margin: 0 0 .4rem; font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
-.side .box { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: .6rem .75rem; }
-#live-scenario { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
-#live-scenario-id { margin: .1rem 0 0; font: .8rem ui-monospace, Menlo, Consolas, monospace; color: var(--muted); overflow-wrap: anywhere; }
-#live-pages { list-style: none; margin: 0; padding: 0; display: grid; gap: .3rem; }
-#live-pages li { font: .85rem/1.35 ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; padding-left: 1rem; position: relative; color: var(--muted); }
-#live-pages li::before { content: ""; position: absolute; left: .1rem; top: .45rem; width: .45rem; height: .45rem; border-radius: 50%; border: 1px solid var(--muted); }
-#live-pages li.current { color: var(--text); }
-#live-pages li.current::before { background: var(--amber); border-color: var(--amber); }
-#live-pages .tag { font-family: system-ui, sans-serif; color: var(--amber); border-color: var(--amber); }
-.steps-scroll { max-height: 20rem; overflow: auto; margin: 0 -.75rem -.6rem; padding: 0 .75rem .6rem; }
-#live-steps { margin: 0; padding: 0; list-style: none; display: grid; gap: .15rem; font-size: .88rem; }
-#live-steps li { display: grid; grid-template-columns: auto 1fr; gap: 0 .6rem; padding: .2rem 0; border-bottom: 1px solid #1F2327; }
-#live-steps li:last-child { border-bottom: 0; color: var(--amber); }
-#live-steps time { font: .78rem/1.6 ui-monospace, Menlo, Consolas, monospace; color: var(--muted); }
-#live-steps .url { grid-column: 2; font: .75rem ui-monospace, Menlo, Consolas, monospace; color: var(--muted); overflow-wrap: anywhere; }
-#live-steps .scn { grid-column: 1 / -1; margin-top: .4rem; font-size: .75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
-.empty { color: var(--muted); font-size: .88rem; margin: 0; }
-@media (max-width: 40rem) {
-  .dots, .address .label { display: none; }
-  #live-url { white-space: normal; overflow-wrap: anywhere; }
-  .address { border-radius: 8px; }
-}
-</style>
-</head>
-<body>
-<main>
-<header>
-<h1>Run Hound</h1>
-<p class="lead">Point it at a form on your own local app. It plans a set of checks, you approve them, it runs them in a real browser.</p>
-</header>
-
-<section class="card" aria-labelledby="step-target">
-<h2 id="step-target">1. Target</h2>
-<form id="target-form" novalidate>
-<label for="target-url">Page URL (localhost or a private address)</label>
-<div class="row">
-<input id="target-url" name="url" type="url" required placeholder="http://localhost:5173/signup" autocomplete="url" aria-describedby="target-error">
-<button id="plan-button" type="submit">Plan checks</button>
-</div>
-<p id="target-error" class="error" role="alert"></p>
-</form>
-</section>
-
-<section class="card" id="plan-section" aria-labelledby="step-plan" hidden>
-<h2 id="step-plan">2. Approve the plan</h2>
-<p class="muted" id="plan-summary"></p>
-<div id="plan-warnings" class="warning" role="status" hidden></div>
-<form id="plan-form">
-<div id="scenarios"></div>
-<div class="scenario">
-<input id="allow-destructive" type="checkbox">
-<label for="allow-destructive">Allow destructive scenarios<span class="desc">They may change or delete data beyond creating test records. Leave off unless this is a throwaway environment.</span></label>
-</div>
-<div class="scenario">
-<input id="headed" type="checkbox"__HEADED_ATTRS__>
-<label for="headed">Show the browser window<span class="desc">__HEADED_DESC__</span></label>
-</div>
-<p id="plan-error" class="error" role="alert"></p>
-<button id="run-button" type="submit">Run approved checks</button>
-</form>
-</section>
-
-<section class="card" id="progress-section" aria-labelledby="step-progress" hidden>
-<h2 id="step-progress">3. Watch the run</h2>
-<div id="live">
-<div class="live-top">
-<p id="status" role="status" aria-live="polite"></p>
-<progress id="progress" max="1" value="0" aria-label="Scenarios completed"></progress>
-</div>
-<div class="live-grid">
-<figure class="browser" aria-labelledby="live-caption">
-<div class="chrome">
-<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-<div class="address"><span class="label" id="live-url-label">Testing</span><span id="live-url">Waiting for the browser…</span></div>
-<span id="live-badge" class="pill">Starting</span>
-</div>
-<div class="viewport">
-<img id="live-frame" alt="Live view of the browser under test. No frame yet." hidden>
-<p id="live-placeholder" class="placeholder">Starting the browser…</p>
-</div>
-<figcaption class="now" id="live-caption"><span class="label">Now</span><span id="live-step">Starting the run</span></figcaption>
-</figure>
-<div class="side">
-<section class="box" aria-labelledby="live-scenario-h">
-<h3 id="live-scenario-h">Scenario</h3>
-<p id="live-scenario">Not started</p>
-<p id="live-scenario-id"></p>
-</section>
-<section class="box" aria-labelledby="live-pages-h">
-<h3 id="live-pages-h">Pages tested</h3>
-<ul id="live-pages"><li class="empty">None yet</li></ul>
-</section>
-<section class="box" aria-labelledby="live-steps-h">
-<h3 id="live-steps-h">Steps (latest last)</h3>
-<div class="steps-scroll" id="live-steps-box" tabindex="0" role="region" aria-labelledby="live-steps-h"><ol id="live-steps"></ol></div>
-</section>
-</div>
-</div>
-</div>
-</section>
-
-<section class="card" id="report-section" aria-labelledby="step-report" tabindex="-1" hidden>
-<h2 id="step-report">4. Report</h2>
-<div id="report"></div>
-</section>
-</main>
-<footer class="site-footer"><p>Run Hound ${RUN_HOUND_VERSION.replace(/[^\w.+-]/g, "")} · tester release · tests only local and private-network addresses · test records it creates are counted in the report, not deleted</p></footer>
-<script>
-(() => {
-  const $ = (id) => document.getElementById(id);
-  const el = (tag, props = {}, ...children) => {
-    const node = Object.assign(document.createElement(tag), props);
-    for (const c of children) node.append(c);
-    return node;
-  };
-  let planId = null;
-  let checkTitles = {};
-  const SEVERITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
-
-  async function api(path, body) {
-    const res = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json.error || ("Request failed (" + res.status + ")"));
-    return json;
-  }
-
-  $("target-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const url = $("target-url").value.trim();
-    $("target-error").textContent = "";
-    $("target-url").removeAttribute("aria-invalid");
-    if (!url) {
-      $("target-url").setAttribute("aria-invalid", "true");
-      $("target-error").textContent = "Enter the URL of the page with your form.";
-      $("target-url").focus();
-      return;
-    }
-    $("plan-button").disabled = true;
-    $("plan-button").textContent = "Opening the page…";
-    try {
-      const { planId: id, plan, checks, warnings } = await api("/api/plan", { url });
-      planId = id;
-      checkTitles = checks || {};
-      showPlan(plan);
-      const warn = $("plan-warnings");
-      warn.replaceChildren(...(warnings || []).map((w) => el("p", { textContent: w })));
-      warn.hidden = !(warnings && warnings.length);
-    } catch (err) {
-      // A failed plan must not leave the previous target's plan on screen, ready to run.
-      planId = null;
-      $("plan-section").hidden = true;
-      $("target-url").setAttribute("aria-invalid", "true");
-      $("target-error").textContent = err.message;
-    } finally {
-      $("plan-button").disabled = false;
-      $("plan-button").textContent = "Plan checks";
-    }
-  });
-
-  function showPlan(plan) {
-    const box = $("scenarios");
-    box.replaceChildren();
-    const fields = plan.form.fields.length;
-    $("plan-summary").textContent = "Found " + (plan.form.name ? "“" + plan.form.name + "”" : "a form") + " with " + fields + " field" + (fields === 1 ? "" : "s") + ". " + plan.scenarios.length + " scenarios proposed.";
-    const byCheck = new Map();
-    for (const s of plan.scenarios) byCheck.set(s.checkId, [...(byCheck.get(s.checkId) || []), s]);
-    for (const [checkId, scenarios] of byCheck) {
-      const fs = el("fieldset", {}, el("legend", { textContent: checkTitles[checkId] || checkId }));
-      for (const s of scenarios) {
-        const id = "sc-" + s.id.replace(/[^\\w-]/g, "_");
-        const input = el("input", { type: "checkbox", id, value: s.id, checked: s.defaultSelected });
-        const label = el("label", { htmlFor: id }, s.title, el("span", { className: "tag" + (s.kind === "danger" ? " danger" : ""), textContent: s.kind }));
-        if (s.destructive) label.append(el("span", { className: "tag danger", textContent: "destructive" }));
-        label.append(el("span", { className: "desc", textContent: s.description }));
-        fs.append(el("div", { className: "scenario" }, input, label));
-      }
-      box.append(fs);
-    }
-    $("plan-section").hidden = false;
-    $("progress-section").hidden = true;
-    $("report-section").hidden = true;
-    $("step-plan").setAttribute("tabindex", "-1");
-    $("step-plan").focus();
-  }
-
-  $("plan-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const approved = [...$("scenarios").querySelectorAll("input:checked")].map((i) => i.value);
-    $("plan-error").textContent = "";
-    if (!planId) {
-      $("plan-error").textContent = "Plan the checks for a page first.";
-      return;
-    }
-    if (approved.length === 0) {
-      $("plan-error").textContent = "Select at least one scenario to run.";
-      return;
-    }
-    $("run-button").disabled = true;
-    $("progress-section").hidden = false;
-    $("report-section").hidden = true;
-    $("status").textContent = "Starting " + approved.length + " scenarios…";
-    try {
-      const { runId } = await api("/api/runs", { planId, approved, allowDestructive: $("allow-destructive").checked, headed: $("headed").checked });
-      resetLive($("headed").checked);
-      // Keeps the run in the address, so reloading the page comes back to it.
-      history.replaceState(null, "", "#run=" + encodeURIComponent(runId));
-      poll(runId);
-    } catch (err) {
-      $("status").textContent = "Could not start the run: " + err.message;
-      $("run-button").disabled = false;
-    }
-  });
-
-  const time = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
-
-  function resetLive(headed) {
-    document.querySelector("main").classList.add("watching");
-    $("live-url").textContent = "Waiting for the browser…";
-    $("live-url-label").textContent = "Testing";
-    $("live-scenario-h").textContent = "Scenario";
-    $("live-step").textContent = headed ? "Opening a browser window on this machine" : "Starting the browser";
-    $("live-scenario").textContent = "Not started";
-    $("live-scenario-id").textContent = "";
-    $("live-pages").replaceChildren(el("li", { className: "empty", textContent: "None yet" }));
-    $("live-steps").replaceChildren();
-    $("live-frame").hidden = true;
-    $("live-frame").removeAttribute("src");
-    $("live-placeholder").hidden = false;
-    $("live-placeholder").textContent = "Starting the browser…";
-    setBadge("Starting", false);
-  }
-
-  function setBadge(text, on) {
-    $("live-badge").textContent = text;
-    $("live-badge").className = "pill" + (on ? " on" : "");
-  }
-
-  /** Swaps in a new frame only once it has loaded, so the view never flashes empty. */
-  function showFrame(runId, seq, url) {
-    const next = new Image();
-    next.onload = () => {
-      $("live-frame").src = next.src;
-      $("live-frame").alt = "Live view of the browser under test, showing " + (url || "the page");
-      $("live-frame").hidden = false;
-      $("live-placeholder").hidden = true;
-    };
-    next.src = "/api/runs/" + encodeURIComponent(runId) + "/live.jpg?frame=" + seq;
-  }
-
-  function renderPages(pages, current) {
-    if (pages.length === 0) return;
-    $("live-pages").replaceChildren(...pages.map((u) => {
-      const now = u === current;
-      const li = el("li", { className: now ? "current" : "", textContent: u });
-      if (now) li.append(el("span", { className: "tag", textContent: "now" }));
-      return li;
-    }));
-  }
-
-  function renderSteps(steps) {
-    const box = $("live-steps-box");
-    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
-    const items = [];
-    let scenario, url;
-    for (const s of steps) {
-      if (s.scenarioId !== scenario) {
-        scenario = s.scenarioId;
-        url = undefined;
-        items.push(el("li", {}, el("span", { className: "scn", textContent: scenario || "Run Hound" })));
-      }
-      const li = el("li", {}, el("time", { dateTime: s.at, textContent: time(s.at) }), el("span", { textContent: s.label }));
-      if (s.url !== url) li.append(el("span", { className: "url", textContent: s.url }));
-      url = s.url;
-      items.push(li);
-    }
-    $("live-steps").replaceChildren(...items);
-    if (atBottom) box.scrollTop = box.scrollHeight;
-  }
-
-  /**
-   * Polls the run and its live view about twice a second. The status region only announces when the
-   * scenario changes or the run ends; the step, URL and frame update silently.
-   */
-  async function poll(runId) {
-    const base = "/api/runs/" + encodeURIComponent(runId);
-    let scenario = null, frameSeq = 0, lastStep = "", pagesKey = "";
-    for (;;) {
-      let state, live;
-      try {
-        [state, live] = await Promise.all([api(base), api(base + "/live")]);
-      } catch (err) {
-        $("status").textContent = "Lost track of the run: " + err.message;
-        break;
-      }
-      $("progress").max = Math.max(state.total, 1);
-      $("progress").value = state.completed;
-      if (live.url) $("live-url").textContent = live.url;
-      if (live.frameSeq !== frameSeq) {
-        frameSeq = live.frameSeq;
-        showFrame(runId, frameSeq, live.url);
-      }
-      const last = live.steps[live.steps.length - 1];
-      const stepKey = last ? last.at + last.label + live.steps.length : "";
-      if (stepKey !== lastStep) {
-        lastStep = stepKey;
-        renderSteps(live.steps);
-      }
-      // live.step is cleared when a scenario starts, so a previous scenario's step never lingers.
-      $("live-step").textContent = live.step || (live.scenarioId ? "Starting “" + (live.scenarioTitle || live.scenarioId) + "”" : $("live-step").textContent);
-      const key = live.pagesVisited.join(" ") + "|" + live.url + "|" + state.status;
-      if (key !== pagesKey) {
-        pagesKey = key;
-        renderPages(live.pagesVisited, state.status === "running" ? live.url : null);
-      }
-      if (state.status === "running") {
-        if (live.scenarioId && live.scenarioId !== scenario) {
-          scenario = live.scenarioId;
-          const n = Math.min(state.completed + 1, state.total);
-          $("status").textContent = "Scenario " + n + " of " + state.total + ": " + (live.scenarioTitle || live.scenarioId);
-          $("live-scenario").textContent = live.scenarioTitle || live.scenarioId;
-          $("live-scenario-id").textContent = live.scenarioId;
-          setBadge("Live", true);
-        } else if (!scenario) {
-          $("status").textContent = "Starting " + state.total + " scenario" + (state.total === 1 ? "" : "s") + "…";
-        }
-        await new Promise((r) => setTimeout(r, 500));
-        continue;
-      }
-      setBadge(state.status === "done" ? "Finished" : "Stopped", false);
-      $("live-url-label").textContent = "Last page";
-      $("live-scenario-h").textContent = "Last scenario";
-      if (frameSeq === 0) $("live-placeholder").textContent = "No frames were captured.";
-      if (state.status === "error") {
-        $("status").textContent = "The run failed: " + state.error;
-        $("live-step").textContent = "The run failed";
-      } else {
-        const confirmed = state.report.findings.filter((f) => f.confidence === "confirmed").length;
-        const total = state.report.findings.length;
-        $("status").textContent = "Done. " + total + " finding" + (total === 1 ? "" : "s") + " (" + confirmed + " confirmed, " + (total - confirmed) + " advisory).";
-        $("live-step").textContent = "Finished. The last frame is shown above.";
-        showReport(runId, state.report);
-      }
-      break;
-    }
-    $("run-button").disabled = false;
-  }
-
-  const VISUAL_KINDS = ["frame", "gif", "card", "screenshot"];
-  const KIND_NAMES = { frame: "Annotated screenshot", gif: "Recording", card: "Data card", screenshot: "Screenshot" };
-
-  /** One piece of visual evidence: the image (linked to the full-size file), what it shows, and its facts. */
-  function evidenceFigure(base, e) {
-    const href = base + "artifacts/" + encodeURIComponent(e.path);
-    const meta = [
-      e.step ? "Step: " + e.step : "",
-      e.url ? "Page: " + e.url : "",
-      e.capturedAt ? "Captured: " + e.capturedAt : "",
-      e.kind === "gif" && e.frames ? e.frames + " frames, " + (e.durationMs / 1000).toFixed(1) + " s" : "",
-    ].filter(Boolean).join(" · ");
-    const figure = el("figure", {},
-      el("a", { href, target: "_blank", rel: "noopener" }, el("img", { src: href, alt: (KIND_NAMES[e.kind] || e.kind) + ": " + e.label, loading: "lazy" })),
-      el("figcaption", {}, el("b", { textContent: (KIND_NAMES[e.kind] || e.kind) + ": " + e.label }), meta ? el("span", { textContent: " · " + meta }) : ""));
-    const facts = e.facts || [];
-    if (facts.length > 0) {
-      const dl = el("dl", {});
-      for (const x of facts) dl.append(el("dt", { textContent: x.label }), el("dd", { textContent: x.value }));
-      figure.append(el("details", {}, el("summary", { textContent: "Data behind it (" + facts.length + ")" }), dl));
-    }
-    return figure;
-  }
-
-  function showReport(runId, report) {
-    const out = $("report");
-    const s = report.summary;
-    const base = "/api/runs/" + encodeURIComponent(runId) + "/";
-    out.replaceChildren(
-      el("p", { textContent: s.passed + " passed, " + s.failed + " failed, " + s.errored + " errored, " + s.skipped + " skipped. Findings: " + s.critical + " critical, " + s.high + " high, " + s.medium + " medium, " + s.low + " low." }),
-      ...(typeof report.testRecordsCreated === "number"
-        ? [el("p", { textContent: report.testRecordsCreated === 0
-            ? "Test data: this run created no test records."
-            : "Test data: this run may have created " + report.testRecordsCreated + " test record" + (report.testRecordsCreated === 1 ? "" : "s") + " in your app. Run Hound does not delete them." })]
-        : []),
-      el("ul", { className: "links" },
-        el("li", {}, el("a", { href: base + "report.html", textContent: "Full report (HTML)" })),
-        el("li", {}, el("a", { href: base + "report.md", textContent: "Markdown report" })),
-        el("li", {}, el("a", { href: base + "report.json", textContent: "JSON report" }))),
-    );
-    if (report.findings.length === 0) out.append(el("p", { className: "pass", textContent: "No findings in the scenarios that ran." }));
-    const sorted = [...report.findings].sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9));
-    for (const f of sorted) {
-      const item = el("article", { className: "finding" },
-        el("h3", { textContent: "[" + f.severity + (f.confidence === "advisory" ? ", advisory" : "") + "] " + f.title }),
-        el("p", { className: "muted", textContent: f.checkId + (f.location && !(f.locations && f.locations.length > 1) ? " · " + f.location : "") }));
-      if (f.locations && f.locations.length > 1) {
-        item.append(el("p", { className: "muted", textContent: "Where (" + f.locations.length + " places):" }), el("ul", {}, ...f.locations.map((l) => el("li", { textContent: l }))));
-      }
-      item.append(
-        el("p", { textContent: f.meaning }),
-        el("p", { textContent: "Fix: " + f.fix }));
-      const visual = (f.evidence || []).filter((e) => e.path && VISUAL_KINDS.includes(e.kind));
-      if (visual.length > 0) item.append(el("div", { className: "evidence" }, ...visual.map((e) => evidenceFigure(base, e))));
-      if (f.spec) item.append(el("p", {}, el("a", { href: base + "specs/" + encodeURIComponent(f.spec.filename), textContent: "Playwright spec: " + f.spec.filename })));
-      out.append(item);
-    }
-    const errored = report.results.filter((r) => r.status === "error");
-    for (const r of errored) out.append(el("p", { className: "error", textContent: r.scenarioId + " errored: " + (r.notes || "") }));
-    out.append(el("h3", { textContent: "What a browser can't see" }), el("ul", {}, ...report.notVisible.map((t) => el("li", { textContent: t }))));
-    $("report-section").hidden = false;
-    $("report-section").focus();
-  }
-
-  // Reloading the page (or opening a link to #run=<id>) shows that run again: live while it runs, then its report.
-  const resume = /^#run=([\\w-]+)$/.exec(location.hash);
-  if (resume) {
-    $("progress-section").hidden = false;
-    resetLive(false);
-    $("run-button").disabled = true;
-    poll(resume[1]);
-  }
-})();
-</script>
-</body>
-</html>
-`;

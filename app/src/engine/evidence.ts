@@ -4,6 +4,7 @@ import gifencDefault from "gifenc";
 import * as gifencNamespace from "gifenc";
 import { PNG } from "pngjs";
 import type { Browser, BrowserContext, Locator, Page } from "playwright";
+import { BRAND, MARK_DATA_URI } from "../core/brand.js";
 import type { Box, Fact, Highlight } from "../core/types.js";
 
 /** Frame layout, in CSS px of the composed image. */
@@ -57,18 +58,21 @@ const TONE_COLOURS: Record<NonNullable<Highlight["tone"]>, string> = {
   info: "#F5B642",
 };
 
+/** Frame chrome in the Run Hound palette (docs/brand.md); the highlight tones above keep their own fail/pass/info meaning. */
 const THEME = {
-  header: "#0E1116",
-  panel: "#161B22",
-  panelBorder: "#2D333B",
-  text: "#E6EDF3",
-  muted: "#8B949E",
-  url: "#79C0FF",
-  step: "#F5B642",
-  code: "#0B0E13",
+  header: BRAND.bg,
+  panel: BRAND.surface,
+  panelBorder: BRAND.line,
+  text: BRAND.fg,
+  muted: BRAND.muted,
+  url: BRAND.muted,
+  step: BRAND.accent,
+  code: BRAND.bgDeep,
+  lineNumber: BRAND.dim,
+  codeText: "#D5DEDA",
 };
-/** Colour used to pad GIF frames of different sizes (matches the facts panel). */
-const PAD_RGB = [0x16, 0x1b, 0x22] as const;
+/** Colour used to pad GIF frames of different sizes (matches the facts panel, BRAND.surface). */
+const PAD_RGB = [0x10, 0x17, 0x1c] as const;
 
 /**
  * gifenc ships CommonJS ("main") and an ESM build ("module") whose default export is only GIFEncoder. Node loads the
@@ -209,8 +213,9 @@ const BASE_CSS = `
     padding: 9px 14px 0; display: flex; flex-direction: column; gap: 5px; overflow: hidden; }
   .row { display: flex; align-items: baseline; gap: 10px; min-width: 0; white-space: nowrap; }
   .grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .brand { flex: none; font-size: 10px; font-weight: 700; letter-spacing: .08em; color: ${THEME.header}; background: ${THEME.text};
-    padding: 2px 5px; border-radius: 3px; position: relative; top: -1px; }
+  .brand { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 800; letter-spacing: -.01em;
+    color: ${THEME.text}; padding-right: 8px; border-right: 1px solid ${THEME.panelBorder}; position: relative; top: 1px; }
+  .brand img { width: 24px; height: 14px; display: block; }
   .title { font-size: 14px; font-weight: 650; }
   .step { color: ${THEME.step}; font-weight: 600; }
   .sep { color: ${THEME.muted}; padding: 0 6px; font-weight: 400; }
@@ -227,7 +232,7 @@ const BASE_CSS = `
 function headerHtml(header: { url: string; capturedAt: string; title: string; step?: string }): string {
   const step = header.step ? `<span class="sep">›</span><span class="step">${escapeHtml(header.step)}</span>` : "";
   return `<div class="header">
-    <div class="row"><span class="brand">RUN HOUND</span><span class="title grow">${escapeHtml(header.title)}${step}</span>
+    <div class="row"><span class="brand"><img src="${MARK_DATA_URI}" alt="">Run Hound</span><span class="title grow">${escapeHtml(header.title)}${step}</span>
       <span class="time mono">${escapeHtml(header.capturedAt)}</span></div>
     <div class="row"><span class="url mono grow">${escapeHtml(header.url)}</span></div>
   </div>`;
@@ -554,8 +559,8 @@ export async function renderCard(
     .code { margin-top: 14px; background: ${THEME.code}; border: 1px solid ${THEME.panelBorder}; border-radius: 6px; padding: 8px 0;
       font-family: ${MONO}; font-size: 13px; line-height: 20px; }
     .line { display: flex; padding: 0 12px 0 0; border-left: 3px solid transparent; }
-    .line .n { flex: none; color: #545d68; padding: 0 12px 0 9px; white-space: pre; user-select: none; }
-    .line .t { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; color: #C9D1D9; }
+    .line .n { flex: none; color: ${THEME.lineNumber}; padding: 0 12px 0 9px; white-space: pre; user-select: none; }
+    .line .t { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; color: ${THEME.codeText}; }
     .line.mark { background: rgba(255, 90, 79, .16); border-left-color: ${TONE_COLOURS.fail}; }
     .line.mark .n { color: ${TONE_COLOURS.fail}; font-weight: 700; }
     .line.mark .t { color: #fff; }

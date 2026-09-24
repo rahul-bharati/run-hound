@@ -15,7 +15,7 @@ export function DocSection({
   return (
     <section id={id} aria-labelledby={`${id}-heading`} className="flex scroll-mt-28 flex-col gap-6">
       <div className="flex flex-col gap-2">
-        {step ? <p className="font-mono text-xs tracking-widest text-amber">{step}</p> : null}
+        {step ? <p className="font-mono text-xs tracking-widest text-accent">{step}</p> : null}
         <h2 id={`${id}-heading`} className="font-display text-3xl font-bold tracking-tight sm:text-4xl">
           {title}
         </h2>

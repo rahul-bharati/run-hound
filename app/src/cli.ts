@@ -13,7 +13,8 @@
 import { parseArgs } from "node:util";
 import { serve } from "@hono/node-server";
 import { redactSecrets } from "./engine/redact.js";
-import { findingCounts, testDataSentence } from "./engine/report.js";
+import { formatDuration } from "./core/format.js";
+import { findingCounts, finishedIn, testDataSentence } from "./engine/report.js";
 import { canShowBrowser, discoverAndPlan, NO_DISPLAY_MESSAGE, NothingToRunError, planWarnings, RUN_HOUND_VERSION, runPlan } from "./engine/runner.js";
 import { exitQuietlyOnClosedPipe } from "./engine/stdio.js";
 import { createApp } from "./server/app.js";
@@ -103,11 +104,16 @@ async function runCommand(args: string[]): Promise<number> {
     if (values.json) process.stdout.write(`${JSON.stringify(JSON.parse(redactSecrets(JSON.stringify(plan))))}\n`);
     else {
       process.stdout.write(`Scenarios for ${redactSecrets(plan.target)} (* = run by default; pass ids to --approve):\n`);
-      for (const s of plan.scenarios) {
-        const tags = [s.kind, s.destructive ? "destructive" : ""].filter(Boolean).join(", ");
-        process.stdout.write(`  ${s.defaultSelected ? "*" : " "} ${s.id}  ${redactSecrets(s.title)} (${tags})\n`);
-        // What the scenario does, including whether it creates test records in the app, before anyone approves it.
-        process.stdout.write(`      ${redactSecrets(s.description)}\n`);
+      for (const group of plan.groups) {
+        process.stdout.write(`\n${group.label} (${count(group.scenarioIds.length, "scenario")})\n`);
+        for (const id of group.scenarioIds) {
+          const s = plan.scenarios.find((x) => x.id === id);
+          if (!s) continue;
+          const tags = [s.kind, s.destructive ? "destructive" : ""].filter(Boolean).join(", ");
+          process.stdout.write(`  ${s.defaultSelected ? "*" : " "} ${s.id}  ${redactSecrets(s.title)} (${tags})\n`);
+          // What the scenario does, including whether it creates test records in the app, before anyone approves it.
+          process.stdout.write(`      ${redactSecrets(s.description)}\n`);
+        }
       }
     }
     return 0;
@@ -129,14 +135,16 @@ async function runCommand(args: string[]): Promise<number> {
     runsDir: values["runs-dir"],
     headed,
     onProgress: (e) => {
-      if (e.type === "scenario-start") {
+      if (e.type === "group-start") {
+        log(`== ${e.label} (${count(e.scenarios, "scenario")}; group ${e.index + 1} of ${e.total}) ==`);
+      } else if (e.type === "scenario-start") {
         lastPage = "";
         log(`[${e.index + 1}/${e.total}] ${e.scenarioId}`);
       } else if (e.type === "scenario-end") {
         const n = e.result.findings.length;
         // Skip notes start with "Skipped: " so they read on their own in the report; don't say it twice here.
         const why = e.result.status === "skipped" && e.result.notes ? `: ${e.result.notes.replace(/^Skipped:\s*/i, "")}` : "";
-        log(`  ${e.result.status}${n ? ` (${count(n, "finding")})` : ""}${why}`);
+        log(`  ${e.result.status}${n ? ` (${count(n, "finding")})` : ""}${why} · ${formatDuration(Math.max(0, e.result.durationMs || 0))}`);
       } else if (e.type === "step") {
         log(`  ${e.scenarioId ? "·" : "-"} ${e.label}  ${e.url}`);
       } else if (e.type === "page" && e.url !== lastPage) {
@@ -152,6 +160,12 @@ async function runCommand(args: string[]): Promise<number> {
     log(`Run folder: ${dir}`);
   } else {
     const s = report.summary;
+    process.stdout.write(`${finishedIn(report) ?? "Finished"}.\n`);
+    for (const g of report.groups) {
+      process.stdout.write(
+        `  ${g.label}: ${g.passed} passed, ${g.failed} failed, ${g.errored} errored, ${g.skipped} skipped; ${count(g.findings, "finding")}; ${formatDuration(g.durationMs)}\n`,
+      );
+    }
     process.stdout.write(
       `${findingCounts(report.findings)}; critical ${s.critical}, high ${s.high}, medium ${s.medium}, low ${s.low}. ` +
         `Scenarios: ${s.passed} passed, ${s.failed} failed, ${s.errored} errored, ${s.skipped} skipped.\n`,

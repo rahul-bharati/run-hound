@@ -8,6 +8,19 @@ export type Severity = "critical" | "high" | "medium" | "low";
 
 export type Category = "broken-feature" | "validation" | "accessibility" | "security";
 
+/** How checks are grouped in plans, progress and reports. */
+export type CheckGroup = "accessibility" | "features" | "security";
+
+/**
+ * The groups in display and run order. Scenarios run group by group (in this order), keeping CHECK_IDS order
+ * inside a group. "Features" covers broken features and validation.
+ */
+export const CHECK_GROUPS: readonly { id: CheckGroup; label: string; categories: readonly Category[] }[] = [
+  { id: "accessibility", label: "Accessibility", categories: ["accessibility"] },
+  { id: "features", label: "Features", categories: ["broken-feature", "validation"] },
+  { id: "security", label: "Security", categories: ["security"] },
+];
+
 /** Stable ids for the V0 checks, in the order they run. */
 export const CHECK_IDS = [
   "console-network-errors",
@@ -208,6 +221,8 @@ export interface CheckResult {
   durationMs: number;
   /** Why it was skipped or errored, or a short note on what was verified. */
   notes?: string;
+  /** What the check did, in order (from CheckContext.step), for "Reproduction steps". Secrets redacted. */
+  steps?: { label: string; url: string; at: string }[];
 }
 
 /** One line of the test plan the user approves. */
@@ -280,10 +295,36 @@ export interface Check {
   run(ctx: CheckContext, scenario: Scenario): Promise<CheckResult>;
 }
 
+/** A group's scenarios within a plan, in run order. */
+export interface PlanGroup {
+  id: CheckGroup;
+  label: string;
+  scenarioIds: string[];
+}
+
 export interface Plan {
   target: string;
   form: DiscoveredForm;
+  /** In run order: grouped by CHECK_GROUPS order, CHECK_IDS order inside a group. */
   scenarios: Scenario[];
+  /** Every group that has at least one scenario, in CHECK_GROUPS order. Empty groups are left out. */
+  groups: PlanGroup[];
+}
+
+/** Results of one group in a report. */
+export interface ReportGroup {
+  id: CheckGroup;
+  label: string;
+  /** Approved scenarios of this group, in run order. */
+  scenarioIds: string[];
+  passed: number;
+  failed: number;
+  errored: number;
+  skipped: number;
+  /** Findings from this group's checks. */
+  findings: number;
+  /** Sum of the group's scenario durations. */
+  durationMs: number;
 }
 
 export interface Report {
@@ -291,6 +332,10 @@ export interface Report {
   target: string;
   startedAt: string;
   finishedAt: string;
+  /** Whole run, from the start of runPlan to the report being written: finishedAt minus startedAt, in ms. */
+  durationMs: number;
+  /** Per-group results for every group with at least one approved scenario, in CHECK_GROUPS order. */
+  groups: ReportGroup[];
   runHoundVersion: string;
   plan: Plan;
   /** Ids of the scenarios the user approved. */
@@ -311,4 +356,8 @@ export interface Report {
    * a 2xx or 3xx status. Run Hound never deletes them; the report says so. Optional only for older reports.
    */
   testRecordsCreated?: number;
+  /** True when the user stopped the run: remaining scenarios are "skipped" with notes "Stopped by you". */
+  stopped?: boolean;
+  /** Browser the run used, e.g. "Chromium 153.0.8010.12". */
+  browser?: string;
 }

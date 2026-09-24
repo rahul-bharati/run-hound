@@ -17,7 +17,7 @@ services:
     build:
       context: .
       dockerfile: fixtures/kennel/Dockerfile
-    image: localhost/run-hound-kennel:dev
+    image: rahulrbharati/run-hound-kennel:0.1.0
     environment:
       KENNEL_BUGS: ${KENNEL_BUGS:-all}
     ports:
@@ -28,7 +28,7 @@ services:
     build:
       context: .
       dockerfile: app/Dockerfile
-    image: localhost/run-hound:dev
+    image: rahulrbharati/run-hound:0.1.0
     init: true
     environment:
       # Named hosts the safety gate accepts besides localhost and private addresses: the Kennel service and the

@@ -1,24 +1,27 @@
 @import "tailwindcss";
 
-/* Night Shift palette with Signal type (Bricolage Grotesque, Geist, Geist Mono). */
+/* Hound palette with Signal type (Bricolage Grotesque, Geist, Geist Mono). Brand rules: docs/brand.md. */
 @theme {
-  --color-bg: #0e1012;
-  --color-bg-deep: #0b0d0f;
-  --color-surface: #171a1d;
-  --color-surface-2: #1e2125;
-  --color-surface-3: #22262a;
-  --color-band: #13161a;
-  --color-stage: #121417;
-  --color-line: #2a2e33;
-  --color-line-soft: #23272b;
-  --color-line-strong: #3a3f44;
-  --color-fg: #e8e6e1;
-  --color-muted: #b4b8bc;
-  --color-dim: #8a9096;
-  --color-amber: #f5b642;
-  --color-amber-ink: #121212;
-  --color-pass: #6fcf97;
-  --color-fail: #ff7a6b;
+  /* "Hound" palette: blue-green near-black with a mint accent (see docs/brand.md). */
+  --color-bg: #0a1014;
+  --color-bg-deep: #070b0e;
+  --color-surface: #10171c;
+  --color-surface-2: #141d23;
+  --color-surface-3: #19242b;
+  --color-band: #0c1318;
+  --color-stage: #0e151a;
+  --color-line: #1e2a31;
+  --color-line-soft: #172127;
+  --color-line-strong: #2a3841;
+  --color-fg: #e9efec;
+  --color-muted: #a7b4b0;
+  --color-dim: #82918d;
+  --color-accent: #5ee6a3;
+  --color-accent-strong: #7dedb6;
+  --color-accent-ink: #04150d;
+  --color-pass: #5ee6a3;
+  --color-fail: #ff6b6b;
+  --color-warn: #f5b642;
 
   /* Light "app under test" colours used inside product mockups. */
   --color-paper: #f4f4f0;
@@ -45,14 +48,14 @@
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-amber);
+    outline: 2px solid var(--color-accent);
     outline-offset: 3px;
     border-radius: 6px;
   }
 
   ::selection {
-    background: var(--color-amber);
-    color: var(--color-amber-ink);
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -68,6 +71,13 @@
 }
 
 @layer components {
+  /* Soft mint glow behind page heroes, as in the brand reference. Decorative only. */
+  .hero-glow {
+    background:
+      radial-gradient(60% 55% at 85% 0%, rgb(94 230 163 / 0.09), transparent 70%),
+      radial-gradient(40% 40% at 0% 10%, rgb(94 230 163 / 0.04), transparent 70%);
+  }
+
   /* Long-form text for docs and legal pages. */
   .prose-night {
     color: var(--color-muted);
@@ -98,9 +108,12 @@
     font-weight: 600;
   }
   .prose-night a {
-    color: var(--color-amber);
+    color: var(--color-accent);
     text-decoration: underline;
     text-underline-offset: 3px;
+  }
+  .prose-night a:hover {
+    color: var(--color-accent-strong);
   }
   .prose-night ul,
   .prose-night ol {
@@ -133,6 +146,10 @@
     border: 1px solid var(--color-line);
     border-radius: 12px;
     padding: 1rem 1.25rem;
+  }
+  .prose-night :not(pre) > code {
+    /* Long URLs and paths wrap instead of widening the page on phones. */
+    overflow-wrap: anywhere;
   }
   .prose-night pre code {
     background: none;

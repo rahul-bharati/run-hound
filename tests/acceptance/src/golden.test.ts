@@ -60,12 +60,14 @@ function report(overrides: Partial<Record<(typeof CHECK_IDS)[number], { status: 
     target: "http://localhost:1/book",
     startedAt: "",
     finishedAt: "",
+    durationMs: 0,
     runHoundVersion: "0.0.1",
-    plan: { target: "", form: { url: "", selector: "form", name: "Book a sitter", fields: [], controls: [] }, scenarios: [] },
+    plan: { target: "", form: { url: "", selector: "form", name: "Book a sitter", fields: [], controls: [] }, scenarios: [], groups: [] },
     approved: [],
     results,
     findings: results.flatMap((r) => r.findings),
     summary: { critical: 0, high: 0, medium: 0, low: 0, passed: 0, failed: 0, errored: 0, skipped: 0 },
+    groups: [],
     notVisible: [],
   };
 }

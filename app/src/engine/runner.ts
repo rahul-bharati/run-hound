@@ -2,8 +2,9 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { chromium, type LaunchOptions } from "playwright";
-import type { Check, CheckResult, Plan, Report, Scenario } from "../core/types.js";
+import { chromium, type Browser, type LaunchOptions } from "playwright";
+import { groupOf } from "../core/format.js";
+import { CHECK_GROUPS, type Check, type CheckGroup, type CheckResult, type Plan, type Report, type Scenario } from "../core/types.js";
 import { createCheckContext } from "./context.js";
 import { discoverForm } from "./discover.js";
 import {
@@ -24,6 +25,12 @@ import { NOT_VISIBLE, redactReport, writeReport } from "./report.js";
 import { checkTarget, pinArgs, type SafetyOptions } from "./safety.js";
 
 export interface RunOptions {
+  /**
+   * Stops the run when aborted: the scenario in progress is abandoned (its browser context closed, status "skipped",
+   * notes "Stopped by you"), remaining approved scenarios are "skipped" with the same note, and the report is still
+   * written with stopped: true. runPlan resolves normally; it does not throw on abort.
+   */
+  signal?: AbortSignal;
   /** Defaults to the registered V0 checks. */
   checks?: Check[];
   /** Scenario ids to run. Defaults to every defaultSelected scenario. */
@@ -47,7 +54,9 @@ export interface RunOptions {
 }
 
 export type ProgressEvent =
-  | { type: "scenario-start"; scenarioId: string; index: number; total: number }
+  | { type: "scenario-start"; scenarioId: string; index: number; total: number; group: CheckGroup }
+  /** A group's first scenario is about to start; index/total count groups with approved scenarios. */
+  | { type: "group-start"; group: CheckGroup; label: string; index: number; total: number; scenarios: number }
   | { type: "scenario-end"; scenarioId: string; result: CheckResult }
   /**
    * A check reported what it is doing (CheckContext.step) or the engine started a phase (discovery, report).
@@ -211,6 +220,9 @@ function makeUnique(findings: Report["findings"]): void {
   }
 }
 
+/** Notes of every scenario a stopped run did not finish (RunOptions.signal). */
+export const STOPPED_NOTE = "Stopped by you";
+
 function skipped(scenario: Scenario, notes: string): CheckResult {
   return { checkId: scenario.checkId, scenarioId: scenario.id, status: "skipped", findings: [], durationMs: 0, notes };
 }
@@ -231,12 +243,46 @@ function summarize(results: CheckResult[], findings: Report["findings"]): Report
 }
 
 /**
- * Runs approved scenarios in plan order. A destructive scenario runs only with allowDestructive.
+ * A scenario's group: its check's category, else the plan group that lists it (a check that is no longer registered),
+ * else Features.
+ */
+function scenarioGroup(scenario: Scenario, checks: Check[], plan: Plan): CheckGroup {
+  const check = checks.find((c) => c.id === scenario.checkId);
+  if (check) return groupOf(check.category);
+  return plan.groups?.find((g) => g.scenarioIds.includes(scenario.id))?.id ?? "features";
+}
+
+/** Per-group results for every group with at least one scenario in the run, in CHECK_GROUPS order. */
+function groupResults(results: CheckResult[], groupOfScenario: Map<string, CheckGroup>): Report["groups"] {
+  return CHECK_GROUPS.flatMap((g) => {
+    const mine = results.filter((r) => groupOfScenario.get(r.scenarioId) === g.id);
+    if (mine.length === 0) return [];
+    const count = (status: CheckResult["status"]) => mine.filter((r) => r.status === status).length;
+    return [
+      {
+        id: g.id,
+        label: g.label,
+        scenarioIds: mine.map((r) => r.scenarioId),
+        passed: count("pass"),
+        failed: count("fail"),
+        errored: count("error"),
+        skipped: count("skipped"),
+        findings: mine.reduce((n, r) => n + r.findings.length, 0),
+        durationMs: mine.reduce((n, r) => n + r.durationMs, 0),
+      },
+    ];
+  });
+}
+
+/**
+ * Runs approved scenarios group by group (CHECK_GROUPS order), plan order inside a group; a group-start event
+ * precedes each group. A destructive scenario runs only with allowDestructive.
  * A scenario whose check throws gets status "error" (the run continues). Writes the report
  * (see report.ts) into <runsDir>/<runId>/ and returns it. Re-checks the safety gate first.
  * Unapproved scenarios are left out of results; approved destructive ones without opt-in are "skipped".
  */
 export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ report: Report; dir: string }> {
+  const startedMs = Date.now();
   const safety = safetyOptions(options);
   const target = await checkTarget(plan.target, safety);
   const runId = options.runId ?? newRunId();
@@ -247,11 +293,14 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
   const approvedIds = new Set(options.approved ?? plan.scenarios.filter((s) => s.defaultSelected).map((s) => s.id));
   const unknown = [...approvedIds].filter((id) => !plan.scenarios.some((s) => s.id === id));
   if (unknown.length > 0) throw new NothingToRunError(`Unknown scenario id(s): ${unknown.join(", ")}.`);
-  const toRun = plan.scenarios.filter((s) => approvedIds.has(s.id));
+  const groupOfScenario = new Map(plan.scenarios.map((s) => [s.id, scenarioGroup(s, checks, plan)] as const));
+  const groupIndex = (s: Scenario) => CHECK_GROUPS.findIndex((g) => g.id === groupOfScenario.get(s.id));
+  // Stable sort: plan order is kept inside a group.
+  const toRun = plan.scenarios.filter((s) => approvedIds.has(s.id)).sort((a, b) => groupIndex(a) - groupIndex(b));
   // A run with nothing in it would report "0 findings" and look like a clean pass.
   if (toRun.length === 0) throw new NothingToRunError("No scenarios were approved, so there is nothing to run. Approve at least one scenario.");
 
-  const startedAt = new Date().toISOString();
+  const startedAt = new Date(startedMs).toISOString();
   const dir = join(resolve(options.runsDir ?? "runs"), runId);
   const artifactsDir = join(dir, "artifacts");
   await mkdir(artifactsDir, { recursive: true });
@@ -272,20 +321,57 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
     pagesVisited.set(url, ids);
   };
 
-  engineStep(options, options.headed ? "Opening a browser window" : "Starting the browser", plan.target);
-  const browser = await chromium.launch(launchOptions(target, options));
-  try {
-    for (const [index, scenario] of toRun.entries()) {
-      options.onProgress?.({ type: "scenario-start", scenarioId: scenario.id, index, total: toRun.length });
-      const result = await runScenario(scenario);
+  const signal = options.signal;
+  const stopped = () => signal?.aborted === true;
+  // Settles (never rejects) when the run is stopped, so a scenario in progress can be abandoned.
+  const whenStopped = new Promise<"stopped">((res) => {
+    if (!signal) return;
+    if (signal.aborted) res("stopped");
+    else signal.addEventListener("abort", () => res("stopped"), { once: true });
+  });
+  // True once the stop cost the run a scenario; a stop after the last scenario ended changes nothing.
+  let wasStopped = false;
+  /** Every approved scenario without a result yet, "skipped" as stopped; each still gets its scenario-end. */
+  const skipRest = () => {
+    for (const scenario of toRun) {
+      if (results.some((r) => r.scenarioId === scenario.id)) continue;
+      const result = skipped(scenario, STOPPED_NOTE);
+      wasStopped = true;
       results.push(result);
       options.onProgress?.({ type: "scenario-end", scenarioId: scenario.id, result });
     }
-  } finally {
-    await browser.close();
+  };
+
+  let browserName: string | undefined;
+  if (stopped()) skipRest();
+  else {
+    engineStep(options, options.headed ? "Opening a browser window" : "Starting the browser", plan.target);
+    const browser = await chromium.launch(launchOptions(target, options));
+    browserName = `Chromium ${browser.version()}`;
+    try {
+      const runGroups = CHECK_GROUPS.filter((g) => toRun.some((s) => groupOfScenario.get(s.id) === g.id));
+      let current: CheckGroup | undefined;
+      for (const [index, scenario] of toRun.entries()) {
+        if (stopped()) break;
+        const group = groupOfScenario.get(scenario.id)!;
+        if (group !== current) {
+          current = group;
+          const g = runGroups.find((x) => x.id === group)!;
+          const scenarios = toRun.filter((s) => groupOfScenario.get(s.id) === group).length;
+          options.onProgress?.({ type: "group-start", group, label: g.label, index: runGroups.indexOf(g), total: runGroups.length, scenarios });
+        }
+        options.onProgress?.({ type: "scenario-start", scenarioId: scenario.id, index, total: toRun.length, group });
+        const result = await runScenario(scenario, browser);
+        results.push(result);
+        options.onProgress?.({ type: "scenario-end", scenarioId: scenario.id, result });
+      }
+      if (stopped()) skipRest();
+    } finally {
+      await browser.close();
+    }
   }
 
-  async function runScenario(scenario: Scenario): Promise<CheckResult> {
+  async function runScenario(scenario: Scenario, browser: Browser): Promise<CheckResult> {
     if (scenario.destructive && !allowDestructive) {
       return skipped(scenario, "Destructive scenario; run again with --allow-destructive to include it.");
     }
@@ -296,6 +382,8 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
     const log = options.log ?? ((line: string) => process.stderr.write(`${line}\n`));
     const scenarioId = scenario.id;
     const progress = options.onProgress;
+    const steps: NonNullable<CheckResult["steps"]> = [];
+    const withSteps = (result: CheckResult): CheckResult => (steps.length > 0 ? { ...result, steps: [...steps] } : result);
     const ctx = createCheckContext({
       browser,
       form: plan.form,
@@ -309,8 +397,12 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
       fileCounter,
       checkId: scenario.checkId,
       scenarioTitle: scenario.title,
-      // The context redacts step labels and URLs before these hooks see them.
-      onStep: progress && ((step) => progress({ type: "step", scenarioId, ...step })),
+      // The context redacts step labels and URLs before these hooks see them. Steps are kept for the report
+      // (CheckResult.steps) whether or not anyone is watching.
+      onStep: (step) => {
+        steps.push(step);
+        progress?.({ type: "step", scenarioId, ...step });
+      },
       onPageLoad: (page) => {
         recordVisit(page.url, scenarioId);
         progress?.({ type: "page", scenarioId, ...page });
@@ -320,17 +412,25 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
     const started = Date.now();
     const base = { checkId: scenario.checkId, scenarioId: scenario.id };
     try {
-      const result = await check.run(ctx, scenario);
+      const running = check.run(ctx, scenario);
+      // An abandoned check keeps running until its contexts close under it (dispose below); its failure is moot.
+      running.catch(() => undefined);
+      const outcome = await Promise.race([running, whenStopped]);
+      if (outcome === "stopped") {
+        wasStopped = true;
+        return withSteps({ ...skipped(scenario, STOPPED_NOTE), durationMs: Date.now() - started });
+      }
+      const result = outcome;
       // A scenario that left the allowed targets never produces findings: whatever it saw was not the target.
       if (ctx.escaped.length > 0) {
-        return { ...base, status: "error", findings: [], durationMs: Date.now() - started, notes: guardSummary(ctx)! };
+        return withSteps({ ...base, status: "error", findings: [], durationMs: Date.now() - started, notes: guardSummary(ctx)! });
       }
       const notes = [result.notes, ctx.blocked.length > 0 ? guardSummary(ctx) : null].filter(Boolean).join(" ");
-      return { ...result, ...base, ...(notes ? { notes } : {}) };
+      return withSteps({ ...result, ...base, ...(notes ? { notes } : {}) });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const notes = ctx.escaped.length > 0 ? guardSummary(ctx)! : redactSecrets(cleanErrorMessage(message));
-      return { ...base, status: "error", findings: [], durationMs: Date.now() - started, notes };
+      return withSteps({ ...base, status: "error", findings: [], durationMs: Date.now() - started, notes });
     } finally {
       testRecordsCreated += ctx.testRecordsCreated();
       await ctx.dispose();
@@ -341,11 +441,14 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
   const findings = results.flatMap((r) => r.findings);
   makeUnique(findings);
   // Callers (CLI, server) get the same redacted report that was written to disk.
+  const finishedMs = Date.now();
   const report: Report = redactReport({
     runId,
     target: plan.target,
     startedAt,
-    finishedAt: new Date().toISOString(),
+    finishedAt: new Date(finishedMs).toISOString(),
+    durationMs: finishedMs - startedMs,
+    groups: groupResults(results, groupOfScenario),
     runHoundVersion: RUN_HOUND_VERSION,
     plan,
     approved: toRun.map((s) => s.id),
@@ -355,6 +458,8 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
     notVisible: [...NOT_VISIBLE],
     pagesVisited: [...pagesVisited].map(([url, scenarioIds]) => ({ url, scenarioIds })),
     testRecordsCreated,
+    ...(wasStopped ? { stopped: true } : {}),
+    ...(browserName ? { browser: browserName } : {}),
   });
   await writeReport(report, dir);
   return { report, dir };

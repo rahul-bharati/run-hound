@@ -269,26 +269,51 @@ describe("UI live panel", () => {
     uiBrowser ??= await chromium.launch();
     const page = await uiBrowser.newPage();
     try {
-      // Block the UI's own API calls; only the markup matters here.
-      await page.route("**/*", (route) => route.abort());
-      await page.setContent(html);
+      // The UI renders each view from the API, so it talks to a stand-in: one run in progress, no frame yet.
+      const at = new Date().toISOString();
+      const url = "http://127.0.0.1:9/book";
+      const run = { status: "running", completed: 1, total: 2, startedAt: at };
+      const liveState = {
+        status: "running", startedAt: at, elapsedMs: 1200, scenarioId: "s2", scenarioTitle: "Second scenario", scenarioIndex: 2,
+        group: "features", groupLabel: "Features", step: "Click Book", url, frameSeq: 0, updatedAt: at,
+        steps: [{ scenarioId: "s1", label: "Open the form", url, at }, { scenarioId: "s2", label: "Click Book", url, at }],
+        pagesVisited: [url], finished: [{ scenarioId: "s1", status: "pass", durationMs: 800 }],
+        scenarios: [
+          { id: "s1", title: "First scenario", group: "features", groupLabel: "Features" },
+          { id: "s2", title: "Second scenario", group: "features", groupLabel: "Features" },
+        ],
+        browser: null,
+      };
+      await page.route("http://127.0.0.1:9/**", async (route) => {
+        const path = new URL(route.request().url()).pathname;
+        if (path === "/") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: html });
+        if (path === "/api/runs/r1") return route.fulfill({ json: run });
+        if (path === "/api/runs/r1/live") return route.fulfill({ json: liveState });
+        if (path === "/api/runs") return route.fulfill({ json: { runs: [] } });
+        return route.abort();
+      });
+      await page.goto("http://127.0.0.1:9/#/runs/r1");
 
-      const panel = page.locator("#live");
-      expect(await panel.count()).toBe(1);
+      const panel = page.locator("#running");
+      await panel.waitFor();
       // URL of the page being tested.
-      expect(await panel.locator("#live-url").count()).toBe(1);
+      await expect.poll(() => panel.locator("#browser-preview #address").innerText()).toContain(url);
       // Latest frame, with alt text.
-      const img = panel.locator("img");
-      expect(await img.count()).toBeGreaterThanOrEqual(1);
+      const img = panel.locator("#browser-preview img");
+      expect(await img.count()).toBe(1);
       expect(((await img.first().getAttribute("alt")) ?? "").trim().length).toBeGreaterThan(0);
-      // Current step, announced politely.
-      expect(await panel.locator('[role="status"]').count()).toBeGreaterThanOrEqual(1);
-      // Step log and pages tested.
-      expect(await panel.locator("ol").count()).toBeGreaterThanOrEqual(1);
-      expect(await panel.locator("ul").count()).toBeGreaterThanOrEqual(1);
-      expect(await panel.textContent()).toMatch(/pages tested/i);
+      // Scenario changes are announced politely.
+      expect(await page.locator('[aria-live="polite"]').count()).toBeGreaterThanOrEqual(1);
+      await expect.poll(() => page.locator('[aria-live="polite"]').first().textContent()).toContain("Second scenario");
+      // Numbered scenario list with the current scenario's steps, and the step log.
+      expect(await panel.locator("ol#scenario-list").count()).toBe(1);
+      await expect.poll(() => panel.locator('#scenario-list [data-scenario-id="s2"]').getAttribute("data-status")).toBe("running");
+      expect(await panel.locator('#scenario-list [data-scenario-id="s2"]').innerText()).toContain("Click Book");
+      expect(await panel.locator("#activity li").count()).toBe(2);
 
-      // "Show the browser window" is a labelled checkbox.
+      // "Show the browser window" is a labelled checkbox on the New Run view.
+      await page.goto("http://127.0.0.1:9/#/new");
+      await page.locator("#stepper").waitFor();
       const headed = page.getByLabel("Show the browser window");
       expect(await headed.count()).toBe(1);
       expect(await headed.getAttribute("type")).toBe("checkbox");
@@ -362,8 +387,8 @@ describe("UI report evidence", () => {
         await route.fulfill({ status: res.status, headers: Object.fromEntries(res.headers), body: Buffer.from(await res.arrayBuffer()) });
       });
       await page.goto(`http://127.0.0.1:9/#run=${runId}`);
-      await page.locator("#report-section").waitFor({ state: "visible", timeout: 30_000 });
-      const figure = page.locator("#report .evidence figure").first();
+      await page.locator("#report").waitFor({ state: "visible", timeout: 30_000 });
+      const figure = page.locator("#detail figure").first();
       await figure.waitFor();
       const img = figure.locator("img");
       // Wait for the image's own load/error event: it comes through the proxy route above, which can take
@@ -383,8 +408,9 @@ describe("UI report evidence", () => {
       expect(caption).toContain("Step: After reload");
       expect(caption).toContain(`Page: ${site.url}/book`);
       expect(caption).toMatch(/Captured: \d{4}-\d{2}-\d{2}T/);
-      await figure.locator("summary").click();
-      expect(await figure.locator("dl").textContent()).toContain("t3st-canary");
+      // The frame's facts are listed under Key facts.
+      const facts = page.locator("#detail section").filter({ has: page.getByRole("heading", { name: "Key facts" }) });
+      expect(await facts.textContent()).toContain("t3st-canary");
     } finally {
       await page.close();
     }

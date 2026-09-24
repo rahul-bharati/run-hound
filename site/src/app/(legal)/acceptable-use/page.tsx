@@ -23,7 +23,7 @@ export default function AcceptableUsePage() {
       />
 
       <p>
-        This policy is part of our <Link href="/terms">Terms of use</Link>. {site.name} is in early development; the
+        This policy is part of our <Link href="/terms">Terms of use</Link>. {site.name} is an invite-only tester preview; the
         safeguards below describe how it is designed to work, and some of them arrive with later versions.
       </p>
 

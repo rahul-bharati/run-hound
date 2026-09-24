@@ -1,13 +1,19 @@
 import type { ReactNode } from "react";
+import { LogoMark } from "@/components/logo";
 
 /** Page-width container matching the header and footer gutters. */
 export function Container({ children, className = "" }: { children: ReactNode; className?: string }) {
   return <div className={`mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-[72px] ${className}`}>{children}</div>;
 }
 
-/** Small mono label used above headings ("01 · PLAN", "ACCESSIBILITY"). */
+/** Small mono label used above headings ("01 · PLAN", "ACCESSIBILITY"), led by a mint dot as in the brand reference. */
 export function Eyebrow({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <p className={`font-mono text-xs tracking-widest text-amber ${className}`}>{children}</p>;
+  return (
+    <p className={`flex items-center gap-2.5 font-mono text-xs tracking-[0.18em] text-accent ${className}`}>
+      <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-accent" />
+      <span>{children}</span>
+    </p>
+  );
 }
 
 /** Hero block for inner pages. */
@@ -23,14 +29,23 @@ export function PageHeader({
   children?: ReactNode;
 }) {
   return (
-    <Container className="flex flex-col gap-6 pb-12 pt-16 sm:pt-24">
-      {eyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
-      <h1 className="max-w-4xl font-display text-5xl font-extrabold leading-[0.98] tracking-[-0.03em] sm:text-7xl">
-        {title}
-      </h1>
-      {lede ? <p className="max-w-2xl text-lg leading-relaxed text-muted sm:text-xl">{lede}</p> : null}
-      {children}
-    </Container>
+    <div className="hero-glow relative overflow-hidden">
+      {/* Faint hound centred behind the title, as on the homepage hero. Decorative; hidden on small screens. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute left-1/2 top-0 hidden -translate-x-1/2 opacity-[0.05] md:block lg:-top-10 lg:opacity-[0.07]"
+      >
+        <LogoMark size={420} />
+      </div>
+      <Container className="relative flex flex-col gap-6 pb-12 pt-16 sm:pt-24">
+        {eyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
+        <h1 className="max-w-4xl font-display text-5xl font-extrabold leading-[0.98] tracking-[-0.03em] sm:text-7xl">
+          {title}
+        </h1>
+        {lede ? <p className="max-w-2xl text-lg leading-relaxed text-muted sm:text-xl">{lede}</p> : null}
+        {children}
+      </Container>
+    </div>
   );
 }
 

@@ -127,7 +127,8 @@ describe("run-hound run exit codes (tester release)", () => {
   it("prints a skipped scenario's reason once, without repeating \"skipped\"", async () => {
     const { res } = await run("skipped", false);
     expect(res.code, res.stderr).toBe(0);
-    expect(res.stderr).toMatch(/^ {2}skipped: the fake form has nothing to check\.$/m);
+    // The result line ends with the scenario's duration (docs/v0-spec.md, "Groups and timing").
+    expect(res.stderr).toMatch(/^ {2}skipped: the fake form has nothing to check\. · (?:\d+\.\d s|\d+ s|\d+ min(?: \d+ s)?|\d+ h(?: \d+ min)?)$/m);
     expect(res.stderr).not.toMatch(/skipped: Skipped/i);
     expect(res.stderr).toMatch(/with 1 field; 2 scenarios planned\./);
   }, 180_000);

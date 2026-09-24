@@ -157,3 +157,17 @@ Rules for the build shared with outside testers:
 - **Safety stays strict.** Loopback, RFC 1918, RFC 4193 and link-local only, plus `RUNHOUND_ALLOWED_HOSTS`; `0.0.0.0` and 100.64/10 stay refused.
 - **Test data is disclosed, not deleted.** Every scenario that creates records says so in its plan text, and the report states how many test records the run created.
 - **Unfamiliar apps.** Run Hound must behave on apps it has never seen: a classic HTML form that posts and redirects, a well-built SPA, a login form, and a form whose API is on another origin. On well-built apps it must report **zero confirmed findings**; checks that don't apply (for example `client-only-validation` when there is no JSON save request) are planned as skipped with a plain reason, never failed or silently dropped. The sample apps in `fixtures/samples/` are the regression suite for this.
+
+## Groups and timing
+
+**Groups.** Checks are grouped as **Accessibility** (`accessibility`), **Features** (`broken-feature` and `validation`) and **Security** (`security`), in that order (`CHECK_GROUPS` in `core/types.ts`). Grouping applies everywhere:
+
+- **Plan:** `Plan.scenarios` is in run order (group by group, `CHECK_IDS` order inside a group) and `Plan.groups` lists each non-empty group with its scenario ids. The web UI shows the plan under group headings with a count and a "select all in this group" checkbox (a real checkbox with a label, indeterminate when partly selected); `run --plan-only` prints the same headings.
+- **Run:** scenarios run group by group. A `group-start` progress event precedes each group; `scenario-start` carries its group. The CLI prints a heading per group; the live view shows the current group ("Accessibility · 3 of 8").
+- **Report:** `Report.groups` gives per-group passed, failed, errored and skipped counts, findings and duration. The HTML and Markdown reports show a per-group summary table, and the list of scenarios and results is grouped under the same headings. Findings stay ordered by severity, each labelled with its group.
+
+**Timing.** `Report.durationMs` is the whole run (start of `runPlan` to the report being written; equal to `finishedAt − startedAt`). Durations are shown with `formatDuration` (`core/format.ts`): "4.2 s", "42 s", "1 min 12 s", "1 h 3 min".
+
+- **CLI:** each scenario line ends with its duration; the summary starts with "Finished in <duration>".
+- **Web UI:** while running, an elapsed-time counter (updated every second from the run's start time, not announced to screen readers every tick) and per-scenario durations in the step log; when done, "Finished in <duration>" plus the per-group table. `GET /api/runs/:id` and `/live` include `startedAt`, `elapsedMs` (live) and `durationMs` (when done).
+- **Report:** the run duration in the header and summary, each scenario's duration next to its result, and each group's total.

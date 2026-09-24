@@ -5,9 +5,9 @@ export function DraftNotice() {
   return (
     <aside
       aria-label="Draft notice"
-      className="flex flex-col gap-2 rounded-2xl border border-amber/40 bg-surface p-5 sm:flex-row sm:items-start sm:gap-4"
+      className="flex flex-col gap-2 rounded-2xl border border-accent/40 bg-surface p-5 sm:flex-row sm:items-start sm:gap-4"
     >
-      <p className="shrink-0 font-mono text-xs tracking-widest text-amber">DRAFT</p>
+      <p className="shrink-0 font-mono text-xs tracking-widest text-accent">DRAFT</p>
       <p className="text-sm leading-relaxed text-muted">
         <strong className="font-semibold text-fg">Draft: not yet reviewed by a lawyer.</strong> Placeholders in
         [BRACKETS] will be filled before launch.
@@ -40,7 +40,7 @@ export function MailLink({ address }: { address: string }) {
 export function ReviewNote({ children }: { children: ReactNode }) {
   return (
     <div className="rounded-xl border border-line bg-surface px-5 py-4 text-sm leading-relaxed">
-      <p className="font-mono text-xs tracking-widest text-amber">FOR LEGAL REVIEW</p>
+      <p className="font-mono text-xs tracking-widest text-accent">FOR LEGAL REVIEW</p>
       <div className="mt-2 text-muted">{children}</div>
     </div>
   );

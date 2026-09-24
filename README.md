@@ -1,6 +1,8 @@
 # Run Hound
 
-AI-assisted automated UI testing agent that hunts for the holes AI-generated apps ship with.
+AI-assisted UI testing for AI-built apps: it hunts for the holes AI-generated apps ship with, and backs every verdict with a real check in a real browser and the evidence to prove it.
+
+**AI plans and explains; real checks decide.** AI planning, AI explanations and bring-your-own-model are **coming soon**. In the V0 preview, the plan comes from Run Hound's built-in checks and nothing is sent to any AI provider.
 
 > **V0 tester preview (0.1.0).** V0 tests one form on an app running on your own machine. If you've been asked to try it, start with **[TESTING.md](TESTING.md)**: install, a 10-minute run on the Kennel demo, testing your own app (local or Docker), reading the report, and how to send feedback. Changes: [CHANGELOG.md](CHANGELOG.md).
 
@@ -25,16 +27,17 @@ pnpm serve --port 4310                                      # web UI + API on ht
 
 `PORT` and `ANALYTICS_PORT` move Kennel (the analytics port must differ from the app's, so it counts as a third party); `serve --port` moves the UI. `EADDRINUSE` means the port is taken: choose another. The examples below use these ports.
 
-### Web UI and the live view
+### Web UI
 
-Open <http://localhost:4310>, enter `http://localhost:5310/book` (the `http://` is optional), approve the plan and press **Run approved checks**. While it runs, the **live view** shows:
+Open <http://localhost:4310>. The sidebar has three pages (on a narrow screen they're under **Menu**):
 
-- the URL of the page being tested, in a browser-style address bar, with a Live / Finished badge
-- the browser under test, refreshed about twice a second
-- the current scenario and step ("Now: Double-clicking Book"), and a step log with times and URLs
-- **Pages tested**: every URL the run has loaded, with the current one marked
+- **New Run**: enter `http://localhost:5310/book` (the `http://` is optional) and press **Plan checks**. The plan is grouped as **Accessibility**, **Features** and **Security** (each with a "Select all" box), and the scenarios run in that order. Press **Start run (N scenarios)**.
+- **The running view** shows the numbered scenario list with each one's status and time (the current one expanded with its live steps), a counter and progress bar, the elapsed time, the browser (Chromium version), a live preview of the page under test with its address, and a timestamped activity log. **Stop run** stops it for real: the scenario in progress and the rest are marked skipped ("Stopped by you") and a report is still written. **Back to test plan** plans the same page again with the same scenarios ticked.
+- **The report** (same address once the run ends): the verdict and counts, **Re-run** (runs the same scenarios on the same page again), **Open HTML report**, **Download** (report.md, report.json, specs), results you can filter (All, Passed, Issues, Skipped), and for the selected scenario its evidence, reproduction steps, key facts, what to ask your AI and the generated Playwright test.
+- **Runs**: every run on this machine, newest first, including finished runs read back from the runs folder after a restart.
+- **Settings**: defaults for "Allow destructive scenarios" and "Show the browser window" (saved in this browser), and the server's runs folder, allowed hosts and version.
 
-Tick **Show the browser window** before running to also open a visible Chromium window on the machine running Run Hound (it needs a display). The run's address (`#run=<id>`) survives a reload, and finished runs stay available after the server restarts. The UI refuses an empty selection, and runs at most two runs at a time.
+**Show the browser window** also opens a visible Chromium window on the machine running Run Hound (it needs a display). Pages have their own addresses (`#/new`, `#/runs`, `#/runs/<id>`, `#/settings`), so reload and back work; old `#run=<id>` links still open the run. The UI refuses an empty selection, and runs at most two runs at a time.
 
 ### Command line
 
@@ -45,7 +48,7 @@ pnpm exec tsx src/cli.ts run http://localhost:5310/book --approve all         # 
 pnpm exec tsx src/cli.ts run localhost:5310/book --approve all --headed       # same, in a visible browser window
 ```
 
-Options: `--approve all|default|<id,id>`, `--plan-only`, `--allow-destructive`, `--headed`, `--runs-dir <dir>`, `--json` (report on stdout; progress and the run folder on stderr). Progress lines on stderr name each step and each page as it loads (`> page http://…`). `run-hound help` prints the usage, `--version` the version. `run` exits 0 with no confirmed findings (advisory findings are reported but don't fail the run), 1 with at least one confirmed finding, and 2 on an error: a refused or unreachable target, a page without a form, or an approval that names no scenarios.
+Options: `--approve all|default|<id,id>`, `--plan-only`, `--allow-destructive`, `--headed`, `--runs-dir <dir>`, `--json` (report on stdout; progress and the run folder on stderr). Progress lines on stderr name each group (`== Accessibility (6 scenarios; group 1 of 3) ==`), each step and each page as it loads (`> page http://…`); each scenario's result line ends with its duration, and the summary starts with `Finished in <duration>` and a line per group. `run-hound help` prints the usage, `--version` the version. `run` exits 0 with no confirmed findings (advisory findings are reported but don't fail the run), 1 with at least one confirmed finding, and 2 on an error: a refused or unreachable target, a page without a form, or an approval that names no scenarios.
 
 ### Reports and evidence
 
@@ -55,7 +58,7 @@ Reports land in `app/runs/<runId>/`: `report.html`, `report.md`, `report.json`, 
 - **GIFs** (`.gif`): flows such as a double-click, a Tab walk or a submit-and-reload, one annotated frame per step.
 - **Cards** (`.png`): requests, responses, script excerpts and console lines, with the proving line marked.
 
-The report also lists every scenario that ran with its result and notes (why it errored or was skipped), the planned scenarios you did not approve, checks that had nothing to test on the form, and the pages tested. Evidence text is redacted; pixels can't be, so a page that shows a secret shows it in its screenshots and in the live view.
+The report says how long the run took, has a per-group table (Accessibility, Features, Security: results, findings and time) and labels each finding with its group. It also lists every scenario that ran, under its group, with its result, duration and notes (why it errored or was skipped), the planned scenarios you did not approve, checks that had nothing to test on the form, and the pages tested. Evidence text is redacted; pixels can't be, so a page that shows a secret shows it in its screenshots and in the live view.
 
 The exported specs need `@playwright/test` in the project that runs them (`npm i -D @playwright/test`, plus `@axe-core/playwright` for the axe-states specs); run one with `npx playwright test <file>`. Runs create a few test records in the target app (each scenario's description says when); Run Hound doesn't delete them.
 
@@ -76,9 +79,9 @@ To test an app running on your machine from a container:
 
 - **Linux**: share the host's network, so `localhost` is your machine and nothing in your app changes:
   ```sh
-  docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" localhost/run-hound:dev run http://localhost:5173/signup --approve all
+  docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.1.0 run http://localhost:5173/signup --approve all
   ```
-  For the UI this way, bind it to loopback: `... localhost/run-hound:dev serve --host 127.0.0.1 --port 4310`.
+  For the UI this way, bind it to loopback: `... rahulrbharati/run-hound:0.1.0 serve --host 127.0.0.1 --port 4310`.
 - **Docker Desktop (Mac, Windows) or the compose UI**: enter `http://host.docker.internal:<port>/<page>`. In a container `localhost` is the container itself. Your dev server must listen on all interfaces (`vite --host`) and accept that host name (Vite `server.allowedHosts`, Next.js `allowedDevOrigins`); a frontend that calls its API on `localhost:<apiPort>` won't work this way. The compose file allows `host.docker.internal` and `host.containers.internal` through the safety gate with `RUNHOUND_ALLOWED_HOSTS`. Details in [TESTING.md](TESTING.md#test-your-own-app).
 
 ### Safety
@@ -112,7 +115,7 @@ In priority order:
 
 1. **Small dev teams and solo devs:** want reproducible tests and triaged defects they can drop into CI.
 2. **QA testers:** want the agent to expand coverage and hand them evidence-rich reports.
-3. **Vibe coders:** people building on Lovable, Bolt and similar tools, with no QA function. They need plain-language, actionable reports. They are the least likely to run Docker and a local LLM, so they are served later through hosted inference or a hosted runner (see [Business model](#license-and-business-model)).
+3. **Vibe coders:** people building on Lovable, Bolt and similar tools, with no QA function. They need plain-language, actionable reports. They are the least likely to run Docker or a local model, so they are served later through hosted inference or a hosted runner (see [Business model](#license-and-business-model)).
 
 ## What it hunts for
 
@@ -129,15 +132,15 @@ Full catalog with severity and detectability: [docs/research.md §3](docs/resear
 
 ## How it works
 
-1. **Explore:** the agent drives a headless browser (Playwright). It reads the accessibility tree and DOM first, and uses vision on screenshots only for layout and visual checks.
-2. **Plan:** it generates golden-path and danger-path test scenarios, grouped by feature and prioritized.
-3. **Approve:** the plan is shown in a local web UI, where the user can review, edit, remove or add scenarios before anything runs.
-4. **Execute:** the approved scenarios run while screenshots, console logs and network logs are captured at every step.
-5. **Report:** every defect comes with its feature, priority, plain-language explanation, steps to reproduce, evidence and an exported Playwright test.
+1. **Explore:** the agent drives a headless browser (Playwright) and reads the accessibility tree and DOM. In V0 it finds the main form on the page you give it. Using vision on screenshots for layout and visual checks is planned.
+2. **Plan:** golden-path and danger-path test scenarios, grouped (Accessibility, Features, Security). In V0 the plan comes from the built-in checks that apply to the form; **AI planning** (a model proposes scenarios from your app) is **coming soon**.
+3. **Approve:** the plan is shown in a local web UI (or with `--plan-only` on the command line), where you pick the scenarios to run. Editing scenarios and adding your own is planned.
+4. **Execute:** the approved scenarios run in a real browser while screenshots, console logs, network traffic and each step are captured.
+5. **Report:** every finding comes with its group, severity, a plain-language explanation, reproduction steps, evidence and an exported Playwright test. **AI explanations** are **coming soon**; V0's explanations are written for each check.
 
 ### Design principles
 
-- **The LLM plans and explains; deterministic checks decide.** Pass/fail comes from Playwright assertions, axe-core rules and captured traffic, never from model judgement. Findings that depend on judgement (e.g. alt-text quality) are marked advisory.
+- **AI plans and explains; real checks decide.** Pass/fail comes from Playwright assertions, axe-core rules and captured traffic in a real browser, never from a model guessing. Findings that depend on judgement (e.g. alt-text quality) are marked advisory.
 - **No evidence, no finding.** Every reported defect has a screenshot and/or request/response, plus a replayable spec. Made-up defects are the biggest product risk, especially for non-technical users.
 - **Build on existing tools, don't reinvent them.** Playwright (including its test agents) and axe-core do the heavy lifting; Run Hound adds exploration, approval, triage and plain-language reporting.
 - **Only owned targets, safe by default.** See [Security](#security).
@@ -153,19 +156,19 @@ Full catalog with severity and detectability: [docs/research.md §3](docs/resear
 - TypeScript + Playwright, with `@axe-core/playwright` for accessibility rules
 - Local web UI for approving the plan, served from the container
 - Docker for delivery
-- Inference: local LLM via Ollama, or cloud via AWS Bedrock or any OpenAI-compatible endpoint
+- Inference (**coming soon**, bring your own model): local via Ollama, or cloud via AWS Bedrock or any OpenAI-compatible endpoint. V0 sends nothing to any AI provider.
 
 ## Delivery
 
 - Docker-based; no hosted platform for now.
-- Users pull the Docker image and run it locally, bringing their own model (local or cloud).
+- Users pull the Docker image (or install from source) and run it locally. Bringing your own model (local or cloud) is **coming soon**; AI features will be opt-in.
 - The initial scope is testing localhost; later, live sites as well, mostly staging and dev, behind ownership verification.
 
 ## Roadmap
 
 ### V0: Single form
 
-Point it at a form on localhost. The agent generates at least 10 scenarios (golden and danger paths), the user approves them in the web UI, the agent runs them, and it produces a report with evidence and exported Playwright tests.
+Point it at a form on localhost. Run Hound plans at least 10 scenarios from its built-in checks (golden and danger paths), the user approves them in the web UI, the agent runs them, and it produces a report with evidence and exported Playwright tests.
 
 - Checks, in order: console/network error capture, dead controls, silent failures, persistence after reload, double submit, axe on every form state, keyboard-only completion, error announcement, paste/autofill on credential fields, bundle secret scan, PII leaks to third parties, 320 px reflow. Stretch: client-only validation (non-destructive values, localhost only). See [docs/research.md §6.1](docs/research.md).
 - Destructive actions are off by default.
@@ -176,7 +179,7 @@ Point it at a form on localhost. The agent generates at least 10 scenarios (gold
 Point it at a page and the agent finds every interactive element, then generates and runs test cases for them.
 
 - Adds: response headers and cookie flags, CORS and source-map checks (on production builds, since dev servers don't show production values).
-- Advisory checks that rely on LLM judgement: alt-text quality, generic link text, placeholder/demo data.
+- Advisory checks that rely on model judgement, once bring-your-own-model ships (**planned**): alt-text quality, generic link text, placeholder/demo data.
 
 ### V2: Single feature
 
@@ -219,7 +222,7 @@ Run Hound is developed and scored against **Kennel**, a deliberately broken book
 ## License and business model
 
 - **Planned license: Apache-2.0** for the core.
-- The open core includes every check, the approval UI, reports, Playwright export, BYO-LLM support and the Kennel fixture. **Checks are never paywalled.**
+- The open core includes every check, the approval UI, reports, Playwright export, bring-your-own-model support (**coming soon**) and the Kennel fixture. **Checks are never paywalled.**
 - A possible paid tier (later, only after demand is validated) would cover things that run on our servers: hosted inference, a hosted runner, team dashboards, CI integration and compliance exports. It would be unlocked with an API key passed to the Docker container; without a key, the core runs fully.
 
 Details: [docs/business-model.md](docs/business-model.md).

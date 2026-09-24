@@ -2,6 +2,25 @@
 
 All notable changes to Run Hound. Versions follow [Semantic Versioning](https://semver.org/); while the version is 0.x, any release may change behaviour.
 
+## Unreleased
+
+### Added
+
+- **Check groups**: every check belongs to **Accessibility**, **Features** or **Security**. The plan (web UI and `run --plan-only`) is shown under group headings, the web UI has a "Select all" checkbox per group, scenarios run group by group, the CLI prints a heading per group, and the live view shows the current group. `Plan.groups` and `Report.groups` (per-group counts, findings and duration) are in the JSON.
+- **Run timing**: `Report.durationMs` for the whole run. The CLI ends each scenario line with its duration and starts the summary with "Finished in …"; the web UI shows an elapsed-time counter while running, per-scenario durations in the step log, and "Finished in …" when done; the HTML and Markdown reports show the run time, a per-group table with each group's time, and each scenario's duration. `GET /api/runs/:id` and `/live` include `startedAt`, `elapsedMs` (live) and `durationMs` (when done).
+
+- **Web UI app shell** in the Run Hound brand: a sidebar with **New Run**, **Runs** and **Settings** (a menu on narrow screens), and pages with their own addresses (`#/new`, `#/runs`, `#/runs/<id>`, `#/settings`) so reload and back work; old `#run=<id>` links still open the run.
+  - **New Run**: a Target → Plan → Run → Report step indicator, the grouped plan and "Start run (N scenarios)".
+  - **Running view**: numbered scenarios with status and time (the current one expanded with its live steps), a counter and progress bar, elapsed time, the browser and its version, a live preview with the page address, and a timestamped activity log. **Stop run** stops for real: the scenario in progress and the rest are skipped ("Stopped by you") and a report is still written (`Report.stopped`). **Back to test plan** plans the same page again with the same scenarios ticked.
+  - **Report view**: verdict and counts, **Re-run** (the same scenarios on the same page), **Open HTML report**, **Download**, results filtered by All, Passed, Issues and Skipped, and for the selected scenario its evidence, reproduction steps, key facts, what to ask your AI and the generated Playwright test.
+  - **Runs**: every run on this machine, newest first, including finished runs read back from the runs folder after a restart.
+  - **Settings**: defaults for "Allow destructive scenarios" and "Show the browser window" (saved in this browser), plus the runs folder, allowed hosts, server host names and version.
+- API: `GET /api/runs`, `POST /api/runs/:id/stop`, `POST /api/runs/:id/rerun` and `GET /api/settings`; `GET /api/runs/:id` also serves runs found only on disk. `Report.browser` records the browser version and each scenario's recorded steps are kept (`CheckResult.steps`).
+
+### Changed
+
+- The report lists scenarios under their group, and each finding is labelled with its group. Reports written by 0.1.0 (without groups or a duration) still render.
+
 ## 0.1.0 (V0 tester preview)
 
 The first build shared with outside testers. It tests one form on an app running on your own machine. How to run it and send feedback: [TESTING.md](TESTING.md).

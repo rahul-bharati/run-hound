@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-/** Highlighted note box, e.g. the pre-release notice on the docs. */
+/** Highlighted note box, e.g. the invite-only notice on the docs. */
 export function Callout({
   label,
   title,
@@ -15,9 +15,9 @@ export function Callout({
   return (
     <aside
       aria-label={label}
-      className={`flex flex-col gap-2 rounded-2xl border border-amber/60 bg-surface p-5 sm:p-6 ${className}`}
+      className={`flex flex-col gap-2 rounded-2xl border border-accent/60 bg-surface p-5 sm:p-6 ${className}`}
     >
-      <p className="font-mono text-xs tracking-widest text-amber">{label.toUpperCase()}</p>
+      <p className="font-mono text-xs tracking-widest text-accent">{label.toUpperCase()}</p>
       <p className="font-display text-xl font-bold leading-snug text-fg">{title}</p>
       {children ? <div className="text-[15px] leading-relaxed text-muted">{children}</div> : null}
     </aside>

@@ -30,7 +30,8 @@ export default function TermsPage() {
 
       <h2 id="software-license">The software and its license</h2>
       <p>
-        {site.name} is in early development and has not been released. It is planned to be released under the{" "}
+        {site.name} is available only as an invite-only tester preview (V0 {site.version}) and has not been publicly
+        released. It is planned to be released under the{" "}
         <a href="https://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>. Once released, the
         license, not these terms, governs your rights to use, copy, modify and distribute the code. If these terms and the license ever
         conflict about the code, the license wins. The source is on <a href={site.github}>GitHub</a>.
@@ -44,8 +45,8 @@ export default function TermsPage() {
         and limitation of liability, which apply to the code.
       </p>
       <p>
-        {site.name} uses AI models to explore and test apps. It can miss problems and it can report problems that are
-        not real. Its findings are not a guarantee that an app is correct, accessible or secure, and they are not a
+        {site.name} tests apps automatically, and later versions may use AI models to plan tests and explain
+        results. It can miss problems and it can report problems that are not real. Its findings are not a guarantee that an app is correct, accessible or secure, and they are not a
         substitute for your own review or a professional audit.
       </p>
 
@@ -54,7 +55,7 @@ export default function TermsPage() {
         To the fullest extent the law allows, we are not liable for any indirect, incidental, special, consequential
         or punitive damages, or for any loss of data, profits or business, arising from your use of the website or
         the software. Nothing in these terms limits liability that cannot be limited under the law of{" "}
-        <strong>[JURISDICTION]</strong>.
+        <strong>India</strong>.
       </p>
 
       <h2 id="your-responsibility">Your responsibility</h2>
@@ -66,7 +67,10 @@ export default function TermsPage() {
           to review what the agent plans to do before you approve it, and to enable destructive actions only when you
           understand the consequences;
         </li>
-        <li>to handle any data the software processes, including data sent to a model provider you choose, lawfully.</li>
+        <li>
+          to handle any data the software processes lawfully, including data sent to a model provider if you choose to
+          use one.
+        </li>
       </ul>
 
       <h2 id="acceptable-use">Acceptable Use Policy</h2>
@@ -85,8 +89,8 @@ export default function TermsPage() {
       <h3 id="content">Content and trademarks</h3>
       <p>
         Website text and images are provided for information only. The Apache-2.0 license covers the code; it does
-        not grant rights to use the {site.name} name or logo. Sample reports and mockups on this site are labelled
-        samples, not results from real apps.
+        not grant rights to use the {site.name} name or logo. Screenshots and evidence on this site come from runs on
+        Kennel, our deliberately broken demo app, not from real apps; anything else is labelled as a sample.
       </p>
 
       <h3 id="links">Links to other sites</h3>
@@ -100,8 +104,8 @@ export default function TermsPage() {
 
       <h2 id="governing-law">Governing law</h2>
       <p>
-        These terms are governed by the laws of <strong>[JURISDICTION]</strong>, and disputes will be handled by the
-        courts of <strong>[JURISDICTION]</strong>, unless the law where you live gives you the right to bring a claim
+        These terms are governed by the laws of <strong>India</strong>, and disputes will be handled by the
+        courts of <strong>India</strong>, unless the law where you live gives you the right to bring a claim
         elsewhere.
       </p>
 

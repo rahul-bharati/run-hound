@@ -12,7 +12,7 @@ export default function NotFound() {
     <Container className="flex flex-1 flex-col items-center justify-center gap-6 py-24 text-center sm:py-32">
       <Eyebrow>404 · NOT FOUND</Eyebrow>
       <h1 className="max-w-3xl font-display text-5xl font-extrabold leading-[0.98] tracking-[-0.03em] sm:text-7xl">
-        Dead link. <span className="text-amber">We checked.</span>
+        Dead link. <span className="text-accent">We checked.</span>
       </h1>
       <p className="max-w-xl text-lg leading-relaxed text-muted">
         The page you were looking for does not exist or has moved. The hound sniffed around and came back empty.

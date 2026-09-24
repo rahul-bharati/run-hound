@@ -32,6 +32,11 @@ function makeReport(findings: Finding[]): Report {
     target: "http://127.0.0.1:3000/book",
     startedAt: "2026-09-22T10:00:00.000Z",
     finishedAt: "2026-09-22T10:01:00.000Z",
+    durationMs: 60_000,
+    groups: [
+      { id: "accessibility", label: "Accessibility", scenarioIds: ["rf:1"], passed: 1, failed: 0, errored: 0, skipped: 0, findings: 0, durationMs: 300 },
+      { id: "features", label: "Features", scenarioIds: ["ds:1"], passed: 0, failed: 1, errored: 0, skipped: 0, findings: findings.length, durationMs: 1200 },
+    ],
     runHoundVersion: "0.0.1",
     plan: {
       target: "http://127.0.0.1:3000/book",
@@ -39,6 +44,10 @@ function makeReport(findings: Finding[]): Report {
       scenarios: [
         { id: "ds:1", checkId: "double-submit", title: "Double-click submit", description: "d", kind: "danger", priority: "high", destructive: false, defaultSelected: true },
         { id: "rf:1", checkId: "reflow-320", title: "Reflow at 320px", description: "r", kind: "golden", priority: "medium", destructive: false, defaultSelected: true },
+      ],
+      groups: [
+        { id: "accessibility", label: "Accessibility", scenarioIds: ["rf:1"] },
+        { id: "features", label: "Features", scenarioIds: ["ds:1"] },
       ],
     },
     approved: ["ds:1", "rf:1"],

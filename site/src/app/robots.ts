@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 import { site } from "@/lib/site";
 
-// Route handlers must be marked static to be prerendered with output: "export".
+// Prerendered at build time (metadata routes are static by default); force-static keeps it that way.
 export const dynamic = "force-static";
 
 export default function robots(): MetadataRoute.Robots {

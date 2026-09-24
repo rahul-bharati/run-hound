@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ButtonLink, GitHubIcon } from "@/components/button-link";
 import { Card, PageHeader, Section } from "@/components/layout";
 import { RoadmapList, type RoadmapStage } from "@/components/oss/roadmap-list";
 import { site } from "@/lib/site";
@@ -7,7 +8,7 @@ import { site } from "@/lib/site";
 export const metadata: Metadata = {
   title: "Open source",
   description:
-    "Run Hound is planned as Apache-2.0 open source with every check in the core. See the roadmap, the Kennel test fixture, how to contribute and the privacy promise.",
+    "Run Hound is open source by design, with every check in the core and an Apache-2.0 license planned. See the roadmap, the Kennel test fixture, how to contribute and the privacy promise.",
 };
 
 const openCore: { core: string; later: string }[] = [
@@ -20,11 +21,11 @@ const openCore: { core: string; later: string }[] = [
     later: "Hosted runner: test a deployed app behind domain-ownership verification",
   },
   {
-    core: "Bring your own model: Ollama, Bedrock or any OpenAI-compatible endpoint",
+    core: "Bring your own model · coming soon: local via Ollama, or any cloud provider (Bedrock or any OpenAI-compatible endpoint)",
     later: "Team dashboard: run history, trends and regressions across runs",
   },
   {
-    core: "Docker image and CLI; localhost plus domain verification",
+    core: "CLI, local web UI and Docker set-up; localhost, with domain verification planned",
     later: "CI / GitHub app: pull request comments and scheduled regression runs",
   },
   {
@@ -41,10 +42,10 @@ const roadmap: RoadmapStage[] = [
   {
     version: "V0",
     name: "Single form",
-    status: "in progress",
+    status: "tester preview",
     summary:
-      "Point it at a form on localhost. It proposes at least 10 golden- and danger-path scenarios, you approve them, it runs them and reports with evidence and exported Playwright tests.",
-    adds: "Done when it finds the V0 bugs planted in Kennel and reports nothing in clean mode.",
+      "Point it at a form on localhost. It plans 13 to 15 golden- and danger-path scenarios in three groups (Accessibility, Features, Security), you approve them, it runs them and reports with evidence, timings and exported Playwright tests.",
+    adds: "0.1.0 is with invited testers now. AI planning and explanations are coming soon; every result already comes from a real check with evidence.",
   },
   {
     version: "V1",
@@ -83,18 +84,26 @@ const kennelScoring = [
   { name: "Evidence", body: "Every finding has a screenshot or request and response, and a replayable spec." },
 ];
 
-const externalLink = "text-amber underline underline-offset-4 hover:text-fg";
+const externalLink = "text-accent underline underline-offset-4 hover:text-accent-strong";
 
 export default function OpenSourcePage() {
   return (
     <>
       <PageHeader
         eyebrow="OPEN SOURCE"
-        title="Open source, with every check included."
-        lede="Run Hound is being built in the open. Finding the holes is the whole point, so no check will ever sit behind a paywall."
+        title={
+          <>
+            Open source, <span className="text-accent">every check included.</span>
+          </>
+        }
+        lede="Finding the holes is the whole point, so no check will ever sit behind a paywall. The code opens up with the public release."
       >
         <p className="max-w-2xl text-[15px] leading-relaxed text-dim">
-          Run Hound is in early development (V0 in progress). Nothing is released yet.
+          V0 {site.version} is a tester preview. The repository is invite-only while it is tested;{" "}
+          <a href={site.accessMail} className={externalLink}>
+            ask for access
+          </a>
+          .
         </p>
       </PageHeader>
 
@@ -104,7 +113,7 @@ export default function OpenSourcePage() {
         intro="The core is planned to be released under the Apache License 2.0."
       >
         <Card className="flex max-w-3xl flex-col gap-3">
-          <p className="font-mono text-xs tracking-widest text-amber">PLANNED · {site.license.toUpperCase()}</p>
+          <p className="font-mono text-xs tracking-widest text-accent">PLANNED · {site.license.toUpperCase()}</p>
           <p className="text-lg leading-relaxed">
             In one line: you can use, change and ship it, including commercially, as long as you keep the license and
             notices; it also includes a patent grant.
@@ -131,7 +140,7 @@ export default function OpenSourcePage() {
             <thead>
               <tr className="border-b border-line">
                 <th scope="col" className="w-1/2 px-5 py-4 align-bottom sm:px-7">
-                  <span className="block font-mono text-xs tracking-widest text-amber">OPEN CORE · FREE</span>
+                  <span className="block font-mono text-xs tracking-widest text-accent">OPEN CORE · FREE</span>
                   <span className="mt-1 block font-display text-lg font-bold">In the open-source core</span>
                 </th>
                 <th scope="col" className="w-1/2 px-5 py-4 align-bottom sm:px-7">
@@ -204,15 +213,18 @@ export default function OpenSourcePage() {
           <Card className="flex flex-col gap-3">
             <h3 className="font-display text-xl font-bold">Issues and discussions</h3>
             <p className="leading-relaxed text-muted">
-              Bug reports, ideas and questions are welcome on GitHub. Tell us which holes you keep finding in
+              Testers file feedback and bugs with the issue forms on GitHub. Tell us which holes you keep finding in
               AI-built apps; that shapes the checks.
             </p>
-            <a
-              href={site.github}
-              className="mt-2 inline-flex min-h-11 w-fit items-center justify-center rounded-full border border-line-strong px-6 py-3 font-semibold text-fg transition-colors hover:border-amber hover:text-amber"
-            >
-              Run Hound on GitHub
-            </a>
+            <div className="mt-2 flex flex-wrap gap-3">
+              <ButtonLink href={site.github} variant="secondary">
+                <GitHubIcon />
+                View on GitHub
+              </ButtonLink>
+              <ButtonLink href={site.feedback} variant="ghost">
+                Send feedback
+              </ButtonLink>
+            </div>
           </Card>
           <Card className="flex flex-col gap-3">
             <h3 className="font-display text-xl font-bold">Code contributions</h3>
@@ -229,8 +241,9 @@ export default function OpenSourcePage() {
         <Card className="flex max-w-3xl flex-col gap-4">
           <ul className="flex list-disc flex-col gap-3 pl-5 leading-relaxed text-muted marker:text-dim">
             <li>
-              <strong className="font-semibold text-fg">It runs locally.</strong> Run Hound runs on your machine, in
-              your Docker, with the model you choose.
+              <strong className="font-semibold text-fg">It runs locally.</strong> Run Hound runs on your machine,
+              with Node or in your Docker. The current preview sends nothing to any AI provider; AI features
+              are coming soon and will be opt-in, with a local model option.
             </li>
             <li>
               <strong className="font-semibold text-fg">No telemetry about the app you test.</strong> Nothing about
