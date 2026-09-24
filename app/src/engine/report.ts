@@ -242,7 +242,9 @@ export function renderMarkdown(report: Report): string {
     `- Target: ${report.target}`,
     `- Run: ${report.runId} (${report.startedAt} to ${report.finishedAt})${finished ? ` · ${finished}` : ""}`,
     `- Run Hound ${report.runHoundVersion}`,
+    ...(report.browser ? [`- Browser: ${report.browser}`] : []),
     "",
+    ...(report.stopped ? [`**Run stopped.** You stopped this run; scenarios it did not finish are listed as skipped.`, ""] : []),
     "## Summary",
     "",
     ...(finished ? [`${finished}.`, ""] : []),
@@ -545,8 +547,8 @@ footer { max-width:64rem; margin:0 auto; padding:0 1rem 2.5rem; color:var(--dim)
 <p class="target"><span class="visually-hidden">Target: </span>${esc(report.target)}</p>
 <p class="runmeta">${report.results.length} ${report.results.length === 1 ? "scenario" : "scenarios"} run · ${s.passed} passed · ${esc(findingCounts(report.findings))}</p>
 </div></div>
-<p class="muted">Run ${esc(report.runId)} · ${esc(report.startedAt)} to ${esc(report.finishedAt)}${finished ? ` · ${esc(finished)}` : ""} · Run Hound ${esc(report.runHoundVersion)}</p>
-<section aria-labelledby="summary"><h2 id="summary">Summary</h2>${finished ? `<p class="finished">${esc(finished)}.</p>` : ""}<div class="stats">
+<p class="muted">Run ${esc(report.runId)} · ${esc(report.startedAt)} to ${esc(report.finishedAt)}${finished ? ` · ${esc(finished)}` : ""} · Run Hound ${esc(report.runHoundVersion)}${report.browser ? ` · ${esc(report.browser)}` : ""}</p>
+${report.stopped ? '<p class="stopped"><strong>Run stopped.</strong> You stopped this run; scenarios it did not finish are listed as skipped.</p>\n' : ""}<section aria-labelledby="summary"><h2 id="summary">Summary</h2>${finished ? `<p class="finished">${esc(finished)}.</p>` : ""}<div class="stats">
 ${cell("critical", s.critical, s.critical ? "hot" : "")}${cell("high", s.high, s.high ? "hot" : "")}${cell("medium", s.medium, s.medium ? "warm" : "")}${cell("low", s.low)}${cell("scenarios passed", s.passed, s.passed ? "good" : "")}${cell("scenarios failed", s.failed, s.failed ? "hot" : "")}${cell("scenarios errored", s.errored, s.errored ? "hot" : "")}${cell("scenarios skipped", s.skipped)}
 </div><p class="muted">${report.approved.length} of ${report.plan.scenarios.length} planned scenarios were approved and run. ${esc(findingCounts(report.findings))}; advisory findings rely on judgement and don't fail the run.</p>${groupTableHtml(report)}</section>
 <section aria-labelledby="test-data"><h2 id="test-data">Test data</h2><p>${esc(testDataSentence(report) ?? "Not recorded for this run.")}</p></section>

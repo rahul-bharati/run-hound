@@ -130,11 +130,11 @@ KENNEL_BUGS=all PORT=5310 ANALYTICS_PORT=5311 pnpm kennel
 pnpm serve --port 4310
 ```
 
-1. Open <http://localhost:4310> and enter `http://localhost:5310/book`.
-2. Read the plan, shown under Accessibility, Features and Security headings (each has a "Select all" box). Each scenario says what it does and whether it creates test records. Keep them all ticked and press **Run approved checks**.
-3. Watch the live view: the page under test, the current group and scenario ("Accessibility · 3 of 15"), the elapsed time, the current step and every page loaded. A run takes about a minute; when it ends the UI says "Finished in …".
-4. Open the report. You should see findings for most of Kennel's planted bugs: a button that does nothing, a double-submit, a secret key in the bundle, an email sent to the analytics service, missing focus outlines and more.
-5. Stop Kennel, restart it with `KENNEL_BUGS=none` and run again. **A clean Kennel should give zero confirmed findings.** If it doesn't, that's a bug worth reporting.
+1. Open <http://localhost:4310> (the **New Run** page), enter `http://localhost:5310/book` and press **Plan checks**.
+2. Read the plan, shown under Accessibility, Features and Security headings (each has a "Select all" box). Each scenario says what it does and whether it creates test records. Keep them all ticked and press **Start run (15 scenarios)**.
+3. Watch the running view: the numbered scenarios with their status and time (the current one opens to show its steps), the elapsed time, the browser, a live preview of the page under test and the activity log. A run takes about a minute. **Stop run** ends it early; what ran is still reported.
+4. Read the report, which replaces the running view when the run ends. The first issue is selected: its evidence, reproduction steps, key facts, what to ask your AI and the generated Playwright test. **Open HTML report** opens the full `report.html`; **Re-run** runs the same scenarios again; every run stays listed under **Runs**. You should see findings for most of Kennel's planted bugs: a button that does nothing, a double-submit, a secret key in the bundle, an email sent to the analytics service, missing focus outlines and more.
+5. Stop Kennel, restart it with `KENNEL_BUGS=none` and press **Re-run** (or plan it again). **A clean Kennel should give zero confirmed findings.** If it doesn't, that's a bug worth reporting.
 
 The same from the command line:
 
@@ -233,7 +233,7 @@ Limits of this set-up: a frontend that calls its API at `http://localhost:<apiPo
 
 Every run writes a folder: `app/runs/<runId>/` for the local install, `./runs/<runId>/` for Docker. In it:
 
-- `report.html`: open this one in your browser. The UI links to it when the run ends.
+- `report.html`: open this one in your browser. The UI's report has an **Open HTML report** button for it.
 - `report.md`: the same report as text; the easiest thing to send us.
 - `report.json`: everything, machine-readable (includes `runHoundVersion`).
 - `artifacts/`: the evidence images and GIFs.

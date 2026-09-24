@@ -221,6 +221,8 @@ export interface CheckResult {
   durationMs: number;
   /** Why it was skipped or errored, or a short note on what was verified. */
   notes?: string;
+  /** What the check did, in order (from CheckContext.step), for "Reproduction steps". Secrets redacted. */
+  steps?: { label: string; url: string; at: string }[];
 }
 
 /** One line of the test plan the user approves. */
@@ -354,4 +356,8 @@ export interface Report {
    * a 2xx or 3xx status. Run Hound never deletes them; the report says so. Optional only for older reports.
    */
   testRecordsCreated?: number;
+  /** True when the user stopped the run: remaining scenarios are "skipped" with notes "Stopped by you". */
+  stopped?: boolean;
+  /** Browser the run used, e.g. "Chromium 153.0.8010.12". */
+  browser?: string;
 }

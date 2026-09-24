@@ -25,16 +25,17 @@ pnpm serve --port 4310                                      # web UI + API on ht
 
 `PORT` and `ANALYTICS_PORT` move Kennel (the analytics port must differ from the app's, so it counts as a third party); `serve --port` moves the UI. `EADDRINUSE` means the port is taken: choose another. The examples below use these ports.
 
-### Web UI and the live view
+### Web UI
 
-Open <http://localhost:4310>, enter `http://localhost:5310/book` (the `http://` is optional), approve the plan and press **Run approved checks**. The plan is grouped as **Accessibility**, **Features** and **Security** (each with a "Select all" box), and the scenarios run in that order. While it runs, the **live view** shows:
+Open <http://localhost:4310>. The sidebar has three pages (on a narrow screen they're under **Menu**):
 
-- the URL of the page being tested, in a browser-style address bar, with a Live / Finished badge
-- the browser under test, refreshed about twice a second
-- the current group and scenario ("Accessibility · 3 of 15") and step ("Now: Double-clicking Book"), the elapsed time, and a step log with times, URLs and each scenario's result and duration
-- **Pages tested**: every URL the run has loaded, with the current one marked
+- **New Run**: enter `http://localhost:5310/book` (the `http://` is optional) and press **Plan checks**. The plan is grouped as **Accessibility**, **Features** and **Security** (each with a "Select all" box), and the scenarios run in that order. Press **Start run (N scenarios)**.
+- **The running view** shows the numbered scenario list with each one's status and time (the current one expanded with its live steps), a counter and progress bar, the elapsed time, the browser (Chromium version), a live preview of the page under test with its address, and a timestamped activity log. **Stop run** stops it for real: the scenario in progress and the rest are marked skipped ("Stopped by you") and a report is still written. **Back to test plan** plans the same page again with the same scenarios ticked.
+- **The report** (same address once the run ends): the verdict and counts, **Re-run** (runs the same scenarios on the same page again), **Open HTML report**, **Download** (report.md, report.json, specs), results you can filter (All, Passed, Issues, Skipped), and for the selected scenario its evidence, reproduction steps, key facts, what to ask your AI and the generated Playwright test.
+- **Runs**: every run on this machine, newest first, including finished runs read back from the runs folder after a restart.
+- **Settings**: defaults for "Allow destructive scenarios" and "Show the browser window" (saved in this browser), and the server's runs folder, allowed hosts and version.
 
-Tick **Show the browser window** before running to also open a visible Chromium window on the machine running Run Hound (it needs a display). The run's address (`#run=<id>`) survives a reload, and finished runs stay available after the server restarts. The UI refuses an empty selection, and runs at most two runs at a time.
+**Show the browser window** also opens a visible Chromium window on the machine running Run Hound (it needs a display). Pages have their own addresses (`#/new`, `#/runs`, `#/runs/<id>`, `#/settings`), so reload and back work; old `#run=<id>` links still open the run. The UI refuses an empty selection, and runs at most two runs at a time.
 
 ### Command line
 

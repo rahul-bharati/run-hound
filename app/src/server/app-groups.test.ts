@@ -376,13 +376,13 @@ describe("UI groups and timing (served on a random port)", () => {
     }
   });
 
-  it("ticks a silent elapsed-time counter while running, then shows 'Finished in' and a per-group table", async () => {
+  it("ticks a silent elapsed-time counter while running, then shows the run's duration and a per-group table", async () => {
     const page = await openUi();
     try {
       await planInUi(page);
       await page.locator("#run-button").click();
 
-      const elapsed = page.locator("#live-elapsed");
+      const elapsed = page.locator("#elapsed");
       await elapsed.waitFor({ state: "visible", timeout: 30_000 });
       // Not announced every tick: not a live region, nor inside one.
       const liveInfo = await elapsed.evaluate((e) => ({
@@ -406,8 +406,11 @@ describe("UI groups and timing (served on a random port)", () => {
       expect(second).not.toBe(first);
 
       gate.release();
-      await page.locator("#report-section").waitFor({ state: "visible", timeout: 45_000 });
-      expect(await page.locator("body").innerText()).toMatch(/Finished in \d/);
+      await page.locator("#report").waitFor({ state: "visible", timeout: 45_000 });
+      // The summary line under the title ends with how long the whole run took.
+      const summary = await page.locator("#report .summary").innerText();
+      expect(summary).toMatch(/\b\d+ scenarios? run\b/);
+      expect(summary).toMatch(/\d+(\.\d)? s\b|\bmin\b/);
 
       const table = page.locator("#report table").filter({ hasText: "Accessibility" });
       expect(await table.count()).toBe(1);
@@ -426,7 +429,7 @@ describe("UI groups and timing (served on a random port)", () => {
   }, 120_000);
 
   async function currentRunId(page: Page): Promise<string> {
-    const hash = await until(async () => page.evaluate(() => location.hash), (h) => /^#run=/.test(h), "the run id in the address");
-    return decodeURIComponent(hash.slice("#run=".length));
+    const hash = await until(async () => page.evaluate(() => location.hash), (h) => /^#\/runs\/[\w-]+$/.test(h), "the run id in the address");
+    return decodeURIComponent(hash.slice("#/runs/".length));
   }
 });
