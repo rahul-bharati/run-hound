@@ -7,6 +7,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { MARK_DATA_URI } from "../core/brand.js";
 import type { Evidence, Finding, Report } from "../core/types.js";
 import { NOT_VISIBLE, renderHtml, renderMarkdown, writeReport } from "./report.js";
 
@@ -76,6 +77,11 @@ function makeReport(findings: Finding[], pagesVisited: Report["pagesVisited"] = 
     target: "http://127.0.0.1:5173/book",
     startedAt: "2026-09-22T10:00:00.000Z",
     finishedAt: "2026-09-22T10:01:00.000Z",
+    durationMs: 60_000,
+    groups: [
+      { id: "accessibility", label: "Accessibility", scenarioIds: ["rf:1"], passed: 1, failed: 0, errored: 0, skipped: 0, findings: 0, durationMs: 300 },
+      { id: "features", label: "Features", scenarioIds: ["ds:1"], passed: 1 - (findings.length ? 1 : 0), failed: findings.length ? 1 : 0, errored: 0, skipped: 0, findings: findings.length, durationMs: 1200 },
+    ],
     runHoundVersion: "0.0.1",
     plan: {
       target: "http://127.0.0.1:5173/book",
@@ -83,6 +89,10 @@ function makeReport(findings: Finding[], pagesVisited: Report["pagesVisited"] = 
       scenarios: [
         { id: "ds:1", checkId: "double-submit", title: "Double-click submit", description: "d", kind: "danger", priority: "high", destructive: false, defaultSelected: true },
         { id: "rf:1", checkId: "reflow-320", title: "Reflow at 320px", description: "r", kind: "golden", priority: "medium", destructive: false, defaultSelected: true },
+      ],
+      groups: [
+        { id: "accessibility", label: "Accessibility", scenarioIds: ["rf:1"] },
+        { id: "features", label: "Features", scenarioIds: ["ds:1"] },
       ],
     },
     approved: ["ds:1", "rf:1"],
@@ -128,7 +138,9 @@ function imgTags(html: string): { src: string; alt: string | null }[] {
 function localRefs(html: string): string[] {
   return [...html.matchAll(/\s(?:src|href)=("([^"]*)"|'([^']*)')/gi)]
     .map((m) => unescape(m[2] ?? m[3] ?? ""))
-    .filter((v) => !v.startsWith("#"));
+    .filter((v) => !v.startsWith("#"))
+    // The embedded Run Hound mark (a fixed data URI from core/brand.ts) is not a file reference.
+    .filter((v) => v !== MARK_DATA_URI);
 }
 
 /** True when the fact appears as <dt>label</dt><dd>value</dd> or as a table row with label and value cells. */

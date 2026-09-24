@@ -51,16 +51,16 @@ export default function SecurityPage() {
       <p>These are our targets, not guarantees:</p>
       <ul>
         <li>
-          acknowledge your report within <strong>[X] business days</strong>;
+          acknowledge your report within <strong>3 business days</strong>;
         </li>
         <li>
-          give an initial assessment within <strong>[X] business days</strong>;
+          give an initial assessment within <strong>10 business days</strong>;
         </li>
         <li>keep you updated while we work on a fix;</li>
         <li>credit you in the release notes or advisory, if you want to be credited.</li>
       </ul>
       <p>
-        We aim to publish fixes and a security advisory within <strong>[X] days</strong> of confirming an issue,
+        We aim to publish fixes and a security advisory within <strong>90 days</strong> of confirming an issue,
         depending on its severity and complexity.
       </p>
 

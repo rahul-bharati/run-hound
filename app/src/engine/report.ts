@@ -1,6 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join, posix } from "node:path";
-import { CHECK_IDS, type CheckResult, type Evidence, type Finding, type Report, type Severity } from "../core/types.js";
+import { BRAND, FONT_MONO, FONT_SANS, MARK_DATA_URI } from "../core/brand.js";
+import { formatDuration } from "../core/format.js";
+import { CHECK_GROUPS, CHECK_IDS, type CheckResult, type Evidence, type Finding, type Report, type ReportGroup, type Severity } from "../core/types.js";
 import { redactSecrets } from "./redact.js";
 
 /** Always listed in reports: things a browser can't see. */
@@ -43,6 +45,7 @@ interface ScenarioLine {
   status: CheckResult["status"];
   notes: string | undefined;
   findings: number;
+  durationMs: number;
 }
 
 function scenarioLines(report: Report): ScenarioLine[] {
@@ -53,7 +56,47 @@ function scenarioLines(report: Report): ScenarioLine[] {
     status: r.status,
     notes: r.notes,
     findings: r.findings.length,
+    durationMs: r.durationMs,
   }));
+}
+
+/** formatDuration that tolerates a missing or bad value (reports written before durations existed). */
+function duration(ms: number | undefined): string | null {
+  return typeof ms === "number" && Number.isFinite(ms) && ms >= 0 ? formatDuration(ms) : null;
+}
+
+/** "Finished in 1 min 12 s", or null for a report without a run duration. */
+export function finishedIn(report: Report): string | null {
+  const d = duration(report.durationMs);
+  return d ? `Finished in ${d}` : null;
+}
+
+/** The label of the group a finding's category belongs to ("Accessibility"), or null for an unknown category. */
+export function findingGroupLabel(f: Finding): string | null {
+  return CHECK_GROUPS.find((g) => g.categories.includes(f.category))?.label ?? null;
+}
+
+/**
+ * The scenarios that ran, under their groups (report.groups order). A report written before groups existed gets one
+ * unlabelled group holding every result.
+ */
+function groupedLines(report: Report): { group: ReportGroup | null; lines: ScenarioLine[] }[] {
+  const lines = scenarioLines(report);
+  const groups = report.groups ?? [];
+  if (groups.length === 0) return lines.length ? [{ group: null, lines }] : [];
+  const out: { group: ReportGroup | null; lines: ScenarioLine[] }[] = groups.map((group) => ({ group, lines: group.scenarioIds.flatMap((id) => lines.filter((l) => l.id === id)) }));
+  // Results no group lists (should not happen) still show up.
+  const listed = new Set(groups.flatMap((g) => g.scenarioIds));
+  const rest = lines.filter((l) => !listed.has(l.id));
+  if (rest.length) out.push({ group: null, lines: rest });
+  return out;
+}
+
+/** "2 scenarios · 1 finding · 3.7 s" for a group heading. */
+function groupSummary(g: ReportGroup): string {
+  return [scenarioCount(g.scenarioIds.length), `${g.findings} ${g.findings === 1 ? "finding" : "findings"}`, duration(g.durationMs)]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /** Planned scenarios the user did not approve, so a partial run never looks like a full one. */
@@ -192,15 +235,17 @@ function scenarioCount(n: number): string {
 /** Markdown report: summary counts, findings by severity (meaning / impact / fix / evidence), passed checks, not-visible list. */
 export function renderMarkdown(report: Report): string {
   const s = report.summary;
+  const finished = finishedIn(report);
   const lines: string[] = [
     `# Run Hound report`,
     "",
     `- Target: ${report.target}`,
-    `- Run: ${report.runId} (${report.startedAt} to ${report.finishedAt})`,
+    `- Run: ${report.runId} (${report.startedAt} to ${report.finishedAt})${finished ? ` · ${finished}` : ""}`,
     `- Run Hound ${report.runHoundVersion}`,
     "",
     "## Summary",
     "",
+    ...(finished ? [`${finished}.`, ""] : []),
     "Findings by severity, and scenarios by result.",
     "",
     `| Critical | High | Medium | Low | Scenarios passed | Scenarios failed | Scenarios errored | Scenarios skipped |`,
@@ -209,6 +254,7 @@ export function renderMarkdown(report: Report): string {
     "",
     `${report.approved.length} of ${report.plan.scenarios.length} planned scenarios were approved and run. ${findingCounts(report.findings)}; advisory findings rely on judgement and don't fail the run.`,
     "",
+    ...groupTableMarkdown(report),
     "## Test data",
     "",
     testDataSentence(report) ?? "Not recorded for this run.",
@@ -223,7 +269,8 @@ export function renderMarkdown(report: Report): string {
     lines.push(`### ${severity[0]!.toUpperCase()}${severity.slice(1)} (${group.length})`, "");
     for (const f of group) {
       lines.push(`#### ${f.title}`, "");
-      lines.push(`- Check: ${f.checkId} · severity: ${f.severity} · confidence: ${f.confidence}`);
+      const label = findingGroupLabel(f);
+      lines.push(`- ${label ? `Group: ${label} · ` : ""}Check: ${f.checkId} · severity: ${f.severity} · confidence: ${f.confidence}`);
       const places = findingPlaces(f);
       if (places.length === 1) lines.push(`- Where: ${oneLine(places[0]!)}`);
       else if (places.length > 1) lines.push(`- Where (${places.length} places):`, ...places.map((p) => `  - ${oneLine(p)}`));
@@ -251,12 +298,17 @@ export function renderMarkdown(report: Report): string {
   else lines.push(...pages.map((p) => `- ${oneLine(p.url)} (${scenarioCount(p.count)})`), "");
 
   lines.push("## Scenarios run", "");
-  const ran = scenarioLines(report);
-  if (ran.length === 0) lines.push("None.", "");
-  else {
+  const grouped = groupedLines(report);
+  if (grouped.length === 0) lines.push("None.", "");
+  for (const { group, lines: ran } of grouped) {
+    if (group) lines.push(`### ${group.label} (${groupSummary(group)})`, "");
+    else if (grouped.length > 1) lines.push("### Other", "");
     for (const r of ran) {
       const found = r.findings ? ` (${r.findings} ${r.findings === 1 ? "finding" : "findings"})` : "";
-      lines.push(`- ${STATUS_WORD[r.status]}${found}: ${oneLine(r.title)} · ${r.checkId} · ${r.id}${r.notes ? `\n  - ${oneLine(r.notes)}` : ""}`);
+      const took = duration(r.durationMs);
+      lines.push(
+        `- ${STATUS_WORD[r.status]}${found}: ${oneLine(r.title)}${took ? ` · ${took}` : ""} · ${r.checkId} · ${r.id}${r.notes ? `\n  - ${oneLine(r.notes)}` : ""}`,
+      );
     }
     lines.push("");
   }
@@ -272,6 +324,37 @@ export function renderMarkdown(report: Report): string {
 
   lines.push("## What a browser can't see", "", ...report.notVisible.map((item) => `- ${item}`), "");
   return lines.join("\n");
+}
+
+/** Per-group summary table (Markdown lines), or nothing for a report without groups. */
+function groupTableMarkdown(report: Report): string[] {
+  const groups = report.groups ?? [];
+  if (groups.length === 0) return [];
+  return [
+    "By group:",
+    "",
+    "| Group | Scenarios | Passed | Failed | Errored | Skipped | Findings | Time |",
+    "|---|---|---|---|---|---|---|---|",
+    ...groups.map(
+      (g) =>
+        `| ${g.label} | ${g.scenarioIds.length} | ${g.passed} | ${g.failed} | ${g.errored} | ${g.skipped} | ${g.findings} | ${duration(g.durationMs) ?? "-"} |`,
+    ),
+    "",
+  ];
+}
+
+/** Per-group summary table (HTML), or "" for a report without groups. */
+function groupTableHtml(report: Report): string {
+  const groups = report.groups ?? [];
+  if (groups.length === 0) return "";
+  const head = ["Group", "Scenarios", "Passed", "Failed", "Errored", "Skipped", "Findings", "Time"].map((h) => `<th scope="col">${h}</th>`).join("");
+  const rows = groups
+    .map(
+      (g) =>
+        `<tr><th scope="row">${esc(g.label)}</th><td>${g.scenarioIds.length}</td><td>${g.passed}</td><td>${g.failed}</td><td>${g.errored}</td><td>${g.skipped}</td><td>${g.findings}</td><td>${esc(duration(g.durationMs) ?? "-")}</td></tr>`,
+    )
+    .join("");
+  return `<table class="groups"><caption>By group</caption><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function esc(text: string): string {
@@ -316,7 +399,7 @@ function findingHtml(f: Finding): string {
     : "";
   return `<article class="finding sev-${esc(f.severity)}">
 <h3>${esc(f.title)}</h3>
-<p class="meta">${esc(f.checkId)} · <span class="sev">${esc(f.severity)}</span> · ${esc(f.confidence)}${places.length === 1 ? ` · ${esc(places[0]!)}` : ""}</p>
+<p class="meta">${findingGroupLabel(f) ? `${esc(findingGroupLabel(f)!)} · ` : ""}${esc(f.checkId)} · <span class="sev">${esc(f.severity)}</span> · ${esc(f.confidence)}${places.length === 1 ? ` · ${esc(places[0]!)}` : ""}</p>
 ${places.length > 1 ? `<p class="where">Where (${places.length} places):</p><ul class="where">${places.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}
 <dl><dt>What it means</dt><dd>${esc(f.meaning)}</dd><dt>Impact</dt><dd>${esc(f.impact)}</dd><dt>Fix</dt><dd>${esc(f.fix)}</dd></dl>
 ${spec}${figures}${details}
@@ -329,7 +412,7 @@ export function renderHtml(report: Report): string {
   const list = (ids: string[]) => (ids.length ? `<ul>${ids.map((id) => `<li>${esc(id)}</li>`).join("")}</ul>` : "<p>None.</p>");
   const findings = SEVERITIES.map((severity) => {
     const group = report.findings.filter((f) => f.severity === severity);
-    return group.length ? `<h2>${esc(severity)} (${group.length})</h2>${group.map(findingHtml).join("\n")}` : "";
+    return group.length ? `<h2>${esc(severity[0]!.toUpperCase() + severity.slice(1))} (${group.length})</h2>${group.map(findingHtml).join("\n")}` : "";
   }).join("\n");
   const pages = pagesTested(report);
   const pagesHtml = !pages
@@ -337,18 +420,28 @@ export function renderHtml(report: Report): string {
     : pages.length === 0
       ? "<p>No pages were loaded.</p>"
       : `<ul>${pages.map((p) => `<li><code>${esc(p.url)}</code> · ${scenarioCount(p.count)}</li>`).join("")}</ul>`;
-  const cell = (label: string, n: number) => `<div class="stat"><span class="n">${n}</span><span>${esc(label)}</span></div>`;
-  const ran = scenarioLines(report);
-  const scenariosHtml = ran.length
-    ? `<ul class="scenarios">${ran
-        .map(
-          (r) =>
-            `<li><span class="st st-${esc(r.status)}">${esc(STATUS_WORD[r.status])}</span> ${esc(r.title)}${r.findings ? ` (${r.findings} ${r.findings === 1 ? "finding" : "findings"})` : ""} <span class="muted">· ${esc(r.checkId)} · ${esc(r.id)}</span>${
-              r.notes ? `<br><span class="muted">${esc(r.notes)}</span>` : ""
-            }</li>`,
+  const cell = (label: string, n: number, tone = "") => `<div class="stat${tone ? ` ${tone}` : ""}"><span class="n">${n}</span><span>${esc(label)}</span></div>`;
+  const clean = report.findings.length === 0 && s.failed === 0 && s.errored === 0;
+  const grouped = groupedLines(report);
+  const scenarioList = (ran: ScenarioLine[]) =>
+    `<ul class="scenarios">${ran
+      .map((r) => {
+        const took = duration(r.durationMs);
+        return `<li><span class="st st-${esc(r.status)}">${esc(STATUS_WORD[r.status])}</span> ${esc(r.title)}${r.findings ? ` (${r.findings} ${r.findings === 1 ? "finding" : "findings"})` : ""}${
+          took ? ` <span class="dur">· ${esc(took)}</span>` : ""
+        } <span class="muted">· ${esc(r.checkId)} · ${esc(r.id)}</span>${r.notes ? `<br><span class="muted">${esc(r.notes)}</span>` : ""}</li>`;
+      })
+      .join("")}</ul>`;
+  const scenariosHtml = grouped.length
+    ? grouped
+        .map(({ group, lines }) =>
+          group
+            ? `<h3>${esc(group.label)} <span class="muted">(${esc(groupSummary(group))})</span></h3>${scenarioList(lines)}`
+            : `${grouped.length > 1 ? "<h3>Other</h3>" : ""}${scenarioList(lines)}`,
         )
-        .join("")}</ul>`
+        .join("\n")
     : "<p>None.</p>";
+  const finished = finishedIn(report);
   const unapproved = notApproved(report);
   const unapprovedHtml = unapproved.length
     ? `<section aria-labelledby="not-approved"><h2 id="not-approved">Planned but not approved (not run)</h2><ul>${unapproved
@@ -367,49 +460,95 @@ export function renderHtml(report: Report): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Run Hound report ${esc(report.runId)}</title>
 <style>
-:root { --bg:#0E1012; --surface:#171A1D; --text:#E8E6E1; --muted:#B4B8BC; --amber:#F5B642; --pass:#6FCF97; --fail:#FF7A6B; }
+:root { --bg:${BRAND.bg}; --bg-deep:${BRAND.bgDeep}; --surface:${BRAND.surface}; --surface-2:${BRAND.surface2}; --surface-3:${BRAND.surface3};
+  --line:${BRAND.line}; --line-soft:${BRAND.lineSoft}; --line-strong:${BRAND.lineStrong}; --fg:${BRAND.fg}; --muted:${BRAND.muted}; --dim:${BRAND.dim};
+  --accent:${BRAND.accent}; --accent-strong:${BRAND.accentStrong}; --accent-ink:${BRAND.accentInk}; --fail:${BRAND.fail}; --warn:${BRAND.warn};
+  --sans:${FONT_SANS}; --mono:${FONT_MONO}; color-scheme: dark; }
 * { box-sizing: border-box; }
-body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui, sans-serif; }
-main { max-width: 60rem; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
-h1 { color: var(--amber); margin-bottom: .25rem; }
-h2 { text-transform: capitalize; border-bottom: 1px solid #2a2f34; padding-bottom: .25rem; }
+body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
+.topbar { background:var(--bg-deep); border-bottom:1px solid var(--line); }
+.topbar-in { max-width: 64rem; margin:0 auto; padding:.75rem 1rem; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.5rem 1rem; }
+.brand { display:inline-flex; align-items:center; gap:.6rem; font-weight:800; font-size:1.1rem; letter-spacing:-.02em; color:var(--fg); }
+.brand img { display:block; width:40px; height:23px; }
+.eyebrow { font:600 .72rem/1.4 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--dim); }
+main { max-width: 64rem; margin: 0 auto; padding: 1.75rem 1rem 3rem; }
+.hero { display:flex; gap:1rem; align-items:flex-start; margin-bottom:1.5rem; }
+.ring-big { flex:none; width:3.25rem; height:3.25rem; border-radius:50%; display:grid; place-items:center; border:3px solid var(--accent); color:var(--accent); font:800 1.4rem/1 var(--sans); }
+.ring-big.bad { border-color:var(--fail); color:var(--fail); }
+h1 { margin:.1rem 0 .2rem; font-size:clamp(1.6rem, 4vw, 2.2rem); line-height:1.1; font-weight:800; letter-spacing:-.03em; }
+h1 .accent { color:var(--accent); }
+.target { margin:0; font:.9rem/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
+.runmeta { margin:.35rem 0 0; color:var(--muted); font-size:.95rem; }
+section { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:1rem 1.25rem 1.1rem; margin:1rem 0; overflow-x:auto; }
+h2 { margin:0 0 .75rem; font-size:1.15rem; font-weight:750; letter-spacing:-.01em; }
+section[aria-labelledby="findings"] h2:not(#findings) { font:600 .75rem/1.4 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--dim); margin:1.25rem 0 .5rem; }
+h3 { font-size:1rem; margin:1rem 0 .4rem; }
 .muted, .meta, dt { color: var(--muted); }
-a { color: var(--amber); }
-a:focus-visible, summary:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
-.stats { display:flex; flex-wrap:wrap; gap:.5rem; }
-.stat { background:var(--surface); padding:.5rem .75rem; border-radius:6px; min-width:6rem; display:flex; flex-direction:column; }
-.stat .n { font-size:1.5rem; font-weight:700; }
-.finding { background:var(--surface); border-left:4px solid var(--fail); border-radius:6px; padding:.75rem 1rem; margin:1rem 0; }
-.finding.sev-medium, .finding.sev-low { border-left-color: var(--amber); }
-.finding h3 { margin:.25rem 0; overflow-wrap:anywhere; }
+a { color: var(--accent); text-underline-offset: 3px; }
+a:hover { color: var(--accent-strong); }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.stats { display:grid; grid-template-columns:repeat(auto-fill, minmax(8.5rem, 1fr)); gap:.5rem; }
+.stat { background:var(--surface-2); border:1px solid var(--line); padding:.6rem .8rem; border-radius:10px; display:flex; flex-direction:column; }
+.stat .n { font:800 1.6rem/1.2 var(--sans); letter-spacing:-.02em; font-variant-numeric: tabular-nums; }
+.stat > span:last-child { font:600 .7rem/1.4 var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--dim); }
+.stat.hot .n { color:var(--fail); }
+.stat.warm .n { color:var(--warn); }
+.stat.good .n { color:var(--accent); }
+.finding { background:var(--surface-2); border:1px solid var(--line); border-left:4px solid var(--fail); border-radius:10px; padding:.85rem 1rem; margin:.75rem 0; }
+.finding.sev-medium { border-left-color: var(--warn); }
+.finding.sev-low { border-left-color: var(--dim); }
+.finding h3 { margin:.1rem 0 .3rem; overflow-wrap:anywhere; }
+.sev { font:700 .72rem/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; padding:.2rem .45rem; border-radius:999px; border:1px solid currentColor; }
+.sev-critical .sev, .sev-high .sev { color:var(--fail); }
+.sev-medium .sev { color:var(--warn); }
+.sev-low .sev { color:var(--muted); }
+.finding dl { margin:.5rem 0 0; }
+.finding dt { font:600 .7rem/1.4 var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--dim); }
 dd { margin: 0 0 .5rem; overflow-wrap:anywhere; }
-pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg); padding: .5rem; border-radius: 4px; font-size: .85rem; }
-.pass { color: var(--pass); }
-ul.scenarios { padding-left: 1.2rem; }
-ul.scenarios li { margin: .3rem 0; overflow-wrap: anywhere; }
-.st { font-weight: 700; }
-.st-pass { color: var(--pass); }
+pre, code { font-family: var(--mono); }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg-deep); border:1px solid var(--line); padding: .6rem; border-radius: 8px; font-size: .85rem; }
+summary { cursor:pointer; color:var(--accent); }
+.pass { color: var(--accent); }
+ul.scenarios { list-style:none; padding:0; margin:.25rem 0 .75rem; }
+ul.scenarios li { margin: 0; padding:.45rem .1rem; border-bottom:1px solid var(--line-soft); overflow-wrap: anywhere; }
+.st { display:inline-block; min-width:4.7rem; font:700 .72rem/1.6 var(--mono); letter-spacing:.06em; text-transform:uppercase; }
+.st-pass { color: var(--accent); }
 .st-fail, .st-error { color: var(--fail); }
-.st-skipped { color: var(--amber); }
+.st-skipped { color: var(--muted); }
 .figures { display:grid; gap:1rem; margin:.75rem 0; }
-figure.evidence { margin:0; background:var(--bg); border-radius:6px; padding:.5rem; }
-figure.evidence img { display:block; max-width:100%; height:auto; border-radius:4px; }
+figure.evidence { margin:0; background:var(--bg-deep); border:1px solid var(--line); border-radius:10px; padding:.5rem; }
+figure.evidence img { display:block; max-width:100%; height:auto; border-radius:6px; }
 figcaption { color:var(--muted); font-size:.9rem; margin-top:.5rem; overflow-wrap:anywhere; }
-figcaption strong { color:var(--text); }
+figcaption strong { color:var(--fg); }
 dl.facts { display:grid; grid-template-columns:max-content 1fr; gap:.25rem .75rem; margin:.5rem 0 0; font-size:.9rem; }
-dl.facts dd { margin:0; }
-code { overflow-wrap:anywhere; }
+dl.facts dd { margin:0; font-family:var(--mono); }
+code { overflow-wrap:anywhere; font-size:.9em; }
 p.where { margin:.25rem 0 0; color:var(--muted); }
 ul.where { margin:.25rem 0 .5rem; padding-left:1.2rem; overflow-wrap:anywhere; }
+p.finished { font-weight:700; margin:0 0 .75rem; }
+table.groups { border-collapse:collapse; margin:1rem 0 0; width:100%; font-variant-numeric:tabular-nums; }
+table.groups caption { text-align:left; font:600 .72rem/1.4 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--dim); padding-bottom:.4rem; }
+table.groups th, table.groups td { text-align:left; padding:.4rem .6rem; border-bottom:1px solid var(--line); white-space:nowrap; }
+table.groups thead th { color:var(--muted); font-weight:600; font-size:.85rem; }
+.dur { color:var(--muted); font-family:var(--mono); font-size:.9em; }
+.visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+footer { max-width:64rem; margin:0 auto; padding:0 1rem 2.5rem; color:var(--dim); font-size:.85rem; }
+@media (max-width: 30rem) { section { padding:.85rem .9rem; } .hero { gap:.75rem; } .ring-big { width:2.6rem; height:2.6rem; font-size:1.1rem; } }
 </style>
 </head>
 <body>
+<header class="topbar"><div class="topbar-in"><span class="brand"><img src="${MARK_DATA_URI}" alt="Run Hound" width="40" height="23"><span aria-hidden="true">Run Hound</span></span><span class="eyebrow">Run ${esc(report.runId)}</span></div></header>
 <main>
+<div class="hero"><span class="ring-big${clean ? "" : " bad"}" aria-hidden="true">${clean ? "✓" : "!"}</span><div>
+<p class="eyebrow">Report · ${esc(report.startedAt)}</p>
 <h1>Run Hound report</h1>
-<p class="muted">Target: ${esc(report.target)}<br>Run ${esc(report.runId)} · ${esc(report.startedAt)} to ${esc(report.finishedAt)} · Run Hound ${esc(report.runHoundVersion)}</p>
-<section aria-labelledby="summary"><h2 id="summary">Summary</h2><div class="stats">
-${cell("critical", s.critical)}${cell("high", s.high)}${cell("medium", s.medium)}${cell("low", s.low)}${cell("scenarios passed", s.passed)}${cell("scenarios failed", s.failed)}${cell("scenarios errored", s.errored)}${cell("scenarios skipped", s.skipped)}
-</div><p class="muted">${report.approved.length} of ${report.plan.scenarios.length} planned scenarios were approved and run. ${esc(findingCounts(report.findings))}; advisory findings rely on judgement and don't fail the run.</p></section>
+<p class="target"><span class="visually-hidden">Target: </span>${esc(report.target)}</p>
+<p class="runmeta">${report.results.length} ${report.results.length === 1 ? "scenario" : "scenarios"} run · ${s.passed} passed · ${esc(findingCounts(report.findings))}</p>
+</div></div>
+<p class="muted">Run ${esc(report.runId)} · ${esc(report.startedAt)} to ${esc(report.finishedAt)}${finished ? ` · ${esc(finished)}` : ""} · Run Hound ${esc(report.runHoundVersion)}</p>
+<section aria-labelledby="summary"><h2 id="summary">Summary</h2>${finished ? `<p class="finished">${esc(finished)}.</p>` : ""}<div class="stats">
+${cell("critical", s.critical, s.critical ? "hot" : "")}${cell("high", s.high, s.high ? "hot" : "")}${cell("medium", s.medium, s.medium ? "warm" : "")}${cell("low", s.low)}${cell("scenarios passed", s.passed, s.passed ? "good" : "")}${cell("scenarios failed", s.failed, s.failed ? "hot" : "")}${cell("scenarios errored", s.errored, s.errored ? "hot" : "")}${cell("scenarios skipped", s.skipped)}
+</div><p class="muted">${report.approved.length} of ${report.plan.scenarios.length} planned scenarios were approved and run. ${esc(findingCounts(report.findings))}; advisory findings rely on judgement and don't fail the run.</p>${groupTableHtml(report)}</section>
 <section aria-labelledby="test-data"><h2 id="test-data">Test data</h2><p>${esc(testDataSentence(report) ?? "Not recorded for this run.")}</p></section>
 <section aria-labelledby="findings"><h2 id="findings">Findings</h2>
 ${report.findings.length ? findings : '<p class="pass">No findings in the scenarios that ran.</p>'}
@@ -422,6 +561,7 @@ ${unapprovedHtml}${unplannedHtml}
 <section aria-labelledby="skipped"><h2 id="skipped">Skipped checks</h2>${list(reasons(report, "skipped"))}</section>
 <section aria-labelledby="not-visible"><h2 id="not-visible">What a browser can't see</h2>${list(report.notVisible)}</section>
 </main>
+<footer>Run Hound ${esc(report.runHoundVersion)} · V0 tester preview · rule-based checks in a real browser, on local and private addresses only</footer>
 </body>
 </html>
 `;

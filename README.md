@@ -27,11 +27,11 @@ pnpm serve --port 4310                                      # web UI + API on ht
 
 ### Web UI and the live view
 
-Open <http://localhost:4310>, enter `http://localhost:5310/book` (the `http://` is optional), approve the plan and press **Run approved checks**. While it runs, the **live view** shows:
+Open <http://localhost:4310>, enter `http://localhost:5310/book` (the `http://` is optional), approve the plan and press **Run approved checks**. The plan is grouped as **Accessibility**, **Features** and **Security** (each with a "Select all" box), and the scenarios run in that order. While it runs, the **live view** shows:
 
 - the URL of the page being tested, in a browser-style address bar, with a Live / Finished badge
 - the browser under test, refreshed about twice a second
-- the current scenario and step ("Now: Double-clicking Book"), and a step log with times and URLs
+- the current group and scenario ("Accessibility · 3 of 15") and step ("Now: Double-clicking Book"), the elapsed time, and a step log with times, URLs and each scenario's result and duration
 - **Pages tested**: every URL the run has loaded, with the current one marked
 
 Tick **Show the browser window** before running to also open a visible Chromium window on the machine running Run Hound (it needs a display). The run's address (`#run=<id>`) survives a reload, and finished runs stay available after the server restarts. The UI refuses an empty selection, and runs at most two runs at a time.
@@ -45,7 +45,7 @@ pnpm exec tsx src/cli.ts run http://localhost:5310/book --approve all         # 
 pnpm exec tsx src/cli.ts run localhost:5310/book --approve all --headed       # same, in a visible browser window
 ```
 
-Options: `--approve all|default|<id,id>`, `--plan-only`, `--allow-destructive`, `--headed`, `--runs-dir <dir>`, `--json` (report on stdout; progress and the run folder on stderr). Progress lines on stderr name each step and each page as it loads (`> page http://…`). `run-hound help` prints the usage, `--version` the version. `run` exits 0 with no confirmed findings (advisory findings are reported but don't fail the run), 1 with at least one confirmed finding, and 2 on an error: a refused or unreachable target, a page without a form, or an approval that names no scenarios.
+Options: `--approve all|default|<id,id>`, `--plan-only`, `--allow-destructive`, `--headed`, `--runs-dir <dir>`, `--json` (report on stdout; progress and the run folder on stderr). Progress lines on stderr name each group (`== Accessibility (6 scenarios; group 1 of 3) ==`), each step and each page as it loads (`> page http://…`); each scenario's result line ends with its duration, and the summary starts with `Finished in <duration>` and a line per group. `run-hound help` prints the usage, `--version` the version. `run` exits 0 with no confirmed findings (advisory findings are reported but don't fail the run), 1 with at least one confirmed finding, and 2 on an error: a refused or unreachable target, a page without a form, or an approval that names no scenarios.
 
 ### Reports and evidence
 
@@ -55,7 +55,7 @@ Reports land in `app/runs/<runId>/`: `report.html`, `report.md`, `report.json`, 
 - **GIFs** (`.gif`): flows such as a double-click, a Tab walk or a submit-and-reload, one annotated frame per step.
 - **Cards** (`.png`): requests, responses, script excerpts and console lines, with the proving line marked.
 
-The report also lists every scenario that ran with its result and notes (why it errored or was skipped), the planned scenarios you did not approve, checks that had nothing to test on the form, and the pages tested. Evidence text is redacted; pixels can't be, so a page that shows a secret shows it in its screenshots and in the live view.
+The report says how long the run took, has a per-group table (Accessibility, Features, Security: results, findings and time) and labels each finding with its group. It also lists every scenario that ran, under its group, with its result, duration and notes (why it errored or was skipped), the planned scenarios you did not approve, checks that had nothing to test on the form, and the pages tested. Evidence text is redacted; pixels can't be, so a page that shows a secret shows it in its screenshots and in the live view.
 
 The exported specs need `@playwright/test` in the project that runs them (`npm i -D @playwright/test`, plus `@axe-core/playwright` for the axe-states specs); run one with `npx playwright test <file>`. Runs create a few test records in the target app (each scenario's description says when); Run Hound doesn't delete them.
 
@@ -76,9 +76,9 @@ To test an app running on your machine from a container:
 
 - **Linux**: share the host's network, so `localhost` is your machine and nothing in your app changes:
   ```sh
-  docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" localhost/run-hound:dev run http://localhost:5173/signup --approve all
+  docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.1.0 run http://localhost:5173/signup --approve all
   ```
-  For the UI this way, bind it to loopback: `... localhost/run-hound:dev serve --host 127.0.0.1 --port 4310`.
+  For the UI this way, bind it to loopback: `... rahulrbharati/run-hound:0.1.0 serve --host 127.0.0.1 --port 4310`.
 - **Docker Desktop (Mac, Windows) or the compose UI**: enter `http://host.docker.internal:<port>/<page>`. In a container `localhost` is the container itself. Your dev server must listen on all interfaces (`vite --host`) and accept that host name (Vite `server.allowedHosts`, Next.js `allowedDevOrigins`); a frontend that calls its API on `localhost:<apiPort>` won't work this way. The compose file allows `host.docker.internal` and `host.containers.internal` through the safety gate with `RUNHOUND_ALLOWED_HOSTS`. Details in [TESTING.md](TESTING.md#test-your-own-app).
 
 ### Safety

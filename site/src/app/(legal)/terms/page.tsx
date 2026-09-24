@@ -30,7 +30,8 @@ export default function TermsPage() {
 
       <h2 id="software-license">The software and its license</h2>
       <p>
-        {site.name} is in early development and has not been released. It is planned to be released under the{" "}
+        {site.name} is available only as an invite-only tester preview (V0 {site.version}) and has not been publicly
+        released. It is planned to be released under the{" "}
         <a href="https://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>. Once released, the
         license, not these terms, governs your rights to use, copy, modify and distribute the code. If these terms and the license ever
         conflict about the code, the license wins. The source is on <a href={site.github}>GitHub</a>.
@@ -44,8 +45,8 @@ export default function TermsPage() {
         and limitation of liability, which apply to the code.
       </p>
       <p>
-        {site.name} uses AI models to explore and test apps. It can miss problems and it can report problems that are
-        not real. Its findings are not a guarantee that an app is correct, accessible or secure, and they are not a
+        {site.name} tests apps automatically, and later versions may use AI models to plan tests and explain
+        results. It can miss problems and it can report problems that are not real. Its findings are not a guarantee that an app is correct, accessible or secure, and they are not a
         substitute for your own review or a professional audit.
       </p>
 
@@ -66,7 +67,10 @@ export default function TermsPage() {
           to review what the agent plans to do before you approve it, and to enable destructive actions only when you
           understand the consequences;
         </li>
-        <li>to handle any data the software processes, including data sent to a model provider you choose, lawfully.</li>
+        <li>
+          to handle any data the software processes lawfully, including data sent to a model provider if you choose to
+          use one.
+        </li>
       </ul>
 
       <h2 id="acceptable-use">Acceptable Use Policy</h2>

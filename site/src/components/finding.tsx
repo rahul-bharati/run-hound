@@ -4,7 +4,7 @@ export type Status = "pass" | "fail" | "running" | "queued";
 const severityColor: Record<Severity, string> = {
   critical: "text-fail",
   high: "text-fail",
-  medium: "text-amber",
+  medium: "text-warn",
   low: "text-dim",
 };
 
@@ -19,7 +19,7 @@ export function SeverityLabel({ severity }: { severity: Severity }) {
 const statusColor: Record<Status, string> = {
   pass: "text-pass",
   fail: "text-fail",
-  running: "text-amber",
+  running: "text-accent",
   queued: "text-dim",
 };
 

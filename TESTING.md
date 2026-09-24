@@ -42,6 +42,8 @@ What we most want to learn: **is every finding real, and did it miss a bug you k
 | `reflow-320` | Opens the page 320 px wide (a small phone, or 400% zoom) and checks it doesn't scroll sideways. | 0 |
 | `client-only-validation` | Captures the save request, then sends it straight to the server with one field invalid and checks the server rejects it. Localhost targets only; skipped otherwise, with a reason. | 0 |
 
+The checks are grouped as **Accessibility** (`axe-states`, `keyboard-completion`, `focus-visible`, `error-announcement`, `credential-fields`, `reflow-320`), **Features** (`console-network-errors`, `dead-control`, `silent-failure`, `persistence`, `double-submit`, `client-only-validation`) and **Security** (`bundle-secrets`, `pii-leak`, `verbose-errors`). The plan, the run, the progress and the report all follow that order.
+
 Scenarios that don't apply to your form (no password field, no JSON save request) are **skipped with a plain reason**, never silently dropped. Each scenario's description in the plan says whether it creates records.
 
 ### Test records it creates
@@ -129,8 +131,8 @@ pnpm serve --port 4310
 ```
 
 1. Open <http://localhost:4310> and enter `http://localhost:5310/book`.
-2. Read the plan. Each scenario says what it does and whether it creates test records. Keep them all ticked and press **Run approved checks**.
-3. Watch the live view: the page under test, the current step and every page loaded. A run takes about a minute.
+2. Read the plan, shown under Accessibility, Features and Security headings (each has a "Select all" box). Each scenario says what it does and whether it creates test records. Keep them all ticked and press **Run approved checks**.
+3. Watch the live view: the page under test, the current group and scenario ("Accessibility · 3 of 15"), the elapsed time, the current step and every page loaded. A run takes about a minute; when it ends the UI says "Finished in …".
 4. Open the report. You should see findings for most of Kennel's planted bugs: a button that does nothing, a double-submit, a secret key in the bundle, an email sent to the analytics service, missing focus outlines and more.
 5. Stop Kennel, restart it with `KENNEL_BUGS=none` and run again. **A clean Kennel should give zero confirmed findings.** If it doesn't, that's a bug worth reporting.
 
@@ -180,7 +182,7 @@ On Linux the container can share your machine's network, so `localhost` means yo
 ```sh
 docker compose build run-hound      # once (or reuse the image from docker compose up --build)
 mkdir -p runs
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" localhost/run-hound:dev \
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.1.0 \
   run http://localhost:5173/signup --approve all
 ```
 
@@ -189,7 +191,7 @@ The command prints `Report: /repo/app/runs/<runId>/report.html`; on your machine
 For the web UI on the host network, bind it to loopback so it isn't exposed to your network:
 
 ```sh
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" localhost/run-hound:dev \
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.1.0 \
   serve --host 127.0.0.1 --port 4310
 ```
 
@@ -239,9 +241,9 @@ Every run writes a folder: `app/runs/<runId>/` for the local install, `./runs/<r
 
 The report has:
 
-- **A summary**: findings by severity (critical, high, medium, low), confirmed versus advisory, scenarios passed, failed, errored and skipped, and how many test records the run may have created.
-- **Findings**, each with a title, severity, confirmed or advisory, where on the page (every place, when there are several), *What this means*, *Why it matters*, *What to ask your AI (or developer) to fix*, and the evidence: frames (screenshots with the element boxed and the measured facts), GIFs of flows such as a double-click, and cards with the request, response or script line that proves it.
-- **Scenarios**: every scenario that ran with its result and notes (why it was skipped or errored), the ones you didn't approve, and checks that had nothing to test on your form.
+- **A summary**: how long the run took ("Finished in 38 s"), findings by severity (critical, high, medium, low), confirmed versus advisory, scenarios passed, failed, errored and skipped, a table per group (Accessibility, Features, Security) with its results, findings and time, and how many test records the run may have created.
+- **Findings**, each with a title, its group, severity, confirmed or advisory, where on the page (every place, when there are several), *What this means*, *Why it matters*, *What to ask your AI (or developer) to fix*, and the evidence: frames (screenshots with the element boxed and the measured facts), GIFs of flows such as a double-click, and cards with the request, response or script line that proves it.
+- **Scenarios**: every scenario that ran, under its group, with its result, how long it took and notes (why it was skipped or errored), the ones you didn't approve, and checks that had nothing to test on your form.
 - **Pages tested**: every URL the run loaded. Check it: if your URL redirected somewhere (a login page), the run tested that page instead.
 - **What a browser can't see**: backups, webhook signatures and other things no browser test can check, so a clean report isn't mistaken for a clean app.
 

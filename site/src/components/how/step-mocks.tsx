@@ -36,7 +36,7 @@ export function ExploreMock() {
   return (
     <MockPanel
       label="EXPLORE · localhost:3000/book"
-      caption="Sample: the agent reads the booking form's accessibility tree. Two elements stand out: a pet-type option with no role and a phone field with no label."
+      caption="Sample: Run Hound reads the booking form's accessibility tree. Two elements stand out: a pet-type option with no role and a phone field with no label."
     >
       <div className="grid gap-4 bg-stage p-5 sm:grid-cols-2">
         <div className="flex flex-col gap-3 rounded-xl bg-paper p-5 text-paper-ink" aria-hidden="true">
@@ -70,36 +70,39 @@ export function ExploreMock() {
   );
 }
 
-const scenarios: { feature: string; items: { name: string; kind: "golden" | "danger"; priority: string }[] }[] = [
+const scenarios: { group: string; items: { name: string; kind: "golden" | "danger"; records: number }[] }[] = [
   {
-    feature: "Booking form",
+    group: "Accessibility",
     items: [
-      { name: "Book with valid details", kind: "golden", priority: "P1" },
-      { name: "Double-click Book", kind: "danger", priority: "P1" },
-      { name: "Server error on submit", kind: "danger", priority: "P1" },
-      { name: "End date before start date", kind: "danger", priority: "P2" },
+      { name: "Fill in and submit the form using only the keyboard", kind: "golden", records: 1 },
+      { name: "Load the form on a 320 px wide screen", kind: "golden", records: 0 },
     ],
   },
   {
-    feature: "Accessibility",
+    group: "Features",
     items: [
-      { name: "Complete with keyboard only", kind: "golden", priority: "P1" },
-      { name: "Errors are announced", kind: "danger", priority: "P2" },
+      { name: "Load the form and complete it with valid data", kind: "golden", records: 1 },
+      { name: "Submit while the server answers with an error", kind: "danger", records: 0 },
+      { name: "Double-click submit", kind: "danger", records: 2 },
     ],
+  },
+  {
+    group: "Security",
+    items: [{ name: "Paste into password fields and check autofill hints", kind: "golden", records: 0 }],
   },
 ];
 
-/** Step 2: generated scenarios grouped by feature and prioritized. */
+/** Step 2: scenarios under the three check groups, each tagged golden or danger. */
 export function PlanMock() {
   return (
     <MockPanel
-      label="PLAN · 6 SCENARIOS"
-      caption="Sample plan: golden-path and danger-path scenarios grouped by feature, each with a priority."
+      label="PLAN · 6 OF 15 SCENARIOS"
+      caption="Sample plan: scenarios listed under Accessibility, Features and Security, each tagged golden path or danger path, with the number of test records it may create."
     >
       <div className="flex flex-col gap-5 p-5">
         {scenarios.map((group) => (
-          <div key={group.feature} className="flex flex-col gap-2">
-            <p className="font-mono text-[11px] tracking-widest text-dim">{group.feature.toUpperCase()}</p>
+          <div key={group.group} className="flex flex-col gap-2">
+            <p className="font-mono text-[11px] tracking-widest text-dim">{group.group.toUpperCase()}</p>
             <ul className="flex flex-col gap-1.5">
               {group.items.map((item) => (
                 <li
@@ -108,10 +111,9 @@ export function PlanMock() {
                 >
                   <span>{item.name}</span>
                   <span className="flex shrink-0 gap-2 font-mono text-[11px] tracking-widest">
-                    <span className={item.kind === "danger" ? "text-amber" : "text-pass"}>
+                    <span className={item.kind === "danger" ? "text-warn" : "text-pass"}>
                       {item.kind.toUpperCase()}
                     </span>
-                    <span className="text-dim">{item.priority}</span>
                   </span>
                 </li>
               ))}
@@ -124,68 +126,69 @@ export function PlanMock() {
 }
 
 const review = [
-  { name: "Book with valid details", state: "keep" },
-  { name: "Double-click Book", state: "keep" },
-  { name: "Server error on submit", state: "keep" },
-  { name: "Submit a real payment", state: "removed" },
-  { name: "Complete with keyboard only", state: "keep" },
-  { name: "Paste into confirm password", state: "added" },
+  { name: "Load the form and complete it with valid data", state: "keep" },
+  { name: "Double-click submit", state: "keep" },
+  { name: "Submit while the server answers with an error", state: "keep" },
+  { name: "Click “Delete draft” (destructive)", state: "off" },
+  { name: "Fill in and submit the form using only the keyboard", state: "keep" },
+  { name: "Send far too much text and a broken body", state: "skipped" },
 ] as const;
 
 /** Step 3: the review screen. Decorative only; nothing here is interactive. */
 export function ApproveMock() {
   return (
     <MockPanel
-      label="APPROVE · YOUR REVIEW"
-      caption="Sample review screen: five scenarios kept, one destructive scenario removed, one scenario added by the user, and an approve button. Nothing runs until the plan is approved."
+      label="APPROVE · YOUR PICK"
+      caption="Sample review screen: four scenarios ticked, one destructive scenario left off by default, one unticked by the user, and a Run approved checks button. Nothing runs until you press it."
     >
       <div className="flex flex-col gap-4 p-5">
         <ul className="flex flex-col gap-1.5">
-          {review.map((item) => (
-            <li
-              key={item.name}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm ${
-                item.state === "removed" ? "text-dim" : "bg-surface-2"
-              }`}
-            >
-              <span
-                className={`flex size-5 shrink-0 items-center justify-center rounded border ${
-                  item.state === "removed" ? "border-line-strong" : "border-amber bg-amber text-amber-ink"
-                }`}
-                aria-hidden="true"
+          {review.map((item) => {
+            const on = item.state === "keep";
+            return (
+              <li
+                key={item.name}
+                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm ${on ? "bg-surface-2" : "text-dim"}`}
               >
-                {item.state === "removed" ? null : <CheckIcon />}
-              </span>
-              <span className={item.state === "removed" ? "line-through" : ""}>{item.name}</span>
-              <span className="ml-auto font-mono text-[11px] tracking-widest">
-                {item.state === "removed" ? <span className="text-dim">REMOVED</span> : null}
-                {item.state === "added" ? <span className="text-amber">ADDED</span> : null}
-              </span>
-            </li>
-          ))}
+                <span
+                  className={`flex size-5 shrink-0 items-center justify-center rounded border ${
+                    on ? "border-accent bg-accent text-accent-ink" : "border-line-strong"
+                  }`}
+                  aria-hidden="true"
+                >
+                  {on ? <CheckIcon /> : null}
+                </span>
+                <span>{item.name}</span>
+                <span className="ml-auto shrink-0 font-mono text-[11px] tracking-widest">
+                  {item.state === "off" ? <span className="text-warn">OFF BY DEFAULT</span> : null}
+                  {item.state === "skipped" ? <span className="text-dim">UNTICKED</span> : null}
+                </span>
+              </li>
+            );
+          })}
         </ul>
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4" aria-hidden="true">
-          <span className="text-sm text-muted">5 scenarios · destructive actions off</span>
-          <span className="rounded-full bg-amber px-4 py-2 text-sm font-semibold text-amber-ink">Approve and run</span>
+          <span className="text-sm text-muted">4 approved · destructive scenarios off</span>
+          <span className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-ink">Run approved checks</span>
         </div>
       </div>
     </MockPanel>
   );
 }
 
-const steps: { action: string; status: Status; evidence: string }[] = [
-  { action: "Fill “Pet name” with Biscuit", status: "pass", evidence: "screenshot · console clean" },
-  { action: "Click “Book” twice", status: "fail", evidence: "screenshot · 2 booking requests" },
-  { action: "Reload the page", status: "pass", evidence: "screenshot · network log" },
-  { action: "Tab to “Pet type”", status: "running", evidence: "capturing…" },
+const steps: { action: string; status: Status; evidence: string; time: string }[] = [
+  { action: "Fill “Pet name” with a test value", status: "pass", evidence: "screenshot · console clean", time: "0.4 s" },
+  { action: "Double-click “Book”", status: "fail", evidence: "2 POST /api/bookings · 2 records", time: "1.2 s" },
+  { action: "Reload the page", status: "pass", evidence: "screenshot · network log", time: "0.8 s" },
+  { action: "Tab to “Pet type”", status: "running", evidence: "capturing…", time: "…" },
 ];
 
-/** Step 4: approved scenarios running, with evidence captured at every step. */
+/** Step 4: approved scenarios running group by group, with evidence and timing at every step. */
 export function ExecuteMock() {
   return (
     <MockPanel
-      label="EXECUTE · STEP LOG"
-      caption="Sample step log: each browser action records a screenshot, console output and network traffic. One step failed because clicking Book twice sent two booking requests."
+      label="RUN · FEATURES · 5 OF 15"
+      caption="Sample step log: each browser action records a screenshot, console output, network traffic and how long it took. One step failed because clicking Book twice sent two booking requests."
     >
       <ol className="flex flex-col divide-y divide-line-soft">
         {steps.map((step, index) => (
@@ -195,7 +198,10 @@ export function ExecuteMock() {
               <span className="text-sm">{step.action}</span>
               <span className="font-mono text-xs text-dim">{step.evidence}</span>
             </div>
-            <StatusLabel status={step.status} />
+            <span className="flex shrink-0 flex-col items-end gap-1">
+              <StatusLabel status={step.status} />
+              <span className="font-mono text-[11px] text-dim">{step.time}</span>
+            </span>
           </li>
         ))}
       </ol>

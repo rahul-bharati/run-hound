@@ -1,32 +1,38 @@
+import Image from "next/image";
 import Link from "next/link";
 import { site } from "@/lib/site";
 
-export function LogoMark({ size = 28 }: { size?: number }) {
+// The mark is 640 x 368; keep that ratio at every size.
+const RATIO = 640 / 368;
+
+/**
+ * The hound mark (light strokes, mint highlight) for dark backgrounds. `size` is its height in px.
+ * Decorative: the wordmark or a label always sits next to it.
+ */
+export function LogoMark({ size = 28, className = "" }: { size?: number; className?: string }) {
+  const src = size > 46 ? "/brand/hound-mark-light.png" : "/brand/hound-mark-light-160.png";
   return (
-    <svg
-      width={size}
+    <Image
+      src={src}
+      alt=""
+      width={Math.round(size * RATIO)}
       height={size}
-      viewBox="0 0 28 28"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden="true"
-      className="text-amber"
-    >
-      <rect x="2" y="2" width="24" height="24" rx="7" />
-      <path d="M8 11l4 3-4 3" />
-      <path d="M15 18h5" />
-    </svg>
+      // Static export: serve the file as it is.
+      unoptimized
+      className={`shrink-0 select-none ${className}`}
+      draggable={false}
+    />
   );
 }
 
+/** Mark plus "Run Hound" wordmark, linking home. */
 export function Logo() {
   return (
     <Link
       href="/"
-      className="flex items-center gap-2.5 font-display text-[22px] font-extrabold tracking-tight text-fg"
+      className="flex shrink-0 items-center gap-2.5 font-display text-[22px] font-extrabold tracking-[-0.02em] text-fg"
     >
-      <LogoMark />
+      <LogoMark size={28} />
       <span>{site.name}</span>
     </Link>
   );

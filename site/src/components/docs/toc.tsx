@@ -13,7 +13,7 @@ export function DocsToc({ items }: { items: readonly { id: string; label: string
           <li key={item.id}>
             <a
               href={`#${item.id}`}
-              className="-ml-px flex min-h-11 items-center border-l border-transparent text-[15px] text-muted hover:text-amber lg:pl-4 lg:hover:border-amber"
+              className="-ml-px flex min-h-11 items-center border-l border-transparent text-[15px] text-muted hover:text-accent lg:pl-4 lg:hover:border-accent"
             >
               {item.label}
             </a>

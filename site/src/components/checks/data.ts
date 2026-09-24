@@ -27,7 +27,7 @@ export type CheckCategory = {
 };
 
 export const versionMeaning: Record<Version, string> = {
-  V0: "One form on localhost",
+  V0: "One form on localhost: in the tester preview",
   V1: "One page",
   V2: "One feature, end to end",
   V3: "The whole app",
@@ -598,21 +598,128 @@ export const categories: CheckCategory[] = [
   },
 ];
 
-/** V0 checklist, in order (docs/research.md section 6.1). */
-export const v0Checklist: { name: string; line: string; stretch?: boolean }[] = [
-  { name: "Console and network error capture", line: "Baseline evidence for every other check." },
-  { name: "Dead control", line: "A button that produces no request, no change and no navigation." },
-  { name: "Silent failure", line: "Server error, timeout and offline should all show a visible, announced error." },
-  { name: "Persistence", line: "After saving, reload and confirm the data is still there." },
-  { name: "Double submit", line: "Rapid double activation should not create duplicates." },
-  { name: "axe-core on every form state", line: "Labels, names, contrast, ARIA and target size in each state." },
-  { name: "Keyboard completion", line: "Visible focus, no trap, logical order, submit without a mouse." },
-  { name: "Error announcement", line: "Errors reach screen readers after an invalid submit." },
-  { name: "Credential and personal fields", line: "Paste allowed, autocomplete present, Label in Name matches." },
-  { name: "Bundle scan for secret keys", line: "Including the Supabase service_role key; publishable keys allowed." },
-  { name: "Canary personal-data leak", line: "A test value must not reach third parties or the URL." },
-  { name: "Reflow at 320px", line: "The form works on a narrow screen." },
-  { name: "Client-only validation", line: "The server accepts a value the form rejects.", stretch: true },
+export type V0Group = "Accessibility" | "Features" | "Security";
+
+export type V0Check = {
+  /** The check id as it appears in plans, reports and the CLI. */
+  id: string;
+  name: string;
+  /** What it does, in plain words (from TESTING.md). */
+  line: string;
+  /** Test records a run of this check can create in the app under test. */
+  records: string;
+};
+
+/**
+ * The 15 checks in V0 0.1.0, in the three groups the plan, run and report follow.
+ * Source of truth: TESTING.md ("The 15 checks").
+ */
+export const v0Groups: { group: V0Group; checks: V0Check[] }[] = [
+  {
+    group: "Accessibility",
+    checks: [
+      {
+        id: "axe-states",
+        name: "axe-core in every form state",
+        line: "Runs the axe-core WCAG 2.2 AA rules on the form empty, after an empty submit, after a server error and after a successful send.",
+        records: "2",
+      },
+      {
+        id: "keyboard-completion",
+        name: "Keyboard-only completion",
+        line: "Fills and sends the form with only the keyboard: Tab, arrows, Space, Enter and typing.",
+        records: "1",
+      },
+      {
+        id: "focus-visible",
+        name: "Visible focus",
+        line: "Tabs through the page and checks every focused control shows a visible focus indicator.",
+        records: "0",
+      },
+      {
+        id: "error-announcement",
+        name: "Error announcement",
+        line: "Sends the form empty and checks each required field is marked invalid with a message screen readers announce.",
+        records: "0",
+      },
+      {
+        id: "credential-fields",
+        name: "Credential fields",
+        line: "Pastes into password fields (nothing is sent) and checks paste works and autocomplete hints are set.",
+        records: "0",
+      },
+      {
+        id: "reflow-320",
+        name: "Reflow at 320 px",
+        line: "Opens the page 320 px wide (a small phone, or 400% zoom) and checks it doesn't scroll sideways.",
+        records: "0",
+      },
+    ],
+  },
+  {
+    group: "Features",
+    checks: [
+      {
+        id: "console-network-errors",
+        name: "Console and network errors",
+        line: "Fills and sends the form with valid values and flags console errors and failed requests.",
+        records: "1",
+      },
+      {
+        id: "dead-control",
+        name: "Dead controls",
+        line: "Clicks every button except submit and flags buttons that do nothing at all. Destructive-looking buttons are left out unless you allow them.",
+        records: "0",
+      },
+      {
+        id: "silent-failure",
+        name: "Silent failure",
+        line: "Sends the form while pretending the server failed (the request never reaches your server) and checks an error is shown, announced and your input kept.",
+        records: "0",
+      },
+      {
+        id: "persistence",
+        name: "Persistence",
+        line: "Sends unique values, reloads the page and checks they are still shown.",
+        records: "1",
+      },
+      {
+        id: "double-submit",
+        name: "Double submit",
+        line: "Double-clicks submit and counts how many save requests reach the server.",
+        records: "up to 2",
+      },
+      {
+        id: "client-only-validation",
+        name: "Client-only validation",
+        line: "Sends the captured save request straight to the server with one field invalid and checks the server rejects it. Localhost targets only.",
+        records: "0",
+      },
+    ],
+  },
+  {
+    group: "Security",
+    checks: [
+      {
+        id: "bundle-secrets",
+        name: "Secret keys in the bundle",
+        line: "Searches every script the page loads for secret keys. Publishable keys are fine.",
+        records: "0",
+      },
+      {
+        id: "pii-leak",
+        name: "Personal data leaks",
+        line: "Sends a test email and phone number and checks no request to another site carries them, or their hashes.",
+        records: "1",
+      },
+      {
+        id: "verbose-errors",
+        name: "Verbose errors",
+        line: "Sends far too much text and a broken request body and looks for stack traces, file paths or error dumps.",
+        records: "up to 2",
+      },
+    ],
+  },
 ];
 
 /** Not visible from outside: listed in every report as a checklist, never as browser checks. */

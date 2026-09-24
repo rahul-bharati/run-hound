@@ -2,6 +2,17 @@
 
 All notable changes to Run Hound. Versions follow [Semantic Versioning](https://semver.org/); while the version is 0.x, any release may change behaviour.
 
+## Unreleased
+
+### Added
+
+- **Check groups**: every check belongs to **Accessibility**, **Features** or **Security**. The plan (web UI and `run --plan-only`) is shown under group headings, the web UI has a "Select all" checkbox per group, scenarios run group by group, the CLI prints a heading per group, and the live view shows the current group. `Plan.groups` and `Report.groups` (per-group counts, findings and duration) are in the JSON.
+- **Run timing**: `Report.durationMs` for the whole run. The CLI ends each scenario line with its duration and starts the summary with "Finished in …"; the web UI shows an elapsed-time counter while running, per-scenario durations in the step log, and "Finished in …" when done; the HTML and Markdown reports show the run time, a per-group table with each group's time, and each scenario's duration. `GET /api/runs/:id` and `/live` include `startedAt`, `elapsedMs` (live) and `durationMs` (when done).
+
+### Changed
+
+- The report lists scenarios under their group, and each finding is labelled with its group. Reports written by 0.1.0 (without groups or a duration) still render.
+
 ## 0.1.0 (V0 tester preview)
 
 The first build shared with outside testers. It tests one form on an app running on your own machine. How to run it and send feedback: [TESTING.md](TESTING.md).

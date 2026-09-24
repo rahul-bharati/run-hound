@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ButtonLink } from "@/components/button-link";
+import { ArrowIcon, ButtonLink } from "@/components/button-link";
 import { AdvisoryBadge, CheckCard, VersionBadge } from "@/components/checks/check-card";
-import { categories, notVisible, v0Checklist, versionMeaning, type Version } from "@/components/checks/data";
+import { categories, notVisible, v0Groups, versionMeaning, type Version } from "@/components/checks/data";
 import { Container, Eyebrow, PageHeader, Section } from "@/components/layout";
+import { site } from "@/lib/site";
 import { SeverityLabel } from "@/components/finding";
 
 export const metadata: Metadata = {
   title: "Checks",
   description:
-    "The Run Hound check catalog: broken features, validation, accessibility, access and auth, leaks and blind spots for non-technical builders, with typical severity and the roadmap version each check lands in.",
+    "The 15 checks in Run Hound V0, grouped as Accessibility, Features and Security, and the full catalog of gaps it is planned to hunt for, with typical severity and roadmap version.",
 };
 
 const versions = Object.keys(versionMeaning) as Version[];
@@ -21,8 +22,12 @@ export default function ChecksPage() {
     <>
       <PageHeader
         eyebrow="CHECKS"
-        title="Everything it hunts for"
-        lede="The gaps AI-built apps tend to ship with, grouped the way you'd notice them. Each check lists its typical severity and the roadmap version it is planned for. Run Hound is in early development, so this is a plan, not a feature list."
+        title={
+          <>
+            Everything <span className="text-accent">it hunts for.</span>
+          </>
+        }
+        lede="What V0 checks today, then the full catalog: the gaps AI-built apps tend to ship with, grouped the way you'd notice them, with typical severity and the roadmap version each check is in or planned for."
       >
         <nav aria-label="Check categories">
           <ul className="flex flex-wrap gap-2">
@@ -30,7 +35,7 @@ export default function ChecksPage() {
               <li key={c.id}>
                 <Link
                   href={`#${c.id}`}
-                  className="inline-flex min-h-11 items-center gap-2 rounded-full border border-line px-4 text-sm text-muted transition-colors hover:border-amber hover:text-amber"
+                  className="inline-flex min-h-11 items-center gap-2 rounded-full border border-line px-4 text-sm text-muted transition-colors hover:border-accent hover:text-accent"
                 >
                   {c.title}
                   <span className="font-mono text-xs text-dim">{c.checks.length}</span>
@@ -70,7 +75,7 @@ export default function ChecksPage() {
               <dt>
                 <AdvisoryBadge />
               </dt>
-              <dd className="text-sm text-muted">Relies on model judgement</dd>
+              <dd className="text-sm text-muted">Relies on judgement, never a confirmed defect</dd>
             </div>
           </dl>
         </div>
@@ -79,34 +84,50 @@ export default function ChecksPage() {
       <Section
         id="v0"
         className="bg-band"
-        title="V0 ships first"
-        intro="V0 tests a single form on localhost. These picks are cheap, deterministic and high-signal. The model plans scenarios and writes explanations, but it never decides pass or fail."
+        title={
+          <>
+            In V0 today: <span className="text-accent">15 checks, 3 groups.</span>
+          </>
+        }
+        intro="V0 tests the main form on one page of your local app. On a typical form it plans these 15 checks, and the plan, the run and the report all follow the same three groups. Every pass and fail is decided by rules: V0 uses no AI model."
       >
-        <div className="rounded-2xl border border-amber/40 bg-surface p-6 sm:p-7">
-          <Eyebrow className="mb-5">V0 CHECKLIST, IN ORDER</Eyebrow>
-          <ol className="grid gap-x-10 gap-y-4 md:grid-cols-2">
-            {v0Checklist.map((item, i) => (
-              <li key={item.name} className="flex gap-4">
-                <span aria-hidden="true" className="w-6 shrink-0 pt-0.5 font-mono text-sm text-amber">
-                  {String(i + 1).padStart(2, "0")}
+        <div className="grid gap-5 lg:grid-cols-3">
+          {v0Groups.map((g) => (
+            <section
+              key={g.group}
+              aria-labelledby={`v0-${g.group}`}
+              className="flex flex-col gap-5 rounded-2xl border border-line bg-surface p-6 sm:p-7"
+            >
+              <div className="flex items-baseline justify-between gap-3">
+                <h3 id={`v0-${g.group}`} className="font-display text-2xl font-bold tracking-tight">
+                  {g.group}
+                </h3>
+                <span className="font-display text-3xl font-extrabold text-accent">
+                  {g.checks.length}
+                  <span className="sr-only"> checks</span>
                 </span>
-                <div className="flex flex-col gap-1">
-                  <p className="font-semibold text-fg">
-                    {item.name}
-                    {item.stretch ? (
-                      <span className="ml-2 font-mono text-[11px] tracking-widest text-dim">STRETCH</span>
-                    ) : null}
-                  </p>
-                  <p className="text-sm leading-relaxed text-muted">{item.line}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
-          <p className="mt-6 border-t border-line-soft pt-5 text-sm leading-relaxed text-muted">
-            Every finding carries evidence (a screenshot or the request and response) and a replayable exported test.
-            Destructive actions are off by default.
-          </p>
+              </div>
+              <ul className="flex flex-col gap-4 border-t border-line-soft pt-5">
+                {g.checks.map((c) => (
+                  <li key={c.id} className="flex flex-col gap-1">
+                    <p className="font-semibold text-fg">{c.name}</p>
+                    <p className="text-sm leading-relaxed text-muted">{c.line}</p>
+                    <p className="font-mono text-xs text-dim">{c.id}</p>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
         </div>
+        <p className="max-w-3xl text-sm leading-relaxed text-muted">
+          Checks that don&apos;t apply to your form (no password field, no JSON save request) are skipped with a plain
+          reason. Every finding carries evidence and an exported Playwright test, and destructive scenarios are off by
+          default.{" "}
+          <Link href="/docs#checks" className="text-accent underline underline-offset-4 hover:text-accent-strong">
+            How each check works, and the test records it creates
+          </Link>
+          .
+        </p>
       </Section>
 
       {categories.map((category, i) => (
@@ -136,7 +157,7 @@ export default function ChecksPage() {
       <Section
         id="advisory"
         title="Advisory checks are labelled"
-        intro="A few checks depend on a model's judgement rather than a deterministic rule: alt-text quality, generic link and button labels, and placeholder or demo data. They arrive from V1 onward, and reports mark them advisory so they are never mistaken for confirmed defects."
+        intro="Some findings rely on judgement rather than a deterministic rule. In V0 that is a few small hints, such as a missing autocomplete attribute. Planned checks like alt-text quality, generic link and button labels, and placeholder or demo data arrive from V1 onward. Reports mark all of them advisory, and advisory findings never fail a run."
       >
         <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
           <AdvisoryBadge />
@@ -147,8 +168,8 @@ export default function ChecksPage() {
       <Section
         id="not-visible"
         className="bg-band"
-        title="Not visible from outside"
-        intro="Some holes can't be seen from a browser. Every report lists them as a checklist, so a clean report is never mistaken for a clean app."
+        title="What a browser can't see"
+        intro="Some holes can't be seen from a browser. Every report lists them, so a clean report is never mistaken for a clean app."
       >
         <ul className="grid gap-4 sm:grid-cols-2">
           {notVisible.map((item) => (
@@ -180,9 +201,15 @@ export default function ChecksPage() {
 
       <Section title="See how a check becomes a finding">
         <div className="flex flex-col gap-3 sm:flex-row">
-          <ButtonLink href="/how-it-works">How it works</ButtonLink>
-          <ButtonLink href="/demo" variant="secondary" comingSoon>
-            See a sample report
+          <ButtonLink href={site.testingGuide}>
+            Try V0 Locally
+            <ArrowIcon />
+          </ButtonLink>
+          <ButtonLink href="/demo" variant="secondary">
+            See real evidence
+          </ButtonLink>
+          <ButtonLink href="/how-it-works" variant="ghost">
+            How it works
           </ButtonLink>
         </div>
       </Section>

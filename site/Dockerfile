@@ -18,6 +18,9 @@ COPY . .
 # In Coolify, add NEXT_PUBLIC_SITE_URL as a build variable (e.g. https://runhound.dev).
 ARG NEXT_PUBLIC_SITE_URL
 ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
+# Google Analytics 4 measurement id ("G-..."). Optional: without it there is no analytics and no consent banner.
+ARG NEXT_PUBLIC_GA_MEASUREMENT_ID
+ENV NEXT_PUBLIC_GA_MEASUREMENT_ID=${NEXT_PUBLIC_GA_MEASUREMENT_ID}
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
