@@ -2,7 +2,8 @@
 #   ghcr.io/rahul-bharati/run-hound          Run Hound (web UI + CLI, Chromium included)
 #   ghcr.io/rahul-bharati/run-hound-kennel   Kennel, the deliberately broken demo app
 #   ghcr.io/rahul-bharati/run-hound-samples  the well-built sample apps (false-positive suite)
-# Tags: 0.3.0, 0.3 and latest, for linux/amd64 and linux/arm64.
+# Tags: 0.3.0, 0.3 and latest (latest only for a pushed release tag, not a pre-release such as v0.4.0-rc.1 or a
+# manual run), for linux/amd64 and linux/arm64.
 #
 # GHCR needs no setup: the workflow's GITHUB_TOKEN pushes. New GHCR packages are private: after the first release,
 # open each package (github.com/rahul-bharati?tab=packages) → Package settings → Change visibility → Public.
@@ -102,7 +103,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}},value=v${{ needs.check-version.outputs.version }}
             type=semver,pattern={{major}}.{{minor}},value=v${{ needs.check-version.outputs.version }}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && !contains(needs.check-version.outputs.version, '-') }}
           labels: |
             org.opencontainers.image.title=${{ matrix.title }}
             org.opencontainers.image.description=${{ matrix.description }}

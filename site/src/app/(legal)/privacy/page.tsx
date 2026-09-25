@@ -214,8 +214,8 @@ export default function PrivacyPage() {
         </li>
         <li>
           <strong>AI features are optional, and off by default.</strong> With AI off, the software uses no AI model and
-          sends nothing to any AI provider. If you turn them on, it sends redacted page structure (field labels and
-          types, button names, the page path and the list of planned checks; for explanations, the finding text and
+          sends nothing to any AI provider. If you turn them on, it sends redacted page structure (the page title and
+          path, field labels and types, option labels, button names and the list of planned checks; for explanations, the finding text and
           its evidence facts without test values) only to the AI provider you configure, which handles it under its
           own terms. It never sends typed values, cookies, response bodies or screenshots. A local model keeps this on
           your machine or private network; a remote provider receives nothing until you consent for its host.{" "}

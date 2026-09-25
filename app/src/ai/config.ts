@@ -425,7 +425,7 @@ export function endpointHost(config: Pick<AiConfig, "provider" | "baseUrl" | "re
 
 /**
  * The status for the UI and CLI. `problem`, first match wins: "AI is off" (disabled), "Choose a model",
- * "Choose a Bedrock region" (bedrock without region), "Bedrock needs an API key or AWS access keys" (bedrock with no
+ * "Choose a Bedrock region" (bedrock without region), "Bedrock needs credentials: an API key, AWS access keys or an AWS profile" (bedrock with no
  * apiKey and nothing in the AWS chain: awsCredentialsAvailable, which checks env keys and the profile's files without
  * running credential_process or calling SSO; when a saved key was not applied because the endpoint moved, this and a
  * remote openai-compatible endpoint without a key say "The saved API key is for <origin>; enter a key for <origin>"
@@ -445,7 +445,7 @@ export function aiStatus(resolved: ResolvedAiConfig, env: NodeJS.ProcessEnv = pr
   else if (c.provider === "bedrock" && !c.region) problem = "Choose a Bedrock region";
   else if (stale && ((c.provider === "openai-compatible" && remote && !c.apiKey) || (c.provider === "bedrock" && !hasKey))) {
     problem = `The saved API key is for ${stale.savedFor}; enter a key for ${stale.endpoint}`;
-  } else if (c.provider === "bedrock" && !hasKey) problem = "Bedrock needs an API key or AWS access keys";
+  } else if (c.provider === "bedrock" && !hasKey) problem = "Bedrock needs credentials: an API key, AWS access keys or an AWS profile";
   else if (remote && !c.allowRemote) problem = `Sending page structure to ${host} needs your consent`;
   return {
     enabled: c.enabled,

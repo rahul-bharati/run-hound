@@ -562,8 +562,8 @@ export default function DocsPage() {
                 <h3>What is sent</h3>
                 <ul>
                   <li>
-                    Only <strong>redacted page structure</strong>: field labels and types, button names, the page path
-                    and the scenario list. Never typed values, cookies, response bodies or screenshots.
+                    Only <strong>redacted page structure</strong>: the page title and path, field labels and types,
+                    option labels, button names and the scenario list. Never typed values, cookies, response bodies or screenshots.
                   </li>
                   <li>
                     A local endpoint (localhost or a private address) needs nothing more. A remote one (OpenAI,

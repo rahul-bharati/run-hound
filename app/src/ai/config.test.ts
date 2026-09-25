@@ -428,13 +428,13 @@ describe("aiStatus", () => {
   });
 
   it("asks for Bedrock credentials when there is no key and no AWS keys", () => {
-    expect(aiStatus(resolved({ ...bedrock, region: "us-east-1" }), {}, tmp).problem).toBe("Bedrock needs an API key or AWS access keys");
+    expect(aiStatus(resolved({ ...bedrock, region: "us-east-1" }), {}, tmp).problem).toBe("Bedrock needs credentials: an API key, AWS access keys or an AWS profile");
   });
 
   it("counts an AWS profile with keys, and names the profile in the status", async () => {
     await mkdir(join(tmp, ".aws"), { recursive: true });
     await writeFile(join(tmp, ".aws", "credentials"), "[work]\naws_access_key_id = AKIDEXAMPLE\naws_secret_access_key = fake-secret\n");
-    expect(aiStatus(resolved({ ...bedrock, region: "us-east-1" }), {}, tmp).problem).toBe("Bedrock needs an API key or AWS access keys");
+    expect(aiStatus(resolved({ ...bedrock, region: "us-east-1" }), {}, tmp).problem).toBe("Bedrock needs credentials: an API key, AWS access keys or an AWS profile");
     const status = aiStatus(resolved({ ...bedrock, region: "us-east-1", awsProfile: "work" }), {}, tmp);
     expect(status.hasKey).toBe(true);
     expect(status.awsProfile).toBe("work");
