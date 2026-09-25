@@ -259,7 +259,7 @@ Run Hound is developed and scored against **Kennel**, a deliberately broken book
 
 ## License and business model
 
-- **Planned license: Apache-2.0** for the core.
+- **License: [MIT](LICENSE)** for the core.
 - The open core includes every check, the approval UI, reports, Playwright export, bring-your-own-model support and the Kennel fixture. **Checks are never paywalled.**
 - A possible paid tier (later, only after demand is validated) would cover things that run on our servers: hosted inference, a hosted runner, team dashboards, CI integration and compliance exports. It would be unlocked with an API key passed to the Docker container; without a key, the core runs fully.
 

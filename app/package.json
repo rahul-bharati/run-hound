@@ -2,6 +2,7 @@
   "name": "run-hound",
   "version": "0.3.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "bin": {
     "run-hound": "./src/cli.ts"

@@ -1,6 +1,7 @@
 {
   "name": "run-hound-workspace",
   "private": true,
+  "license": "MIT",
   "packageManager": "pnpm@12.3.4",
   "scripts": {
     "kennel": "pnpm --filter kennel start",
