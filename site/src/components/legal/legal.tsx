@@ -89,13 +89,3 @@ export function Summary({ children }: { children: ReactNode }) {
     </aside>
   );
 }
-
-/** Callout inside prose for text that needs a lawyer's review before launch. */
-export function ReviewNote({ children }: { children: ReactNode }) {
-  return (
-    <div className="rounded-xl border border-line bg-surface px-5 py-4 text-sm leading-relaxed">
-      <p className="font-mono text-xs tracking-widest text-accent">FOR LEGAL REVIEW</p>
-      <div className="mt-2 text-muted">{children}</div>
-    </div>
-  );
-}
