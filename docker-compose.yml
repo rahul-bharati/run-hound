@@ -26,7 +26,7 @@ x-sample: &sample
   build:
     context: .
     dockerfile: fixtures/samples/Dockerfile
-  image: rahulrbharati/run-hound-samples:0.3.0
+  image: ghcr.io/rahul-bharati/run-hound-samples:0.3.0
   init: true
 
 services:
@@ -34,7 +34,7 @@ services:
     build:
       context: .
       dockerfile: app/Dockerfile
-    image: rahulrbharati/run-hound:0.3.0
+    image: ghcr.io/rahul-bharati/run-hound:0.3.0
     init: true
     environment:
       # Named hosts the safety gate accepts besides localhost and private addresses: the test apps and the names
@@ -91,7 +91,7 @@ services:
     build:
       context: .
       dockerfile: fixtures/kennel/Dockerfile
-    image: rahulrbharati/run-hound-kennel:0.3.0
+    image: ghcr.io/rahul-bharati/run-hound-kennel:0.3.0
     environment:
       KENNEL_BUGS: ${KENNEL_BUGS:-all}
     ports:

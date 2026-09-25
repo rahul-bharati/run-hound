@@ -32,7 +32,7 @@ The paid column is mostly **server-side**: it runs on our infrastructure, so it 
 ## API key in the Docker command
 
 ```bash
-docker run -e RUNHOUND_KEY=rh_live_... -p 3000:3000 rahulrbharati/run-hound
+docker run -e RUNHOUND_KEY=rh_live_... -p 3000:3000 ghcr.io/rahul-bharati/run-hound
 ```
 
 This is an established pattern (Metabase, n8n, GitLab, Grafana Enterprise use license keys or tokens this way).

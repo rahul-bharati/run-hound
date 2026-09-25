@@ -205,9 +205,9 @@ Options: `--approve all|default|<id,id>` (default: the recommended scenarios), `
 On Linux the container can share your machine's network, so `localhost` means your machine and nothing in your app needs to change:
 
 ```sh
-docker compose build run-hound      # once (or reuse the image from docker compose up --build)
+docker pull ghcr.io/rahul-bharati/run-hound:0.3.0   # or build it: docker compose build run-hound
 mkdir -p runs
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.3.0 \
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.3.0 \
   run http://localhost:5173/signup --approve all
 ```
 
@@ -216,7 +216,7 @@ The command prints `Report: /repo/app/runs/<runId>/report.html`; on your machine
 For the web UI on the host network, bind it to loopback so it isn't exposed to your network:
 
 ```sh
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.3.0 \
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.3.0 \
   serve --host 127.0.0.1 --port 4310
 ```
 

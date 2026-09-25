@@ -92,7 +92,7 @@ Run Hound and every test app in containers (host ports bound to `127.0.0.1`; Pod
 ```sh
 cp .env.example .env             # optional: host ports, KENNEL_BUGS, allowed hosts, runs folder (all have defaults)
 mkdir -p runs                    # reports land in ./runs; create it first so the files belong to you
-docker compose up --build        # UI on http://localhost:4000
+docker compose up --build        # UI on http://localhost:4000 (or `docker compose pull && docker compose up` for the published images)
 docker compose run --rm run-hound run http://kennel:3000/book --approve all   # the CLI in a container
 ```
 
@@ -116,9 +116,10 @@ To test an app running on your machine from a container:
 
 - **Linux**: share the host's network, so `localhost` is your machine and nothing in your app changes:
   ```sh
-  docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.3.0 run http://localhost:5173/signup --approve all
+  docker pull ghcr.io/rahul-bharati/run-hound:0.3.0   # or build it here: docker compose build run-hound
+  docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.3.0 run http://localhost:5173/signup --approve all
   ```
-  For the UI this way, bind it to loopback: `... rahulrbharati/run-hound:0.3.0 serve --host 127.0.0.1 --port 4310`.
+  For the UI this way, bind it to loopback: `... ghcr.io/rahul-bharati/run-hound:0.3.0 serve --host 127.0.0.1 --port 4310`.
 - **Docker Desktop (Mac, Windows) or the compose UI**: enter `http://host.docker.internal:<port>/<page>`. In a container `localhost` is the container itself. Your dev server must listen on all interfaces (`vite --host`) and accept that host name (Vite `server.allowedHosts`, Next.js `allowedDevOrigins`); a frontend that calls its API on `localhost:<apiPort>` won't work this way. The compose file allows `host.docker.internal` and `host.containers.internal` through the safety gate with `RUNHOUND_ALLOWED_HOSTS`. Details in [TESTING.md](TESTING.md#test-your-own-app).
 
 ### Safety
