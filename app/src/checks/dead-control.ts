@@ -261,6 +261,9 @@ export function clickEach(
         const probeLines = (control: FormControl, name: string) => [
           `{`,
           `  const control = ${controlLocator(control)};`,
+          `  // Let the page finish loading first, so its own loading isn't mistaken for the click's effect.`,
+          `  await page.waitForLoadState("networkidle");`,
+          `  await control.waitFor();`,
           `  const requests: string[] = [];`,
           `  page.on("request", (r) => requests.push(r.url()));`,
           `  const before = await snapshot();`,
