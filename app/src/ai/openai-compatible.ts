@@ -1,9 +1,20 @@
 import type { AiConfig, JsonSchema } from "./types.js";
-import { notImplemented } from "./not-implemented.js";
+import { AiError } from "./types.js";
+import { httpError, parseBody, send } from "./http.js";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
+}
+
+/** Base URLs whose server rejected json_schema; they get json_object from then on. */
+const jsonObjectOnly = new Set<string>();
+
+function withSchemaInSystem(messages: ChatMessage[], schema: JsonSchema): ChatMessage[] {
+  const note = `Answer with one JSON object that matches this JSON Schema exactly:\n${JSON.stringify(schema)}`;
+  const i = messages.findIndex((m) => m.role === "system");
+  if (i < 0) return [{ role: "system", content: note }, ...messages];
+  return messages.map((m, j) => (j === i ? { ...m, content: `${m.content}\n\n${note}` } : m));
 }
 
 /**
@@ -14,7 +25,8 @@ export interface ChatMessage {
  * `response_format: {type: "json_object"}` and the schema appended to the system message, and remembers that for
  * this baseUrl for the life of the process.
  * Errors: AiError "unreachable" (fetch failed), "timeout" (signal/timeoutMs), "auth" (401/403), "http" (other non-2xx,
- * message includes the status and the first 200 chars of the body with secrets redacted).
+ * message includes the status and the first 200 chars of the body with secrets redacted), "bad-output" (a 2xx
+ * answer without a text message).
  */
 export async function chatJson(
   config: Pick<AiConfig, "baseUrl" | "model" | "apiKey" | "timeoutMs">,
@@ -22,5 +34,38 @@ export async function chatJson(
   schema: { name: string; schema: JsonSchema },
   signal?: AbortSignal,
 ): Promise<string> {
-  return notImplemented("chatJson");
+  const base = config.baseUrl.replace(/\/+$/, "");
+  const headers: Record<string, string> = { "content-type": "application/json", accept: "application/json" };
+  if (config.apiKey) headers.authorization = `Bearer ${config.apiKey}`;
+
+  const post = (fallback: boolean) =>
+    send(
+      `${base}/chat/completions`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          model: config.model,
+          messages: fallback ? withSchemaInSystem(messages, schema.schema) : messages,
+          temperature: 0,
+          stream: false,
+          response_format: fallback
+            ? { type: "json_object" }
+            : { type: "json_schema", json_schema: { name: schema.name, schema: schema.schema, strict: true } },
+        }),
+      },
+      config.timeoutMs,
+      signal,
+    );
+
+  let response = await post(jsonObjectOnly.has(base));
+  if (response.status === 400 && !jsonObjectOnly.has(base) && /response_format|json_schema/i.test(response.text)) {
+    jsonObjectOnly.add(base);
+    response = await post(true);
+  }
+  if (response.status < 200 || response.status >= 300) throw httpError(response.status, response.text);
+
+  const content: unknown = parseBody(response.text)?.choices?.[0]?.message?.content;
+  if (typeof content !== "string") throw new AiError("bad-output", "The server's answer had no message content");
+  return content.replace(/^\s*<think>[\s\S]*?<\/think>\s*/, "");
 }
