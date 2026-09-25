@@ -1,4 +1,5 @@
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { isPrivateAddress } from "../engine/safety.js";
@@ -75,6 +76,7 @@ function fromFile(raw: unknown): Layer {
   if (typeof r.apiKey === "string" && r.apiKey !== "") out.apiKey = r.apiKey;
   if (typeof r.region === "string" && r.region !== "") out.region = r.region;
   if (typeof r.allowRemote === "boolean") out.allowRemote = r.allowRemote;
+  if (typeof r.allowRemoteHost === "string" && r.allowRemoteHost !== "") out.allowRemoteHost = r.allowRemoteHost;
   if (isTimeout(r.timeoutMs)) out.timeoutMs = r.timeoutMs;
   if (typeof r.features === "object" && r.features !== null) {
     const f = r.features as Record<string, unknown>;
@@ -141,11 +143,13 @@ interface Resolution extends ResolvedAiConfig {
   envNames: Partial<Record<Field, string>>;
 }
 
-async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | undefined): Promise<Resolution> {
+/** `saved` replaces the file's contents (saveAiConfig uses it to see where a patch would point before writing). */
+async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | undefined, saved?: Layer): Promise<Resolution> {
   const file = configFile(env, home);
   const { layer: envLayer, names: envNames } = fromEnv(env);
+  const fileLayer = saved ?? (await readSaved(file));
   const layers: [ConfigSource, Layer][] = [
-    ["file", await readSaved(file)],
+    ["file", fileLayer],
     ["env", envLayer],
     ["flag", fromFlags(flags)],
   ];
@@ -184,6 +188,14 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
       }
     }
   }
+
+  // Consent saved from the Settings page names the host it was given for, and counts for that host only. Consent from
+  // env or a flag applies to whatever endpoint this invocation uses.
+  if (sources.allowRemote === "file") {
+    const host = fileLayer.allowRemoteHost ?? null;
+    if (host !== null) config.allowRemoteHost = host;
+    if (config.allowRemote && host !== endpointHost(config)) config.allowRemote = false;
+  }
   return { config, sources, file, envNames };
 }
 
@@ -196,6 +208,8 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
  * AWS_BEARER_TOKEN_BEDROCK and a missing region to AWS_REGION, then AWS_DEFAULT_REGION (source "env").
  * Setting a provider (anywhere) with no base URL from the same or a later source uses that provider's default URL.
  * Unknown provider names and non-numeric timeouts are ignored (the lower source stands).
+ * Consent from the file counts only when the file's allowRemoteHost equals endpointHost of the resolved config (then
+ * config.allowRemoteHost is that host); otherwise allowRemote resolves to false. Env/flag consent names no host.
  */
 export async function resolveAiConfig(options: { env?: NodeJS.ProcessEnv; flags?: AiFlags; home?: string } = {}): Promise<ResolvedAiConfig> {
   const { config, sources, file } = await resolve(options.env ?? process.env, options.flags ?? {}, options.home);
@@ -216,15 +230,57 @@ function checkBaseUrl(value: unknown): string {
   return value.replace(/\/+$/, "");
 }
 
+/** Where a saved key may be sent: the base URL's origin, or any Bedrock region's default endpoint. */
+function keyOrigin(config: Pick<AiConfig, "provider" | "baseUrl">): string {
+  if (config.provider === "bedrock" && !config.baseUrl) return "bedrock";
+  try {
+    return new URL(config.baseUrl).origin;
+  } catch {
+    return config.baseUrl;
+  }
+}
+
 /**
- * Applies a patch to the saved file and writes it with mode 0600, creating the directory. A field whose source is
+ * Writes the file atomically and private from the start: a temp file in the same directory, created with mode 0600,
+ * then renamed over the target (so a pre-existing looser file never holds the new contents). The directory is created
+ * with mode 0700.
+ */
+async function writePrivate(file: string, text: string): Promise<void> {
+  const dir = dirname(file);
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const temp = join(dir, `.ai.json.${process.pid}.${randomBytes(6).toString("hex")}.tmp`);
+  try {
+    const handle = await open(temp, "wx", 0o600);
+    try {
+      await handle.writeFile(text);
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await rename(temp, file);
+  } catch (error) {
+    await rm(temp, { force: true });
+    throw error;
+  }
+}
+
+/** Set on saveAiConfig's result when a saved key was dropped because the endpoint changed. */
+export const KEY_REMOVED_NOTICE = "The saved API key was removed because the endpoint changed.";
+
+/**
+ * Applies a patch to the saved file and writes it with mode 0600 (atomically, see writePrivate), creating the
+ * directory (0700). A field whose source is
  * env is rejected with an Error naming the variable when the patch changes its value (sending the current value
  * back is allowed and not saved). `apiKey` undefined or "" keeps the saved key; null removes it. Changing the
  * provider without a baseUrl drops the saved base URL (the new provider's default applies). Validates: provider in
  * AI_PROVIDERS, baseUrl empty or an http(s) URL (trailing slash removed), timeoutMs 5 000–600 000; nothing is
  * written when validation fails. Returns the newly resolved config.
+ * Consent: allowRemote true is saved with allowRemoteHost = endpointHost of the patched config; a patch that moves the
+ * endpoint to another host without allowRemote: true clears the saved consent.
+ * Key: a patch that changes the provider or the endpoint origin (keyOrigin) without a new apiKey removes the saved key,
+ * and the result carries `notice` (KEY_REMOVED_NOTICE).
  */
-export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS.ProcessEnv; home?: string } = {}): Promise<ResolvedAiConfig> {
+export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS.ProcessEnv; home?: string } = {}): Promise<ResolvedAiConfig & { notice?: string }> {
   const env = options.env ?? process.env;
   const current = await resolve(env, {}, options.home);
   const changes: Record<string, unknown> = {};
@@ -253,10 +309,24 @@ export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS
   if (next.apiKey === null) delete next.apiKey;
   if (next.region === null || next.region === "") delete next.region;
 
-  await mkdir(dirname(current.file), { recursive: true });
-  await writeFile(current.file, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
-  await chmod(current.file, 0o600);
-  return resolveAiConfig({ env, home: options.home });
+  // Where requests went before this patch and where they will go after it.
+  const before = current.config;
+  const after = (await resolve(env, {}, options.home, fromFile(next))).config;
+  let notice: string | undefined;
+  if (typeof next.apiKey === "string" && changes.apiKey === undefined && (before.provider !== after.provider || keyOrigin(before) !== keyOrigin(after))) {
+    delete next.apiKey;
+    notice = KEY_REMOVED_NOTICE;
+  }
+  if (changes.allowRemote === true) next.allowRemoteHost = endpointHost(after);
+  else if (changes.allowRemote === false) delete next.allowRemoteHost;
+  else if (endpointHost(before) !== endpointHost(after)) {
+    delete next.allowRemote;
+    delete next.allowRemoteHost;
+  }
+
+  await writePrivate(current.file, `${JSON.stringify(next, null, 2)}\n`);
+  const resolved = await resolveAiConfig({ env, home: options.home });
+  return notice ? { ...resolved, notice } : resolved;
 }
 
 const LOCAL_NAMES = new Set(["localhost", "host.docker.internal", "host.containers.internal"]);

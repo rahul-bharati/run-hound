@@ -106,13 +106,20 @@ async function enableLocalAi(extra: Record<string, unknown> = {}) {
   await saveAiConfig({ enabled: true, provider: "ollama", baseUrl: fake.baseUrl, model: "fake-model:9b", ...extra });
 }
 
+/** The header the web UI sends on every /api/ai* request (a cross-site page can't send it without a preflight). */
+const RH = { "x-run-hound": "1" };
+
 function send(method: string, path: string, body: unknown = {}, headers: Record<string, string> = {}) {
-  return app.request(path, { method, headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
+  return app.request(path, { method, headers: { "content-type": "application/json", ...RH, ...headers }, body: JSON.stringify(body) });
+}
+
+function get(path: string, headers: Record<string, string> = RH) {
+  return app.request(path, { headers });
 }
 
 describe("GET /api/ai", () => {
   it("returns the status with defaults: AI off, no key", async () => {
-    const res = await app.request("/api/ai");
+    const res = await get("/api/ai");
     expect(res.status).toBe(200);
     const status = (await res.json()) as AiStatus;
     expect(status.enabled).toBe(false);
@@ -125,7 +132,7 @@ describe("GET /api/ai", () => {
 
   it("never returns the saved key, only hasKey", async () => {
     await saveAiConfig({ enabled: true, provider: "openai-compatible", baseUrl: fake.baseUrl, model: "m", apiKey: SECRET });
-    const res = await app.request("/api/ai");
+    const res = await get("/api/ai");
     const text = await res.text();
     expect(text).not.toContain(SECRET);
     const status = JSON.parse(text) as AiStatus;
@@ -150,7 +157,7 @@ describe("PUT /api/ai", () => {
     expect(status.remote).toBe(false);
     expect(status.problem).toBeNull();
     // It persisted: a fresh GET sees it.
-    const again = (await (await app.request("/api/ai")).json()) as AiStatus;
+    const again = (await (await get("/api/ai")).json()) as AiStatus;
     expect(again.model).toBe("fake-model:9b");
     expect(again.sources.model).toBe("file");
   });
@@ -158,14 +165,14 @@ describe("PUT /api/ai", () => {
   it("refuses a cross-site request", async () => {
     const res = await send("PUT", "/api/ai", { enabled: true }, { origin: "https://evil.example" });
     expect(res.status).toBe(403);
-    const status = (await (await app.request("/api/ai")).json()) as AiStatus;
+    const status = (await (await get("/api/ai")).json()) as AiStatus;
     expect(status.enabled).toBe(false);
   });
 
   it("refuses a body that is not JSON", async () => {
-    const res = await app.request("/api/ai", { method: "PUT", headers: { "content-type": "text/plain" }, body: JSON.stringify({ enabled: true }) });
+    const res = await app.request("/api/ai", { method: "PUT", headers: { "content-type": "text/plain", ...RH }, body: JSON.stringify({ enabled: true }) });
     expect([400, 415]).toContain(res.status);
-    const status = (await (await app.request("/api/ai")).json()) as AiStatus;
+    const status = (await (await get("/api/ai")).json()) as AiStatus;
     expect(status.enabled).toBe(false);
   });
 
@@ -175,7 +182,7 @@ describe("PUT /api/ai", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain("RUNHOUND_AI_MODEL");
-    const status = (await (await app.request("/api/ai")).json()) as AiStatus;
+    const status = (await (await get("/api/ai")).json()) as AiStatus;
     expect(status.model).toBe("env-model");
     expect(status.sources.model).toBe("env");
   });
@@ -186,9 +193,62 @@ describe("PUT /api/ai", () => {
   });
 });
 
+describe("the X-Run-Hound header", () => {
+  it("is required on GET /api/ai", async () => {
+    expect((await get("/api/ai", {})).status).toBe(403);
+    expect((await get("/api/ai", { "x-run-hound": "0" })).status).toBe(403);
+    expect((await get("/api/ai")).status).toBe(200);
+  });
+
+  it("is required on GET /api/ai/models, so a cross-site <img> can't make the server call out", async () => {
+    const before = fake.requests.length;
+    const res = await get(`/api/ai/models?provider=ollama&baseUrl=${encodeURIComponent(fake.baseUrl)}`, {});
+    expect(res.status).toBe(403);
+    expect(fake.requests).toHaveLength(before);
+  });
+
+  it("is required on PUT /api/ai and POST /api/ai/test", async () => {
+    await enableLocalAi();
+    const put = await app.request("/api/ai", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled: false }) });
+    expect(put.status).toBe(403);
+    expect(((await (await get("/api/ai")).json()) as AiStatus).enabled).toBe(true);
+    const test = await app.request("/api/ai/test", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    expect(test.status).toBe(403);
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  it("does not replace the Sec-Fetch-Site check", async () => {
+    expect((await get("/api/ai", { ...RH, "sec-fetch-site": "cross-site" })).status).toBe(403);
+  });
+});
+
+describe("PUT /api/ai when the endpoint changes", () => {
+  it("removes the saved key and says so in a notice", async () => {
+    await saveAiConfig({ enabled: true, provider: "openai-compatible", baseUrl: fake.baseUrl, model: "m", apiKey: SECRET });
+    const res = await send("PUT", "/api/ai", { baseUrl: "http://127.0.0.2:9/v1" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as AiStatus & { notice?: string };
+    expect(body.hasKey).toBe(false);
+    expect(body.notice).toBe("The saved API key was removed because the endpoint changed.");
+  });
+
+  it("has no notice when the key stays", async () => {
+    const res = await send("PUT", "/api/ai", { model: "m" });
+    expect(((await res.json()) as { notice?: string }).notice).toBeUndefined();
+  });
+
+  it("drops consent given for another host", async () => {
+    await send("PUT", "/api/ai", { enabled: true, provider: "openai-compatible", baseUrl: "https://api.a.example/v1", model: "m", allowRemote: true });
+    const res = await send("PUT", "/api/ai", { baseUrl: "https://api.b.example/v1" });
+    const body = (await res.json()) as AiStatus;
+    expect(body.allowRemote).toBe(false);
+    expect(body.problem).toContain("api.b.example");
+  });
+});
+
 describe("GET /api/ai/models", () => {
   it("lists the models of a local Ollama-style server", async () => {
-    const res = await app.request(`/api/ai/models?provider=ollama&baseUrl=${encodeURIComponent(fake.baseUrl)}`);
+    const res = await get(`/api/ai/models?provider=ollama&baseUrl=${encodeURIComponent(fake.baseUrl)}`);
     expect(res.status).toBe(200);
     const list = (await res.json()) as AiModelList;
     expect(list.error).toBeNull();
@@ -198,7 +258,7 @@ describe("GET /api/ai/models", () => {
   });
 
   it("does not contact a remote endpoint without consent", async () => {
-    const res = await app.request(`/api/ai/models?provider=openai-compatible&baseUrl=${encodeURIComponent("https://api.example.com/v1")}`);
+    const res = await get(`/api/ai/models?provider=openai-compatible&baseUrl=${encodeURIComponent("https://api.example.com/v1")}`);
     expect(res.status).toBe(200);
     const list = (await res.json()) as AiModelList;
     expect(list.models).toEqual([]);
@@ -355,6 +415,26 @@ describe("POST /api/plan with AI", () => {
     expect(fake.calls).toHaveLength(0);
     expect(plan.ai).toBeUndefined();
     expect(plan.scenarios.every((s) => s.ai === undefined)).toBe(true);
+  });
+
+  it("caps the AI part of planning and still returns the plan with a warning", async () => {
+    const slow = await startFakeLlm({ delayMs: 5_000 });
+    try {
+      await saveAiConfig({ enabled: true, provider: "ollama", baseUrl: slow.baseUrl, model: "fake-model:9b" });
+      const capped = createApp({ checks, canShowBrowser: false, maxConcurrentRuns: 10, aiPlanBudgetMs: 300 });
+      const started = Date.now();
+      const res = await capped.request("/api/plan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: `${site.url}/book`, ai: true }) });
+      expect(Date.now() - started).toBeLessThan(4_000);
+      expect(res.status).toBe(200);
+      const { plan, warnings } = (await res.json()) as PlanResponse;
+      expect(plan.ai?.reviewed).toBe(false);
+      expect(plan.ai?.suggested).toBe(0);
+      expect(plan.ai!.warnings.join(" ")).toMatch(/took longer than/);
+      expect(warnings.join(" ")).toMatch(/AI planning was stopped after/);
+      expect(plan.scenarios.map((s) => s.id).sort()).toEqual(["dc:1", "fv:1"]);
+    } finally {
+      await slow.close();
+    }
   });
 
   it("sends nothing when AI is off", async () => {

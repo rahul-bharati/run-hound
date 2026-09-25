@@ -63,7 +63,7 @@ interface Stub {
 interface Opened {
   page: Page;
   errors: string[];
-  calls: { method: string; path: string; query: URLSearchParams; body: Record<string, unknown> | null }[];
+  calls: { method: string; path: string; query: URLSearchParams; body: Record<string, unknown> | null; headers: Record<string, string> }[];
 }
 
 let browser: Browser;
@@ -96,7 +96,7 @@ async function open(hash: string, stub: Partial<Stub>, width = 1280): Promise<Op
     const json = (body: unknown, code = 200) => route.fulfill({ status: code, contentType: "application/json", body: JSON.stringify(body) });
     if (!url.pathname.startsWith("/api/")) return route.fulfill({ status: 200, contentType: "text/html", body: HTML });
     const body = req.postData() ? (JSON.parse(req.postData()!) as Record<string, unknown>) : null;
-    calls.push({ method: req.method(), path: url.pathname, query: url.searchParams, body });
+    calls.push({ method: req.method(), path: url.pathname, query: url.searchParams, body, headers: req.headers() });
     if (url.pathname === "/api/ai" && req.method() === "GET") return json(s.ai);
     if (url.pathname === "/api/ai" && req.method() === "PUT") {
       const r = s.put(body ?? {});
@@ -294,6 +294,85 @@ describe("Settings → AI card: key, locks, consent, save and test", () => {
     await page.getByRole("button", { name: "Test connection" }).click();
     await expect.poll(() => page.locator("#ai-test-result").textContent()).toBe("Nothing is answering at http://127.0.0.1:11434 — is Ollama running?");
     expect(await page.locator("#ai-test-result").getAttribute("class")).toBe("error");
+    await page.close();
+  });
+
+  it("sends X-Run-Hound: 1 on every /api/ai request (GET, PUT and POST)", async () => {
+    const o = await open("#/settings", {});
+    const { page } = o;
+    await expect.poll(() => modelCalls(o).length).toBeGreaterThan(0);
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect.poll(() => page.locator("#ai-saved").textContent()).toMatch(/^Saved at/);
+    await page.getByRole("button", { name: "Test connection" }).click();
+    await expect.poll(() => o.calls.some((c) => c.path === "/api/ai/test")).toBe(true);
+    const aiCalls = o.calls.filter((c) => c.path.startsWith("/api/ai"));
+    expect(new Set(aiCalls.map((c) => c.method + " " + c.path))).toEqual(new Set(["GET /api/ai", "GET /api/ai/models", "PUT /api/ai", "POST /api/ai/test"]));
+    for (const c of aiCalls) expect(c.headers["x-run-hound"], c.method + " " + c.path).toBe("1");
+    await page.close();
+  });
+
+  it("re-draws the consent box when the endpoint changes: new host named, unticked unless it is the consented host", async () => {
+    const consented = { ...remote(), allowRemote: true, problem: null };
+    const o = await open("#/settings", { ai: consented, models: () => ({ models: [], error: null }) });
+    const { page } = o;
+    const label = () => page.locator('label[for="ai-allow-remote"]').innerText();
+    const box = () => page.locator("#ai-allow-remote");
+    await box().waitFor();
+    expect(await box().isChecked()).toBe(true);
+    expect(await label()).toContain("to api.example.com");
+
+    await page.getByLabel("Base URL").fill("https://api.other.example/v1");
+    await expect.poll(label).toContain("to api.other.example");
+    expect(await label()).not.toContain("api.example.com");
+    expect(await box().isChecked()).toBe(false);
+
+    await page.getByLabel("Base URL").fill("https://api.example.com/v2");
+    await expect.poll(label).toContain("to api.example.com");
+    expect(await box().isChecked()).toBe(true);
+
+    // A local endpoint needs no consent box at all.
+    await page.getByLabel("Base URL").fill("http://127.0.0.1:1234/v1");
+    await expect.poll(() => box().count()).toBe(0);
+    await page.close();
+  });
+
+  it("offers the consent box when a local setup is pointed at a remote host, and follows the Bedrock region", async () => {
+    const o = await open("#/settings", {});
+    const { page } = o;
+    await page.locator("#ai-enabled").waitFor();
+    expect(await page.locator("#ai-allow-remote").count()).toBe(0);
+    await page.locator("#ai-provider").selectOption("openai-compatible");
+    await page.getByLabel("Base URL").fill("https://api.remote.example/v1");
+    const label = () => page.locator('label[for="ai-allow-remote"]').innerText();
+    await expect.poll(label).toContain("to api.remote.example");
+    expect(await page.locator("#ai-allow-remote").isChecked()).toBe(false);
+
+    await page.locator("#ai-provider").selectOption("bedrock");
+    // The typed URL stays as Bedrock's endpoint override until cleared.
+    await expect.poll(label).toContain("to api.remote.example");
+    await page.getByLabel("Endpoint override (optional)").fill("");
+    await expect.poll(() => page.locator("#ai-allow-remote").count()).toBe(0);
+    await page.getByLabel("Region", { exact: true }).fill("eu-west-1");
+    await expect.poll(label).toContain("to bedrock-runtime.eu-west-1.amazonaws.com");
+    await page.locator("#ai-allow-remote").check();
+    await page.getByLabel("Region", { exact: true }).fill("us-east-1");
+    await expect.poll(label).toContain("to bedrock-runtime.us-east-1.amazonaws.com");
+    expect(await page.locator("#ai-allow-remote").isChecked()).toBe(false);
+    await page.close();
+  });
+
+  it("shows the server's notice after Save (the saved key was removed because the endpoint changed)", async () => {
+    const notice = "The saved API key was removed because the endpoint changed.";
+    const o = await open("#/settings", {
+      ai: remote(),
+      models: () => ({ models: [], error: null }),
+      put: () => ({ status: 200, body: { ...remote(), hasKey: false, notice } }),
+    });
+    const { page } = o;
+    await page.getByLabel("Base URL").fill("https://api.other.example/v1");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect.poll(() => page.locator("#ai-notice").textContent()).toBe(notice);
+    expect(await page.getByLabel("API key").getAttribute("placeholder")).toBe("Not set");
     await page.close();
   });
 

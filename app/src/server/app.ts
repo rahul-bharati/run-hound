@@ -12,7 +12,7 @@ import { renderUi } from "./ui/index.js";
 import { testConnection } from "../ai/client.js";
 import { aiStatus, DEFAULT_BASE_URLS, endpointHost, resolveAiConfig, saveAiConfig } from "../ai/config.js";
 import { listModels } from "../ai/models.js";
-import { aiSession, type AiSession } from "../ai/session.js";
+import { AI_PLAN_BUDGET_MS, aiSession, boundSession, type AiSession } from "../ai/session.js";
 import { AI_PROVIDERS, type AiConfigPatch, type AiProvider } from "../ai/types.js";
 import { canShowBrowser, discoverAndPlan, newRunId, NO_DISPLAY_MESSAGE, planWarnings, RUN_HOUND_VERSION, runPlan, type ProgressEvent, type RunOptions } from "../engine/runner.js";
 
@@ -27,6 +27,8 @@ export interface ServerOptions extends Pick<RunOptions, "checks" | "runsDir" | "
    * drive Run Hound from a web page.
    */
   serverHosts?: string[];
+  /** How long the AI part of planning (review + suggest) may take per plan. Default AI_PLAN_BUDGET_MS (4 minutes). */
+  aiPlanBudgetMs?: number;
 }
 
 interface RunState {
@@ -288,7 +290,7 @@ async function checkTitles(checks: Check[] | undefined): Promise<Record<string, 
  *   GET  /api/ai                     AiStatus (ai/types.ts): the resolved AI config without the key (hasKey says whether
  *                                   one is set), where each value came from (sources; env/flag = locked), remote, host,
  *                                   problem ("AI is off", "Choose a model", "... needs your consent") or null
- *   PUT  /api/ai  AiConfigPatch      200 AiStatus | 400 {error} (invalid value, or a value set by an environment variable,
+ *   PUT  /api/ai  AiConfigPatch      200 AiStatus (+ notice when the saved key was removed because the endpoint changed) | 400 {error} (invalid value, or a value set by an environment variable,
  *                                   named) | 403 cross-site | 415 not JSON. Saves <configDir>/ai.json (0600). apiKey:
  *                                   omitted or "" keeps the saved key, null removes it. The key is never sent back.
  *   POST /api/ai/test  {}            200 {ok: true, model, ms} | {ok: false, error}: one tiny call with the saved settings
@@ -299,8 +301,9 @@ async function checkTitles(checks: Check[] | undefined): Promise<Record<string, 
  *                                   to the saved endpoint's origin. A remote endpoint is contacted only with consent:
  *                                   the saved allowRemote for the same host, or allowRemote=true (the unsaved consent box).
  * The AI config is resolved per request ($RUNHOUND_CONFIG_DIR, else $XDG_CONFIG_HOME/run-hound, else
- * ~/.config/run-hound, plus RUNHOUND_AI_* env). /api/ai routes refuse browser requests from other sites
- * (Sec-Fetch-Site cross-site/same-site) as well as cross-site Origins.
+ * ~/.config/run-hound, plus RUNHOUND_AI_* env). /api/ai routes require the header X-Run-Hound: 1 (403 without it) and
+ * refuse browser requests from other sites (Sec-Fetch-Site cross-site/same-site) as well as cross-site Origins.
+ * POST /api/plan and rerun bound the AI steps by the request's abort signal and aiPlanBudgetMs (default 4 minutes).
  * The live state also carries `browser` ("Chromium 153..."): null until the first scenario starts, then the Chromium
  * build Playwright launches (bundledChromium), replaced by report.browser (what the browser itself reported) at the end.
  * POST /api/runs also accepts {headed?: boolean} to open a visible browser window on the machine running Run Hound.
@@ -321,6 +324,19 @@ export function createApp(options: ServerOptions = {}): Hono {
     .filter(Boolean);
   const hostAllowed = (host: string) => isDefaultHost(host) || extraHosts.includes(host.toLowerCase());
   const maxRuns = options.maxConcurrentRuns ?? 2;
+  const aiPlanBudgetMs = options.aiPlanBudgetMs ?? AI_PLAN_BUDGET_MS;
+
+  /**
+   * discoverAndPlan with the AI steps bounded: they stop when the HTTP request is aborted and after aiPlanBudgetMs in
+   * all. Either way the built-in plan comes back with the runner's warnings; a spent budget adds `warning`.
+   */
+  async function planBounded(target: string, ai: AiSession | undefined, signal: AbortSignal): Promise<{ plan: Plan; warning?: string }> {
+    const bound = ai ? boundSession(ai, { signal, budgetMs: aiPlanBudgetMs }) : undefined;
+    const plan = await discoverAndPlan(target, { checks: options.checks, allowedHosts: options.allowedHosts, ...(bound ? { ai: bound.session } : {}) });
+    if (!bound?.timedOut()) return { plan };
+    const limit = aiPlanBudgetMs >= 60_000 ? `${Math.round(aiPlanBudgetMs / 60_000)} minutes` : `${Math.round(aiPlanBudgetMs / 100) / 10} s`;
+    return { plan, warning: `AI planning was stopped after ${limit}, so the plan has only what the model finished in time.` };
+  }
 
   /** Drops the oldest entries (Maps keep insertion order); running runs are never dropped. */
   function prune(): void {
@@ -511,12 +527,12 @@ export function createApp(options: ServerOptions = {}): Hono {
 
     try {
       const { ai, warning } = await aiForRequest(wantAi);
-      const plan = await discoverAndPlan(url.trim(), { checks: options.checks, allowedHosts: options.allowedHosts, ...(ai ? { ai } : {}) });
+      const { plan, warning: budgetWarning } = await planBounded(url.trim(), ai, c.req.raw.signal);
       const planId = randomUUID();
       plans.set(planId, { plan, ai: ai !== undefined });
       prune();
       // The stored plan keeps the real target; what leaves the process is redacted.
-      const warnings = [...planWarnings(plan), ...(warning ? [warning] : [])].map((w) => redactSecrets(w));
+      const warnings = [...planWarnings(plan), ...(warning ? [warning] : []), ...(budgetWarning ? [budgetWarning] : [])].map((w) => redactSecrets(w));
       return c.json({ planId, plan: redactPlan(plan), checks: await checkTitles(options.checks), warnings }, 200);
     } catch (err) {
       const message = redactSecrets(cleanErrorMessage(err instanceof Error ? err.message : String(err)));
@@ -568,10 +584,13 @@ export function createApp(options: ServerOptions = {}): Hono {
   );
 
   // The AI settings hold a key and make the server call out: never let another site's page drive them, not even with
-  // a GET (an <img> or a link carries no Origin, but browsers mark it with Sec-Fetch-Site).
+  // a GET. Every /api/ai* request must carry X-Run-Hound: 1: an <img>, <link> or form can't send a custom header, and
+  // a cross-site fetch with one needs a CORS preflight this server never grants. Sec-Fetch-Site (browsers mark
+  // cross-site GETs with it) and the Origin check above stay as further layers.
   const aiGuard = async (c: Context, next: Next) => {
     const site = (c.req.header("sec-fetch-site") ?? "").toLowerCase();
     if (site === "cross-site" || site === "same-site") return c.json({ error: "Cross-site requests are not allowed." }, 403);
+    if (c.req.header("x-run-hound") !== "1") return c.json({ error: "Requests to /api/ai must send the header X-Run-Hound: 1." }, 403);
     await next();
   };
   app.use("/api/ai", aiGuard);
@@ -592,8 +611,8 @@ export function createApp(options: ServerOptions = {}): Hono {
       return c.json({ error: "features must be an object like {\"review\": true, \"suggest\": true, \"explain\": false}." }, 400);
     }
     try {
-      const resolved = await saveAiConfig(body as AiConfigPatch);
-      return c.json(aiStatus(resolved), 200, { "cache-control": "no-store" });
+      const { notice, ...resolved } = await saveAiConfig(body as AiConfigPatch);
+      return c.json({ ...aiStatus(resolved), ...(notice ? { notice } : {}) }, 200, { "cache-control": "no-store" });
     } catch (err) {
       return c.json({ error: redactSecrets(err instanceof Error ? err.message : String(err)) }, 400);
     }
@@ -641,7 +660,7 @@ export function createApp(options: ServerOptions = {}): Hono {
     // Whether AI was used carries over; it can't be used now (turned off since) → the rerun goes without it.
     const { ai: session } = await aiForRequest(state.ai);
     try {
-      plan = await discoverAndPlan(state.plan.target, { checks: options.checks, allowedHosts: options.allowedHosts, ...(session ? { ai: session } : {}) });
+      plan = (await planBounded(state.plan.target, session, c.req.raw.signal)).plan;
     } catch (err) {
       const message = redactSecrets(cleanErrorMessage(err instanceof Error ? err.message : String(err)));
       if (isUserError(err)) return c.json({ error: message }, 400);

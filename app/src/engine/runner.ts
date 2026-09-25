@@ -542,7 +542,7 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
     const n = Math.min(findings.length, MAX_EXPLAINED);
     engineStep(options, `Asking ${modelLabel(ai.client)} to explain ${n} ${n === 1 ? "finding" : "findings"}`, plan.target);
     try {
-      raw = await explainFindings(raw, ai.client, { remote: ai.remote, signal });
+      raw = await explainFindings(raw, ai.client, { remote: ai.remote, runToken, signal });
     } catch {
       // Only a stop rejects: the report is written without explanations.
     }

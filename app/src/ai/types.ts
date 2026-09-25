@@ -33,8 +33,17 @@ export interface AiConfig {
   apiKey: string | null;
   /** Bedrock region, e.g. "us-east-1". */
   region: string | null;
-  /** Consent to send redacted page structure to a remote endpoint. Local endpoints don't need it. */
+  /**
+   * Consent to send redacted page structure to a remote endpoint. Local endpoints don't need it. In a resolved config
+   * this is the effective value: consent saved from the Settings page counts only for the host it was given for.
+   */
   allowRemote: boolean;
+  /**
+   * The endpoint host (endpointHost) the consent was given for, when it came from the saved file. null or absent:
+   * consent from RUNHOUND_AI_ALLOW_REMOTE / --ai-allow-remote, which applies to whatever endpoint that invocation uses.
+   * createLlmClient refuses when it is set and differs from the endpoint's host.
+   */
+  allowRemoteHost?: string | null;
   features: AiFeatures;
   /** Per request. Default 120 000 (small local models are slow). */
   timeoutMs: number;
@@ -68,7 +77,7 @@ export interface AiStatus {
 }
 
 /** A change from the Settings page or CLI. `apiKey`: undefined or "" = keep the saved key, null = remove it. */
-export type AiConfigPatch = Partial<Omit<AiConfig, "features">> & { features?: Partial<AiFeatures> };
+export type AiConfigPatch = Partial<Omit<AiConfig, "features" | "allowRemoteHost">> & { features?: Partial<AiFeatures> };
 
 /** A JSON Schema in the portable subset: every property required, nullable not optional, additionalProperties false, no numeric or length limits. */
 export type JsonSchema = Record<string, unknown>;

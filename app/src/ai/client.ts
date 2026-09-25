@@ -16,7 +16,8 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 
 /**
  * Builds the client for a resolved config. Throws AiError "not-configured" when disabled or no model, and
- * "remote-not-allowed" (before any request) when isRemote(config) && !config.allowRemote.
+ * "remote-not-allowed" (before any request) when isRemote(config) && !config.allowRemote, or when the consent names
+ * another host (config.allowRemoteHost set and not endpointHost(config)).
  * generateJson: calls ollamaChatJson (ollama, native /api/chat), chatJson (openai-compatible) or converseJson
  * (bedrock); strips ``` fences; JSON.parse; request.validate. On a parse or validation error, one retry with the
  * model's answer as an assistant message and a user message "Your answer was not valid: <error>. Answer again with
@@ -27,7 +28,8 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 export function createLlmClient(config: AiConfig, options: { env?: NodeJS.ProcessEnv } = {}): LlmClient {
   if (!config.enabled) throw new AiError("not-configured", "AI is off");
   if (!config.model) throw new AiError("not-configured", "Choose a model");
-  if (isRemote(config) && !config.allowRemote) {
+  const consentHost = config.allowRemoteHost ?? null;
+  if (isRemote(config) && (!config.allowRemote || (consentHost !== null && consentHost !== endpointHost(config)))) {
     throw new AiError("remote-not-allowed", `Sending page structure to ${endpointHost(config)} needs your consent`);
   }
   const env = options.env ?? process.env;

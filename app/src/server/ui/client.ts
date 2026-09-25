@@ -119,8 +119,11 @@ export const CLIENT = String.raw`
   }
   const enc = encodeURIComponent;
 
+  // Every API call carries X-Run-Hound: 1; the server requires it on /api/ai* (another site's page can't send it).
   async function api(path, body, method) {
-    const init = body === undefined ? { cache: "no-store" } : { method: method || "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
+    const init = body === undefined
+      ? { cache: "no-store", headers: { "x-run-hound": "1" } }
+      : { method: method || "POST", headers: { "content-type": "application/json", "x-run-hound": "1" }, body: JSON.stringify(body) };
     const res = await fetch(path, init);
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -678,6 +681,31 @@ export const CLIENT = String.raw`
   const OTHER_MODEL = "__other__";
   const BEDROCK_MODEL_PLACEHOLDER = "anthropic.claude-3-5-haiku-20241022-v1:0";
 
+  // Mirrors ai/config.ts isRemote and endpointHost, so the consent box can follow unsaved edits.
+  const LOCAL_AI_NAMES = ["localhost", "host.docker.internal", "host.containers.internal"];
+  function aiEndpointHost(provider, baseUrl, region) {
+    if (provider === "bedrock" && !baseUrl) return "bedrock-runtime." + (region || "<region>") + ".amazonaws.com";
+    try { return new URL(baseUrl).host; } catch (e) { return baseUrl; }
+  }
+  function isPrivateIp(host) {
+    const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+    if (v4) {
+      const a = Number(v4[1]), b = Number(v4[2]);
+      return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 0 && b === 0);
+    }
+    if (host.indexOf(":") < 0) return false;
+    if (host === "::1") return true;
+    const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(host);
+    if (mapped) return isPrivateIp(mapped[1]);
+    return /^f[cd][0-9a-f]{0,2}:/.test(host) || /^fe[89ab][0-9a-f]?:/.test(host);
+  }
+  function aiIsRemote(provider, baseUrl) {
+    if (provider === "bedrock") return true;
+    let host;
+    try { host = new URL(baseUrl).hostname.toLowerCase().replace(/^\[|\]$/g, ""); } catch (e) { return true; }
+    return !(LOCAL_AI_NAMES.includes(host) || host.endsWith(".localhost") || isPrivateIp(host));
+  }
+
   function presetOf(st) {
     if (st.provider === "bedrock") return "bedrock";
     if (st.provider === "ollama") return "ollama";
@@ -706,7 +734,7 @@ export const CLIENT = String.raw`
       h("h2", { id: "ai-h", class: "card-title" }, icon("sparkle"), "AI"),
       h("p", { class: "loading", text: "Loading…" }));
     api("/api/ai").then((st) => {
-      if (my === gen) drawAi(card, st, my, "");
+      if (my === gen) drawAi(card, st, my, "", "");
     }).catch((err) => {
       if (my !== gen) return;
       card.replaceChildren(card.firstChild, h("p", { class: "error", text: "Could not load the AI settings: " + err.message }));
@@ -714,7 +742,7 @@ export const CLIENT = String.raw`
     return card;
   }
 
-  function drawAi(card, st, my, message) {
+  function drawAi(card, st, my, message, notice) {
     const sources = st.sources || {};
     const locked = (k) => sources[k] === "env" || sources[k] === "flag";
     const lockNote = (k) => (locked(k) ? h("span", { class: "locked", text: "Set by environment" }) : null);
@@ -755,17 +783,19 @@ export const CLIENT = String.raw`
     const fReview = feat("review", "ai-f-review", "Review the plan", "Recommends scenarios and says why each matters on this page.");
     const fSuggest = feat("suggest", "ai-f-suggest", "Suggest flows", "Up to 5 extra flows built from the fields and buttons found. Never ticked by default.");
     const fExplain = feat("explain", "ai-f-explain", "Explain findings", "A plain-language summary and a prompt for your coding AI, beside the built-in one.");
+    // The consent box names the host requests would go to right now and follows unsaved edits of the provider, base
+    // URL and region. Saved consent counts for the host it was given for only (AiStatus.allowRemote is already that);
+    // consent from env or a flag applies to any endpoint, so a locked box keeps its value.
     let consent = null;
-    if (st.remote) {
-      consent = h("input", { type: "checkbox", id: "ai-allow-remote", disabled: locked("allowRemote") });
-      consent.checked = st.allowRemote === true;
-    }
+    const consentSlot = h("div", { class: "ai-consent-slot" });
+    const consentedHost = st.allowRemote === true ? st.host : null;
     const saveLabel = h("span", { text: "Save" });
     const save = h("button", { type: "button", class: "btn primary", id: "ai-save" }, saveLabel);
     const testLabel = h("span", { text: "Test connection" });
     const test = h("button", { type: "button", class: "btn", id: "ai-test" }, testLabel);
     const error = h("p", { class: "error", id: "ai-error" });
     const saved = h("p", { class: "saved", id: "ai-saved", text: message || "" });
+    const noticeEl = notice ? h("p", { class: "warning ai-notice", id: "ai-notice", role: "status", text: notice }) : null;
     const testOut = h("p", { class: "field-hint", id: "ai-test-result" });
 
     const isBedrock = () => preset.value === "bedrock";
@@ -810,6 +840,29 @@ export const CLIENT = String.raw`
     }
     const loadSoon = () => { clearTimeout(timer); timer = setTimeout(loadModels, 400); };
 
+    function drawConsent() {
+      const provider = providerOf();
+      const url = baseUrl.value.trim();
+      const host = aiEndpointHost(provider, url, isBedrock() ? region.value.trim() : st.region);
+      const remote = aiIsRemote(provider, url) || (st.remote && provider === st.provider && host === st.host);
+      // Bedrock without a region has no host to name yet (the status asks for the region first).
+      const unknownHost = provider === "bedrock" && !url && !region.value.trim();
+      if (!remote || unknownHost) {
+        consent = null;
+        consentSlot.dataset.host = "";
+        consentSlot.replaceChildren();
+        return;
+      }
+      if (consent && consentSlot.dataset.host === host) return; // same host: keep what the user ticked
+      consent = h("input", { type: "checkbox", id: "ai-allow-remote", disabled: locked("allowRemote") });
+      consent.checked = locked("allowRemote") ? st.allowRemote === true : host === consentedHost;
+      consentSlot.dataset.host = host;
+      consentSlot.replaceChildren(h("div", { class: "option ai-consent" }, consent,
+        h("label", { for: "ai-allow-remote" }, "Send redacted page structure (labels, field types, button names — never values, cookies or screenshots) to " + host,
+          h("span", { class: "desc", text: "This endpoint is not on this machine or your network. Nothing is sent until you tick this and save." })),
+        lockNote("allowRemote")));
+    }
+
     enabled.addEventListener("change", () => { saved.textContent = ""; });
     preset.addEventListener("change", () => {
       const p = AI_PRESETS.find((x) => x.key === preset.value);
@@ -822,9 +875,11 @@ export const CLIENT = String.raw`
       list = null;
       syncModelUi();
       drawModels();
+      drawConsent();
       loadSoon();
     });
-    baseUrl.addEventListener("input", loadSoon);
+    baseUrl.addEventListener("input", () => { drawConsent(); loadSoon(); });
+    region.addEventListener("input", drawConsent);
     refresh.addEventListener("click", loadModels);
     modelSelect.addEventListener("change", () => {
       if (modelSelect.value === OTHER_MODEL) {
@@ -868,8 +923,8 @@ export const CLIENT = String.raw`
       try {
         const next = await api("/api/ai", patch, "PUT");
         if (my !== gen) return;
-        drawAi(card, next, my, "Saved at " + hms(new Date().toISOString()) + ".");
-        announce("AI settings saved.");
+        drawAi(card, next, my, "Saved at " + hms(new Date().toISOString()) + ".", next.notice || "");
+        announce(next.notice ? "AI settings saved. " + next.notice : "AI settings saved.");
         const again = document.getElementById("ai-save");
         if (again) again.focus();
       } catch (err) {
@@ -914,13 +969,12 @@ export const CLIENT = String.raw`
         keyField,
         regionRow),
       h("fieldset", { class: "ai-features" }, h("legend", { class: "field-label", text: "What the model does" }), fReview.row, fSuggest.row, fExplain.row, lockNote("features")),
-      consent
-        ? h("div", { class: "option ai-consent" }, consent, h("label", { for: "ai-allow-remote" }, "Send redacted page structure (labels, field types, button names — never values, cookies or screenshots) to " + st.host, h("span", { class: "desc", text: "This endpoint is not on this machine or your network. Nothing is sent until you tick this and save." })), lockNote("allowRemote"))
-        : null,
+      consentSlot,
       h("div", { class: "ai-actions" }, save, test),
-      error, saved, testOut,
+      error, saved, noticeEl, testOut,
       st.file ? h("p", { class: "note" }, "Saved to ", h("code", { class: "mono", text: st.file })) : null);
     syncModelUi();
+    drawConsent();
     if (isBedrock()) modelOther.value = current;
     drawModels();
     loadModels();

@@ -95,6 +95,17 @@ describe("createLlmClient", () => {
     expect(fake.requests).toHaveLength(0);
   });
 
+  it("throws remote-not-allowed when the consent was given for another host", () => {
+    const remote = ollama({ provider: "openai-compatible", baseUrl: "https://api.b.example/v1", allowRemote: true, allowRemoteHost: "api.a.example" });
+    const error = thrown(() => createLlmClient(remote, { env: {} }));
+    expect(error.code).toBe("remote-not-allowed");
+    expect(error.message).toContain("api.b.example");
+    // Consent for the host in use (or env/flag consent, which names no host) is accepted.
+    expect(() => createLlmClient({ ...remote, allowRemoteHost: "api.b.example" }, { env: {} })).not.toThrow();
+    expect(() => createLlmClient({ ...remote, allowRemoteHost: null }, { env: {} })).not.toThrow();
+    expect(fake.requests).toHaveLength(0);
+  });
+
   it("names its provider and model", () => {
     const client = createLlmClient(ollama(), { env: {} });
     expect(client.provider).toBe("ollama");
