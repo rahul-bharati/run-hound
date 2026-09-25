@@ -52,13 +52,18 @@ const planted = [
   },
 ];
 
-const kennelCommands = `# terminal 1: Kennel with every bug on
+const kennelCommands = `# once: git clone, pnpm install, playwright install chromium, pnpm --filter kennel build (see the docs)
+
+# terminal 1: Kennel with every bug on
 KENNEL_BUGS=all PORT=5310 ANALYTICS_PORT=5311 pnpm kennel
 
 # terminal 2: the web UI, then open http://localhost:4310
 pnpm serve --port 4310`;
 
-const dockerCommands = `cp .env.example .env && docker compose up --build   # or: podman compose up --build
+const dockerCommands = `git clone https://github.com/rahul-bharati/run-hound.git
+cd run-hound
+cp .env.example .env && mkdir -p runs
+docker compose up --build   # or: podman compose up --build
 
 # then open http://localhost:4000 and enter http://kennel:3000/book`;
 
@@ -66,7 +71,7 @@ export default function DemoPage() {
   return (
     <>
       <PageHeader
-        eyebrow={`DEMO · REAL OUTPUT FROM ${site.release} ${site.version}`}
+        eyebrow={`DEMO · REAL OUTPUT FROM ${site.release}`}
         title={
           <>
             Proof, <span className="text-accent">not adjectives.</span>
@@ -74,9 +79,9 @@ export default function DemoPage() {
         }
         lede={
           <>
-            Everything on this page was captured from a real run of Run Hound {site.version} ({site.release}) against
-            Kennel, our deliberately broken pet-sitting booking page, with all 24 planted bugs switched on. The keys
-            and email addresses are fake test values.
+            Everything on this page was captured from a real run of Run Hound 0.2.0 ({site.release}) against Kennel,
+            our deliberately broken pet-sitting booking page, with all 24 planted bugs switched on. With AI off,{" "}
+            {site.version} plans, runs and reports exactly the same. The keys and email addresses are fake test values.
           </>
         }
       />
@@ -184,7 +189,7 @@ export default function DemoPage() {
       >
         <div className="grid items-start gap-8 lg:grid-cols-[1.3fr_1fr] lg:gap-12">
           <div className="flex min-w-0 flex-col gap-5">
-            <CodeBlock label="Docker or Podman, from the repository root">{dockerCommands}</CodeBlock>
+            <CodeBlock label="Docker or Podman">{dockerCommands}</CodeBlock>
             <CodeBlock label="Local install, from the repository root">{kennelCommands}</CodeBlock>
           </div>
           <div className="flex flex-col gap-4">

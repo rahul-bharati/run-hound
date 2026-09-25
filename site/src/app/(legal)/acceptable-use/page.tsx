@@ -83,7 +83,7 @@ export default function AcceptableUsePage() {
         <li>break any law or regulation that applies to you or to the system being tested.</li>
       </ul>
       <p>
-        The Apache-2.0 license lets you modify the code. Removing safeguards in your own copy does not make a
+        The MIT license lets you modify the code. Removing safeguards in your own copy does not make a
         prohibited use acceptable, and you alone are responsible for what a modified version does.
       </p>
 

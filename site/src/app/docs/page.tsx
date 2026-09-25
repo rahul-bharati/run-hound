@@ -52,7 +52,9 @@ pnpm --filter kennel build          # only needed for the Kennel demo`;
 
 const quickStart = `git clone https://github.com/rahul-bharati/run-hound.git
 cd run-hound
-cp .env.example .env && docker compose up --build    # or: podman compose up --build`;
+cp .env.example .env                # optional: ports, KENNEL_BUGS and allowed hosts live here
+mkdir -p runs                       # reports land here; create it yourself so the files belong to you
+docker compose up --build           # or: podman compose up --build (podman-compose works too)`;
 
 const testApps: { name: string; body: string }[] = [
   {
@@ -82,13 +84,13 @@ const ownCli = `cd app
 pnpm exec tsx src/cli.ts run http://localhost:5173/signup --plan-only
 pnpm exec tsx src/cli.ts run http://localhost:5173/signup --approve all`;
 
-const dockerLinux = `docker compose build run-hound      # once
+const dockerLinux = `docker pull ${site.image}   # or build it: docker compose build run-hound
 mkdir -p runs
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:${site.version} \\
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ${site.image} \\
   run http://localhost:5173/signup --approve all
 
 # the web UI on the host network, bound to loopback only
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:${site.version} \\
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ${site.image} \\
   serve --host 127.0.0.1 --port 4310`;
 
 const aiCli = `cd app
@@ -152,7 +154,7 @@ export default function DocsPage() {
   return (
     <>
       <PageHeader
-        eyebrow={`DOCS · ${site.release} PREVIEW ${site.version}`}
+        eyebrow={`DOCS · ${site.release} · ${site.version}`}
         title={
           <>
             Run {site.release} <span className="text-accent">on your machine.</span>
@@ -239,6 +241,12 @@ export default function DocsPage() {
                   log also mentions <code>0.0.0.0:4000</code>: that address is inside the container; on your machine the
                   ports are bound to <code>127.0.0.1</code> only. Ports taken? Change them in <code>.env</code>. Reports
                   are written to <code>./runs</code> on your machine.
+                </p>
+                <p>
+                  Release images are published to GitHub&apos;s container registry as <code>{site.image}</code>, with{" "}
+                  <code>run-hound-kennel</code> and <code>run-hound-samples</code>: <code>docker compose pull &amp;&amp;
+                  docker compose up</code> uses them instead of building. If an image isn&apos;t published yet,{" "}
+                  <code>docker compose build</code> (or <code>up --build</code>, as above) builds it from the clone.
                 </p>
                 <p>These test apps start with it:</p>
               </div>
@@ -356,13 +364,21 @@ export default function DocsPage() {
                   </li>
                   <li>
                     Watch the live view: the page under test, the current group and scenario, the elapsed time, the
-                    current step and a timestamped log. When the run ends the UI says “Finished in …”.
+                    current step and a timestamped log. When the run ends the UI says “Finished in …”.{" "}
+                    <strong>Stop run</strong> stops it for real (the rest is marked skipped and a report is still
+                    written), and <strong>Back to test plan</strong> plans the same page again.
                   </li>
                   <li>
                     Open the report. You should see findings for most of Kennel&apos;s planted bugs: a button that does
                     nothing, a double submit, a secret key in the bundle, an email sent to the analytics service,
                     missing focus outlines and more. If Kennel runs on a dev server, header, cookie and CORS findings
                     there are marked advisory.
+                  </li>
+                  <li>
+                    From the report, <strong>Re-run</strong> runs the same scenarios on the same page again,{" "}
+                    <strong>Open HTML report</strong> and <strong>Download</strong> give you the files, and the{" "}
+                    <strong>Runs</strong> page lists every run on this machine, including finished runs read back after
+                    a restart.
                   </li>
                   <li>
                     Restart Kennel with <code>KENNEL_BUGS=none</code> and run again.{" "}
@@ -414,7 +430,9 @@ export default function DocsPage() {
                 <h3>Docker on Linux (host network)</h3>
                 <p>
                   On Linux the container can share your machine&apos;s network, so <code>localhost</code> means your
-                  machine and nothing in your app needs to change. Podman works the same.
+                  machine and nothing in your app needs to change. Podman works the same (<code>podman run …</code>). The
+                  image is published to GHCR on release; if the pull fails, <code>docker compose build run-hound</code>{" "}
+                  in the clone builds the same image locally.
                 </p>
               </div>
               <CodeBlock label="Docker, host network">{dockerLinux}</CodeBlock>
@@ -554,8 +572,11 @@ export default function DocsPage() {
                     is sent, not even a model list request.
                   </li>
                   <li>
-                    API keys stay on the server and never appear in the UI or reports. Bedrock takes a Bedrock API key
-                    or AWS access keys (profiles and SSO aren&apos;t supported yet).
+                    API keys stay on the server and never appear in the UI or reports, and a saved key is only ever
+                    sent to the endpoint it was saved for. Bedrock takes a Bedrock API key, AWS access keys, or an AWS
+                    profile from <code>~/.aws</code> (<code>RUNHOUND_AI_AWS_PROFILE</code> or <code>AWS_PROFILE</code>:
+                    static keys, <code>credential_process</code> or IAM Identity Center after{" "}
+                    <code>aws sso login</code>; assume-role profiles aren&apos;t supported yet).
                   </li>
                 </ul>
                 <p>
@@ -622,9 +643,10 @@ export default function DocsPage() {
                   </li>
                 </ul>
                 <p>
-                  The command line exits with <strong>0</strong> when there are no confirmed findings,{" "}
-                  <strong>1</strong> when there is at least one, and <strong>2</strong> on an error (a refused or
-                  unreachable target, a page without a form, or a bad option).
+                  The command line exits with <strong>0</strong> when there are no confirmed findings (advisory ones
+                  don&apos;t fail the run), <strong>1</strong> when there is at least one confirmed finding, and{" "}
+                  <strong>2</strong> on an error: a refused or unreachable target, an error page (such as a 404), or a
+                  bad option. That makes it a CI step as it is; <code>--json</code> puts the report on stdout.
                 </p>
                 <h3>Also in the report</h3>
                 <ul>

@@ -14,7 +14,7 @@ const newTotal = previewGroups.reduce((sum, g) => sum + g.checks.filter((c) => c
 
 export const metadata: Metadata = {
   title: "Checks",
-  description: `The ${previewTotal} built-in checks in the Run Hound V1 preview (${site.version}), grouped as Accessibility, Features and Security, including ${newTotal} page-wide checks new in V1, plus the optional AI-suggested flows check, and the full catalog of gaps it is planned to hunt for, with typical severity and roadmap version.`,
+  description: `The ${previewTotal} built-in checks in Run Hound V1 (${site.version}), grouped as Accessibility, Features and Security, including ${newTotal} page-wide checks new in V1, plus the optional AI-suggested flows check, and the full catalog of gaps it is planned to hunt for, with typical severity and roadmap version.`,
 };
 
 const versions = Object.keys(versionMeaning) as Version[];
@@ -34,7 +34,7 @@ export default function ChecksPage() {
             Everything <span className="text-accent">it hunts for.</span>
           </>
         }
-        lede={`What the ${site.release} preview checks today, then the full catalog: the gaps AI-built apps tend to ship with, grouped the way you'd notice them, with typical severity and the roadmap version each check is in or planned for.`}
+        lede={`What ${site.release} checks today, then the full catalog: the gaps AI-built apps tend to ship with, grouped the way you'd notice them, with typical severity and the roadmap version each check is in or planned for.`}
       >
         <nav aria-label="Check categories">
           <ul className="flex flex-wrap gap-2">
@@ -64,7 +64,7 @@ export default function ChecksPage() {
 
       <Section
         id="preview"
-        eyebrow={`${site.release} PREVIEW · ${site.version}`}
+        eyebrow={`${site.release} TODAY · ${site.version}`}
         className="border-t border-line-soft bg-band"
         title={
           <>
@@ -164,7 +164,7 @@ export default function ChecksPage() {
         id="catalog"
         eyebrow="THE FULL CATALOG"
         title="How to read the catalog"
-        intro={`${total} checks across ${categories.length} categories, ${available} of them in the ${site.release} preview today. Severity is the typical level when the check fails; a real report grades each finding on its evidence. The signal is what Run Hound looks at, never a recipe.`}
+        intro={`${total} checks across ${categories.length} categories, ${available} of them in ${site.release} today. Severity is the typical level when the check fails; a real report grades each finding on its evidence. The signal is what Run Hound looks at, never a recipe.`}
       >
         <div className="grid gap-8 rounded-2xl border border-line bg-surface p-6 sm:p-7 lg:grid-cols-[1fr_1.5fr] lg:gap-10">
           <div className="flex flex-col gap-4">
@@ -182,7 +182,7 @@ export default function ChecksPage() {
                 <dt>
                   <VersionBadge version="V1" shipped />
                 </dt>
-                <dd className="text-sm text-muted">Lit: runs in the preview today</dd>
+                <dd className="text-sm text-muted">Lit: runs in {site.release} today</dd>
               </div>
               <div className="flex items-center gap-3">
                 <dt>
@@ -230,7 +230,7 @@ export default function ChecksPage() {
               </h2>
               <p className="text-pretty text-lg leading-relaxed text-muted">{category.intro}</p>
               <p className="font-mono text-xs tracking-widest text-dim">
-                {category.checks.filter(isShipped).length} OF {category.checks.length} IN THE PREVIEW TODAY
+                {category.checks.filter(isShipped).length} OF {category.checks.length} IN {site.release} TODAY
               </p>
             </div>
             <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

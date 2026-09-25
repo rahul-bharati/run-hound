@@ -36,7 +36,7 @@ export type CheckCategory = {
 
 export const versionMeaning: Record<Version, string> = {
   V0: "One form on localhost: shipped",
-  V1: "One page: in the preview now, more to come",
+  V1: "One page: available now, more to come",
   V2: "One feature, end to end",
   V3: "The whole app",
   V4: "Live staging, domain verified",

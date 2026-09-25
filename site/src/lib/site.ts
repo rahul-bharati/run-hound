@@ -1,12 +1,14 @@
+const version = "0.3.0";
+
 export const site = {
   name: "Run Hound",
   tagline: "Your AI said it's done. Let's check.",
   description:
-    "Open-source, AI-assisted UI testing for AI-built apps. Point it at a page on your local app, approve the plan (optionally reviewed by your own AI model), and get a report of broken flows, accessibility failures, missing protections and leaks, each with evidence and a Playwright test.",
-  // Current release: the V1 ("Single page") open-source preview, with optional AI since 0.3.0. V0 ("Single form", 0.1.0) shipped before it.
+    "Open-source (MIT), AI-assisted UI testing for AI-built apps. Point it at a page on your local app, approve the plan (optionally reviewed by your own AI model), and get a report of broken flows, accessibility failures, missing protections and leaks, each with evidence and a Playwright test. Local web UI, a CLI for CI, and Docker or Podman in one command.",
+  // Current release: V1 ("Single page"), open source under MIT, with optional AI since 0.3.0. V0 ("Single form", 0.1.0) shipped before it.
   release: "V1",
   releaseName: "Single page",
-  version: "0.3.0",
+  version,
   // Label for the main call to action, used in the header, heroes and page footers.
   cta: "Try V1 Locally",
   // `||`, not `??`: Docker passes an unset build arg as an empty string.
@@ -16,10 +18,14 @@ export const site = {
   testingGuide: "https://github.com/rahul-bharati/run-hound/blob/main/TESTING.md",
   changelog: "https://github.com/rahul-bharati/run-hound/blob/main/CHANGELOG.md",
   feedback: "https://github.com/rahul-bharati/run-hound/issues/new/choose",
-  license: "Apache-2.0",
-  // Run from a clone of the repository; no image is published to a registry yet. Starts Run Hound, Kennel and the
-  // sample apps. Podman: `podman compose up --build`.
-  dockerCommand: "cp .env.example .env && docker compose up --build",
+  license: "MIT",
+  licenseUrl: "https://github.com/rahul-bharati/run-hound/blob/main/LICENSE",
+  // Run from a clone of the repository. Starts Run Hound, Kennel and the sample apps (README.md "Quickest start").
+  // Podman: `podman compose up --build`.
+  dockerCommand: "cp .env.example .env && mkdir -p runs && docker compose up --build",
+  // Images published to GHCR on release (run-hound, run-hound-kennel, run-hound-samples). The first release may not
+  // be published yet, so every `docker run` on the site notes `docker compose build run-hound` as the fallback.
+  image: `ghcr.io/rahul-bharati/run-hound:${version}`,
   // Placeholders until real addresses exist.
   contactEmail: "contact@rahulbharati.dev",
   securityEmail: "contact@rahulbharati.dev",
@@ -27,8 +33,8 @@ export const site = {
   // Google Analytics 4 measurement id ("G-..."), set at build time. Empty: no analytics and no consent banner.
   gaMeasurementId: process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID || "",
   // Date shown as "Last updated" on the legal pages: machine-readable, and as displayed.
-  legalUpdatedIso: "2026-09-25",
-  legalUpdated: "25 September 2026",
+  legalUpdatedIso: "2026-09-26",
+  legalUpdated: "26 September 2026",
 } as const;
 
 export const mainNav = [

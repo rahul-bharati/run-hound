@@ -11,7 +11,7 @@ import { links } from "./data";
 import { Steps } from "./steps";
 
 const chips = [
-  { label: "Open source", icon: CodeXml },
+  { label: "Open source, MIT", icon: CodeXml },
   { label: "Runs locally", icon: Monitor },
   { label: "Optional AI, your own model", icon: Sparkles },
   { label: "No evidence, no finding", icon: ShieldCheck },
@@ -52,7 +52,7 @@ export function Hero() {
               ·
             </span>
             <span className="text-muted">
-              {site.release} PREVIEW ({site.version})
+              {site.release} · {site.releaseName.toUpperCase()} · {site.version}
             </span>
           </p>
 

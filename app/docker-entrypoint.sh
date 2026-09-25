@@ -1,7 +1,7 @@
 #!/bin/sh
 # Entrypoint for the Run Hound image.
 #
-# 1. Arguments that are Run Hound commands (serve, run, help, --version) go to the CLI, so
+# 1. Arguments that are Run Hound commands (serve, run, ai, help, --version) go to the CLI, so
 #      docker run ... run-hound run http://localhost:5173/signup --approve all
 #    works. Anything else (e.g. `bash`) is run as given.
 # 2. Reports go to /repo/app/runs. When that folder is bind-mounted from your machine, the CLI runs as the
@@ -14,7 +14,7 @@ RUNS=/repo/app/runs
 CLI="/repo/node_modules/.bin/tsx src/cli.ts"
 
 case "${1:-}" in
-  serve | run | help | version | --help | -h | --version | -v)
+  serve | run | ai | help | version | --help | -h | --version | -v)
     if [ "$1" = serve ] && [ -n "${RUNHOUND_PUBLIC_URL:-}" ]; then
       echo "Run Hound UI: open ${RUNHOUND_PUBLIC_URL} in your browser. (The 0.0.0.0 address below is inside the container; on your machine the port is bound to 127.0.0.1 only.)" >&2
     fi

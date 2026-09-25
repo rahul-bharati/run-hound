@@ -6,7 +6,7 @@ import { site } from "@/lib/site";
 export const metadata: Metadata = {
   title: "Terms",
   description:
-    "Terms of use for the Run Hound website, and how the planned Apache-2.0 license will govern the Run Hound software.",
+    "Terms of use for the Run Hound website, and how the MIT license governs the Run Hound software.",
 };
 
 const toc: LegalTocItem[] = [
@@ -43,9 +43,9 @@ export default function TermsPage() {
       <LegalHeading id="software-license">The software and its license</LegalHeading>
       <p>
         {site.name} is available as a public open-source preview ({site.release} {site.version}), with its source code
-        in a public repository. It is planned to be released under the{" "}
-        <a href="https://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>. Once released, the
-        license, not these terms, governs your rights to use, copy, modify and distribute the code. If these terms and the license ever
+        in a public repository. It is released under the <a href="https://opensource.org/license/mit">MIT License</a>{" "}
+        (the <a href={site.licenseUrl}>LICENSE file</a> in the repository). The license, not these terms, governs your
+        rights to use, copy, modify and distribute the code. If these terms and the license ever
         conflict about the code, the license wins. The source is on <a href={site.github}>GitHub</a>.
       </p>
 
@@ -100,7 +100,7 @@ export default function TermsPage() {
 
       <LegalHeading id="content" level={3}>Content and trademarks</LegalHeading>
       <p>
-        Website text and images are provided for information only. The Apache-2.0 license covers the code; it does
+        Website text and images are provided for information only. The MIT license covers the code; it does
         not grant rights to use the {site.name} name or logo. Screenshots and evidence on this site come from runs on
         Kennel, our deliberately broken demo app, not from real apps; anything else is labelled as a sample.
       </p>

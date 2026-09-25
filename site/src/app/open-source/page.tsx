@@ -8,7 +8,7 @@ import { site } from "@/lib/site";
 export const metadata: Metadata = {
   title: "Open source",
   description:
-    "Run Hound is open source in a public GitHub repository, with every check in the core and an Apache-2.0 license planned. See the roadmap, the Kennel test fixture, how to contribute and the privacy promise.",
+    "Run Hound is open source under the MIT license in a public GitHub repository, with every check in the core. See the roadmap, the Kennel test fixture, how to contribute and the privacy promise.",
 };
 
 const openCore: { core: string; later: string }[] = [
@@ -103,7 +103,7 @@ export default function OpenSourcePage() {
         lede="Finding the holes is the whole point, so no check will ever sit behind a paywall. The code is public on GitHub: clone it, try it, file issues."
       >
         <p className="max-w-2xl text-[15px] leading-relaxed text-dim">
-          {site.release} ({site.releaseName.toLowerCase()}, {site.version}) is an open-source preview. The{" "}
+          {site.release} ({site.releaseName.toLowerCase()}, {site.version}) is released under the MIT license. The{" "}
           <a href={site.github} className={externalLink}>
             repository
           </a>{" "}
@@ -118,13 +118,20 @@ export default function OpenSourcePage() {
       <Section
         id="license"
         title="License"
-        intro="The core is planned to be released under the Apache License 2.0."
+        intro="Run Hound is released under the MIT License."
       >
         <Card className="flex max-w-3xl flex-col gap-3">
-          <p className="font-mono text-xs tracking-widest text-accent">PLANNED · {site.license.toUpperCase()}</p>
+          <p className="font-mono text-xs tracking-widest text-accent">IN EFFECT · {site.license.toUpperCase()}</p>
           <p className="text-lg leading-relaxed">
-            In one line: you can use, change and ship it, including commercially, as long as you keep the license and
-            notices; it also includes a patent grant.
+            In one line: you can use, copy, modify, distribute and sell it, as long as you keep the copyright notice;
+            it comes with no warranty.
+          </p>
+          <p className="text-[15px] leading-relaxed text-dim">
+            The full text is in the{" "}
+            <a href={site.licenseUrl} className={externalLink}>
+              LICENSE file
+            </a>{" "}
+            in the repository.
           </p>
         </Card>
       </Section>

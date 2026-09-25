@@ -1,7 +1,7 @@
 import { previewGroups } from "@/components/checks/data";
 import { site } from "@/lib/site";
 
-/** Live preview links. The repository is public. */
+/** Calls to action. The repository is public. */
 export const links = {
   tryLocally: site.testingGuide,
   github: site.github,

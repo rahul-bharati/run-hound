@@ -11,13 +11,23 @@ import { Hero } from "@/components/home/hero";
 import { SeeItRun } from "@/components/home/see-it-run";
 import { ArrowIcon, GitHubIcon } from "@/components/button-link";
 import { CommandCopy } from "@/components/command-copy";
+import { GetStarted } from "@/components/get-started";
 import { Icon } from "@/components/icon";
 import { site } from "@/lib/site";
-import { Container as Box, FileSearch, MousePointerClick, ShieldCheck } from "lucide-react";
+import {
+  Container as Box,
+  FileCode,
+  FileSearch,
+  LayoutDashboard,
+  Lock,
+  MousePointerClick,
+  ShieldCheck,
+  Terminal,
+} from "lucide-react";
 
 export const metadata: Metadata = {
   title: { absolute: `${site.name}: Find the bugs your AI forgot to test` },
-  description: `AI-assisted UI testing for AI-built apps, open source on GitHub. Point Run Hound at a page on your local app: it finds every form and control, plans up to ${totalChecks} checks across accessibility, features and security (optionally reviewed by your own AI model), runs them in a real browser after you approve, and reports each finding with annotated evidence and a Playwright test.`,
+  description: `AI-assisted UI testing for AI-built apps, open source (MIT) on GitHub. Point Run Hound at a page on your local app: it finds every form and control, plans ${totalChecks} built-in checks across accessibility, features and security (optionally reviewed by your own AI model), runs them in a real browser after you approve, and reports each finding with annotated evidence and a Playwright test. Web UI, CLI for CI, Docker or Podman.`,
 };
 
 const whatsNew = [
@@ -40,6 +50,30 @@ const whatsNew = [
     icon: Box,
     title: "Test apps in one command",
     text: "Docker or Podman starts Run Hound with Kennel, our deliberately broken demo app, and five sample apps, so you can try it straight away.",
+  },
+];
+
+/** The ways you drive a run, and the guard rails around it (README "Running V1 locally", "Safety"). */
+const tools = [
+  {
+    icon: LayoutDashboard,
+    title: "A local web UI",
+    text: "Plan, approve, run, report in your browser. The live view shows the page under test, each step and a timestamped log. Stop run stops for real and still writes a report; Re-run repeats the same scenarios; the Runs page lists every run on this machine, even after a restart.",
+  },
+  {
+    icon: Terminal,
+    title: "A CLI for CI",
+    text: "run <url> --approve all runs the same checks from a terminal or a pipeline. It exits 0 with no confirmed findings, 1 with at least one and 2 on an error, and --json puts the report on stdout. Advisory findings never fail a run.",
+  },
+  {
+    icon: FileCode,
+    title: "Playwright tests you keep",
+    text: "Every finding comes with a generated Playwright spec that reproduces it with plain Playwright, without Run Hound, so you can add it to your own suite and keep the bug fixed. Reports come as HTML, Markdown and JSON.",
+  },
+  {
+    icon: Lock,
+    title: "A safety gate",
+    text: "Only localhost and private addresses (or hosts you list yourself) are tested; public sites are refused. The browser is pinned to the approved address, destructive scenarios such as Delete or Sign out are off by default, and the UI answers only on loopback.",
   },
 ];
 
@@ -117,12 +151,15 @@ export default function Home() {
         </ul>
         <div className="flex flex-col gap-3">
           <p className="flex flex-wrap items-center gap-2 font-mono text-xs tracking-widest text-dim">
-            TRY IT WITH THE TEST APPS <NewTag />
+            TRY IT WITH THE TEST APPS, IN A CLONE OF THE REPOSITORY <NewTag />
           </p>
           <CommandCopy command={site.dockerCommand} className="w-full max-w-2xl" />
           <p className="text-sm text-dim">
             Or <code className="font-mono text-muted">podman compose up --build</code>. Then open{" "}
-            <code className="font-mono text-muted">http://localhost:4000</code>.
+            <code className="font-mono text-muted">http://localhost:4000</code>.{" "}
+            <a href="#start" className="text-muted underline underline-offset-4 hover:text-accent">
+              Both ways to start, step by step
+            </a>
           </p>
         </div>
       </Section>
@@ -147,7 +184,26 @@ export default function Home() {
         <ArrowLink href="/checks">See every check</ArrowLink>
       </Section>
 
-      <Section title="Built to be trusted" eyebrow="PRINCIPLES">
+      <Section
+        id="tools"
+        eyebrow="WEB UI · CLI · SAFETY"
+        title="Click through it, or put it in CI."
+        intro="The same plan, checks and report whichever way you run it, with guard rails that keep it pointed at your own machine."
+      >
+        <ul className="grid gap-5 sm:grid-cols-2">
+          {tools.map((item) => (
+            <li key={item.title} className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-6 sm:p-7">
+              <span className="grid size-11 place-items-center rounded-xl border border-line-strong text-accent">
+                <Icon icon={item.icon} size={20} />
+              </span>
+              <h3 className="font-display text-xl font-bold leading-snug tracking-tight">{item.title}</h3>
+              <p className="text-[15px] leading-relaxed text-muted">{item.text}</p>
+            </li>
+          ))}
+        </ul>
+      </Section>
+
+      <Section title="Built to be trusted" eyebrow="PRINCIPLES" className="border-t border-line-soft">
         <ul className="grid gap-5 md:grid-cols-3">
           {principles.map((p, i) => (
             <li key={p.title} className="flex flex-col gap-3 border-t border-line pt-6">
@@ -195,6 +251,16 @@ export default function Home() {
         </ul>
       </Section>
 
+      <Section
+        id="start"
+        eyebrow="START NOW · FREE AND OPEN SOURCE"
+        title="Clone it and run it. Nothing to sign up for."
+        intro="The repository is public and MIT licensed. Pick the local install or Docker; the getting-started guide walks through a first run on Kennel, then your own app."
+        className="border-t border-line-soft bg-band"
+      >
+        <GetStarted />
+      </Section>
+
       <section
         aria-labelledby="closing-heading"
         className="relative isolate overflow-hidden border-t border-line-soft py-20 sm:py-28"
@@ -211,8 +277,8 @@ export default function Home() {
             Your AI said it&apos;s done. <span className="block text-accent">Let&apos;s check.</span>
           </h2>
           <p className="max-w-xl text-pretty text-lg leading-relaxed text-muted">
-            {site.release} is an open-source preview: one page, on your machine, with the test apps a single command
-            away. Clone the repository and the guide walks you through it.
+            {site.release} is open source under the MIT license: one page, on your machine, with the test apps a single
+            command away. Clone the repository and the guide walks you through it.
           </p>
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
             <ButtonLink href={links.tryLocally}>

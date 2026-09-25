@@ -111,7 +111,9 @@ export function AiSection() {
           </ul>
           <p className="leading-relaxed text-muted">
             Set it up in Settings → AI or with <code className="font-mono text-fg">--ai</code> on the command line.
-            Small local models work; if the model fails or times out, you get the built-in plan with a warning.
+            Bedrock takes a Bedrock API key, AWS access keys or an AWS profile, including IAM Identity Center (SSO)
+            after <code className="font-mono text-fg">aws sso login</code>. Small local models work; if the model
+            fails or times out, you get the built-in plan with a warning.
           </p>
         </div>
         <div className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-6 sm:p-7">

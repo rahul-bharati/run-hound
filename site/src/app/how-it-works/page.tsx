@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { ArrowIcon, ButtonLink } from "@/components/button-link";
-import { CommandCopy } from "@/components/command-copy";
+import { GetStarted } from "@/components/get-started";
 import { stepScreens } from "@/components/screens";
 import { Screenshot } from "@/components/screenshot";
 import { Card, Container, Eyebrow, PageHeader, Section } from "@/components/layout";
@@ -10,7 +10,7 @@ import { site } from "@/lib/site";
 export const metadata: Metadata = {
   title: "How it works",
   description:
-    "Run Hound finds every form and interactive control on your local page, plans form checks and page-wide checks in three groups (optionally reviewed by your own AI model), waits for your approval, runs them in a real browser with evidence at every step, and reports each defect in plain language.",
+    "Run Hound finds every form and interactive control on your local page, plans form checks and page-wide checks in three groups (optionally reviewed by your own AI model), waits for your approval, runs them in a real browser with a live view you can stop, and reports each defect in plain language with evidence and a Playwright test. Web UI or CLI with exit codes for CI.",
 };
 
 // The step's screenshot column: 7/12 of the 1136 px container from xl, 7/12 of the viewport on lg, full width below.
@@ -54,9 +54,9 @@ const steps: { number: string; name: string; title: string; body: ReactNode; sho
     title: "Nothing runs until you say so",
     body: (
       <>
-        The plan opens in a local web UI, or prints on the command line. Each scenario says what it does and whether it
-        creates test records. Pick the ones you want, a whole group at a time if you like. Scenarios that could change
-        or delete data stay off unless you opt in.
+        The plan opens in a local web UI, or prints on the command line (<code className="font-mono text-base text-fg">--plan-only</code>). Each scenario says
+        what it does and whether it creates test records. Pick the ones you want, a whole group at a time if you like.
+        Scenarios that could change or delete data, such as Delete or Sign out buttons, stay off unless you opt in.
       </>
     ),
     shot: <Screenshot screen={stepScreens.approve} sizes={shotSizes} />,
@@ -68,8 +68,9 @@ const steps: { number: string; name: string; title: string; body: ReactNode; sho
     body: (
       <>
         The approved scenarios run group by group in a real browser. A live view shows the page under test, the
-        current scenario and its steps as they happen, the elapsed time and a timestamped log. Screenshots, console and
-        network traffic are kept, so every result traces back to what actually happened.
+        current scenario and its steps as they happen, the elapsed time and a timestamped log. Stop run stops it for
+        real and still writes a report; Back to test plan plans the same page again. Screenshots, console and network
+        traffic are kept, so every result traces back to what actually happened.
       </>
     ),
     shot: <Screenshot screen={stepScreens.run} sizes={shotSizes} />,
@@ -82,7 +83,9 @@ const steps: { number: string; name: string; title: string; body: ReactNode; sho
       <>
         Each finding comes with its group, severity, a plain-language explanation, evidence (annotated screenshots,
         GIFs, request and response cards) and an exported Playwright test. It also tells you what to ask your AI to
-        fix. With AI on, each finding also gets an AI explanation beside the built-in one, labelled advisory.
+        fix. Re-run repeats the same scenarios once you have fixed something, and the Runs page lists every run on this
+        machine. On the command line the exit code says it all: 0 with no confirmed findings, 1 with at least one, 2
+        on an error. With AI on, each finding also gets an AI explanation beside the built-in one, labelled advisory.
       </>
     ),
     shot: <Screenshot screen={stepScreens.report} sizes={shotSizes} />,
@@ -104,7 +107,7 @@ const principles = [
   },
   {
     title: "Only owned targets, safe by default.",
-    body: "The preview tests localhost and private addresses only; public sites are refused. The browser is pinned to the approved address, destructive scenarios are opt-in, and reports redact secret-looking text. With AI on, only redacted page structure is sent to your model, and a remote endpoint needs your consent first.",
+    body: "Run Hound tests localhost and private addresses only (plus host names you list yourself); public sites are refused. The browser is pinned to the approved address, destructive scenarios are opt-in, and reports redact secret-looking text. With AI on, only redacted page structure is sent to your model, and a remote endpoint needs your consent first.",
   },
 ];
 
@@ -117,7 +120,7 @@ const outputs = [
   {
     label: ".SPEC.TS",
     title: "Playwright tests you keep",
-    body: "A re-runnable spec for each finding. It runs with plain Playwright, without Run Hound, so you can reproduce the failure and add it to CI.",
+    body: "A re-runnable spec for each finding. It runs with plain Playwright, without Run Hound, so you can reproduce the failure and add it to CI. Run Hound's own CLI fits CI too: exit code 1 means a confirmed finding.",
   },
   {
     label: "JSON",
@@ -147,7 +150,7 @@ export default function HowItWorksPage() {
         lede="Run Hound finds every form and control on your page, drafts a test plan and waits for your approval. Then it runs the plan in a real browser and reports what broke, with proof."
       >
         <p className="max-w-3xl font-mono text-xs leading-relaxed tracking-widest text-dim">
-          {site.release} PREVIEW {site.version} · SCREENSHOTS FROM A REAL RUN ON KENNEL, OUR DELIBERATELY BROKEN DEMO
+          {site.release} {site.version} · SCREENSHOTS FROM A REAL RUN ON KENNEL, OUR DELIBERATELY BROKEN DEMO
           APP, WITH AI OFF
         </p>
       </PageHeader>
@@ -236,10 +239,11 @@ export default function HowItWorksPage() {
             Try it on your own page
           </h2>
           <p className="max-w-2xl text-lg leading-relaxed text-muted">
-            {site.release} runs on your machine with Node, Docker or Podman. One command starts it with Kennel, our
-            deliberately broken demo app, and a few sample apps; then point it at a page of your own.
+            {site.release} runs on your machine with Node, Docker or Podman, and it&apos;s free and MIT licensed. One
+            command starts it with Kennel, our deliberately broken demo app, and a few sample apps; then point it at a
+            page of your own.
           </p>
-          <CommandCopy command={site.dockerCommand} className="w-full max-w-2xl" />
+          <GetStarted />
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
             <ButtonLink href={site.testingGuide}>
               {site.cta}
