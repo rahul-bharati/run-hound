@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { checks } from "../../../app/src/checks/index.js";
-import { CHECK_IDS } from "../../../app/src/core/types.js";
+import { AI_CHECK_IDS, CHECK_IDS } from "../../../app/src/core/types.js";
 import { discoverAndPlan, runPlan } from "../../../app/src/engine/runner.js";
 import { compareToGolden, lineDiff, loadGolden, loadBuiltBugs, observedGolden } from "./golden.js";
 import { buildKennel, filesUnder, kennelFakeSecrets, startKennel } from "./kennel.js";
@@ -44,7 +44,8 @@ describe.concurrent("Run Hound against Kennel", () => {
       const plan = await discoverAndPlan(kennel.bookUrl, { checks });
       expect(plan.form.name, "discovered form name").toMatch(/book a sitter/i);
       const planned = new Set(plan.scenarios.map((s) => s.checkId));
-      expect(CHECK_IDS.filter((id) => !planned.has(id)), "checks with no planned scenario").toEqual([]);
+      // AI-only checks (ai-flow) plan nothing without a model.
+      expect(CHECK_IDS.filter((id) => !planned.has(id) && !AI_CHECK_IDS.includes(id)), "checks with no planned scenario").toEqual([]);
 
       const approved = plan.scenarios.map((s) => s.id);
       const { report, dir } = await runPlan(plan, {

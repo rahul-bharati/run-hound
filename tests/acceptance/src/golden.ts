@@ -4,7 +4,7 @@
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { CHECK_IDS, type CheckId, type CheckResult, type Report, type ResultStatus, type Severity } from "../../../app/src/core/types.js";
+import { AI_CHECK_IDS, CHECK_IDS, type CheckId, type CheckResult, type Report, type ResultStatus, type Severity } from "../../../app/src/core/types.js";
 import { KENNEL_DIR } from "./kennel.js";
 
 export const EXPECTED_DIR = join(KENNEL_DIR, "expected");
@@ -62,6 +62,9 @@ export async function loadGolden(mode: string): Promise<Golden> {
   if (problems.length > 0) throw new Error(`Invalid golden file ${mode}.json:\n  - ${problems.join("\n  - ")}`);
   return golden as Golden;
 }
+
+/** Checks judged against the golden files: every check except the AI-only ones, which plan nothing without a model. */
+const GOLDEN_IDS = CHECK_IDS.filter((id) => !AI_CHECK_IDS.includes(id));
 
 const isCheckId = (v: unknown): v is CheckId => typeof v === "string" && (CHECK_IDS as readonly string[]).includes(v);
 
@@ -129,7 +132,7 @@ export function checkStatus(results: CheckResult[]): ResultStatus | undefined {
 
 function byCheck(report: Report) {
   const map = new Map<CheckId, { status: ResultStatus | undefined; results: CheckResult[]; findings: Report["findings"] }>();
-  for (const id of CHECK_IDS) {
+  for (const id of GOLDEN_IDS) {
     const results = report.results.filter((r) => r.checkId === id);
     map.set(id, { status: checkStatus(results), results, findings: report.findings.filter((f) => f.checkId === id) });
   }
@@ -139,7 +142,7 @@ function byCheck(report: Report) {
 function mustPassIds(golden: Golden): CheckId[] {
   if (golden.mustPass !== "all-others") return golden.mustPass;
   const excluded = new Set<CheckId>([...golden.mustFail, ...golden.allowedSideEffects.map((s) => s.checkId)]);
-  return CHECK_IDS.filter((id) => !excluded.has(id));
+  return GOLDEN_IDS.filter((id) => !excluded.has(id));
 }
 
 const describe = (id: CheckId, s: { status: ResultStatus | undefined; results: CheckResult[]; findings: Report["findings"] }) =>
@@ -210,7 +213,7 @@ export function compareToGolden(report: Report, golden: Golden): string[] {
  */
 export function observedGolden(report: Report, current: Golden | undefined, mode: string): Golden {
   const checks = byCheck(report);
-  const failing = CHECK_IDS.filter((id) => checks.get(id)!.status === "fail");
+  const failing = GOLDEN_IDS.filter((id) => checks.get(id)!.status === "fail");
   const expectedFail = new Set(current?.mustFail ?? []);
   const mustFail = failing.filter((id) => expectedFail.has(id) || !current);
   const side = failing
@@ -222,7 +225,7 @@ export function observedGolden(report: Report, current: Golden | undefined, mode
   const expectedFindings: ExpectedFinding[] = report.findings.map((f) => ({ checkId: f.checkId, severity: f.severity, titleIncludes: f.title }));
   const out: Golden = { mode, mustFail, mustPass: "all-others", allowedSideEffects: side, expectedFindings };
   if (current?.notes) out.notes = current.notes;
-  const nonPass = CHECK_IDS.filter((id) => !["pass", "fail"].includes(checks.get(id)!.status ?? "not run"));
+  const nonPass = GOLDEN_IDS.filter((id) => !["pass", "fail"].includes(checks.get(id)!.status ?? "not run"));
   if (nonPass.length) out.notes = `${out.notes ?? ""} OBSERVED NOT PASS/FAIL: ${nonPass.map((id) => `${id}=${checks.get(id)!.status ?? "not run"}`).join(", ")}`.trim();
   return out;
 }
