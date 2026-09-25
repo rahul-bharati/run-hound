@@ -43,12 +43,40 @@ export function parseMap(text: string): { sources: string[]; withContent: boolea
   }
 }
 
-/** GET from inside the page, no redirects followed; the status and up to 8 MB of text. */
+/**
+ * GET from inside the page, no redirects followed, at most 15 s: the status and up to 8 MB of text. The body is read
+ * as a stream and cut at the limit, so a huge response never fills the page's memory.
+ */
 async function fetchText(page: Page, url: string): Promise<{ status: number; text: string }> {
   return (await page.evaluate(
-    `fetch(${JSON.stringify(url)}, { redirect: "manual", cache: "no-store", credentials: "same-origin" })
-      .then(async (r) => ({ status: r.status, text: r.status === 200 ? (await r.text()).slice(0, 8 * 1024 * 1024) : "" }))
-      .catch(() => ({ status: 0, text: "" }))`,
+    `(async () => {
+      const LIMIT = 8 * 1024 * 1024;
+      try {
+        const r = await fetch(${JSON.stringify(url)}, { redirect: "manual", cache: "no-store", credentials: "same-origin", signal: AbortSignal.timeout(15000) });
+        if (r.status !== 200 || !r.body) return { status: r.status, text: "" };
+        const reader = r.body.getReader();
+        const chunks = [];
+        let size = 0;
+        while (size < LIMIT) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          size += value.length;
+        }
+        await reader.cancel().catch(() => undefined);
+        const all = new Uint8Array(Math.min(size, LIMIT));
+        let at = 0;
+        for (const c of chunks) {
+          const part = c.subarray(0, all.length - at);
+          all.set(part, at);
+          at += part.length;
+          if (at >= all.length) break;
+        }
+        return { status: r.status, text: new TextDecoder().decode(all) };
+      } catch {
+        return { status: 0, text: "" };
+      }
+    })()`,
   )) as { status: number; text: string };
 }
 

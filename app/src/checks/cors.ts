@@ -5,7 +5,8 @@
  * with the visitor's cookies (Access-Control-Allow-Origin: null, echoed, with Access-Control-Allow-Credentials: true:
  * high), and flags an echo without credentials (low, advisory). "*" without credentials is a public API: fine.
  *
- * Only GETs the page itself already made are repeated, so nothing is created or changed. The sandboxed frame lives in
+ * Only GETs the page itself already made are repeated (never ones whose path acts, such as /logout or /unsubscribe),
+ * without following redirects and with a 10 s limit each, so nothing is created or changed. The sandboxed frame lives in
  * a blank page Run Hound serves itself on 127.0.0.1 for the length of the scenario (a loopback page, so Chromium's
  * local network rules allow its requests to the app), in the same guarded, pinned browser context as the page.
  */
@@ -22,6 +23,9 @@ const ID = "cors" as const;
 /** The Origin a sandboxed iframe sends: any website can make one, so trusting it means trusting every website. */
 export const PROBE_ORIGIN = "null";
 const MAX_PROBES = 5;
+const PROBE_TIMEOUT_MS = 10_000;
+/** Paths that act instead of read (sign out, unsubscribe, delete…): repeating them could change something. */
+const ACTION_PATH = /log-?out|sign-?out|logoff|unsubscribe|delete|remove|destroy|revoke|cancel|confirm|verify|activate|reset/i;
 const PROBE_PAGE = '<!doctype html><title>Run Hound CORS probe</title><iframe sandbox="allow-scripts" srcdoc="<p>probe</p>"></iframe>';
 
 export interface CorsAnswer {
@@ -47,6 +51,11 @@ function probeTargets(requests: { url: string; method: string; resourceType: str
   for (const r of requests) {
     if (r.method !== "GET" || !["fetch", "xhr"].includes(r.resourceType) || r.status === null || r.status < 200 || r.status >= 300) continue;
     if (!isLocalOrigin(r.url, targetUrl) || urls.includes(r.url)) continue;
+    try {
+      if (ACTION_PATH.test(new URL(r.url).pathname)) continue;
+    } catch {
+      continue;
+    }
     urls.push(r.url);
   }
   // The page itself last: an HTML page readable by any site with cookies leaks whatever it shows.
@@ -85,7 +94,10 @@ async function probe(page: Page, frame: Frame, url: string): Promise<CorsAnswer>
   const href = new URL(url).href;
   const answer = page.waitForResponse((r) => r.url() === href && r.request().method() === "GET", { timeout: 10_000 }).catch(() => null);
   const read = (await frame.evaluate(
-    `fetch(${JSON.stringify(href)}, { credentials: "include", cache: "no-store" }).then((r) => ({ ok: true, status: r.status }), () => ({ ok: false, status: 0 }))`,
+    // No redirects (the probe never reaches a host the page didn't contact) and at most 10 s per request. An opaque
+    // redirect is not readable.
+    `fetch(${JSON.stringify(href)}, { credentials: "include", cache: "no-store", redirect: "manual", signal: AbortSignal.timeout(${PROBE_TIMEOUT_MS}) })
+      .then((r) => ({ ok: r.type !== "opaqueredirect", status: r.status }), () => ({ ok: false, status: 0 }))`,
   )) as { ok: boolean; status: number };
   if (!read.ok) return { url, status: 0, allowOrigin: null, allowCredentials: false };
   const response = await answer;

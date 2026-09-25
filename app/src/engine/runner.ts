@@ -436,7 +436,9 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
         return withSteps({ ...base, status: "error", findings: [], durationMs: Date.now() - started, notes: guardSummary(ctx)! });
       }
       const notes = [result.notes, ctx.blocked.length > 0 ? guardSummary(ctx) : null].filter(Boolean).join(" ");
-      return withSteps({ ...result, ...base, ...(notes ? { notes } : {}) });
+      // Each finding says which form (or the whole page) it is about.
+      const findings = scenario.scopeLabel ? result.findings.map((f) => ({ ...f, scope: scenario.scopeLabel })) : result.findings;
+      return withSteps({ ...result, ...base, findings, ...(notes ? { notes } : {}) });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const notes = ctx.escaped.length > 0 ? guardSummary(ctx)! : redactSecrets(cleanErrorMessage(message));

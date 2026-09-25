@@ -59,6 +59,14 @@ describe("headerLines and worst", () => {
     expect(lines.join("\n")).not.toContain("secret123");
     expect(lines).toContain("set-cookie: sid=… (value hidden); HttpOnly");
   });
+  it("hides the values of credential-like headers but keeps the security headers readable", () => {
+    const lines = headerLines({ "x-auth-token": "3f9a0c77be1d", authorization: "Bearer abc.def.ghi", "x-api-key": "k-123", "x-content-type-options": "nosniff", "content-security-policy": "default-src 'self'" }).map((l) => l.text);
+    const text = lines.join("\n");
+    for (const secret of ["3f9a0c77be1d", "Bearer abc.def.ghi", "k-123"]) expect(text).not.toContain(secret);
+    expect(lines).toContain("x-auth-token: … (value hidden, 12 chars)");
+    expect(lines).toContain("x-content-type-options: nosniff");
+    expect(lines).toContain("content-security-policy: default-src 'self'");
+  });
   it("picks the most severe", () => {
     expect(worst(["low", "high", "medium"])).toBe("high");
     expect(worst([])).toBe("low");

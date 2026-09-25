@@ -63,13 +63,27 @@ export function requestLine(method: string, url: string): string {
   }
 }
 
-/** Response headers as card lines ("name: value"), sorted; set-cookie values are cut to the cookie's name. */
+/**
+ * Headers whose value may be a credential (a token in a custom header, an Authorization echo). Their values are never
+ * shown: redactSecrets only knows key formats, not a random session token.
+ */
+const CREDENTIAL_HEADER = /auth|token|session|secret|key|cookie|signature|credential|csrf|xsrf|password|jwt/i;
+
+/**
+ * Response headers as card lines ("name: value"), sorted. set-cookie values are cut to the cookie's name, and the
+ * values of credential-like headers are hidden.
+ */
 export function headerLines(headers: Record<string, string>, mark: (name: string) => boolean = () => false): { text: string; mark?: boolean }[] {
   return Object.keys(headers)
     .sort()
     .flatMap((name) =>
       headers[name]!.split("\n").map((value) => {
-        const shown = name === "set-cookie" ? `${value.split("=")[0]}=… (value hidden)${value.includes(";") ? value.slice(value.indexOf(";")) : ""}` : value;
+        const shown =
+          name === "set-cookie"
+            ? `${value.split("=")[0]}=… (value hidden)${value.includes(";") ? value.slice(value.indexOf(";")) : ""}`
+            : CREDENTIAL_HEADER.test(name)
+              ? `… (value hidden, ${value.length} chars)`
+              : value;
         return { text: `${name}: ${shown}`, ...(mark(name) ? { mark: true } : {}) };
       }),
     );

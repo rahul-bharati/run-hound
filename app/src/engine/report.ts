@@ -274,6 +274,7 @@ export function renderMarkdown(report: Report): string {
       const label = findingGroupLabel(f);
       lines.push(`- ${label ? `Group: ${label} · ` : ""}Check: ${f.checkId} · severity: ${f.severity} · confidence: ${f.confidence}`);
       const places = findingPlaces(f);
+      if (f.scope) lines.push(`- In: ${oneLine(f.scope)}`);
       if (places.length === 1) lines.push(`- Where: ${oneLine(places[0]!)}`);
       else if (places.length > 1) lines.push(`- Where (${places.length} places):`, ...places.map((p) => `  - ${oneLine(p)}`));
       lines.push(`- What it means: ${f.meaning}`, `- Impact: ${f.impact}`, `- Fix: ${f.fix}`);
@@ -401,7 +402,7 @@ function findingHtml(f: Finding): string {
     : "";
   return `<article class="finding sev-${esc(f.severity)}">
 <h3>${esc(f.title)}</h3>
-<p class="meta">${findingGroupLabel(f) ? `${esc(findingGroupLabel(f)!)} · ` : ""}${esc(f.checkId)} · <span class="sev">${esc(f.severity)}</span> · ${esc(f.confidence)}${places.length === 1 ? ` · ${esc(places[0]!)}` : ""}</p>
+<p class="meta">${findingGroupLabel(f) ? `${esc(findingGroupLabel(f)!)} · ` : ""}${f.scope ? `${esc(f.scope)} · ` : ""}${esc(f.checkId)} · <span class="sev">${esc(f.severity)}</span> · ${esc(f.confidence)}${places.length === 1 ? ` · ${esc(places[0]!)}` : ""}</p>
 ${places.length > 1 ? `<p class="where">Where (${places.length} places):</p><ul class="where">${places.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}
 <dl><dt>What it means</dt><dd>${esc(f.meaning)}</dd><dt>Impact</dt><dd>${esc(f.impact)}</dd><dt>Fix</dt><dd>${esc(f.fix)}</dd></dl>
 ${spec}${figures}${details}

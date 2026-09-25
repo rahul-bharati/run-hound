@@ -241,6 +241,11 @@ export interface Finding {
    */
   locations?: string[];
   evidence: Evidence[];
+  /**
+   * What the finding's scenario tested (V1): its form ("Newsletter form") or "Whole page". Set by the runner from
+   * Scenario.scopeLabel, so a finding says which form it is about on a page with several.
+   */
+  scope?: string;
   /** Playwright spec that reproduces the finding, as source text. */
   spec?: { filename: string; source: string };
 }

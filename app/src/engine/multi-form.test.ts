@@ -91,6 +91,8 @@ describe("a page with several forms", () => {
     // The newsletter's unlabelled field: one axe finding, from the newsletter's own scan only.
     const labelFindings = report.findings.filter((f) => f.checkId === "axe-states" && /label/i.test(f.title));
     expect(labelFindings, JSON.stringify(report.findings.map((f) => [f.id, f.title]))).toHaveLength(1);
+    // It says which form it is about.
+    expect(labelFindings[0]!.scope).toBe("Newsletter form");
     expect(status("axe-states:four-states")).toBe("pass");
     expect(status("axe-states:four-states@form-3")).toBe("fail");
     // Its error is red text only: error-announcement fails for the newsletter, not for the contact form.

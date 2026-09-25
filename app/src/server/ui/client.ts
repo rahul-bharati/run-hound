@@ -1159,9 +1159,9 @@ export const CLIENT = String.raw`
           f ? h("p", { class: "meaning", text: f.meaning }) : null,
           tagList(f
             ? [h("li", { class: "sev-" + f.severity }, h("span", { class: "sw", "aria-hidden": "true" }), (SEVERITY_TEXT[f.severity] || f.severity)),
-               h("li", { text: entry.group }), h("li", { class: "mono", text: f.checkId }),
-               h("li", { text: f.confidence === "confirmed" ? "Confirmed" : "Advisory" })]
-            : [h("li", { text: STATUS_TEXT[status] || status }), h("li", { text: entry.group }), h("li", { class: "mono", text: r.checkId })])),
+               h("li", { text: entry.group }), f.scope ? h("li", { text: f.scope }) : null, h("li", { class: "mono", text: f.checkId }),
+               h("li", { text: f.confidence === "confirmed" ? "Confirmed" : "Advisory" })].filter(Boolean)
+            : [h("li", { text: STATUS_TEXT[status] || status }), h("li", { text: entry.group }), s && s.scopeLabel ? h("li", { text: s.scopeLabel }) : null, h("li", { class: "mono", text: r.checkId })].filter(Boolean))),
         h("span", { class: "detail-dur" }, icon("clock"), h("span", { class: "visually-hidden", text: "Took " }), resultDuration(r)));
       parts.push(head);
 
