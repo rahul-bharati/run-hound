@@ -4,7 +4,37 @@ import type { NextConfig } from "next";
 // out the same locally and in Docker (.next/standalone/server.js), not nested under the repo root's lockfile.
 const root = __dirname;
 
+const isDev = process.env.NODE_ENV === "development";
+
+// Security headers on every page (Run Hound's own security-headers check runs against this site). No nonces: every
+// page stays prerendered, so inline scripts need 'unsafe-inline' (Next's documented "Without Nonces" set-up). Google
+// Analytics only loads after consent (components/consent); Cloudflare Web Analytics is injected at the edge.
+const csp = [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://www.googletagmanager.com https://static.cloudflareinsights.com`,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' blob: data: https://www.googletagmanager.com https://*.google-analytics.com",
+  "font-src 'self'",
+  "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com https://cloudflareinsights.com",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
+
 const nextConfig: NextConfig = {
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          { key: "Content-Security-Policy", value: csp },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        ],
+      },
+    ];
+  },
   // A small Node server (.next/standalone/server.js) that serves the prerendered pages and optimises images on
   // request. Every page is still prerendered at build time; see the Dockerfile for how it runs.
   output: "standalone",

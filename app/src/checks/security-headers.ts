@@ -56,15 +56,22 @@ export function headerProblems(headers: Record<string, string>, https: boolean):
     });
   } else {
     const scripts = directives.get("script-src") ?? directives.get("default-src");
-    const lax = (s: string) => s === "*" || s === "'unsafe-inline'" || s === "http:" || s === "https:" || s === "data:";
+    const anywhere = (s: string) => s === "*" || s === "http:" || s === "https:" || s === "data:";
     const nonceOrHash = scripts?.some((s) => /^'(nonce-|sha256-|sha384-|sha512-|strict-dynamic')/.test(s));
-    if (!scripts || (scripts.some(lax) && !nonceOrHash)) {
+    const inline = scripts?.includes("'unsafe-inline'") && !nonceOrHash;
+    const fromAnywhere = scripts?.some(anywhere) && !nonceOrHash;
+    if (!scripts || inline || fromAnywhere) {
+      const what = !scripts
+        ? "has no script-src or default-src, so it doesn't limit scripts"
+        : fromAnywhere
+          ? `allows scripts from any site (script-src ${clip(scripts.join(" "), 60)})`
+          : `allows inline scripts ('unsafe-inline' without nonces or hashes)`;
       problems.push({
         header: "Content-Security-Policy",
         names: ["content-security-policy"],
         severity: "low",
-        problem: scripts ? `allows any script (script-src ${clip(scripts.join(" "), 60)})` : "has no script-src or default-src, so it doesn't limit scripts",
-        risk: "the policy is there but lets an injected script run anyway",
+        problem: what,
+        risk: fromAnywhere || !scripts ? "the policy is there but lets an injected script run anyway" : "the policy is there, but a script injected into the page's HTML (XSS) can still run inline",
         suggested: "script-src 'self' (use nonces or hashes for inline scripts instead of 'unsafe-inline')",
         assertion: `expect(headers["content-security-policy"], "CSP should limit scripts").toMatch(/(script-src|default-src)[^;]*'self'/);`,
       });

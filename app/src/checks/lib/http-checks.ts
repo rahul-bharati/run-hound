@@ -7,8 +7,21 @@ import { DEV_SERVER_NOISE } from "../console-network-errors.js";
 
 export type CapturedRequest = Capture["requests"][number];
 
-/** Scripts and requests only a dev server serves (hot reload clients, React refresh, webpack dev runtime). */
-const DEV_SERVER_ASSET = /\/@vite\/client|\/@react-refresh|\/@id\/|\/node_modules\/\.vite\/|\/_next\/static\/chunks\/(webpack|react-refresh|main-app)\.js|\/_next\/static\/development\/|\/_nuxt\/@vite|webpack-dev-server|\/__webpack_hmr|\/@fs\//i;
+/**
+ * Scripts and requests only a dev server serves (hot reload clients, React refresh, dev runtimes): Vite, Next.js with
+ * webpack (unhashed webpack.js / main-app.js / react-refresh.js) or Turbopack ("[turbopack]_browser_dev_hmr-client",
+ * next-devtools), webpack dev server, Nuxt, Astro. Production builds hash these file names, so they never match.
+ */
+const DEV_SERVER_ASSET =
+  /\/@vite\/client|\/@react-refresh|\/@id\/|\/node_modules\/\.vite\/|\/_next\/static\/chunks\/(webpack|react-refresh|main-app)\.js|\/_next\/static\/development\/|\[turbopack\]_browser_dev|_next\/static\/chunks\/[^/]*next-devtools|hmr-client|\/_nuxt\/@vite|webpack-dev-server|\/__webpack_hmr|\/@fs\/|\/__astro_dev|\/@astrojs\//i;
+
+function decoded(url: string): string {
+  try {
+    return decodeURIComponent(url);
+  } catch {
+    return url;
+  }
+}
 
 /**
  * True when the page came from a dev server (Vite, Next.js dev, webpack dev server, Nuxt, Astro): it loaded a hot
@@ -16,7 +29,7 @@ const DEV_SERVER_ASSET = /\/@vite\/client|\/@react-refresh|\/@id\/|\/node_module
  * production build, so the header, cookie and CORS checks mark their findings advisory there, and source-maps skips.
  */
 export function looksLikeDevServer(capture: Capture): boolean {
-  return capture.requests.some((r) => DEV_SERVER_ASSET.test(r.url) || DEV_SERVER_NOISE.test(r.url));
+  return capture.requests.some((r) => DEV_SERVER_ASSET.test(decoded(r.url)) || DEV_SERVER_NOISE.test(r.url));
 }
 
 export const DEV_SERVER_NOTE =
