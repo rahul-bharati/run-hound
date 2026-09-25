@@ -4,6 +4,7 @@ import { destructiveEnterTarget } from "../checks/ai-flow.js";
 import { formLabel } from "../engine/plan.js";
 import type { JsonSchema, LlmClient } from "./types.js";
 import { describePage, planForms, type PagePayload } from "./payload.js";
+import { expectationWords } from "./describe.js";
 import { arraySchema, enumSchema, integerSchema, isRecord, nullable, objectSchema, oneLine, stringSchema } from "./schema.js";
 
 export const MAX_SUGGESTIONS = 5;
@@ -207,9 +208,17 @@ export function flowIsDestructive(form: DiscoveredForm, flow: FlowStep[]): boole
   return flow.some((s) => s.action === "press" && s.key === "Enter") && destructiveEnterTarget(form) !== null;
 }
 
+/** "5 steps on the Book a sitter form; it passes when a save request reaches the app and succeeds." */
+export function flowDescription(label: string, flow: FlowStep[]): string {
+  const checks = flow.flatMap((s) => (s.action === "expect" ? [expectationWords(s.expect, s.text)] : []));
+  const steps = `${flow.length} step${flow.length === 1 ? "" : "s"} on the ${label}`;
+  return checks.length ? `${steps}; it passes when ${checks.join(" and ")}.` : `${steps}.`;
+}
+
 /**
  * Turns valid suggestions into scenarios: checkId "ai-flow", id "ai-flow:<n>" (1-based, in answer order;
- * "@form-<k>" suffix is not used), title (trimmed, ≤ 80 chars), description = rationale, kind "golden",
+ * "@form-<k>" suffix is not used), title (trimmed, ≤ 80 chars), description = flowDescription (what the flow does
+ * and when it passes; the rationale is shown separately from ai.rationale, so it is not repeated), kind "golden",
  * priority "medium", destructive = flowIsDestructive (a click on a destructive control, or Enter in a form whose submit
  * control is destructive), defaultSelected false,
  * scope "form", formIndex, scopeLabel = formLabel (engine/plan.ts), flow = steps, ai = {rationale, recommended: true,
@@ -232,18 +241,19 @@ export function suggestionsToScenarios(plan: Plan, answer: SuggestAnswer): { sce
     const form = forms[suggestion.form]!;
     const flow = structuredClone(suggestion.steps);
     const rationale = oneLine(suggestion.rationale, MAX_TEXT);
+    const scopeLabel = formLabel(form, suggestion.form);
     scenarios.push({
       id: `ai-flow:${n}`,
       checkId: "ai-flow",
       title,
-      description: rationale,
+      description: flowDescription(scopeLabel, flow),
       kind: "golden",
       priority: "medium",
       destructive: flowIsDestructive(form, flow),
       defaultSelected: false,
       scope: "form",
       formIndex: suggestion.form,
-      scopeLabel: formLabel(form, suggestion.form),
+      scopeLabel,
       flow,
       ai: { rationale, recommended: true, suggested: true },
     });

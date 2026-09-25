@@ -1,6 +1,46 @@
 import type { LucideIcon } from "lucide-react";
 import { CheckCheck, ListChecks, Lock, MessageSquareText, Route, Server, Sparkles, UserCheck } from "lucide-react";
 import { Icon } from "@/components/icon";
+import { aiScreens } from "@/components/screens";
+import { Screenshot } from "@/components/screenshot";
+import { Tour, type TourTab } from "./tour";
+
+// Full windows take the container width (as in See it run); the narrower crops are capped at 768 px.
+const wide =
+  "(min-width: 1280px) 1136px, (min-width: 1024px) calc(100vw - 144px), (min-width: 640px) calc(100vw - 48px), calc(100vw - 32px)";
+const narrow = "(min-width: 832px) 768px, (min-width: 640px) calc(100vw - 48px), calc(100vw - 32px)";
+
+/** The AI layer in the real web UI, from a run on Kennel with a 9B model on Ollama. */
+const tabs: TourTab[] = [
+  {
+    id: "ai-settings",
+    label: "Settings",
+    title: "Pick your model, test it",
+    text: "Settings → AI lists the models your server has. Here it's Ollama on the same machine with a 9B model: no API key, nothing leaves the laptop, and Test connection confirms it answers.",
+    image: <Screenshot screen={aiScreens.settings} sizes={narrow} className="max-w-3xl" />,
+  },
+  {
+    id: "ai-plan",
+    label: "Plan review",
+    title: "A reason for every scenario",
+    text: "With Review with AI ticked, the model reads the redacted page structure and gives each built-in scenario a one-line reason for this page. The plan says which model reviewed it, and the checks are the same ones as without AI.",
+    image: <Screenshot screen={aiScreens.plan} sizes={wide} />,
+  },
+  {
+    id: "ai-suggested",
+    label: "Suggested flows",
+    title: "Extra flows, unticked until you choose",
+    text: "Suggested by AI flows are built only from the fields and buttons Run Hound found, and you see every step before you run one. Each ends in a deterministic check, and what it finds is reported as advisory.",
+    image: <Screenshot screen={aiScreens.suggested} sizes={narrow} className="max-w-3xl" />,
+  },
+  {
+    id: "ai-explanation",
+    label: "Explanation",
+    title: "The finding, in plain words",
+    text: "After the run, each finding gets an AI explanation and an Ask your AI prompt, below the built-in advice and labelled advisory. The verdict, severity and evidence are what the real check recorded.",
+    image: <Screenshot screen={aiScreens.explanation} sizes={wide} />,
+  },
+];
 
 /**
  * The optional AI layer shipped in 0.3.0 (docs/ai-spec.md): plan review, suggested flows and explanations with the
@@ -48,6 +88,13 @@ export function AiSection() {
           </li>
         ))}
       </ul>
+
+      <div className="flex flex-col gap-4">
+        <Tour tabs={tabs} label="AI in the web UI" />
+        <p className="font-mono text-xs tracking-widest text-dim">
+          REAL SCREENSHOTS: A 9B MODEL ON OLLAMA, REVIEWING A RUN ON KENNEL
+        </p>
+      </div>
 
       <div className="grid gap-5 md:grid-cols-2">
         <div className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-6 sm:p-7">

@@ -187,6 +187,20 @@ describe("flowProblem", () => {
 });
 
 describe("suggestionsToScenarios", () => {
+  it("describes a flow by what it checks, never by repeating the rationale", () => {
+    const flow: FlowStep[] = [
+      { action: "fill", field: "name", value: "Ada" },
+      { action: "click", control: 2 },
+      { action: "expect", expect: "text-visible", text: "Booked" },
+      { action: "expect", expect: "no-errors", text: null },
+    ];
+    const { scenarios } = suggestionsToScenarios(makePlan(), { suggestions: [suggestion("Book", 0, flow, "Same text")] });
+    expect(scenarios[0]!.description).toBe(
+      '4 steps on the Book a sitter form; it passes when "Booked" is shown on the page and no page errors, console errors or failed requests.',
+    );
+    expect(scenarios[0]!.description).not.toContain("Same text");
+  });
+
   it("turns a valid suggestion into an ai-flow scenario with exactly the contract's fields", () => {
     const plan = makePlan();
     const { scenarios, rejected } = suggestionsToScenarios(plan, { suggestions: [suggestion("Book a dog", 0, bookingFlow, "Booking is the main job")] });
@@ -196,7 +210,8 @@ describe("suggestionsToScenarios", () => {
         id: "ai-flow:1",
         checkId: "ai-flow",
         title: "Book a dog",
-        description: "Booking is the main job",
+        // Not the rationale (the UI shows that separately): what the flow does and when it passes.
+        description: "5 steps on the Book a sitter form; it passes when a save request reaches the app and succeeds.",
         kind: "golden",
         priority: "medium",
         destructive: false,

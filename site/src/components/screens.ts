@@ -13,6 +13,12 @@ import stepExploreImage from "@/assets/screens/steps/explore.png";
 import stepPlanImage from "@/assets/screens/steps/plan.png";
 import stepReportImage from "@/assets/screens/steps/report.png";
 import stepRunImage from "@/assets/screens/steps/run.png";
+// 0.3.0 AI screens: Settings → AI, a plan reviewed by a local 9B model on Ollama (ornith-1.5:9b) and a finding's AI
+// explanation, from a run on the same Kennel (captured with --ai). Full windows or crops of 2x masters.
+import aiExplanationImage from "@/assets/screens/report-ai-explanation.png";
+import aiPlanImage from "@/assets/screens/new-run-plan-ai.png";
+import aiSuggestedImage from "@/assets/screens/new-run-plan-ai-suggested.png";
+import aiSettingsImage from "@/assets/screens/settings-ai-connected.png";
 
 export type Screen = { src: StaticImageData; alt: string };
 
@@ -59,5 +65,24 @@ export const stepScreens = {
   report: {
     src: stepReportImage,
     alt: "The report: 20 scenarios run, 20 with issues, 1 minute 7 seconds, test results grouped on the left and the selected double-click finding on the right with its recording.",
+  },
+} satisfies Record<string, Screen>;
+
+export const aiScreens = {
+  settings: {
+    src: aiSettingsImage,
+    alt: "Run Hound's Settings → AI card: Use AI switched on, provider Ollama, base URL http://127.0.0.1:11434/v1, and the model ornith-1.5:9b (9.0B, Q4_K_M) picked from the dropdown, which says 1 model on this server. No API key is set. Review the plan, Suggest flows and Explain findings are ticked, and below the Save and Test connection buttons: “Connected: ornith-1.5:9b answered in 0.9 s.”",
+  },
+  plan: {
+    src: aiPlanImage,
+    alt: "Run Hound's plan for Kennel's Book a sitter page with AI on: “Reviewed by ollama/ornith-1.5:9b · 4 flows suggested. Advisory: the checks still decide pass or fail.” A notice says one suggested flow was left out because a step typed more than 200 characters. In the Accessibility group each scenario carries AI and Recommended tags and, under its description, the model's one-line reason for this page, for example that the keyboard walk checks every required field (Pet name, Start date, End date, Owner email) can be reached and submitted with the keyboard alone.",
+  },
+  suggested: {
+    src: aiSuggestedImage,
+    alt: "Two scenarios tagged Suggested by AI in the plan, both unticked. “Book a sitter starting today” has the model's reason (the date fields have no stated minimum, so a booking starting today should be accepted) and six steps: type Biscuit into Pet name, the start and end dates, an owner email at kennel.test, press Enter, then “Check: the app accepts the save”. “Submit with an empty end date” leaves End date empty and ends with “Check: the filled fields keep their values”.",
+  },
+  explanation: {
+    src: aiExplanationImage,
+    alt: "Run Hound's report for a short AI run on Kennel: 4 scenarios, all with issues, including the AI-suggested “Book a sitter starting today”. The selected double-click finding shows the built-in “What to ask your AI”, then an AI explanation panel labelled Advisory: in plain words, pressing Book twice creates two bookings, with an “Ask your AI” prompt to copy, and the note “Written by ollama/ornith-1.5:9b. It doesn't change the verdict, severity or the built-in advice.” The generated Playwright test follows.",
   },
 } satisfies Record<string, Screen>;

@@ -8,6 +8,8 @@ import { DocSection } from "@/components/docs/doc-section";
 import { DocsToc } from "@/components/docs/toc";
 import { SeverityLabel, type Severity } from "@/components/finding";
 import { Container, NewTag, PageHeader } from "@/components/layout";
+import { aiScreens } from "@/components/screens";
+import { Screenshot } from "@/components/screenshot";
 import { site } from "@/lib/site";
 
 const checkTotal = previewGroups.reduce((sum, g) => sum + g.checks.length, 0);
@@ -93,6 +95,16 @@ const aiCli = `cd app
 pnpm exec tsx src/cli.ts ai status                                    # the effective settings and what's missing
 pnpm exec tsx src/cli.ts run localhost:5310/book --ai --ai-provider ollama --ai-model qwen3:8b --plan-only
 pnpm exec tsx src/cli.ts ai test                                      # one small call to check the model answers`;
+
+// The docs column: max-w-3xl (768 px) from xl, the viewport minus the gutters and the 220 px contents column on lg.
+const docShotSizes =
+  "(min-width: 1280px) 768px, (min-width: 1024px) calc(100vw - 428px), (min-width: 640px) calc(100vw - 48px), calc(100vw - 32px)";
+
+const aiFigures = [
+  { screen: aiScreens.settings, caption: "Settings → AI with Ollama on the same machine: the model picked from the server's list and a successful Test connection." },
+  { screen: aiScreens.suggested, caption: "Two Suggested by AI flows in a plan: unticked, each with the model's reason and the steps it will take, ending in a check." },
+  { screen: aiScreens.explanation, caption: "A finding after the run: the built-in “What to ask your AI”, then the model's AI explanation, labelled advisory." },
+];
 
 const aiDocker = `# .env: Ollama on your machine, seen from the container
 RUNHOUND_AI=1
@@ -501,6 +513,16 @@ export default function DocsPage() {
                     After the run, findings have an <strong>AI explanation</strong> panel below the built-in one.
                   </li>
                 </ol>
+              </div>
+              <div className="flex flex-col gap-8">
+                {aiFigures.map((f) => (
+                  <figure key={f.caption} className="flex flex-col gap-3">
+                    <Screenshot screen={f.screen} sizes={docShotSizes} />
+                    <figcaption className="text-sm leading-relaxed text-muted">{f.caption}</figcaption>
+                  </figure>
+                ))}
+              </div>
+              <div className="prose-night">
                 <h3>Command line</h3>
               </div>
               <CodeBlock label="Command line">{aiCli}</CodeBlock>

@@ -9,6 +9,8 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    // Build output of a dev server started with another root (e.g. site/site/.next); never source.
+    "**/.next/**",
     "out/**",
     "build/**",
     "next-env.d.ts",
