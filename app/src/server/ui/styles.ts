@@ -170,6 +170,54 @@ input[type=checkbox]:disabled { opacity:.45; cursor:not-allowed; }
 .plan-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:.75rem 1rem; margin-top:1.1rem; }
 .plan-actions .error { margin:0; flex:1 1 12rem; }
 
+/* AI (0.3.0): chips, rationale and suggested steps in the plan; the Settings card; the report panel. */
+.tag.ai { color:var(--accent); border-color:var(--accent-edge); background:var(--accent-tint); }
+.tag.ai.rec { background:transparent; }
+.scenario-row .ai-why { color:var(--fg); opacity:.88; border-left:2px solid var(--accent-edge); padding-left:.55rem; margin-top:.4rem; }
+.flow-steps { margin:.45rem 0 0 1.35rem; display:grid; gap:.15rem; color:var(--muted); font-size:.84rem; }
+.flow-steps li { overflow-wrap:anywhere; padding-left:.15rem; }
+.flow-steps li::marker { color:var(--dim); font-family:var(--mono); font-size:.78rem; }
+.plan-ai { display:flex; align-items:flex-start; gap:.5rem; color:var(--muted); font-size:.88rem; margin:-.35rem 0 1rem; overflow-wrap:anywhere; }
+.plan-ai .ic { color:var(--accent); margin-top:.1rem; }
+.report-ai { margin:.75rem 0 0; }
+#report-ai-warnings { margin:.75rem 0 0; }
+.ai-option { margin-top:.9rem; }
+.plan-progress { color:var(--muted); }
+.ai-intro { font-size:.92rem; margin:-.25rem 0 1rem; max-width:44rem; }
+.ai-problem { margin-bottom:1rem; }
+.ai-fields { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap:1rem 1.25rem; margin-top:1.1rem; }
+.ai-field { display:flex; flex-direction:column; min-width:0; }
+.ai-model-field { grid-column:1 / -1; }
+.ai-field .input { flex:none; width:100%; }
+select.input { font-size:.9rem; cursor:pointer; }
+select.input:disabled, .input:disabled { opacity:.6; cursor:not-allowed; }
+.model-row { display:flex; gap:.5rem; align-items:center; min-width:0; }
+.model-row select.input { flex:1 1 auto; width:auto; min-width:0; text-overflow:ellipsis; }
+.model-row .btn { flex:none; min-height:46px; }
+#ai-model-other { margin-top:.5rem; }
+.model-row[hidden] + #ai-model-other { margin-top:0; }
+.ai-field .error { margin-top:.5rem; font-size:.84rem; }
+.locked { display:block; color:var(--warn); font-size:.8rem; margin-top:.35rem; }
+.option .locked { margin-top:.1rem; white-space:nowrap; }
+.link-btn { align-self:flex-start; background:none; border:0; padding:0; margin-top:.45rem; min-height:24px; color:var(--accent); font-size:.84rem; text-decoration:underline; text-underline-offset:3px; }
+.link-btn:hover { color:var(--accent-strong); }
+.key-note:empty { display:none; }
+.ai-features { border:0; padding:0; margin:1.25rem 0 0; min-width:0; display:grid; gap:.4rem; }
+.ai-features legend { padding:0; margin-bottom:.45rem; }
+.ai-consent { margin-top:1.1rem; padding:.75rem .9rem; border:1px solid rgb(245 182 66 / .35); background:rgb(245 182 66 / .06); border-radius:var(--r-md); }
+.ai-actions { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:1.25rem; }
+.ai-ok { color:var(--accent); font-size:.9rem; margin-top:.55rem; }
+input[type=checkbox][role=switch] { position:relative; width:2.35rem; height:1.35rem; border-radius:999px; margin-top:.1rem; }
+input[type=checkbox][role=switch]::before { position:absolute; left:.17rem; top:.17rem; width:.85rem; height:.85rem; clip-path:none; border-radius:50%; background:var(--dim); transform:none; transition:left .15s; }
+input[type=checkbox][role=switch]:checked::before { left:calc(100% - 1.02rem); background:var(--accent-ink); }
+.ai-panel { border-color:var(--accent-edge); }
+.ai-panel h3 .tag { margin-left:.55rem; }
+.ai-panel .ask { margin-top:.8rem; padding-top:.75rem; border-top:1px solid var(--line-soft); }
+.ai-panel h4 { display:flex; align-items:center; gap:.5rem; font-size:.88rem; font-weight:650; margin-bottom:.45rem; }
+.ai-panel h4 .grow { flex:1; }
+.ai-panel .ask-text { color:var(--fg); font-family:var(--mono); font-size:.84rem; white-space:pre-wrap; background:var(--bg-deep); border:1px solid var(--line-soft); border-radius:var(--r-sm); padding:.6rem .75rem; }
+.ai-panel .note { margin-top:.7rem; font-size:.82rem; }
+
 /* Running view (mockup 1) */
 .run-grid { display:grid; grid-template-columns: minmax(22rem, 31rem) minmax(0, 1fr); gap:1.75rem; align-items:start; max-width: 92rem; }
 .run-col { display:grid; grid-template-columns: minmax(0, 1fr); gap:1rem; min-width:0; align-content:start; }

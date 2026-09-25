@@ -119,8 +119,8 @@ export const CLIENT = String.raw`
   }
   const enc = encodeURIComponent;
 
-  async function api(path, body) {
-    const init = body === undefined ? { cache: "no-store" } : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
+  async function api(path, body, method) {
+    const init = body === undefined ? { cache: "no-store" } : { method: method || "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
     const res = await fetch(path, init);
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -255,7 +255,39 @@ export const CLIENT = String.raw`
   // ---------- New Run ----------
 
   /** Kept across views, so going to Runs and back keeps the plan you were looking at. */
-  const newState = { url: "", resp: null, selected: null, options: null };
+  const newState = { url: "", resp: null, selected: null, options: null, aiReview: null };
+
+  /** A form field's name as a person reads it on the page. */
+  function fieldName(form, key) {
+    const f = form && (form.fields || []).find((x) => x.key === key);
+    if (!f) return key;
+    return f.label || f.accessibleName || f.placeholder || f.key;
+  }
+  /** A control's name as a person reads it (by its index among the form's controls). */
+  function controlName(form, i) {
+    const c = form && form.controls ? form.controls[i] : null;
+    if (!c) return "control " + (i + 1);
+    return c.accessibleName || c.text || (c.isSubmit ? "the submit button" : "control " + (i + 1));
+  }
+  const EXPECT_TEXT = {
+    "request-ok": () => "the app accepts the save",
+    "text-visible": (t) => "“" + (t || "") + "” appears on the page",
+    "text-absent": (t) => "“" + (t || "") + "” does not appear on the page",
+    "url-changes": () => "the page address changes",
+    "no-errors": () => "no errors on the page",
+    "field-kept": () => "the filled fields keep their values",
+  };
+  /** One AI flow step in plain words: Type "x" into Email, Click Sign up, Press Enter, Check: … */
+  function flowStepText(step, form) {
+    if (!step) return "";
+    if (step.action === "fill") return "Type “" + step.value + "” into " + fieldName(form, step.field);
+    if (step.action === "choose") return "Choose “" + step.option + "” in " + fieldName(form, step.field);
+    if (step.action === "click") return "Click " + controlName(form, step.control);
+    if (step.action === "press") return "Press " + step.key;
+    if (step.action === "expect") return "Check: " + (EXPECT_TEXT[step.expect] ? EXPECT_TEXT[step.expect](step.text) : step.expect);
+    return String(step.action || "");
+  }
+  const isSuggested = (s) => Boolean((s.ai && s.ai.suggested) || s.checkId === "ai-flow" || /^ai-flow:/.test(s.id));
 
   function viewNew(r, my, initial) {
     setTitle("New run");
@@ -270,6 +302,24 @@ export const CLIENT = String.raw`
     const destructive = $("allow-destructive");
     const headed = $("headed");
     focusHeading(my, initial);
+
+    // "Review with AI" (0.3.0): offered only when AI is on and usable.
+    let aiBox = null;
+    let aiName = "";
+    const aiRow = h("div", { class: "option ai-option", id: "ai-review-row", hidden: true });
+    const planProgress = h("p", { class: "field-hint plan-progress", id: "plan-progress", hidden: true });
+    $("target-hint").after(aiRow, planProgress);
+    api("/api/ai").then((st) => {
+      if (my !== gen || !st || !st.enabled || st.problem) return;
+      aiName = st.provider + "/" + st.model;
+      aiBox = h("input", { type: "checkbox", id: "ai-review" });
+      aiBox.checked = newState.aiReview !== false;
+      aiBox.addEventListener("change", () => { newState.aiReview = aiBox.checked; });
+      const does = st.features && st.features.review === false ? "suggest extra flows for" : st.features && st.features.suggest === false ? "review" : "review and suggest flows for";
+      aiRow.replaceChildren(aiBox, h("label", { for: "ai-review" }, "Review with AI",
+        h("span", { class: "desc", text: "Asks " + aiName + " to " + does + " the plan. Only redacted page structure is sent (labels, field types, button names), never values." })));
+      aiRow.hidden = false;
+    }).catch(() => {});
 
     function setStep(n) {
       for (const li of $("stepper").querySelectorAll("li")) {
@@ -308,8 +358,13 @@ export const CLIENT = String.raw`
       planButton.disabled = true;
       planButton.classList.add("busy");
       planButton.textContent = "Opening the page…";
+      const useAi = aiBox !== null && aiBox.checked;
+      if (useAi) {
+        planProgress.textContent = "Opening the page, then asking " + aiName + " to review the plan. The model can take a while (a minute or more for a small local model).";
+        planProgress.hidden = false;
+      }
       try {
-        const resp = await api("/api/plan", { url });
+        const resp = await api("/api/plan", aiBox ? { url, ai: aiBox.checked } : { url });
         if (my !== gen) return;
         newState.resp = resp;
         showPlan(resp, preselect || null, null, true);
@@ -323,6 +378,7 @@ export const CLIENT = String.raw`
         input.focus();
       } finally {
         if (my === gen) {
+          planProgress.hidden = true;
           planButton.disabled = false;
           planButton.classList.remove("busy");
           planButton.textContent = "Plan checks";
@@ -354,8 +410,27 @@ export const CLIENT = String.raw`
       const multi = forms.length > 1;
       const V1 = new Set(CONFIG.v1Checks || []);
       const warn = $("plan-warnings");
-      warn.replaceChildren(...(resp.warnings || []).map((w) => h("p", { text: w })));
-      warn.hidden = !(resp.warnings && resp.warnings.length);
+      const warnings = (resp.warnings || []).slice();
+      for (const w of (p.ai && p.ai.warnings) || []) if (!warnings.includes(w)) warnings.push(w);
+      warn.replaceChildren(...warnings.map((w) => h("p", { text: w })));
+      warn.hidden = warnings.length === 0;
+      let aiLine = $("plan-ai");
+      if (!aiLine) {
+        aiLine = h("p", { id: "plan-ai", class: "plan-ai" });
+        inv.before(aiLine);
+      }
+      if (p.ai) {
+        const who = p.ai.provider + "/" + p.ai.model;
+        const bits = [p.ai.reviewed ? "Reviewed by " + who : p.ai.suggested ? plural(p.ai.suggested, "flow") + " suggested by " + who : "Not reviewed by " + who + " (the built-in plan is shown)"];
+        if (p.ai.reviewed && p.ai.suggested) bits.push(plural(p.ai.suggested, "flow") + " suggested");
+        if (p.ai.remote) bits.push("remote endpoint");
+        aiLine.replaceChildren(icon("sparkle"), h("span", { text: bits.join(" · ") + ". Advisory: the checks still decide pass or fail." }));
+        aiLine.hidden = false;
+      } else {
+        aiLine.replaceChildren();
+        aiLine.hidden = true;
+      }
+      const formAt = (s) => forms[s.formIndex || 0] || forms[0] || null;
 
       const chosen = selected ? new Set(selected) : null;
       const byId = new Map(p.scenarios.map((s) => [s.id, s]));
@@ -379,7 +454,19 @@ export const CLIENT = String.raw`
           if (s.scope === "page") tags.push(h("span", { class: "tag scope", text: "Whole page" }));
           else if (multi && s.scopeLabel) tags.push(h("span", { class: "tag scope", text: s.scopeLabel }));
           if (V1.has(s.checkId)) tags.push(h("span", { class: "tag new", text: "New in V1" }));
-          rows.append(h("li", { class: "scenario-row" }, cb, h("label", { for: id }, h("span", { class: "title", text: s.title }), tags, h("span", { class: "desc", text: s.description }))));
+          const suggested = isSuggested(s);
+          if (suggested) tags.push(h("span", { class: "tag ai", text: "Suggested by AI" }));
+          else if (s.ai) {
+            tags.push(h("span", { class: "tag ai", text: "AI" }));
+            if (s.ai.recommended) tags.push(h("span", { class: "tag ai rec", text: "Recommended" }));
+          }
+          const extra = [];
+          if (s.ai && s.ai.rationale) extra.push(h("span", { class: "desc ai-why" }, h("span", { class: "visually-hidden", text: "AI rationale: " }), s.ai.rationale));
+          if (suggested && s.flow && s.flow.length) {
+            const form = formAt(s);
+            extra.push(h("ol", { class: "flow-steps", "aria-label": "Steps of " + s.title }, s.flow.map((st) => h("li", { text: flowStepText(st, form) }))));
+          }
+          rows.append(h("li", { class: "scenario-row" + (suggested ? " suggested" : s.ai && s.ai.recommended ? " recommended" : "") }, cb, h("label", { for: id }, h("span", { class: "title", text: s.title }), tags, h("span", { class: "desc", text: s.description }), extra)));
           inputs.push(cb);
         }
         const sync = () => {
@@ -558,6 +645,7 @@ export const CLIENT = String.raw`
           h("div", { class: "option" }, destructive, h("label", { for: "default-destructive" }, "Allow destructive scenarios", h("span", { class: "desc", text: "They may change or delete data beyond creating test records. Leave off unless this is a throwaway environment." }))),
           h("div", { class: "option" }, headed, h("label", { for: "default-headed" }, "Show the browser window", h("span", { class: "desc", text: CONFIG.headedDesc })))),
         saved),
+      aiCard(my),
       h("section", { class: "card", "aria-labelledby": "server-h" },
         h("h2", { id: "server-h", class: "card-title" }, "This server"),
         info),
@@ -577,6 +665,265 @@ export const CLIENT = String.raw`
       if (my !== gen) return;
       info.append(h("dt", { text: "Server settings" }), h("dd", { class: "error", text: "Could not load them: " + err.message }));
     });
+  }
+
+  // ---------- Settings: AI (0.3.0) ----------
+
+  const AI_PRESETS = [
+    { key: "ollama", label: "Ollama", provider: "ollama", baseUrl: "http://127.0.0.1:11434/v1" },
+    { key: "lmstudio", label: "LM Studio", provider: "openai-compatible", baseUrl: "http://127.0.0.1:1234/v1" },
+    { key: "openai-compatible", label: "Other OpenAI-compatible", provider: "openai-compatible", baseUrl: "" },
+    { key: "bedrock", label: "Amazon Bedrock", provider: "bedrock", baseUrl: "" },
+  ];
+  const OTHER_MODEL = "__other__";
+  const BEDROCK_MODEL_PLACEHOLDER = "anthropic.claude-3-5-haiku-20241022-v1:0";
+
+  function presetOf(st) {
+    if (st.provider === "bedrock") return "bedrock";
+    if (st.provider === "ollama") return "ollama";
+    return /:1234(\/|$)/.test(st.baseUrl || "") ? "lmstudio" : "openai-compatible";
+  }
+  function modelOptionText(m) {
+    return m.id + (m.details ? " — " + m.details : "") + (m.suitable === false ? " (not usable: can't generate text)" : "");
+  }
+  /**
+   * Fills the model dropdown from an AiModelList. "current" stays selected: when the server doesn't list it, it is kept
+   * as the first option, marked "(not found on server)" once a list actually came back. "Other…" is always last.
+   */
+  function fillModelSelect(select, list, current) {
+    const models = (list && list.models) || [];
+    const opts = [];
+    if (!current) opts.push(h("option", { value: "", text: models.length ? "Choose a model" : "No model chosen" }));
+    else if (!models.some((m) => m.id === current)) opts.push(h("option", { value: current, text: current + (list && !list.error ? " (not found on server)" : "") }));
+    for (const m of models) opts.push(h("option", { value: m.id, disabled: m.suitable === false && m.id !== current, "data-unsuitable": m.suitable === false ? "" : null, text: modelOptionText(m) }));
+    opts.push(h("option", { value: OTHER_MODEL, text: "Other…" }));
+    select.replaceChildren(...opts);
+    select.value = current || "";
+  }
+
+  function aiCard(my) {
+    const card = h("section", { class: "card ai-card", id: "ai-card", "aria-labelledby": "ai-h" },
+      h("h2", { id: "ai-h", class: "card-title" }, icon("sparkle"), "AI"),
+      h("p", { class: "loading", text: "Loading…" }));
+    api("/api/ai").then((st) => {
+      if (my === gen) drawAi(card, st, my, "");
+    }).catch((err) => {
+      if (my !== gen) return;
+      card.replaceChildren(card.firstChild, h("p", { class: "error", text: "Could not load the AI settings: " + err.message }));
+    });
+    return card;
+  }
+
+  function drawAi(card, st, my, message) {
+    const sources = st.sources || {};
+    const locked = (k) => sources[k] === "env" || sources[k] === "flag";
+    const lockNote = (k) => (locked(k) ? h("span", { class: "locked", text: "Set by environment" }) : null);
+    let current = st.model || "";
+    let otherMode = false;
+    let removeKey = false;
+    let list = null;
+    let seq = 0;
+    let timer = null;
+
+    const enabled = h("input", { type: "checkbox", role: "switch", id: "ai-enabled", disabled: locked("enabled") });
+    enabled.checked = st.enabled === true;
+    const preset = h("select", { id: "ai-provider", class: "input", disabled: locked("provider") }, AI_PRESETS.map((p) => h("option", { value: p.key, text: p.label })));
+    preset.value = presetOf(st);
+    const baseLabel = h("label", { class: "field-label", for: "ai-base-url", text: "Base URL" });
+    const baseUrl = h("input", { id: "ai-base-url", class: "input", type: "url", spellcheck: "false", autocomplete: "off", placeholder: "http://127.0.0.1:11434/v1", disabled: locked("baseUrl") });
+    baseUrl.value = st.baseUrl || "";
+    const modelLabel = h("label", { class: "field-label", for: "ai-model", text: "Model" });
+    const modelSelect = h("select", { id: "ai-model", class: "input", disabled: locked("model") });
+    const refreshLabel = h("span", { text: "Refresh" });
+    const refresh = h("button", { type: "button", class: "btn small", id: "ai-models-refresh", "aria-label": "Refresh the model list", disabled: locked("model") }, icon("reload"), refreshLabel);
+    const modelRow = h("div", { class: "model-row" }, modelSelect, refresh);
+    const modelOther = h("input", { id: "ai-model-other", class: "input", type: "text", spellcheck: "false", autocomplete: "off", disabled: locked("model") });
+    const modelsMsg = h("p", { class: "field-hint", id: "ai-models-msg" });
+    const keyInput = h("input", { id: "ai-key", class: "input", type: "password", autocomplete: "new-password", spellcheck: "false", placeholder: st.hasKey ? "Saved" : "Not set", disabled: locked("apiKey") });
+    keyInput.value = "";
+    const keyNote = h("span", { class: "field-hint key-note" });
+    const removeBtn = st.hasKey && !locked("apiKey") ? h("button", { type: "button", class: "link-btn", id: "ai-key-remove", text: "Remove key" }) : null;
+    const region = h("input", { id: "ai-region", class: "input", type: "text", spellcheck: "false", autocomplete: "off", placeholder: "us-east-1", disabled: locked("region") });
+    region.value = st.region || "";
+    const regionRow = h("div", { class: "ai-field" }, h("label", { class: "field-label", for: "ai-region", text: "Region" }), region, lockNote("region"));
+    const features = st.features || { review: true, suggest: true, explain: true };
+    const feat = (key, id, label, desc) => {
+      const cb = h("input", { type: "checkbox", id, disabled: locked("features") });
+      cb.checked = features[key] !== false;
+      return { cb, row: h("div", { class: "option" }, cb, h("label", { for: id }, label, h("span", { class: "desc", text: desc }))) };
+    };
+    const fReview = feat("review", "ai-f-review", "Review the plan", "Recommends scenarios and says why each matters on this page.");
+    const fSuggest = feat("suggest", "ai-f-suggest", "Suggest flows", "Up to 5 extra flows built from the fields and buttons found. Never ticked by default.");
+    const fExplain = feat("explain", "ai-f-explain", "Explain findings", "A plain-language summary and a prompt for your coding AI, beside the built-in one.");
+    let consent = null;
+    if (st.remote) {
+      consent = h("input", { type: "checkbox", id: "ai-allow-remote", disabled: locked("allowRemote") });
+      consent.checked = st.allowRemote === true;
+    }
+    const saveLabel = h("span", { text: "Save" });
+    const save = h("button", { type: "button", class: "btn primary", id: "ai-save" }, saveLabel);
+    const testLabel = h("span", { text: "Test connection" });
+    const test = h("button", { type: "button", class: "btn", id: "ai-test" }, testLabel);
+    const error = h("p", { class: "error", id: "ai-error" });
+    const saved = h("p", { class: "saved", id: "ai-saved", text: message || "" });
+    const testOut = h("p", { class: "field-hint", id: "ai-test-result" });
+
+    const isBedrock = () => preset.value === "bedrock";
+    const providerOf = () => (AI_PRESETS.find((p) => p.key === preset.value) || AI_PRESETS[0]).provider;
+    const modelValue = () => (isBedrock() || otherMode ? modelOther.value.trim() : modelSelect.value === OTHER_MODEL ? "" : modelSelect.value);
+
+    function syncModelUi() {
+      const bed = isBedrock();
+      modelRow.hidden = bed;
+      modelOther.hidden = !(bed || otherMode);
+      modelOther.placeholder = bed ? BEDROCK_MODEL_PLACEHOLDER : "Model id as the server names it";
+      if (bed) { modelOther.removeAttribute("aria-label"); modelLabel.setAttribute("for", "ai-model-other"); }
+      else { modelOther.setAttribute("aria-label", "Other model id"); modelLabel.setAttribute("for", "ai-model"); }
+      regionRow.hidden = !bed;
+      baseLabel.textContent = bed ? "Endpoint override (optional)" : "Base URL";
+      baseUrl.placeholder = bed ? "https://bedrock-runtime.<region>.amazonaws.com" : "http://127.0.0.1:11434/v1";
+      if (bed) { modelsMsg.textContent = ""; modelsMsg.className = "field-hint"; }
+    }
+    function drawModels() {
+      fillModelSelect(modelSelect, list, otherMode ? "" : current);
+      if (otherMode) modelSelect.value = OTHER_MODEL;
+    }
+    async function loadModels() {
+      clearTimeout(timer);
+      if (isBedrock()) return;
+      const mine = ++seq;
+      modelsMsg.className = "field-hint";
+      modelsMsg.textContent = "Loading models…";
+      refresh.disabled = true;
+      let res;
+      try {
+        res = await api("/api/ai/models?provider=" + enc(providerOf()) + "&baseUrl=" + enc(baseUrl.value.trim()));
+      } catch (err) {
+        res = { models: [], error: "Could not list the models: " + err.message };
+      }
+      if (mine !== seq || my !== gen || !card.isConnected) return;
+      refresh.disabled = locked("model");
+      list = { models: Array.isArray(res.models) ? res.models : [], error: res.error || null };
+      if (list.error) { modelsMsg.className = "error"; modelsMsg.textContent = list.error; }
+      else { modelsMsg.className = "field-hint"; modelsMsg.textContent = list.models.length ? plural(list.models.length, "model") + " on this server." : "The server lists no models."; }
+      drawModels();
+    }
+    const loadSoon = () => { clearTimeout(timer); timer = setTimeout(loadModels, 400); };
+
+    enabled.addEventListener("change", () => { saved.textContent = ""; });
+    preset.addEventListener("change", () => {
+      const p = AI_PRESETS.find((x) => x.key === preset.value);
+      const presetUrls = AI_PRESETS.map((x) => x.baseUrl).filter(Boolean);
+      if (!locked("baseUrl")) {
+        if (p.baseUrl) baseUrl.value = p.baseUrl;
+        else if (presetUrls.includes(baseUrl.value.trim())) baseUrl.value = "";
+      }
+      if (isBedrock()) { otherMode = false; modelOther.value = current; }
+      list = null;
+      syncModelUi();
+      drawModels();
+      loadSoon();
+    });
+    baseUrl.addEventListener("input", loadSoon);
+    refresh.addEventListener("click", loadModels);
+    modelSelect.addEventListener("change", () => {
+      if (modelSelect.value === OTHER_MODEL) {
+        otherMode = true;
+        modelOther.value = current;
+        syncModelUi();
+        modelOther.focus();
+      } else {
+        otherMode = false;
+        current = modelSelect.value;
+        syncModelUi();
+      }
+    });
+    modelOther.addEventListener("input", () => { current = modelOther.value.trim(); });
+    if (removeBtn) {
+      removeBtn.addEventListener("click", () => {
+        removeKey = !removeKey;
+        removeBtn.textContent = removeKey ? "Undo remove" : "Remove key";
+        keyNote.textContent = removeKey ? "The saved key will be removed when you save." : "";
+        keyInput.placeholder = removeKey ? "Will be removed" : "Saved";
+      });
+    }
+
+    save.addEventListener("click", async () => {
+      error.textContent = "";
+      saved.textContent = "";
+      const patch = {};
+      if (!locked("enabled")) patch.enabled = enabled.checked;
+      if (!locked("provider")) patch.provider = providerOf();
+      if (!locked("baseUrl")) patch.baseUrl = baseUrl.value.trim();
+      if (!locked("model")) patch.model = modelValue();
+      if (!locked("apiKey")) {
+        if (removeKey) patch.apiKey = null;
+        else if (keyInput.value) patch.apiKey = keyInput.value;
+      }
+      if (!locked("region") && isBedrock()) patch.region = region.value.trim() || null;
+      if (!locked("features")) patch.features = { review: fReview.cb.checked, suggest: fSuggest.cb.checked, explain: fExplain.cb.checked };
+      if (consent && !locked("allowRemote")) patch.allowRemote = consent.checked;
+      save.disabled = true;
+      saveLabel.textContent = "Saving…";
+      try {
+        const next = await api("/api/ai", patch, "PUT");
+        if (my !== gen) return;
+        drawAi(card, next, my, "Saved at " + hms(new Date().toISOString()) + ".");
+        announce("AI settings saved.");
+        const again = document.getElementById("ai-save");
+        if (again) again.focus();
+      } catch (err) {
+        if (my !== gen) return;
+        save.disabled = false;
+        saveLabel.textContent = "Save";
+        error.textContent = err.message;
+      }
+    });
+    test.addEventListener("click", async () => {
+      test.disabled = true;
+      testLabel.textContent = "Testing…";
+      testOut.className = "field-hint";
+      testOut.textContent = "Sending a short request with the saved settings…";
+      try {
+        const r = await api("/api/ai/test", {});
+        if (my !== gen) return;
+        if (r.ok) { testOut.className = "ai-ok"; testOut.textContent = "Connected: " + r.model + " answered in " + formatDuration(r.ms) + "."; }
+        else { testOut.className = "error"; testOut.textContent = r.error || "The test failed."; }
+      } catch (err) {
+        if (my !== gen) return;
+        testOut.className = "error";
+        testOut.textContent = err.message;
+      }
+      test.disabled = false;
+      testLabel.textContent = "Test connection";
+      announce(testOut.textContent);
+    });
+
+    const keyField = h("div", { class: "ai-field" },
+      h("label", { class: "field-label", for: "ai-key", text: "API key" }), keyInput, lockNote("apiKey"), removeBtn, keyNote,
+      h("span", { class: "field-hint", text: "Stays on this machine; never shown again. Not needed for Ollama or LM Studio." }));
+    card.replaceChildren(
+      h("h2", { id: "ai-h", class: "card-title" }, icon("sparkle"), "AI"),
+      h("p", { class: "muted ai-intro", text: "Optional. A model reviews the plan, suggests extra flows and explains findings in plain words. It never decides pass or fail: the checks do." }),
+      st.problem ? h("p", { class: "warning ai-problem", id: "ai-problem", text: st.problem }) : null,
+      h("div", { class: "option ai-switch" }, enabled, h("label", { for: "ai-enabled" }, "Use AI", h("span", { class: "desc", text: "Off by default. Planning and runs work the same without it." })), lockNote("enabled")),
+      h("div", { class: "ai-fields" },
+        h("div", { class: "ai-field" }, h("label", { class: "field-label", for: "ai-provider", text: "Provider" }), preset, lockNote("provider")),
+        h("div", { class: "ai-field" }, baseLabel, baseUrl, lockNote("baseUrl")),
+        h("div", { class: "ai-field ai-model-field" }, modelLabel, modelRow, modelOther, lockNote("model"), modelsMsg),
+        keyField,
+        regionRow),
+      h("fieldset", { class: "ai-features" }, h("legend", { class: "field-label", text: "What the model does" }), fReview.row, fSuggest.row, fExplain.row, lockNote("features")),
+      consent
+        ? h("div", { class: "option ai-consent" }, consent, h("label", { for: "ai-allow-remote" }, "Send redacted page structure (labels, field types, button names — never values, cookies or screenshots) to " + st.host, h("span", { class: "desc", text: "This endpoint is not on this machine or your network. Nothing is sent until you tick this and save." })), lockNote("allowRemote"))
+        : null,
+      h("div", { class: "ai-actions" }, save, test),
+      error, saved, testOut,
+      st.file ? h("p", { class: "note" }, "Saved to ", h("code", { class: "mono", text: st.file })) : null);
+    syncModelUi();
+    if (isBedrock()) modelOther.value = current;
+    drawModels();
+    loadModels();
   }
 
   // ---------- A run: running view, then its report ----------
@@ -1028,6 +1375,11 @@ export const CLIENT = String.raw`
           download)),
       headError,
     ];
+    if (report.ai) {
+      const who = report.ai.provider + "/" + report.ai.model;
+      head.push(h("p", { class: "plan-ai report-ai" }, icon("sparkle"), h("span", { text: "Findings explained by " + who + " (" + report.ai.explained + " of " + plural((report.findings || []).length, "finding") + "). Advisory text only." })));
+      if (report.ai.warnings && report.ai.warnings.length) head.push(h("div", { class: "warning", id: "report-ai-warnings" }, report.ai.warnings.map((w) => h("p", { text: w }))));
+    }
     if (report.stopped) head.push(h("p", { class: "stopped-note", text: "You stopped this run. The scenario in progress and the ones after it are marked skipped (“" + STOPPED_NOTE + "”). The report covers what ran." }));
 
     // Tabs and rows.
@@ -1201,11 +1553,23 @@ export const CLIENT = String.raw`
         parts.push(h("section", { class: "panel", "aria-labelledby": "ask-h" },
           h("h3", { id: "ask-h" }, icon("sparkle"), h("span", { class: "grow", text: "What to ask your AI" }), copyButton("Copy", () => f.fix)),
           h("p", { style: "color:var(--fg)", text: f.fix })));
+        if (f.ai) parts.push(aiExplanationPanel(f.ai));
         if (f.spec) parts.push(specPanel(f.spec, base));
       }
       detail.replaceChildren(...parts);
     };
     draw();
+  }
+
+  /** A model's explanation of a finding (0.3.0), after the built-in "What to ask your AI". Advisory only. */
+  function aiExplanationPanel(ai) {
+    return h("section", { class: "panel ai-panel", "aria-labelledby": "ai-exp-h" },
+      h("h3", { id: "ai-exp-h" }, icon("sparkle"), h("span", { class: "grow" }, "AI explanation", h("span", { class: "tag ai", text: "Advisory" }))),
+      h("p", { style: "color:var(--fg)", text: ai.summary }),
+      h("div", { class: "ask" },
+        h("h4", {}, h("span", { class: "grow", text: "Ask your AI" }), copyButton("Copy", () => ai.askYourAi)),
+        h("p", { class: "ask-text", text: ai.askYourAi })),
+      h("p", { class: "note", text: "Written by " + ai.model + ". It doesn't change the verdict, severity or the built-in advice." }));
   }
 
   function evidenceViewer(imgs, base) {
