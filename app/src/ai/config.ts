@@ -3,6 +3,7 @@ import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { isPrivateAddress } from "../engine/safety.js";
+import { awsCredentialsAvailable, awsProfileRegion } from "./aws-credentials.js";
 import { AI_PROVIDERS, type AiConfig, type AiConfigPatch, type AiFeatures, type AiProvider, type AiStatus, type ConfigSource } from "./types.js";
 
 /** Default endpoints per provider, used when baseUrl is empty and to prefill the Settings form. */
@@ -20,6 +21,7 @@ export const DEFAULT_AI_CONFIG: AiConfig = {
   model: "",
   apiKey: null,
   region: null,
+  awsProfile: null,
   allowRemote: false,
   features: { review: true, suggest: true, explain: true },
   timeoutMs: 120_000,
@@ -55,10 +57,10 @@ export interface ResolvedAiConfig {
   file: string;
 }
 
-type Field = keyof AiStatus["sources"];
+type Field = keyof Required<AiStatus["sources"]>;
 type Layer = Partial<Omit<AiConfig, "features">> & { features?: Partial<AiFeatures> };
 
-const FIELDS: readonly Field[] = ["enabled", "provider", "baseUrl", "model", "apiKey", "region", "allowRemote", "features", "timeoutMs"];
+const FIELDS: readonly Field[] = ["enabled", "provider", "baseUrl", "model", "apiKey", "region", "awsProfile", "allowRemote", "features", "timeoutMs"];
 const FEATURE_NAMES: readonly (keyof AiFeatures)[] = ["review", "suggest", "explain"];
 
 const isProvider = (v: unknown): v is AiProvider => typeof v === "string" && (AI_PROVIDERS as readonly string[]).includes(v);
@@ -75,6 +77,7 @@ function fromFile(raw: unknown): Layer {
   if (typeof r.model === "string") out.model = r.model;
   if (typeof r.apiKey === "string" && r.apiKey !== "") out.apiKey = r.apiKey;
   if (typeof r.region === "string" && r.region !== "") out.region = r.region;
+  if (typeof r.awsProfile === "string" && r.awsProfile !== "") out.awsProfile = r.awsProfile;
   if (typeof r.allowRemote === "boolean") out.allowRemote = r.allowRemote;
   if (typeof r.allowRemoteHost === "string" && r.allowRemoteHost !== "") out.allowRemoteHost = r.allowRemoteHost;
   if (isTimeout(r.timeoutMs)) out.timeoutMs = r.timeoutMs;
@@ -118,6 +121,7 @@ function fromEnv(env: NodeJS.ProcessEnv): { layer: Layer; names: Partial<Record<
   set("model", str("RUNHOUND_AI_MODEL"), "RUNHOUND_AI_MODEL");
   set("apiKey", str("RUNHOUND_AI_API_KEY"), "RUNHOUND_AI_API_KEY");
   set("region", str("RUNHOUND_AI_REGION"), "RUNHOUND_AI_REGION");
+  set("awsProfile", str("RUNHOUND_AI_AWS_PROFILE"), "RUNHOUND_AI_AWS_PROFILE");
   set("allowRemote", envBool(env.RUNHOUND_AI_ALLOW_REMOTE), "RUNHOUND_AI_ALLOW_REMOTE");
   const timeout = env.RUNHOUND_AI_TIMEOUT_MS?.trim() ? Number(env.RUNHOUND_AI_TIMEOUT_MS) : undefined;
   set("timeoutMs", isTimeout(timeout) ? timeout : undefined, "RUNHOUND_AI_TIMEOUT_MS");
@@ -154,7 +158,7 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
     ["flag", fromFlags(flags)],
   ];
   const config: AiConfig = { ...DEFAULT_AI_CONFIG, features: { ...DEFAULT_AI_CONFIG.features } };
-  const sources = Object.fromEntries(FIELDS.map((f) => [f, "default"])) as AiStatus["sources"];
+  const sources = Object.fromEntries(FIELDS.map((f) => [f, "default"])) as Required<AiStatus["sources"]>;
   const rank: Record<ConfigSource, number> = { default: 0, file: 1, env: 2, flag: 3 };
 
   for (const [source, layer] of layers) {
@@ -179,12 +183,20 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
       sources.apiKey = "env";
       envNames.apiKey = "AWS_BEARER_TOKEN_BEDROCK";
     }
+    if (!config.awsProfile && env.AWS_PROFILE) {
+      config.awsProfile = env.AWS_PROFILE;
+      sources.awsProfile = "env";
+      envNames.awsProfile = "AWS_PROFILE";
+    }
     if (config.region === null) {
       const name = env.AWS_REGION ? "AWS_REGION" : env.AWS_DEFAULT_REGION ? "AWS_DEFAULT_REGION" : null;
       if (name) {
         config.region = env[name]!;
         sources.region = "env";
         envNames.region = name;
+      } else {
+        // The profile's region (shared config file); source stays "default", so the Settings page can override it.
+        config.region = awsProfileRegion({ env, profile: config.awsProfile ?? null, ...(home ? { home } : {}) });
       }
     }
   }
@@ -205,7 +217,9 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
  * Env: RUNHOUND_AI ("1"/"true"/"on" | "0"/"false"/"off"), RUNHOUND_AI_PROVIDER, RUNHOUND_AI_MODEL,
  * RUNHOUND_AI_BASE_URL, RUNHOUND_AI_API_KEY, RUNHOUND_AI_REGION, RUNHOUND_AI_ALLOW_REMOTE, RUNHOUND_AI_TIMEOUT_MS,
  * RUNHOUND_AI_FEATURES (comma list of review,suggest,explain). For bedrock, a missing key falls back to
- * AWS_BEARER_TOKEN_BEDROCK and a missing region to AWS_REGION, then AWS_DEFAULT_REGION (source "env").
+ * AWS_BEARER_TOKEN_BEDROCK and a missing region to AWS_REGION, then AWS_DEFAULT_REGION (source "env"), then the
+ * `region` of the AWS profile (source stays "default"). awsProfile: file < RUNHOUND_AI_AWS_PROFILE; for bedrock a
+ * missing one falls back to AWS_PROFILE (source "env").
  * Setting a provider (anywhere) with no base URL from the same or a later source uses that provider's default URL.
  * Unknown provider names and non-numeric timeouts are ignored (the lower source stands).
  * Consent from the file counts only when the file's allowRemoteHost equals endpointHost of the resolved config (then
@@ -294,7 +308,7 @@ export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS
       throw new Error("The timeout must be between 5 000 and 600 000 ms");
     }
     if ((field === "enabled" || field === "allowRemote") && typeof value !== "boolean") throw new Error(`${field} must be true or false`);
-    if ((field === "model" || field === "region" || field === "apiKey") && value !== null && typeof value !== "string") throw new Error(`${field} must be a string`);
+    if ((field === "model" || field === "region" || field === "apiKey" || field === "awsProfile") && value !== null && typeof value !== "string") throw new Error(`${field} must be a string`);
     if (field === "features") value = { ...current.config.features, ...(value as Partial<AiFeatures>) };
     if (current.sources[field] === "env") {
       if (JSON.stringify(value) === JSON.stringify(current.config[field])) continue;
@@ -308,6 +322,7 @@ export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS
   const next: Record<string, unknown> = { ...saved, ...changes };
   if (next.apiKey === null) delete next.apiKey;
   if (next.region === null || next.region === "") delete next.region;
+  if (next.awsProfile === null || next.awsProfile === "") delete next.awsProfile;
 
   // Where requests went before this patch and where they will go after it.
   const before = current.config;
@@ -360,12 +375,13 @@ export function endpointHost(config: Pick<AiConfig, "provider" | "baseUrl" | "re
 /**
  * The status for the UI and CLI. `problem`, first match wins: "AI is off" (disabled), "Choose a model",
  * "Choose a Bedrock region" (bedrock without region), "Bedrock needs an API key or AWS access keys" (bedrock with no
- * apiKey and no AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY in env), "Sending page structure to <host> needs your consent"
- * (remote && !allowRemote); else null.
+ * apiKey and nothing in the AWS chain: awsCredentialsAvailable, which checks env keys and the profile's files without
+ * running credential_process or calling SSO), "Sending page structure to <host> needs your consent"
+ * (remote && !allowRemote); else null. `home` (for ~/.aws) defaults to os.homedir().
  */
-export function aiStatus(resolved: ResolvedAiConfig, env: NodeJS.ProcessEnv = process.env): AiStatus {
+export function aiStatus(resolved: ResolvedAiConfig, env: NodeJS.ProcessEnv = process.env, home?: string): AiStatus {
   const c = resolved.config;
-  const awsKeys = Boolean(env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY);
+  const awsKeys = c.provider === "bedrock" && !c.apiKey && awsCredentialsAvailable({ env, profile: c.awsProfile ?? null, ...(home ? { home } : {}) });
   const hasKey = Boolean(c.apiKey) || (c.provider === "bedrock" && awsKeys);
   const remote = isRemote(c);
   const host = endpointHost(c);
@@ -381,6 +397,7 @@ export function aiStatus(resolved: ResolvedAiConfig, env: NodeJS.ProcessEnv = pr
     baseUrl: c.baseUrl,
     model: c.model,
     region: c.region,
+    awsProfile: c.awsProfile ?? null,
     allowRemote: c.allowRemote,
     features: { ...c.features },
     timeoutMs: c.timeoutMs,

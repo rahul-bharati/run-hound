@@ -1,6 +1,6 @@
 import type { Fact, Finding, FindingExplanation, Report } from "../core/types.js";
 import { tokenKey } from "../core/saves.js";
-import type { JsonSchema, LlmClient } from "./types.js";
+import { AiError, type JsonSchema, type LlmClient } from "./types.js";
 import { isRecord, objectSchema, safeText, stringSchema } from "./schema.js";
 
 export interface ExplainAnswer {
@@ -115,11 +115,18 @@ function abortError(signal: AbortSignal): Error {
   return signal.reason instanceof Error ? signal.reason : new Error("Explaining findings was stopped");
 }
 
+/** Timeouts in a row (retries included) after which the remaining findings are not explained. */
+const MAX_CONSECUTIVE_TIMEOUTS = 2;
+
+const isTransient = (error: unknown) => error instanceof AiError && (error.code === "timeout" || error.code === "unreachable");
+
 /**
  * Explains every finding, one call each, sequentially (local models serve one request at a time), at most 20 findings
- * (the rest get none). Summary ≤ 600 chars, askYourAi ≤ 1000 (both trimmed). A finding whose call fails gets no
- * explanation and one warning per distinct error. Returns a copy of the report with Finding.ai set and Report.ai =
- * {provider, model, remote, warnings, explained}. `model` in each explanation is "<provider>/<model>".
+ * (the rest get none). Summary ≤ 600 chars, askYourAi ≤ 1000 (both trimmed). A call that fails with AiError
+ * "timeout" or "unreachable" is retried once. A finding whose call still fails gets no explanation and one warning per
+ * distinct error. After 2 timeouts in a row (a call and its retry, or across findings) the remaining findings are not
+ * explained, with one warning saying how many were skipped. Returns a copy of the report with Finding.ai set and
+ * Report.ai = {provider, model, remote, warnings, explained}. `model` in each explanation is "<provider>/<model>".
  * Never rejects for per-finding errors; rejects only when the signal aborts. Prompts come from explainPrompt with
  * `remote` and `runToken` (optional: the run's CheckContext.runToken, which recognises facts holding test values).
  */
@@ -130,19 +137,38 @@ export async function explainFindings(report: Report, client: LlmClient, options
   const out = structuredClone(report);
   const model = `${client.provider}/${client.model}`;
   const warnings: string[] = [];
+  const warn = (message: string) => {
+    if (!warnings.includes(message)) warnings.push(message);
+  };
+  const findings = out.findings.slice(0, MAX_FINDINGS);
   let explained = 0;
-  for (const finding of out.findings.slice(0, MAX_FINDINGS)) {
+  let timeouts = 0;
+  for (const [index, finding] of findings.entries()) {
+    if (timeouts >= MAX_CONSECUTIVE_TIMEOUTS) {
+      const skipped = findings.length - index;
+      warn(`Skipped explaining ${skipped} finding${skipped === 1 ? "" : "s"} after ${timeouts} timeouts in a row`);
+      break;
+    }
     if (signal?.aborted) throw abortError(signal);
     const { system, user } = explainPrompt(finding, { remote: options.remote, ...(options.runToken ? { runToken: options.runToken } : {}) });
-    try {
-      const answer = await client.generateJson({ name: "finding_explanation", system, user, schema: EXPLAIN_SCHEMA, validate: validateExplain, signal });
-      finding.ai = { summary: answer.summary.trim().slice(0, MAX_SUMMARY), askYourAi: answer.askYourAi.trim().slice(0, MAX_ASK), model };
-      explained += 1;
-    } catch (error) {
-      if (signal?.aborted) throw abortError(signal);
-      const message = `Could not explain a finding: ${error instanceof Error ? error.message : String(error)}`;
-      if (!warnings.includes(message)) warnings.push(message);
+    const call = () => client.generateJson({ name: "finding_explanation", system, user, schema: EXPLAIN_SCHEMA, validate: validateExplain, signal });
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const answer = await call();
+        finding.ai = { summary: answer.summary.trim().slice(0, MAX_SUMMARY), askYourAi: answer.askYourAi.trim().slice(0, MAX_ASK), model };
+        explained += 1;
+        timeouts = 0;
+        lastError = null;
+        break;
+      } catch (error) {
+        if (signal?.aborted) throw abortError(signal);
+        lastError = error;
+        timeouts = error instanceof AiError && error.code === "timeout" ? timeouts + 1 : 0;
+        if (!isTransient(error) || timeouts >= MAX_CONSECUTIVE_TIMEOUTS) break;
+      }
     }
+    if (lastError !== null) warn(`Could not explain a finding: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
   }
   out.ai = { provider: client.provider, model: client.model, remote: options.remote, warnings, explained };
   return out;

@@ -24,16 +24,22 @@ Resolved by `resolveAiConfig` from defaults < `<configDir>/ai.json` (written by 
 | `RUNHOUND_AI_BASE_URL` | `--ai-base-url` | e.g. `http://127.0.0.1:11434/v1` |
 | `RUNHOUND_AI_MODEL` | `--ai-model` | model id |
 | `RUNHOUND_AI_API_KEY` | | Bearer key or Bedrock API key (Bedrock also reads `AWS_BEARER_TOKEN_BEDROCK`) |
-| `RUNHOUND_AI_REGION` | | Bedrock region (else `AWS_REGION`, `AWS_DEFAULT_REGION`) |
+| `RUNHOUND_AI_REGION` | | Bedrock region (else `AWS_REGION`, `AWS_DEFAULT_REGION`, then the AWS profile's `region`) |
+| `RUNHOUND_AI_AWS_PROFILE` | | Bedrock: AWS profile for credentials (saved field `awsProfile`; else `AWS_PROFILE`, else `default`) |
 | `RUNHOUND_AI_ALLOW_REMOTE` | `--ai-allow-remote` | consent for a remote endpoint |
 | `RUNHOUND_AI_FEATURES` | | comma list of `review,suggest,explain` (default all) |
 | `RUNHOUND_AI_TIMEOUT_MS` | | per request, default 120000 |
 
-Bedrock auth: a Bedrock API key (Bearer), else SigV4 from `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_SESSION_TOKEN`. AWS profiles and SSO are not supported in 0.3.0.
+Bedrock auth (`ai/aws-credentials.ts`, no AWS SDK): a Bedrock API key (Bearer), else SigV4 with the first credentials found in this chain:
+
+1. `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`.
+2. The profile (`awsProfile` / `RUNHOUND_AI_AWS_PROFILE`, else `AWS_PROFILE`, else `default`) from `~/.aws/credentials` (`[name]`) and `~/.aws/config` (`[default]` / `[profile name]`), merged with the credentials file winning; `AWS_SHARED_CREDENTIALS_FILE` and `AWS_CONFIG_FILE` move them. In the profile: static keys (`aws_access_key_id`, `aws_secret_access_key`, `aws_session_token`); else `credential_process` (run without a shell, must print the Version 1 JSON: `Version`, `AccessKeyId`, `SecretAccessKey`, optional `SessionToken` and RFC 3339 `Expiration`); else IAM Identity Center (`sso_session` → `[sso-session x]`, or the legacy `sso_start_url` + `sso_region`, plus `sso_account_id` and `sso_role_name`): the token that `aws sso login` cached in `~/.aws/sso/cache/<sha1 of the session name, or of the start URL>.json` is exchanged at `GET https://portal.sso.<sso_region>.amazonaws.com/federation/credentials` (header `x-amz-sso_bearer_token`). A missing, expired or refused token is an `auth` error saying to run `aws sso login --profile <name>`; tokens are not refreshed.
+
+Temporary credentials (from `credential_process` with an expiration, or SSO) are cached in memory until 5 minutes before they expire. Profiles with `role_arn` (assume role, `source_profile` chains) are refused with a "not supported yet" error. The profile's `region` is used when no region is set anywhere else. `AiStatus.problem` asks for Bedrock credentials only when nothing in the chain is there (env keys, or a profile with keys, `credential_process`, or an SSO setup whose token file exists; nothing is run or called to check). `AiStatus.awsProfile` names the profile. The Settings page has no profile field yet: set it with `RUNHOUND_AI_AWS_PROFILE`, `AWS_PROFILE` or `awsProfile` in `ai.json`.
 
 ## Providers (no new dependencies)
 
-- **ollama** (`ai/ollama.ts`): Ollama's native `POST /api/chat` (base URL minus a trailing `/v1`) with `think: false`, `format: <schema>`, `stream: false` and `options: {temperature: 0, num_ctx: 16384}`. Thinking is off and the context raised because a reasoning model on Ollama's default 4096-token context spends it all thinking and never answers. A model without thinking control (400 mentioning "think") is retried once without `think`, remembered per model. A missing model says to run `ollama pull <model>`.
+- **ollama** (`ai/ollama.ts`): Ollama's native `POST /api/chat` (base URL minus a trailing `/v1`) with `think: false`, `format: <schema>`, `stream: false`, `options: {temperature: 0, num_ctx: 16384}` and `keep_alive: "15m"` (Ollama's default of 5 minutes unloads the model between the plan and the explanations after the run, and reloading a large model can outlast the timeout). Thinking is off and the context raised because a reasoning model on Ollama's default 4096-token context spends it all thinking and never answers. A model without thinking control (400 mentioning "think") is retried once without `think`, remembered per model. A missing model says to run `ollama pull <model>`.
 - **openai-compatible** (`ai/openai-compatible.ts`): Chat Completions with `response_format: json_schema` (strict), temperature 0; falls back to `json_object` with the schema in the prompt when a server rejects `json_schema`. Covers LM Studio, llama.cpp, vLLM, OpenAI, OpenRouter, Groq, Together and other OpenAI-compatible endpoints. `finish_reason: "length"` with no answer (only thinking) is a `bad-output` error saying the model ran out of output space; it is not retried.
 - **bedrock** (`ai/bedrock.ts`): Converse with one forced tool whose input schema is the answer schema.
 - **client** (`ai/client.ts`): parse, validate, one retry with the error fed back, then `AiError("bad-output")`. Errors from the provider call itself (transport, HTTP, out of output space) are not retried.
@@ -43,7 +49,7 @@ Bedrock auth: a Bedrock API key (Bearer), else SigV4 from `AWS_ACCESS_KEY_ID`/`A
 
 - **Review** (`ai/review.ts`): the model answers `{id, recommended, priority, rationale}` per scenario. Merge: `Scenario.ai = {rationale, recommended}`, `priority` updated, `defaultSelected = recommended && !destructive`. Unknown ids are ignored; nothing is added, removed or reordered.
 - **Suggest** (`ai/suggest.ts`, `checks/ai-flow.ts`): up to 5 flows of at most 8 `FlowStep`s ending in an `expect`. `flowProblem` rejects anything that names a field or control the form doesn't have. Kept flows become `ai-flow:<n>` scenarios in the Features group, after the built-in ones, **never ticked by default**, destructive when they click a destructive control. `ai-flow` runs the steps under the navigation guard and decides each `expect` deterministically; a failed expect is one advisory, medium finding with a GIF, a final frame and a Playwright spec.
-- **Explain** (`ai/explain.ts`): after the run and before the report is written, one call per finding (at most 20, sequential) → `Finding.ai = {summary, askYourAi, model}`, shown as "AI explanation (advisory)" beside the built-in "What to ask your AI". `Report.ai` records the model, how many were explained and warnings.
+- **Explain** (`ai/explain.ts`): after the run and before the report is written, one call per finding (at most 20, sequential) → `Finding.ai = {summary, askYourAi, model}`, shown as "AI explanation (advisory)" beside the built-in "What to ask your AI". `Report.ai` records the model, how many were explained and warnings. A call that fails with `timeout` or `unreachable` is retried once; after 2 timeouts in a row the remaining findings are not explained (one warning says how many were skipped) rather than waiting out the timeout for each.
 
 ## Surfaces
 

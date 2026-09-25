@@ -6,6 +6,12 @@ import { OUT_OF_SPACE, stripThink, type ChatMessage } from "./openai-compatible.
 /** Context window asked of Ollama; its default (4096) is too small for the page payload plus a reasoning model. */
 export const OLLAMA_NUM_CTX = 16384;
 
+/**
+ * How long Ollama keeps the model loaded after a call. Its default (5 minutes) unloads it between the plan and the
+ * explanations, which come after the run, and reloading a model can take longer than the request timeout.
+ */
+export const OLLAMA_KEEP_ALIVE = "15m";
+
 /** "<origin>|<model>" pairs whose model rejected `think`; they are sent without it from then on. */
 const noThinkControl = new Set<string>();
 
@@ -16,7 +22,8 @@ export function ollamaRoot(baseUrl: string): string {
 
 /**
  * Ollama's native POST <root>/api/chat (root = baseUrl minus a trailing /v1) with `stream: false`, `think: false`,
- * `format: <schema>` and `options: {temperature: 0, num_ctx: 16384}`; `Authorization: Bearer <apiKey>` when a key is
+ * `format: <schema>`, `options: {temperature: 0, num_ctx: 16384}` and `keep_alive: "15m"` (the model stays loaded
+ * between the plan and the explanations after the run); `Authorization: Bearer <apiKey>` when a key is
  * set. Thinking is off because a reasoning model otherwise spends the context thinking and never answers.
  * Returns message.content with a leading <think>…</think> block stripped.
  * A 400 whose error mentions "think" (the model has no thinking control) is retried once without `think`, and that is
@@ -49,6 +56,7 @@ export async function ollamaChatJson(
           ...(withThink ? { think: false } : {}),
           format: schema.schema,
           options: { temperature: 0, num_ctx: OLLAMA_NUM_CTX },
+          keep_alive: OLLAMA_KEEP_ALIVE,
         }),
       },
       config.timeoutMs,

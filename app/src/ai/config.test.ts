@@ -56,6 +56,7 @@ const ALL_DEFAULT: AiStatus["sources"] = {
   allowRemote: "default",
   features: "default",
   timeoutMs: "default",
+  awsProfile: "default",
 };
 
 describe("configDir", () => {
@@ -228,6 +229,31 @@ describe("resolveAiConfig", () => {
       expect(r.sources).toMatchObject({ apiKey: "file", region: "file" });
     });
 
+    it("reads awsProfile from the file, RUNHOUND_AI_AWS_PROFILE, then AWS_PROFILE", async () => {
+      await writeSaved({ provider: "bedrock", awsProfile: "saved" });
+      let r = await resolveAiConfig({ env: { ...env, AWS_PROFILE: "aws-env" }, home: tmp });
+      expect(r.config.awsProfile).toBe("saved");
+      expect(r.sources.awsProfile).toBe("file");
+      r = await resolveAiConfig({ env: { ...env, RUNHOUND_AI_AWS_PROFILE: "runhound-env", AWS_PROFILE: "aws-env" }, home: tmp });
+      expect(r.config.awsProfile).toBe("runhound-env");
+      expect(r.sources.awsProfile).toBe("env");
+      await writeSaved({ provider: "bedrock" });
+      r = await resolveAiConfig({ env: { ...env, AWS_PROFILE: "aws-env" }, home: tmp });
+      expect(r.config.awsProfile).toBe("aws-env");
+      expect(r.sources.awsProfile).toBe("env");
+    });
+
+    it("takes the region from the AWS profile when nothing else sets one", async () => {
+      await mkdir(join(tmp, ".aws"), { recursive: true });
+      await writeFile(join(tmp, ".aws", "config"), "[default]\nregion = us-west-2\n[profile work]\nregion = eu-central-1\n");
+      let r = await resolveAiConfig({ env: { ...env, RUNHOUND_AI_PROVIDER: "bedrock" }, home: tmp });
+      expect(r.config.region).toBe("us-west-2");
+      r = await resolveAiConfig({ env: { ...env, RUNHOUND_AI_PROVIDER: "bedrock", RUNHOUND_AI_AWS_PROFILE: "work" }, home: tmp });
+      expect(r.config.region).toBe("eu-central-1");
+      r = await resolveAiConfig({ env: { ...env, RUNHOUND_AI_PROVIDER: "bedrock", AWS_REGION: "ap-south-1" }, home: tmp });
+      expect(r.config.region).toBe("ap-south-1");
+    });
+
     it("ignores the AWS variables for other providers", async () => {
       const r = await resolveAiConfig({ env: { ...env, AWS_BEARER_TOKEN_BEDROCK: "aws-key", AWS_REGION: "eu-west-1" }, home: tmp });
       expect(r.config.apiKey).toBeNull();
@@ -268,6 +294,16 @@ describe("saveAiConfig", () => {
     expect(r.sources).toMatchObject({ enabled: "file", model: "file" });
     expect(r.file).toBe(file());
     expect(await saved()).toMatchObject({ enabled: true, model: "ornith-1.5:9b" });
+  });
+
+  it("saves awsProfile, removes it on null and refuses it when RUNHOUND_AI_AWS_PROFILE sets it", async () => {
+    let r = await saveAiConfig({ provider: "bedrock", awsProfile: "work" }, { env, home: tmp });
+    expect(r.config.awsProfile).toBe("work");
+    expect(await saved()).toMatchObject({ awsProfile: "work" });
+    r = await saveAiConfig({ awsProfile: null }, { env, home: tmp });
+    expect(r.config.awsProfile).toBeNull();
+    expect(await saved()).not.toHaveProperty("awsProfile");
+    await expect(saveAiConfig({ awsProfile: "other" }, { env: { ...env, RUNHOUND_AI_AWS_PROFILE: "locked" }, home: tmp })).rejects.toThrow(/RUNHOUND_AI_AWS_PROFILE/);
   });
 
   it("keeps earlier saved values when a later patch doesn't mention them", async () => {
@@ -392,7 +428,17 @@ describe("aiStatus", () => {
   });
 
   it("asks for Bedrock credentials when there is no key and no AWS keys", () => {
-    expect(aiStatus(resolved({ ...bedrock, region: "us-east-1" }), {}).problem).toBe("Bedrock needs an API key or AWS access keys");
+    expect(aiStatus(resolved({ ...bedrock, region: "us-east-1" }), {}, tmp).problem).toBe("Bedrock needs an API key or AWS access keys");
+  });
+
+  it("counts an AWS profile with keys, and names the profile in the status", async () => {
+    await mkdir(join(tmp, ".aws"), { recursive: true });
+    await writeFile(join(tmp, ".aws", "credentials"), "[work]\naws_access_key_id = AKIDEXAMPLE\naws_secret_access_key = fake-secret\n");
+    expect(aiStatus(resolved({ ...bedrock, region: "us-east-1" }), {}, tmp).problem).toBe("Bedrock needs an API key or AWS access keys");
+    const status = aiStatus(resolved({ ...bedrock, region: "us-east-1", awsProfile: "work" }), {}, tmp);
+    expect(status.hasKey).toBe(true);
+    expect(status.awsProfile).toBe("work");
+    expect(status.problem).toBe("Sending page structure to bedrock-runtime.us-east-1.amazonaws.com needs your consent");
   });
 
   it("asks for consent for Bedrock with AWS access keys", () => {

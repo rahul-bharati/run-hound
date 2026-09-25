@@ -34,6 +34,11 @@ export interface AiConfig {
   /** Bedrock region, e.g. "us-east-1". */
   region: string | null;
   /**
+   * Bedrock only: the AWS profile (in ~/.aws/config and ~/.aws/credentials) to take credentials from when there is no
+   * API key and no AWS_ACCESS_KEY_ID. null/absent: AWS_PROFILE, else "default". See ai/aws-credentials.ts.
+   */
+  awsProfile?: string | null;
+  /**
    * Consent to send redacted page structure to a remote endpoint. Local endpoints don't need it. In a resolved config
    * this is the effective value: consent saved from the Settings page counts only for the host it was given for.
    */
@@ -59,10 +64,12 @@ export interface AiStatus {
   baseUrl: string;
   model: string;
   region: string | null;
+  /** Bedrock: the AWS profile named in the config (or by AWS_PROFILE); null = "default". */
+  awsProfile?: string | null;
   allowRemote: boolean;
   features: AiFeatures;
   timeoutMs: number;
-  /** True when a key is set (from the file, the env or AWS credentials for bedrock). */
+  /** True when a key is set (from the file, the env, or for bedrock AWS credentials: env keys or an AWS profile). */
   hasKey: boolean;
   /** True when the endpoint is not loopback / private network (always true for bedrock). */
   remote: boolean;
@@ -71,7 +78,7 @@ export interface AiStatus {
   /** Set when the config can't be used as is: "Choose a model", "Sending to api.openai.com needs your consent". */
   problem: string | null;
   /** Per field. Env and flag values can't be changed from the UI (it shows them locked). */
-  sources: Record<"enabled" | "provider" | "baseUrl" | "model" | "apiKey" | "region" | "allowRemote" | "features" | "timeoutMs", ConfigSource>;
+  sources: Record<"enabled" | "provider" | "baseUrl" | "model" | "apiKey" | "region" | "allowRemote" | "features" | "timeoutMs", ConfigSource> & { awsProfile?: ConfigSource };
   /** Absolute path of the saved config file. */
   file: string;
 }

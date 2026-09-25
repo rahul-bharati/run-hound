@@ -55,7 +55,7 @@ async function closedPortUrl(): Promise<string> {
 }
 
 describe("ollamaChatJson", () => {
-  it("posts to the native /api/chat with thinking off, the schema as format, temperature 0 and num_ctx 16384", async () => {
+  it("posts to the native /api/chat with thinking off, the schema as format, temperature 0, num_ctx 16384 and keep_alive 15m", async () => {
     fake.reply({ answer: 42 });
     const text = await ollamaChatJson(config(), MESSAGES, SCHEMA);
     expect(JSON.parse(text)).toEqual({ answer: 42 });
@@ -69,6 +69,7 @@ describe("ollamaChatJson", () => {
       think: false,
       format: SCHEMA.schema,
       options: { temperature: 0, num_ctx: 16384 },
+      keep_alive: "15m",
     });
   });
 

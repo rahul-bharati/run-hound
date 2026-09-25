@@ -1,5 +1,9 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startFakeLlm, type FakeLlm } from "../../test-support/fake-llm.js";
+import { clearAwsCredentialCache } from "./aws-credentials.js";
 import { converseJson } from "./bedrock.js";
 import type { ChatMessage } from "./openai-compatible.js";
 import { AiError } from "./types.js";
@@ -25,14 +29,19 @@ const AWS_ENV = {
 };
 
 let fake: FakeLlm;
+/** A temp home, so the real ~/.aws is never read. */
+let home: string;
 beforeEach(async () => {
   fake = await startFakeLlm();
+  clearAwsCredentialCache();
+  home = await mkdtemp(join(tmpdir(), "runhound-bedrock-"));
 });
 afterEach(async () => {
   await fake.close();
+  await rm(home, { recursive: true, force: true });
 });
 
-const config = (overrides: Partial<{ apiKey: string | null; model: string }> = {}) => ({
+const config = (overrides: Partial<{ apiKey: string | null; model: string; region: string | null; awsProfile: string | null }> = {}) => ({
   baseUrl: fake.url,
   model: MODEL,
   apiKey: "fake-bedrock-api-key" as string | null,
@@ -101,9 +110,27 @@ describe("converseJson", () => {
 
   it("rejects with auth and sends nothing when there are no credentials", async () => {
     fake.reply({ answer: 1 });
-    const error = await caught(converseJson(config({ apiKey: null }), MESSAGES, SCHEMA, undefined, {}));
+    const error = await caught(converseJson(config({ apiKey: null }), MESSAGES, SCHEMA, undefined, {}, { home }));
     expect(error.code).toBe("auth");
     expect(fake.calls).toHaveLength(0);
+  });
+
+  it("signs with the keys of the AWS profile when there is no API key and no env keys", async () => {
+    await mkdir(join(home, ".aws"), { recursive: true });
+    await writeFile(join(home, ".aws", "credentials"), `[work]\naws_access_key_id = AKIDPROFILE\naws_secret_access_key = profile-secret\naws_session_token = profile-token\n`);
+    fake.reply({ answer: 1 });
+    await converseJson(config({ apiKey: null, awsProfile: "work" }), MESSAGES, SCHEMA, undefined, {}, { home });
+    const headers = fake.calls[0]!.headers;
+    expect(headers.authorization).toMatch(/^AWS4-HMAC-SHA256 Credential=AKIDPROFILE\/\d{8}\/us-east-1\/bedrock\/aws4_request/);
+    expect(headers["x-amz-security-token"]).toBe("profile-token");
+  });
+
+  it("takes the region from the AWS profile when none is set", async () => {
+    await mkdir(join(home, ".aws"), { recursive: true });
+    await writeFile(join(home, ".aws", "config"), `[profile work]\nregion = eu-central-1\naws_access_key_id = AKIDPROFILE\naws_secret_access_key = profile-secret\n`);
+    fake.reply({ answer: 1 });
+    await converseJson(config({ apiKey: null, region: null, awsProfile: "work" }), MESSAGES, SCHEMA, undefined, {}, { home });
+    expect(fake.calls[0]!.headers.authorization).toMatch(/\/eu-central-1\/bedrock\//);
   });
 
   it("rejects with auth on a 403", async () => {

@@ -205,8 +205,8 @@ describe("explainFindings", () => {
   it("leaves a finding whose call fails without ai and warns once per distinct error", async () => {
     const client = new FakeClient([
       answer(1),
-      new AiError("timeout", "The model took longer than 120 s"),
-      new AiError("timeout", "The model took longer than 120 s"),
+      new AiError("http", "The server answered HTTP 500"),
+      new AiError("http", "The server answered HTTP 500"),
       answer(4),
       new AiError("bad-output", "The model's answer was not valid JSON"),
     ]);
@@ -215,8 +215,50 @@ describe("explainFindings", () => {
     expect(out.findings.map((f) => f.ai !== undefined)).toEqual([true, false, false, true, false]);
     expect(out.ai!.explained).toBe(2);
     expect(out.ai!.warnings).toHaveLength(2);
-    expect(out.ai!.warnings.some((w) => w.includes("took longer"))).toBe(true);
+    expect(out.ai!.warnings.some((w) => w.includes("HTTP 500"))).toBe(true);
     expect(out.ai!.warnings.some((w) => w.includes("not valid JSON"))).toBe(true);
+  });
+
+  it.each([
+    ["timeout", new AiError("timeout", "The model took longer than 120 s")],
+    ["unreachable", new AiError("unreachable", "Nothing is answering")],
+  ])("retries a call that fails with %s once", async (_code, error) => {
+    const client = new FakeClient([answer(1), error, answer(2), answer(3)]);
+    const out = await explainFindings(makeReport(findings(3)), client, { remote: false });
+    expect(client.requests).toHaveLength(4);
+    expect(client.requests[2]!.user).toBe(client.requests[1]!.user);
+    expect(out.findings.map((f) => f.ai?.summary)).toEqual(["Summary 1.", "Summary 2.", "Summary 3."]);
+    expect(out.ai).toMatchObject({ explained: 3, warnings: [] });
+  });
+
+  it("does not retry other errors", async () => {
+    const client = new FakeClient([new AiError("bad-output", "not valid"), answer(2)]);
+    const out = await explainFindings(makeReport(findings(2)), client, { remote: false });
+    expect(client.requests).toHaveLength(2);
+    expect(out.ai!.explained).toBe(1);
+  });
+
+  it("stops explaining after 2 timeouts in a row and says how many findings were skipped", async () => {
+    const timeout = new AiError("timeout", "The model took longer than 120 s");
+    const client = new FakeClient([answer(1), timeout, timeout, answer(9)]);
+    const out = await explainFindings(makeReport(findings(5)), client, { remote: false });
+    expect(client.requests).toHaveLength(3);
+    expect(out.findings.map((f) => f.ai !== undefined)).toEqual([true, false, false, false, false]);
+    expect(out.ai!.explained).toBe(1);
+    expect(out.ai!.warnings.some((w) => w.includes("took longer"))).toBe(true);
+    const skipped = out.ai!.warnings.filter((w) => /skipped/i.test(w));
+    expect(skipped).toHaveLength(1);
+    // finding 2 timed out (its own warning); findings 3-5 were never tried
+    expect(skipped[0]).toMatch(/\b3 findings\b/);
+  });
+
+  it("keeps going when timeouts are not consecutive", async () => {
+    const timeout = new AiError("timeout", "The model took longer than 120 s");
+    // finding 1: timeout, retry ok; finding 2: timeout, retry ok; finding 3: ok
+    const client = new FakeClient([timeout, answer(1), timeout, answer(2), answer(3)]);
+    const out = await explainFindings(makeReport(findings(3)), client, { remote: false });
+    expect(client.requests).toHaveLength(5);
+    expect(out.ai).toMatchObject({ explained: 3, warnings: [] });
   });
 
   it("does not reject when every call fails", async () => {
