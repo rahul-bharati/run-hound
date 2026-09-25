@@ -3,13 +3,13 @@ import { Icon } from "@/components/icon";
 import { Container } from "@/components/layout";
 
 const steps = [
-  { name: "Plan", text: "Plans scenarios from your form", icon: ClipboardList },
+  { name: "Plan", text: "Finds every form and control, plans the checks", icon: ClipboardList },
   { name: "Approve", text: "Review and select what to run", icon: CircleCheck },
   { name: "Run", text: "Real checks in a real browser", icon: Play, current: true },
   { name: "Report", text: "Annotated evidence and Playwright tests", icon: FileText },
 ];
 
-/** The four V0 steps under the hero; "Run" is lit to match the live-view screenshot above. */
+/** The four steps of a run, under the hero; "Run" is lit to match the live-view screenshot above. */
 export function Steps() {
   return (
     <Container className="pb-16 sm:pb-20">

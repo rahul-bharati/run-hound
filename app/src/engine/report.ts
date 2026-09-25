@@ -105,7 +105,7 @@ function notApproved(report: Report): { id: string; checkId: string; title: stri
   return report.plan.scenarios.filter((s) => !approved.has(s.id)).map((s) => ({ id: s.id, checkId: s.checkId, title: s.title }));
 }
 
-/** V0 checks that proposed nothing for this form (e.g. no password field for credential-fields). */
+/** Checks that proposed nothing for this page (e.g. no password field for credential-fields, no buttons outside forms). */
 function notPlanned(report: Report): string[] {
   const planned = new Set(report.plan.scenarios.map((s) => s.checkId));
   return CHECK_IDS.filter((id) => !planned.has(id));
@@ -274,6 +274,7 @@ export function renderMarkdown(report: Report): string {
       const label = findingGroupLabel(f);
       lines.push(`- ${label ? `Group: ${label} · ` : ""}Check: ${f.checkId} · severity: ${f.severity} · confidence: ${f.confidence}`);
       const places = findingPlaces(f);
+      if (f.scope) lines.push(`- In: ${oneLine(f.scope)}`);
       if (places.length === 1) lines.push(`- Where: ${oneLine(places[0]!)}`);
       else if (places.length > 1) lines.push(`- Where (${places.length} places):`, ...places.map((p) => `  - ${oneLine(p)}`));
       lines.push(`- What it means: ${f.meaning}`, `- Impact: ${f.impact}`, `- Fix: ${f.fix}`);
@@ -318,7 +319,7 @@ export function renderMarkdown(report: Report): string {
   if (skippedByUser.length) {
     lines.push("## Planned but not approved (not run)", "", ...skippedByUser.map((n) => `- ${oneLine(n.title)} · ${n.checkId} · ${n.id}`), "");
   }
-  section("Checks with nothing to test on this form", notPlanned(report));
+  section("Checks with nothing to test on this page", notPlanned(report));
 
   section("Passed checks", checksByStatus(report.results, "pass"));
   section("Checks that errored", reasons(report, "error"));
@@ -401,7 +402,7 @@ function findingHtml(f: Finding): string {
     : "";
   return `<article class="finding sev-${esc(f.severity)}">
 <h3>${esc(f.title)}</h3>
-<p class="meta">${findingGroupLabel(f) ? `${esc(findingGroupLabel(f)!)} · ` : ""}${esc(f.checkId)} · <span class="sev">${esc(f.severity)}</span> · ${esc(f.confidence)}${places.length === 1 ? ` · ${esc(places[0]!)}` : ""}</p>
+<p class="meta">${findingGroupLabel(f) ? `${esc(findingGroupLabel(f)!)} · ` : ""}${f.scope ? `${esc(f.scope)} · ` : ""}${esc(f.checkId)} · <span class="sev">${esc(f.severity)}</span> · ${esc(f.confidence)}${places.length === 1 ? ` · ${esc(places[0]!)}` : ""}</p>
 ${places.length > 1 ? `<p class="where">Where (${places.length} places):</p><ul class="where">${places.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}
 <dl><dt>What it means</dt><dd>${esc(f.meaning)}</dd><dt>Impact</dt><dd>${esc(f.impact)}</dd><dt>Fix</dt><dd>${esc(f.fix)}</dd></dl>
 ${spec}${figures}${details}
@@ -452,7 +453,7 @@ export function renderHtml(report: Report): string {
     : "";
   const unplanned = notPlanned(report);
   const unplannedHtml = unplanned.length
-    ? `<section aria-labelledby="not-planned"><h2 id="not-planned">Checks with nothing to test on this form</h2>${list(unplanned)}</section>`
+    ? `<section aria-labelledby="not-planned"><h2 id="not-planned">Checks with nothing to test on this page</h2>${list(unplanned)}</section>`
     : "";
 
   return `<!doctype html>
@@ -563,7 +564,7 @@ ${unapprovedHtml}${unplannedHtml}
 <section aria-labelledby="skipped"><h2 id="skipped">Skipped checks</h2>${list(reasons(report, "skipped"))}</section>
 <section aria-labelledby="not-visible"><h2 id="not-visible">What a browser can't see</h2>${list(report.notVisible)}</section>
 </main>
-<footer>Run Hound ${esc(report.runHoundVersion)} · V0 tester preview · rule-based checks in a real browser, on local and private addresses only</footer>
+<footer>Run Hound ${esc(report.runHoundVersion)} · V1 tester preview · real checks in a real browser, on local and private addresses only</footer>
 </body>
 </html>
 `;

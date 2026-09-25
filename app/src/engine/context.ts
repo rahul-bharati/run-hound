@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Browser, BrowserContext, CDPSession, Page } from "playwright";
-import { SIMULATED_RESPONSE_HEADER, type Box, type CheckContext, type DiscoveredForm, type Evidence, type Fact, type FrameOptions, type Highlight, type Recording } from "../core/types.js";
+import { SIMULATED_RESPONSE_HEADER, type Box, type CheckContext, type DiscoveredForm, type DiscoveredPage, type Evidence, type Fact, type FrameOptions, type Highlight, type Recording } from "../core/types.js";
 import { isAcceptedStatus, isSaveRequest } from "../core/saves.js";
 import { attachCapture } from "./capture.js";
 import { composeFrame, encodeGif, gifScale, renderCard, resolveHighlights, type FrameHeader } from "./evidence.js";
@@ -14,6 +14,7 @@ import type { SafetyOptions } from "./safety.js";
 export interface ContextOptions extends SafetyOptions {
   browser: Browser;
   form: DiscoveredForm;
+  discoveredPage?: DiscoveredPage;
   targetUrl: string;
   artifactsDir: string;
   allowDestructive?: boolean;
@@ -41,6 +42,19 @@ export interface ContextOptions extends SafetyOptions {
 const NETWORK_IDLE_TIMEOUT_MS = 5_000;
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 800 };
+
+/**
+ * The browser's locale: the machine's, as Node resolves it (always a valid BCP 47 tag). Without it, Chromium takes
+ * the locale from LANG, and with LANG unset (common in containers) it reports "en-US@posix", which the page's own
+ * Intl APIs reject ("Invalid language tag"), breaking apps and checks that format dates.
+ */
+export const BROWSER_LOCALE: string = (() => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().locale || "en-US";
+  } catch {
+    return "en-US";
+  }
+})();
 
 /**
  * Chromium answers Page.captureScreenshot with "Unable to capture screenshot" when the compositor does not
@@ -236,6 +250,7 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
 
     browser: options.browser,
     form: options.form,
+    ...(options.discoveredPage ? { discoveredPage: options.discoveredPage } : {}),
     targetUrl: options.targetUrl,
     artifactsDir: options.artifactsDir,
     allowDestructive: options.allowDestructive ?? false,
@@ -246,7 +261,7 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
     },
 
     async openPage(pageOptions = {}) {
-      const context = await options.browser.newContext({ viewport: pageOptions.viewport ?? DEFAULT_VIEWPORT });
+      const context = await options.browser.newContext({ viewport: pageOptions.viewport ?? DEFAULT_VIEWPORT, locale: BROWSER_LOCALE });
       contexts.push(context);
       guards.push(await guardContext(context, { allowedHosts: options.allowedHosts, lookup: options.lookup }));
       const page = await context.newPage();

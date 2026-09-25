@@ -22,8 +22,8 @@ export function SiteFooter() {
             {site.name}
           </Link>
           <p className="max-w-xs text-sm leading-relaxed text-dim">
-            Open-source UI testing for AI-built apps. Runs on your machine. V0 tester preview {site.version}; the
-            repository is invite-only for now.
+            AI-assisted UI testing for AI-built apps, open source. Runs on your machine. {site.release} tester preview{" "}
+            {site.version}; the repository is invite-only for now.
           </p>
           <p className="text-sm text-dim">
             Want access?{" "}
@@ -82,7 +82,9 @@ export function SiteFooter() {
         <p className="mx-auto flex max-w-7xl flex-wrap gap-x-3 gap-y-1 px-4 py-6 font-mono text-xs text-dim sm:px-6 lg:px-[72px]">
           <span>{site.name}</span>
           <span aria-hidden="true">·</span>
-          <span>V0 {site.version} tester preview</span>
+          <span>
+            {site.release} ({site.releaseName}) {site.version} tester preview
+          </span>
           <span aria-hidden="true">·</span>
           <span>License planned: {site.license}</span>
         </p>

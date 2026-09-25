@@ -9,7 +9,7 @@ type Shot = {
   text: string;
 };
 
-/** Real V0 output from a run on Kennel with its planted bugs switched on (25 September 2026). */
+/** Real output (V1, 0.2.0) from a run on Kennel with its planted bugs switched on. */
 const gif: Shot = {
   shot: evidence.doubleSubmitRecording,
   kind: "GIF · ONE FRAME PER STEP",
@@ -23,7 +23,7 @@ const stills: Shot[] = [
     kind: "CARD · CAPTURED TRAFFIC",
     title: (
       <>
-        Two <code className="font-mono text-[0.9em]">POST /api/bookings</code>, 0.2 ms apart
+        Two <code className="font-mono text-[0.9em]">POST /api/bookings</code>, 0.4 ms apart
       </>
     ),
     text: "The proof behind the GIF: both requests, both 201 responses, two different record ids.",
@@ -33,6 +33,18 @@ const stills: Shot[] = [
     kind: "FRAME · MEASURED FACTS",
     title: "Focus you can't see: 0 of 31,552 pixels change",
     text: "Measured, not guessed: outline, shadow, border and background compared at rest and on focus.",
+  },
+  {
+    shot: evidence.corsNullOrigin,
+    kind: "CARD · NEW IN V1 · WHOLE PAGE",
+    title: "Any website can read your API, with your cookies",
+    text: "Run Hound repeats the page's own reads from a sandboxed frame, as any site can. Kennel's API lets each one be read with the visitor's cookies.",
+  },
+  {
+    shot: evidence.missingHeaders,
+    kind: "CARD · NEW IN V1 · WHOLE PAGE",
+    title: "Three protections the server never asks for",
+    text: "No Content-Security-Policy, no clickjacking protection, no nosniff: read straight from the page's response, with cookie values hidden.",
   },
 ];
 
@@ -86,7 +98,7 @@ export function Evidence() {
         ))}
       </div>
       <p className="font-mono text-xs tracking-widest text-dim">
-        REAL V0 OUTPUT · FROM A RUN ON OUR DELIBERATELY BROKEN DEMO APP, KENNEL
+        REAL V1 OUTPUT (0.2.0) · FROM A RUN ON OUR DELIBERATELY BROKEN DEMO APP, KENNEL
       </p>
     </div>
   );

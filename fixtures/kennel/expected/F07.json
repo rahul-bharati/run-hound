@@ -1,0 +1,16 @@
+{
+  "mode": "F07",
+  "mustFail": [
+    "page-controls"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "page-controls",
+      "severity": "high",
+      "titleIncludes": "refresh"
+    }
+  ],
+  "notes": "The Refresh button beside \"Your bookings\" sits outside the form, so dead-control (which clicks the form's own buttons) never touches it; page-controls clicks it on a fresh page and sees no request, DOM, storage, focus or navigation change."
+}

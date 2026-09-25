@@ -2,13 +2,15 @@
 
 AI-assisted UI testing for AI-built apps: it hunts for the holes AI-generated apps ship with, and backs every verdict with a real check in a real browser and the evidence to prove it.
 
-**AI plans and explains; real checks decide.** AI planning, AI explanations and bring-your-own-model are **coming soon**. In the V0 preview, the plan comes from Run Hound's built-in checks and nothing is sent to any AI provider.
+**AI plans and explains; real checks decide.** AI planning, AI explanations and bring-your-own-model are **coming soon**. In the V1 preview, the plan comes from Run Hound's built-in checks and nothing is sent to any AI provider.
 
-> **V0 tester preview (0.1.0).** V0 tests one form on an app running on your own machine. If you've been asked to try it, start with **[TESTING.md](TESTING.md)**: install, a 10-minute run on the Kennel demo, testing your own app (local or Docker), reading the report, and how to send feedback. Changes: [CHANGELOG.md](CHANGELOG.md).
+> **V1 tester preview (0.2.0): single page.** V1 tests a whole page of an app running on your own machine: every form on it, the buttons outside them, and page-wide checks for security headers, session cookies, CORS and public source maps. If you've been asked to try it, start with **[TESTING.md](TESTING.md)**: install, a 10-minute run on the Kennel demo, testing your own app (local or Docker), reading the report, and how to send feedback. Changes: [CHANGELOG.md](CHANGELOG.md).
+>
+> **Quickest start:** `cp .env.example .env && mkdir -p runs && docker compose up --build` (or `podman compose up --build`) starts Run Hound on <http://localhost:4000> together with every test app: Kennel (broken and clean) and four well-built sample apps. See [Containers](#containers).
 
-## Running V0 locally
+## Running V1 locally
 
-V0 tests one form on a local app: point it at the form, approve the plan, watch the run, get a report with annotated evidence. Needs Node 22+ (24 recommended), pnpm (`corepack enable`) and Chromium. The tester guide, [TESTING.md](TESTING.md), covers the same steps with more detail and troubleshooting.
+V1 tests one page of a local app: point it at the page, and Run Hound finds every form and control on it, plans the form checks for each form plus the page-wide checks, you approve the plan, watch the run, and get a report with annotated evidence. Needs Node 22+ (24 recommended), pnpm (`corepack enable`) and Chromium. The tester guide, [TESTING.md](TESTING.md), covers the same steps with more detail and troubleshooting.
 
 ```sh
 pnpm install
@@ -31,7 +33,7 @@ pnpm serve --port 4310                                      # web UI + API on ht
 
 Open <http://localhost:4310>. The sidebar has three pages (on a narrow screen they're under **Menu**):
 
-- **New Run**: enter `http://localhost:5310/book` (the `http://` is optional) and press **Plan checks**. The plan is grouped as **Accessibility**, **Features** and **Security** (each with a "Select all" box), and the scenarios run in that order. Press **Start run (N scenarios)**.
+- **New Run**: enter `http://localhost:5310/book` (the `http://` is optional) and press **Plan checks**. A strip above the plan shows what was found: each form with its fields and buttons, the controls outside the forms, and the whole page. The plan is grouped as **Accessibility**, **Features** and **Security** (each with a "Select all" box), and the scenarios run in that order. Press **Start run (N scenarios)**.
 - **The running view** shows the numbered scenario list with each one's status and time (the current one expanded with its live steps), a counter and progress bar, the elapsed time, the browser (Chromium version), a live preview of the page under test with its address, and a timestamped activity log. **Stop run** stops it for real: the scenario in progress and the rest are marked skipped ("Stopped by you") and a report is still written. **Back to test plan** plans the same page again with the same scenarios ticked.
 - **The report** (same address once the run ends): the verdict and counts, **Re-run** (runs the same scenarios on the same page again), **Open HTML report**, **Download** (report.md, report.json, specs), results you can filter (All, Passed, Issues, Skipped), and for the selected scenario its evidence, reproduction steps, key facts, what to ask your AI and the generated Playwright test.
 - **Runs**: every run on this machine, newest first, including finished runs read back from the runs folder after a restart.
@@ -48,7 +50,7 @@ pnpm exec tsx src/cli.ts run http://localhost:5310/book --approve all         # 
 pnpm exec tsx src/cli.ts run localhost:5310/book --approve all --headed       # same, in a visible browser window
 ```
 
-Options: `--approve all|default|<id,id>`, `--plan-only`, `--allow-destructive`, `--headed`, `--runs-dir <dir>`, `--json` (report on stdout; progress and the run folder on stderr). Progress lines on stderr name each group (`== Accessibility (6 scenarios; group 1 of 3) ==`), each step and each page as it loads (`> page http://…`); each scenario's result line ends with its duration, and the summary starts with `Finished in <duration>` and a line per group. `run-hound help` prints the usage, `--version` the version. `run` exits 0 with no confirmed findings (advisory findings are reported but don't fail the run), 1 with at least one confirmed finding, and 2 on an error: a refused or unreachable target, a page without a form, or an approval that names no scenarios.
+The plan lists each scenario with what it tests (`[Book a sitter form]`, `[Whole page]`). Options: `--approve all|default|<id,id>`, `--plan-only`, `--allow-destructive`, `--headed`, `--runs-dir <dir>`, `--json` (report on stdout; progress and the run folder on stderr). Progress lines on stderr name each group (`== Accessibility (6 scenarios; group 1 of 3) ==`), each step and each page as it loads (`> page http://…`); each scenario's result line ends with its duration, and the summary starts with `Finished in <duration>` and a line per group. `run-hound help` prints the usage, `--version` the version. `run` exits 0 with no confirmed findings (advisory findings are reported but don't fail the run), 1 with at least one confirmed finding, and 2 on an error: a refused or unreachable target, an error page (such as a 404), or an approval that names no scenarios. A page without a form is planned with the page-wide checks only, with a warning.
 
 ### Reports and evidence
 
@@ -64,14 +66,28 @@ The exported specs need `@playwright/test` in the project that runs them (`npm i
 
 ### Containers
 
-Both services in containers (host ports bound to `127.0.0.1`; Podman works with `podman-compose`):
+Run Hound and every test app in containers (host ports bound to `127.0.0.1`; Podman works with `podman compose` or `podman-compose`):
 
 ```sh
+cp .env.example .env             # optional: host ports, KENNEL_BUGS, allowed hosts, runs folder (all have defaults)
 mkdir -p runs                    # reports land in ./runs; create it first so the files belong to you
-docker compose up --build        # UI on http://localhost:4000, target http://kennel:3000/book
-RUNHOUND_HOST_PORT=4400 KENNEL_HOST_PORT=5310 KENNEL_ANALYTICS_HOST_PORT=5311 docker compose up --build   # other host ports
-docker compose run --rm run-hound run http://kennel:3000/book --approve all                          # the CLI in a container
+docker compose up --build        # UI on http://localhost:4000
+docker compose run --rm run-hound run http://kennel:3000/book --approve all   # the CLI in a container
 ```
+
+Targets to enter in the UI (inside the compose network, apps are reached by service name):
+
+| Target | What it is |
+|---|---|
+| `http://kennel:3000/book` | Kennel with the bugs in `KENNEL_BUGS` (default: every V0 and V1 bug) |
+| `http://kennel-clean:3000/book` | Kennel in clean mode: every check should pass |
+| `http://classic-post:4101/signup` | Sample: server-rendered sign-up form, no JavaScript |
+| `http://spa-fetch:4102/` | Sample: vanilla-JS contact form, same-origin JSON API |
+| `http://login:4103/` | Sample: sign-in form (401 on wrong credentials) |
+| `http://cross-origin-api:4104/` | Sample: RSVP form whose API is on another origin |
+| `http://multi-form:4106/` | Sample: three forms on one page (search, contact, newsletter) and buttons outside them |
+
+The samples are well built on purpose, so any confirmed finding on them is a false positive. [`.env.example`](.env.example) documents every setting.
 
 Reports are written to `./runs/<runId>/` on your machine (the CLI prints the container path, `/repo/app/runs/<runId>`); the image runs as the owner of that folder, or as its non-root user when nothing is mounted. In the containers the target is `kennel`, not localhost, so the `client-only-validation` scenario (localhost only) is planned but skipped, and the report says why. **Show the browser window** needs a display, so it doesn't work in a container.
 
@@ -79,9 +95,9 @@ To test an app running on your machine from a container:
 
 - **Linux**: share the host's network, so `localhost` is your machine and nothing in your app changes:
   ```sh
-  docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.1.0 run http://localhost:5173/signup --approve all
+  docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.2.0 run http://localhost:5173/signup --approve all
   ```
-  For the UI this way, bind it to loopback: `... rahulrbharati/run-hound:0.1.0 serve --host 127.0.0.1 --port 4310`.
+  For the UI this way, bind it to loopback: `... rahulrbharati/run-hound:0.2.0 serve --host 127.0.0.1 --port 4310`.
 - **Docker Desktop (Mac, Windows) or the compose UI**: enter `http://host.docker.internal:<port>/<page>`. In a container `localhost` is the container itself. Your dev server must listen on all interfaces (`vite --host`) and accept that host name (Vite `server.allowedHosts`, Next.js `allowedDevOrigins`); a frontend that calls its API on `localhost:<apiPort>` won't work this way. The compose file allows `host.docker.internal` and `host.containers.internal` through the safety gate with `RUNHOUND_ALLOWED_HOSTS`. Details in [TESTING.md](TESTING.md#test-your-own-app).
 
 ### Safety
@@ -132,11 +148,11 @@ Full catalog with severity and detectability: [docs/research.md §3](docs/resear
 
 ## How it works
 
-1. **Explore:** the agent drives a headless browser (Playwright) and reads the accessibility tree and DOM. In V0 it finds the main form on the page you give it. Using vision on screenshots for layout and visual checks is planned.
-2. **Plan:** golden-path and danger-path test scenarios, grouped (Accessibility, Features, Security). In V0 the plan comes from the built-in checks that apply to the form; **AI planning** (a model proposes scenarios from your app) is **coming soon**.
+1. **Explore:** the agent drives a headless browser (Playwright) and reads the accessibility tree and DOM. In V1 it finds every form on the page you give it (up to 5) and the buttons outside them. Using vision on screenshots for layout and visual checks is planned.
+2. **Plan:** golden-path and danger-path test scenarios, grouped (Accessibility, Features, Security). In V1 the plan comes from the built-in checks that apply to each form and to the page; **AI planning** (a model proposes scenarios from your app) is **coming soon**.
 3. **Approve:** the plan is shown in a local web UI (or with `--plan-only` on the command line), where you pick the scenarios to run. Editing scenarios and adding your own is planned.
 4. **Execute:** the approved scenarios run in a real browser while screenshots, console logs, network traffic and each step are captured.
-5. **Report:** every finding comes with its group, severity, a plain-language explanation, reproduction steps, evidence and an exported Playwright test. **AI explanations** are **coming soon**; V0's explanations are written for each check.
+5. **Report:** every finding comes with its group, severity, a plain-language explanation, reproduction steps, evidence and an exported Playwright test. **AI explanations** are **coming soon**; V1's explanations are written for each check.
 
 ### Design principles
 
@@ -156,7 +172,7 @@ Full catalog with severity and detectability: [docs/research.md §3](docs/resear
 - TypeScript + Playwright, with `@axe-core/playwright` for accessibility rules
 - Local web UI for approving the plan, served from the container
 - Docker for delivery
-- Inference (**coming soon**, bring your own model): local via Ollama, or cloud via AWS Bedrock or any OpenAI-compatible endpoint. V0 sends nothing to any AI provider.
+- Inference (**coming soon**, bring your own model): local via Ollama, or cloud via AWS Bedrock or any OpenAI-compatible endpoint. V1 sends nothing to any AI provider.
 
 ## Delivery
 
@@ -166,7 +182,7 @@ Full catalog with severity and detectability: [docs/research.md §3](docs/resear
 
 ## Roadmap
 
-### V0: Single form
+### V0: Single form (shipped, 0.1.0)
 
 Point it at a form on localhost. Run Hound plans at least 10 scenarios from its built-in checks (golden and danger paths), the user approves them in the web UI, the agent runs them, and it produces a report with evidence and exported Playwright tests.
 
@@ -174,11 +190,11 @@ Point it at a form on localhost. Run Hound plans at least 10 scenarios from its 
 - Destructive actions are off by default.
 - **Done when** Run Hound finds the V0 bugs planted in the [Kennel fixture](docs/fixtures.md) and reports nothing in its clean mode.
 
-### V1: Single page
+### V1: Single page (current preview, 0.2.0)
 
 Point it at a page and the agent finds every interactive element, then generates and runs test cases for them.
 
-- Adds: response headers and cookie flags, CORS and source-map checks (on production builds, since dev servers don't show production values).
+- **Built:** every form on the page (form checks per form) and the buttons outside them (`page-controls`); page-wide `security-headers`, `cookie-flags`, `cors` and `source-maps` checks, advisory (or skipped, for source maps) on dev servers, since dev servers don't show production values. Kennel has a planted bug for each (F07, S05 to S08). Contract: [docs/v1-spec.md](docs/v1-spec.md).
 - Advisory checks that rely on model judgement, once bring-your-own-model ships (**planned**): alt-text quality, generic link text, placeholder/demo data.
 
 ### V2: Single feature
@@ -215,7 +231,7 @@ Run Hound is developed and scored against **Kennel**, a deliberately broken book
 - Users must not be able to misuse Run Hound to scan websites/apps they don't own.
 - localhost and private IPs are allowed by default.
 - Any other domain requires ownership verification before it can be scanned: either a DNS TXT record or a nonce placed in a `<meta>` tag in the HTML header. The scan only runs where the nonce is found.
-- Status in V0: ownership verification isn't built yet. Other hosts are refused unless listed in `RUNHOUND_ALLOWED_HOSTS`, which is not checked for ownership, so list only hosts you own.
+- Status in V1: ownership verification isn't built yet. Other hosts are refused unless listed in `RUNHOUND_ALLOWED_HOSTS`, which is not checked for ownership, so list only hosts you own.
 - No destructive actions (real payments, deleting data) unless the user explicitly opts in.
 - Reports redact any secrets they find; keys are never used or tested.
 
@@ -232,4 +248,5 @@ Details: [docs/business-model.md](docs/business-model.md).
 - [docs/research.md](docs/research.md): market need, competition, gap catalog and scope mapping
 - [docs/research-data.json](docs/research-data.json): fact-checked research data behind the report
 - [docs/fixtures.md](docs/fixtures.md): the Kennel test fixture and scoring
+- [docs/v0-spec.md](docs/v0-spec.md) and [docs/v1-spec.md](docs/v1-spec.md): the build contracts for V0 (single form) and V1 (single page)
 - [docs/business-model.md](docs/business-model.md): open core vs paid, licensing and API keys

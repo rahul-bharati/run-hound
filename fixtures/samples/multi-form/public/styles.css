@@ -1,0 +1,49 @@
+*, *::before, *::after { box-sizing: border-box; }
+html { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.5; color: #1f2937; background: #ffffff; }
+body { margin: 0; }
+main { max-width: 36rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+h1 { font-size: 1.75rem; line-height: 1.2; margin: 0 0 0.5rem; }
+h2 { font-size: 1.25rem; margin: 2rem 0 0.75rem; }
+p { margin: 0 0 1rem; }
+.hint { color: #4b5563; font-size: 0.95rem; margin: 0.125rem 0 0.25rem; }
+.field { margin: 0 0 1.25rem; }
+label, legend { display: block; font-weight: 600; }
+fieldset { border: 0; margin: 0 0 1.25rem; padding: 0; }
+input[type="text"], input[type="email"], input[type="password"], input[type="number"], select, textarea {
+  display: block; width: 100%; max-width: 100%; font: inherit; color: inherit; background: #ffffff;
+  border: 2px solid #6b7280; border-radius: 6px; padding: 0.5rem 0.625rem; margin-top: 0.25rem;
+}
+textarea { min-height: 6rem; resize: vertical; }
+.choice { display: flex; gap: 0.5rem; align-items: center; font-weight: 400; margin: 0.25rem 0; }
+.choice input { width: 1.25rem; height: 1.25rem; margin: 0; flex: none; }
+[aria-invalid="true"] { border-color: #b91c1c; }
+.error { color: #b91c1c; font-weight: 600; margin: 0.25rem 0 0; }
+.error:empty { display: none; }
+.status { min-height: 1.5rem; margin: 1rem 0 0; font-weight: 600; }
+.status.is-error { color: #b91c1c; }
+.status.is-ok { color: #166534; }
+button { font: inherit; font-weight: 600; color: #ffffff; background: #1d4ed8; border: 2px solid #1d4ed8; border-radius: 6px; padding: 0.625rem 1.25rem; cursor: pointer; }
+button:hover { background: #1e40af; }
+button:disabled { cursor: progress; background: #4b5563; border-color: #4b5563; }
+button.secondary { color: #1d4ed8; background: #ffffff; }
+button.secondary:hover { background: #eff6ff; }
+:focus-visible { outline: 3px solid #1d4ed8; outline-offset: 2px; }
+button:focus-visible { outline-color: #111827; }
+a { color: #1d4ed8; }
+ul.list { list-style: none; margin: 0; padding: 0; }
+ul.list li { border: 1px solid #d1d5db; border-radius: 6px; padding: 0.75rem; margin: 0 0 0.75rem; overflow-wrap: anywhere; }
+ul.list p { margin: 0.25rem 0 0; white-space: pre-wrap; }
+.meta { color: #4b5563; font-size: 0.95rem; }
+
+/* multi-form: header with search, menu toggle and footer newsletter. */
+.site-header { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1rem; padding: 0.75rem 1rem; border-bottom: 1px solid #cbd5e1; }
+.site-header .brand { font-weight: 700; margin-right: auto; }
+.site-header nav ul { list-style: none; display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 0; padding: 0; }
+.site-header nav[hidden] { display: none; }
+.search { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.search input { width: 12rem; max-width: 100%; }
+.site-footer { border-top: 1px solid #cbd5e1; margin-top: 2rem; padding: 1rem; }
+.newsletter { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: end; }
+.newsletter .field { margin: 0; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.section-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem; }

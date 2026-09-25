@@ -1,13 +1,15 @@
 /**
  * persistence: submit unique canary values in every field, reload, and fail for every free-text canary that
  * is no longer visible (in the page text or a field). Passwords, dates and choice fields are not compared:
- * they are either never shown or not unique enough to prove anything.
+ * they are either never shown or not unique enough to prove anything. When no value is visible after reload and
+ * none was shown right after saving either, the page doesn't display saved records (a newsletter or contact form):
+ * the scenario is skipped with that reason instead of reporting lost data.
  */
 import type { Page } from "playwright";
 import type { Check, Evidence, Finding, Scenario } from "../core/types.js";
 import { bodyLines, clip, controlLocator, endpointOf, evidence, fillLines, findingFactory, guarded, markText, recordFlow, requestSummary, result, specSource, tryCard } from "./lib/functional-finding.js";
 import { isAcceptedStatus, isPagePost } from "../core/saves.js";
-import { canaryValues, createRequests, fieldName, fillForm, isRefusedSignIn, isSignInForm, settle, SIGN_IN_NOTE, submitControl, submitForm, waitForCreates } from "./lib/functional-form.js";
+import { canaryValues, createRequests, fieldName, fillForm, isRefusedSignIn, isSignInForm, settle, SIGN_IN_NOTE, submitControl, submitForm, waitForCreates, isSearchForm } from "./lib/functional-form.js";
 
 const ID = "persistence" as const;
 
@@ -27,6 +29,8 @@ export const check: Check = {
   category: "broken-feature",
 
   plan(form): Scenario[] {
+    // A search form saves nothing, so there is no saved record to test (V1: every form on the page is planned).
+    if (isSearchForm(form)) return [];
     return [
       {
         id: "canary-reload",
@@ -77,6 +81,10 @@ export const check: Check = {
         return skip(`Skipped: the app could not save Run Hound's test values (it answered ${statuses}), so there was no saved record to look for. The failed request is reported by the "No console errors or failed requests" check.`);
       }
 
+      // What the page shows right after saving, outside any field (a list, a confirmation with the values). Used
+      // below to tell "saved and lost" from "this page never shows what it saved" (a newsletter or contact form).
+      const shownAfterSave = String(await page.evaluate("document.body ? document.body.innerText : ''").catch(() => ""));
+
       await flow.step("Submitted; the server saved it", {
         facts: [{ label: "Save request", value: `${endpointOf(saved.method, saved.url)} → ${saved.status}` }],
       });
@@ -95,6 +103,15 @@ export const check: Check = {
 
       // Point at the saved record: where the other test values show up is where the missing ones belong.
       const found = canaries.filter((v) => !missing.includes(v));
+      if (found.length === 0 && !canaries.some((v) => shownAfterSave.includes(v.value))) {
+        // Nothing to compare: the page showed none of the values even right after saving, so it doesn't display
+        // saved records at all. Reporting that as lost data would be a guess.
+        return {
+          ...result(ID, scenario, started, []),
+          status: "skipped",
+          notes: `Skipped: the app accepted the save (${endpointOf(saved.method, saved.url)} → ${saved.status}), but this page doesn't show saved values, not even right after saving, so there is nothing to look for after a reload. That is normal for sign-up, newsletter and contact forms; if this page should list what was saved, that's worth checking by hand.`,
+        };
+      }
       const record = found.length ? (await markText(page, found[0]!.value, "rh-saved", 1))[0] : undefined;
       // The record's full text: CSS may cut it off on screen, so the data shows what is really there.
       const recordText = record ? await page.locator(record).innerText().catch(() => "") : "";

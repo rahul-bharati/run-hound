@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { LegalTitle, MailLink, ReviewNote } from "@/components/legal/legal";
+import { LegalDoc, LegalHeading, type LegalTocItem, MailLink, ReviewNote } from "@/components/legal/legal";
 import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -9,20 +9,28 @@ export const metadata: Metadata = {
     "How to report a vulnerability in Run Hound or this website, what to include, what is in scope and how we respond.",
 };
 
+const toc: LegalTocItem[] = [
+  { id: "how-to-report", label: "How to report" },
+  { id: "what-to-include", label: "What to include" },
+  { id: "response", label: "What to expect" },
+  { id: "scope", label: "Scope" },
+  { id: "safe-harbor", label: "Good-faith research" },
+  { id: "bug-bounty", label: "Bug bounty" },
+];
+
 export default function SecurityPage() {
   return (
-    <>
-      <LegalTitle
-        title="Security and vulnerability disclosure"
-        lede={
-          <>
-            We want to hear about security problems in {site.name} and this website. This page explains how to report
-            them and what you can expect from us.
-          </>
-        }
-      />
-
-      <h2 id="how-to-report">How to report</h2>
+    <LegalDoc
+      title="Security and vulnerability disclosure"
+      lede={
+        <>
+          We want to hear about security problems in {site.name} and this website. This page explains how to report
+          them and what you can expect from us.
+        </>
+      }
+      toc={toc}
+    >
+      <LegalHeading id="how-to-report">How to report</LegalHeading>
       <p>Report vulnerabilities privately, using either:</p>
       <ul>
         <li>
@@ -38,7 +46,7 @@ export default function SecurityPage() {
         details publicly until we have released a fix or agreed on a disclosure date with you.
       </p>
 
-      <h2 id="what-to-include">What to include</h2>
+      <LegalHeading id="what-to-include">What to include</LegalHeading>
       <ul>
         <li>a description of the issue and its likely impact;</li>
         <li>the affected component and version, commit or page;</li>
@@ -47,7 +55,7 @@ export default function SecurityPage() {
         <li>how you would like to be credited, if at all.</li>
       </ul>
 
-      <h2 id="response">What to expect</h2>
+      <LegalHeading id="response">What to expect</LegalHeading>
       <p>These are our targets, not guarantees:</p>
       <ul>
         <li>
@@ -64,26 +72,29 @@ export default function SecurityPage() {
         depending on its severity and complexity.
       </p>
 
-      <h2 id="scope">Scope</h2>
-      <h3 id="in-scope">In scope</h3>
+      <LegalHeading id="scope">Scope</LegalHeading>
+      <LegalHeading id="in-scope" level={3}>In scope</LegalHeading>
       <ul>
         <li>
           the {site.name} source code in the <a href={site.github}>official repository</a>;
         </li>
         <li>official {site.name} releases and container images, once published;</li>
         <li>
-          the safeguards that limit what {site.name} may test, such as ownership verification and the opt-in for
-          destructive actions;
+          the safeguards that limit what {site.name} may test, such as the local-only target check, pinning the
+          browser to the approved address and the opt-in for destructive actions;
         </li>
         <li>this website.</li>
       </ul>
 
-      <h3 id="out-of-scope">Out of scope</h3>
+      <LegalHeading id="out-of-scope" level={3}>Out of scope</LegalHeading>
       <ul>
         <li>apps and sites tested with {site.name}; report those to their owners;</li>
         <li>
           third-party services {site.name} works with, such as model providers, browsers or our hosting provider;
           report those to the vendor;
+        </li>
+        <li>
+          the bugs planted on purpose in Kennel, the deliberately broken demo app that ships with {site.name};
         </li>
         <li>forks and modified versions we do not maintain;</li>
         <li>denial of service, load testing, spam and social engineering of people;</li>
@@ -94,7 +105,7 @@ export default function SecurityPage() {
         <li>issues that need a compromised machine or physical access to the user&apos;s device.</li>
       </ul>
 
-      <h2 id="safe-harbor">Good-faith research</h2>
+      <LegalHeading id="safe-harbor">Good-faith research</LegalHeading>
       <ReviewNote>
         This section is a draft and will be reviewed by a lawyer before launch. It is not yet a binding commitment.
       </ReviewNote>
@@ -116,11 +127,11 @@ export default function SecurityPage() {
         allowed, ask us first at <MailLink address={site.securityEmail} />.
       </p>
 
-      <h2 id="bug-bounty">Bug bounty</h2>
+      <LegalHeading id="bug-bounty">Bug bounty</LegalHeading>
       <p>
         We do not run a bug bounty program at the moment, so we cannot offer payment for reports. We are grateful for
         every report and will credit you if you want.
       </p>
-    </>
+    </LegalDoc>
   );
 }

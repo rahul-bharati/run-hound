@@ -332,9 +332,27 @@ export const CLIENT = String.raw`
 
     function showPlan(resp, selected, options, focus) {
       const p = resp.plan;
-      const fields = (p.form && p.form.fields ? p.form.fields.length : 0);
       const summary = $("plan-summary");
-      summary.replaceChildren("Found ", h("b", { text: p.form && p.form.name ? "“" + p.form.name + "”" : "a form" }), " · " + plural(fields, "field") + " · " + plural(p.scenarios.length, "scenario"));
+      // V1 plans describe the whole page; V0 plans only their one form.
+      const forms = p.page ? p.page.forms : (p.form ? [p.form] : []);
+      const outside = p.page ? p.page.controls.length : 0;
+      const formLabel = (f, i) => {
+        const name = f.name ? f.name.replace(/\s+/g, " ").trim() : "";
+        return name ? (/\bform$/i.test(name) ? name : name + " form") : (f.search ? "Search form" : "Form " + (i + 1));
+      };
+      summary.replaceChildren(
+        forms.length === 1 && forms[0].name ? h("span", {}, "Found ", h("b", { text: "“" + forms[0].name + "”" })) : h("span", {}, "Found ", h("b", { text: forms.length ? plural(forms.length, "form") : "no form" })),
+        " · " + plural(p.scenarios.length, "scenario"));
+      const inv = $("page-inventory");
+      const chips = forms.map((f, i) => h("li", { class: "inv" }, h("span", { class: "inv-name", text: formLabel(f, i) }), h("span", { class: "inv-meta", text: plural(f.fields.length, "field") + (f.controls.length ? " · " + plural(f.controls.length, "button") : "") })));
+      if (p.page) {
+        chips.push(h("li", { class: "inv" + (outside ? "" : " quiet") }, h("span", { class: "inv-name", text: "Outside the forms" }), h("span", { class: "inv-meta", text: plural(outside, "control") + (p.page.links ? " · " + plural(p.page.links, "link") : "") })));
+        chips.push(h("li", { class: "inv" }, h("span", { class: "inv-name", text: "Whole page" }), h("span", { class: "inv-meta", text: "headers, cookies, CORS, scripts, layout" })));
+      }
+      inv.replaceChildren(...chips);
+      inv.hidden = chips.length === 0;
+      const multi = forms.length > 1;
+      const V1 = new Set(CONFIG.v1Checks || []);
       const warn = $("plan-warnings");
       warn.replaceChildren(...(resp.warnings || []).map((w) => h("p", { text: w })));
       warn.hidden = !(resp.warnings && resp.warnings.length);
@@ -358,6 +376,9 @@ export const CLIENT = String.raw`
           cb.checked = chosen ? chosen.has(s.id) : s.defaultSelected;
           const tags = [h("span", { class: "tag" + (s.kind === "danger" ? " danger" : ""), text: s.kind })];
           if (s.destructive) tags.push(h("span", { class: "tag danger", text: "destructive" }));
+          if (s.scope === "page") tags.push(h("span", { class: "tag scope", text: "Whole page" }));
+          else if (multi && s.scopeLabel) tags.push(h("span", { class: "tag scope", text: s.scopeLabel }));
+          if (V1.has(s.checkId)) tags.push(h("span", { class: "tag new", text: "New in V1" }));
           rows.append(h("li", { class: "scenario-row" }, cb, h("label", { for: id }, h("span", { class: "title", text: s.title }), tags, h("span", { class: "desc", text: s.description }))));
           inputs.push(cb);
         }
@@ -501,7 +522,7 @@ export const CLIENT = String.raw`
     if (run.status !== "running" && typeof run.durationMs === "number") counts.append(h("span", { class: "dur", text: formatDuration(run.durationMs) }));
     return h("li", {}, h("a", { class: "run-row", href: "#/runs/" + run.runId },
       runRing(run),
-      h("span", { class: "what" }, h("span", { class: "target", text: hostPath(run.target) }), h("span", { class: "form", text: run.formName ? run.formName : "Form without a name" })),
+      h("span", { class: "what" }, h("span", { class: "target", text: hostPath(run.target) }), h("span", { class: "form", text: run.formName ? run.formName : "Page without a form name" })),
       h("time", { class: "when", datetime: run.startedAt, text: dateTime(run.startedAt) }),
       counts,
       icon("chevronRight")));
@@ -666,7 +687,7 @@ export const CLIENT = String.raw`
       h("a", { class: "back", href: "#/new?from=" + id }, icon("back"), "Back to test plan"),
       h("div", { class: "run-title" }, h("h1", { text: "Running tests…" }), h("p", {}, h("span", { class: "visually-hidden", text: "Scenario " }), ui.counter)),
       h("div", { class: "run-sub" },
-        h("p", { class: "form", text: meta && meta.formName ? "Testing “" + meta.formName + "”" : "Testing the form on this page" }),
+        h("p", { class: "form", text: meta && meta.formName ? "Testing “" + meta.formName + "”" : "Testing this page" }),
         h("p", { class: "target", text: ui.target })),
       ui.bar,
       h("div", { class: "stats" },
@@ -1138,9 +1159,9 @@ export const CLIENT = String.raw`
           f ? h("p", { class: "meaning", text: f.meaning }) : null,
           tagList(f
             ? [h("li", { class: "sev-" + f.severity }, h("span", { class: "sw", "aria-hidden": "true" }), (SEVERITY_TEXT[f.severity] || f.severity)),
-               h("li", { text: entry.group }), h("li", { class: "mono", text: f.checkId }),
-               h("li", { text: f.confidence === "confirmed" ? "Confirmed" : "Advisory" })]
-            : [h("li", { text: STATUS_TEXT[status] || status }), h("li", { text: entry.group }), h("li", { class: "mono", text: r.checkId })])),
+               h("li", { text: entry.group }), f.scope ? h("li", { text: f.scope }) : null, h("li", { class: "mono", text: f.checkId }),
+               h("li", { text: f.confidence === "confirmed" ? "Confirmed" : "Advisory" })].filter(Boolean)
+            : [h("li", { text: STATUS_TEXT[status] || status }), h("li", { text: entry.group }), s && s.scopeLabel ? h("li", { text: s.scopeLabel }) : null, h("li", { class: "mono", text: r.checkId })].filter(Boolean))),
         h("span", { class: "detail-dur" }, icon("clock"), h("span", { class: "visually-hidden", text: "Took " }), resultDuration(r)));
       parts.push(head);
 
@@ -1264,7 +1285,7 @@ export const CLIENT = String.raw`
       cards.push(h("section", { class: "card", "aria-labelledby": "groups-h" },
         h("h2", { id: "groups-h", text: "Results by group" }),
         h("div", { class: "table-scroll" }, h("table", { class: "groups" },
-          h("thead", {}, row(...["Group", "Scenarios", "Passed", "Issues", "Skipped", "Time"].map((t) => h("th", { scope: "col", text: t })))),
+          h("thead", {}, row(...[["Group"], ["Tests", "Scenarios"], ["Pass", "Passed"], ["Issues"], ["Skip", "Skipped"], ["Time"]].map(([t, full]) => h("th", { scope: "col", text: t, ...(full ? { title: full } : {}) })))),
           h("tbody", {}, report.groups.map((g) => row(
             h("th", { scope: "row", text: g.label }),
             cell(g.scenarioIds.length), cell(g.passed, g.passed ? "good" : ""), cell(g.failed + g.errored, g.failed + g.errored ? "bad" : ""), cell(g.skipped),

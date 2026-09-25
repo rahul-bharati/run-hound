@@ -1,8 +1,9 @@
 import { Check } from "lucide-react";
 import { Icon, groupIcons } from "@/components/icon";
+import { NewTag } from "@/components/layout";
 import { checkGroups } from "./data";
 
-/** V0's checks in the three groups the plan, the live view and the report use. */
+/** The preview's checks in the three groups the plan, the live view and the report use. New V1 checks are tagged. */
 export function Groups() {
   return (
     <ul className="grid gap-5 lg:grid-cols-3">
@@ -21,9 +22,15 @@ export function Groups() {
           <p className="leading-relaxed text-muted">{group.intro}</p>
           <ul className="flex flex-col border-t border-line-soft">
             {group.checks.map((check) => (
-              <li key={check} className="flex gap-3 border-b border-line-soft py-3 text-[15px] leading-snug last:border-b-0">
+              <li
+                key={check.id}
+                className="flex gap-3 border-b border-line-soft py-3 text-[15px] leading-snug last:border-b-0"
+              >
                 <Icon icon={Check} size={16} className="mt-0.5 text-accent" />
-                {check}
+                <span className="flex flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+                  {check.label}
+                  {check.isNew ? <NewTag>New</NewTag> : null}
+                </span>
               </li>
             ))}
           </ul>

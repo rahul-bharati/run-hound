@@ -32,7 +32,9 @@ export const bad = {
     variant: {
       css: [
         ".bookings li { margin: 0; gap: 2px; line-height: 16px; font-size: 12px; }",
-        ".remove { width: 16px; height: 16px; min-width: 0; min-height: 0; padding: 0; font-size: 10px; line-height: 1; border-width: 0; }",
+        // order: -1 puts every button at the start of its row, so they stack in one column 16 px apart. After the
+        // (differently wide) names they sat just over 24 px apart diagonally, which axe rightly passes.
+        ".remove { order: -1; width: 16px; height: 16px; min-width: 0; min-height: 0; padding: 0; font-size: 10px; line-height: 1; border-width: 0; }",
       ].join("\n"),
     },
   },

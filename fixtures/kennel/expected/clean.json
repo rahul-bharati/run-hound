@@ -4,5 +4,5 @@
   "mustPass": "all-others",
   "allowedSideEffects": [],
   "expectedFindings": [],
-  "notes": "Clean Kennel: every V0 check must pass with zero findings. Data persists across scenarios within a run (no reset between scenarios), so checks must tolerate bookings created by earlier scenarios."
+  "notes": "Clean Kennel: every V0 and V1 check must pass with zero findings. Clean mode sends a Content-Security-Policy, nosniff and Referrer-Policy, sets an HttpOnly SameSite=Lax session cookie, sends no CORS headers on its API and serves no source maps. Data persists across scenarios within a run (no reset between scenarios), so checks must tolerate bookings created by earlier scenarios."
 }

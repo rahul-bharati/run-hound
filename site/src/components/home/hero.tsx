@@ -2,6 +2,7 @@ import { CodeXml, Monitor, ShieldCheck, Sparkles } from "lucide-react";
 import Image from "next/image";
 import { ArrowIcon, ButtonLink, ComingSoonBadge, GitHubIcon } from "@/components/button-link";
 import { Icon } from "@/components/icon";
+import { site } from "@/lib/site";
 import { Container } from "@/components/layout";
 import { screens } from "@/components/screens";
 import { Screenshot } from "@/components/screenshot";
@@ -21,7 +22,7 @@ const shotSizes =
   "(min-width: 1280px) 1136px, (min-width: 1024px) calc(100vw - 144px), (min-width: 640px) calc(100vw - 48px), calc(100vw - 32px)";
 
 /**
- * Homepage hero: the pitch, centred over the hound, then a real screenshot of V0 mid-run on Kennel, tilted back
+ * Homepage hero: the pitch, centred over the hound, then a real screenshot of a run on Kennel, tilted back
  * in perspective on larger screens. Same order at every width, so nothing has to squeeze side by side.
  */
 export function Hero() {
@@ -50,26 +51,29 @@ export function Hero() {
             <span className="text-dim max-sm:hidden" aria-hidden="true">
               ·
             </span>
-            <span className="text-muted">V0 TESTER PREVIEW (0.1.0)</span>
+            <span className="text-muted">
+              {site.release} TESTER PREVIEW ({site.version})
+            </span>
           </p>
 
           <h1
             id="hero-heading"
-            className="font-display text-[2.6rem] font-extrabold leading-[0.98] tracking-[-0.03em] sm:text-6xl lg:text-7xl xl:text-[5rem]"
+            className="text-balance font-display text-[2.6rem] font-extrabold leading-[0.98] tracking-[-0.03em] sm:text-6xl lg:text-7xl xl:text-[5rem]"
           >
             Find the bugs your AI forgot <span className="text-accent">to test.</span>
           </h1>
 
-          <p className="max-w-2xl text-lg leading-relaxed text-muted sm:text-xl">
-            AI-assisted UI testing for AI-built apps. Today, point Run Hound at a form on your local app: it plans a
-            set of checks, you approve them, it runs them in a real browser and reports what broke, with annotated
-            evidence and a Playwright test for each finding. AI planning and explanations are coming soon.
+          <p className="max-w-2xl text-pretty text-lg leading-relaxed text-muted sm:text-xl">
+            AI-assisted UI testing for AI-built apps. Point Run Hound at a page on your local app: it finds every form
+            and control, plans the checks, and after you approve, runs them in a real browser and reports what broke,
+            with annotated evidence and a Playwright test for each finding. AI planning and explanations are coming
+            soon.
           </p>
 
           <div className="flex w-full flex-col items-center gap-3">
             <div className="flex w-full flex-col justify-center gap-3 sm:w-auto sm:flex-row">
               <ButtonLink href={links.tryLocally} className="whitespace-nowrap">
-                Try V0 Locally
+                {site.cta}
                 <ArrowIcon size={18} />
               </ButtonLink>
               <ButtonLink href={links.github} variant="secondary" className="whitespace-nowrap">
@@ -110,7 +114,7 @@ export function Hero() {
             className="lg:origin-bottom lg:[transform:rotateX(9deg)]"
           />
           <figcaption className="mt-4 text-center font-mono text-[11px] tracking-widest text-dim">
-            REAL SCREENSHOT · V0 MID-RUN ON KENNEL, OUR DELIBERATELY BROKEN DEMO APP
+            REAL SCREENSHOT · A RUN ON KENNEL, OUR DELIBERATELY BROKEN DEMO APP
           </figcaption>
         </figure>
       </Container>

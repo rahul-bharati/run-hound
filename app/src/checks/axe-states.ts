@@ -90,10 +90,16 @@ const PLAIN: Record<string, { meaning: string; impact: string; fix: string }> = 
 };
 
 /** Finds visible fields whose only label is a placeholder (not caught by axe 4.13's `label` rule). */
-const PLACEHOLDER_ONLY = `() => {
+const PLACEHOLDER_ONLY = `(scope) => {
   const sel = 'input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=reset]):not([type=image]):not([type=radio]):not([type=checkbox]),textarea,select';
   const text = (el) => ((el && el.textContent) || "").trim();
+  // Same scope as the axe scan: only inside "include" when given, never inside "exclude".
+  const find = (s) => { try { return document.querySelector(s); } catch { return null; } };
+  const inside = scope && scope.include ? find(scope.include) : null;
+  const outside = ((scope && scope.exclude) || []).map(find).filter(Boolean);
   return [...document.querySelectorAll(sel)].filter((el) => {
+    if (scope && scope.include && !(inside && inside.contains(el))) return false;
+    if (outside.some((o) => o.contains(el))) return false;
     if (el.getClientRects().length === 0) return false;
     if (!(el.getAttribute("placeholder") || "").trim()) return false;
     const labelled = [...(el.labels || [])].some((l) => text(l));
@@ -237,7 +243,9 @@ export const check: Check = {
       scenarioFor("axe-states", "four-states", {
         title: "Scan the form with axe-core before, during and after submitting",
         description:
-          "Runs the axe-core WCAG 2.2 AA rules on the empty form, after an empty submit, after a simulated server error and after two successful test submissions. Creates two test records.",
+          ((_form.index ?? 0) > 0
+            ? "Runs the axe-core WCAG 2.2 AA rules on this form (the main form's scan covers the rest of the page) empty, after an empty submit, after a simulated server error and after two successful test submissions. Creates two test records."
+            : "Runs the axe-core WCAG 2.2 AA rules on the page (other forms are scanned in their own scenarios) with the form empty, after an empty submit, after a simulated server error and after two successful test submissions. Creates two test records."),
         priority: "high",
       }),
     ];
@@ -250,8 +258,27 @@ export const check: Check = {
       const notes: string[] = [];
 
       const analyze = async (page: Page, state: StateName) => {
+        // The main form's scan covers the whole page (V0); another form's scan covers only that form, so a problem
+        // elsewhere on the page is reported once, not once per form.
+        const builder = new AxeBuilder({ page }).withTags(AXE_TAGS);
+        const scope: { include?: string; exclude: string[] } = { exclude: [] };
+        if ((ctx.form.index ?? 0) > 0) {
+          // A search form's submit leads to a results page without the form: nothing of this form to scan there.
+          if ((await page.locator(ctx.form.selector).count().catch(() => 0)) === 0) {
+            notes.push(`${state} state: the form is not on the page (${new URL(page.url()).pathname}), not scanned`);
+            return;
+          }
+          builder.include(ctx.form.selector);
+          scope.include = ctx.form.selector;
+        } else {
+          // The main form's scan leaves the page's other forms to their own scenarios, so nothing is reported twice.
+          for (const other of ctx.discoveredPage?.forms.slice(1) ?? []) {
+            builder.exclude(other.selector);
+            scope.exclude.push(other.selector);
+          }
+        }
         visited.push(state);
-        const results = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
+        const results = await builder.analyze();
         const violations = results.violations.map((v) => ({
           ruleId: v.id,
           impact: v.impact ?? "moderate",
@@ -261,7 +288,7 @@ export const check: Check = {
           tags: v.tags,
           nodes: v.nodes.map((n): AxeNode => ({ target: n.target.map(String), html: n.html, failureSummary: n.failureSummary ?? "" })),
         }));
-        const placeholderOnly = await evalIn<AxeNode[]>(page, PLACEHOLDER_ONLY);
+        const placeholderOnly = await evalIn<AxeNode[]>(page, PLACEHOLDER_ONLY, scope);
         if (placeholderOnly.length > 0) {
           violations.push({
             ruleId: "label",
@@ -375,7 +402,7 @@ ${
 expect(unlabelled).toEqual([]);
 `
     : ""
-}const results = await new AxeBuilder({ page }).withTags(${JSON.stringify(AXE_TAGS)}).withRules(${JSON.stringify(hit.ruleId)}).analyze();
+}const results = await new AxeBuilder({ page }).withTags(${JSON.stringify(AXE_TAGS)}).withRules(${JSON.stringify(hit.ruleId)})${(ctx.form.index ?? 0) > 0 ? `.include(${JSON.stringify(ctx.form.selector)})` : (ctx.discoveredPage?.forms.slice(1) ?? []).map((f) => `.exclude(${JSON.stringify(f.selector)})`).join("")}.analyze();
 expect(results.violations).toEqual([]);`;
         findings.add({
           // The count is in the title when the rule fails on several elements: one finding per rule, never per element.

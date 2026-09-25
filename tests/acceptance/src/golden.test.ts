@@ -4,9 +4,9 @@
 import { readdir } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { CHECK_IDS, type CheckResult, type Finding, type Report } from "../../../app/src/core/types.js";
-import { compareToGolden, EXPECTED_DIR, lineDiff, loadGolden, loadV0Bugs, observedGolden, validateGolden, type Golden } from "./golden.js";
+import { compareToGolden, EXPECTED_DIR, lineDiff, loadGolden, loadBuiltBugs, observedGolden, validateGolden, type Golden } from "./golden.js";
 
-const bugs = await loadV0Bugs();
+const bugs = await loadBuiltBugs();
 
 describe("golden files", () => {
   it("there is one golden file for clean mode and for every V0 bug, and nothing else", async () => {

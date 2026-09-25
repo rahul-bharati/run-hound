@@ -154,6 +154,14 @@ input[type=checkbox]:disabled { opacity:.45; cursor:not-allowed; }
 .check-label input { margin:0; }
 .tag { display:inline-block; font:600 .66rem/1 var(--mono); letter-spacing:.06em; text-transform:uppercase; border:1px solid var(--line-strong); border-radius:999px; padding:.22rem .45rem; margin-left:.45rem; color:var(--muted); vertical-align:.12rem; white-space:nowrap; }
 .tag.danger { color:var(--fail); border-color:var(--fail-edge); }
+.tag.scope { color:var(--fg); background:var(--surface-3); border-color:var(--line-strong); text-transform:none; letter-spacing:0; font-weight:500; }
+.tag.new { color:var(--accent); border-color:var(--accent-edge); }
+/* V1 page inventory: what discovery found, above the plan. */
+.inventory { list-style:none; display:flex; flex-wrap:wrap; gap:.5rem; margin:-.25rem 0 1.1rem; }
+.inventory .inv { display:flex; flex-direction:column; gap:.15rem; min-width:9rem; padding:.55rem .75rem; border:1px solid var(--line); border-radius:var(--r-md); background:var(--surface-2); }
+.inventory .inv.quiet { opacity:.7; }
+.inventory .inv-name { font-weight:600; font-size:.88rem; color:var(--fg); }
+.inventory .inv-meta { font:.74rem/1.4 var(--mono); color:var(--dim); }
 .options { display:grid; gap:.4rem; margin-top:1.1rem; padding-top:1rem; border-top:1px solid var(--line); }
 .option { display:flex; gap:.8rem; align-items:flex-start; }
 .option label { cursor:pointer; min-width:0; }
@@ -348,7 +356,7 @@ input[type=checkbox]:disabled { opacity:.45; cursor:not-allowed; }
 .spec-panel .line { display:block; padding-right:1rem; white-space:pre; }
 .spec-panel .line::before { counter-increment: ln; content: counter(ln); display:inline-block; width:3rem; padding-right:1rem; margin-right:.25rem; text-align:right; color:var(--dim); user-select:none; }
 .spec-file { font:.76rem/1.4 var(--mono); color:var(--dim); padding:.5rem 1rem; border-top:1px solid var(--line-soft); overflow-wrap:anywhere; }
-.report-extra { display:grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr); gap:1.25rem; margin-top:1.25rem; align-items:start; }
+.report-extra { display:grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1fr); gap:1.25rem; margin-top:1.25rem; align-items:start; }
 .report-extra h2 { font-size:1rem; font-weight:650; margin-bottom:.75rem; }
 .table-scroll { overflow-x:auto; }
 table.groups { border-collapse:collapse; width:100%; font-size:.86rem; font-variant-numeric:tabular-nums; }

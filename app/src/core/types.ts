@@ -1,5 +1,5 @@
 /**
- * Shared contract for the Run Hound V0 engine and check library.
+ * Shared contract for the Run Hound engine and check library (V0: one form; V1: every form and control on a page).
  * Checks only depend on this file; the engine only calls checks through it.
  */
 import type { Browser, BrowserContext, Page } from "playwright";
@@ -21,7 +21,7 @@ export const CHECK_GROUPS: readonly { id: CheckGroup; label: string; categories:
   { id: "security", label: "Security", categories: ["security"] },
 ];
 
-/** Stable ids for the V0 checks, in the order they run. */
+/** Stable ids for the checks, in the order they run (V0 checks first, then the checks added in V1). */
 export const CHECK_IDS = [
   "console-network-errors",
   "dead-control",
@@ -38,7 +38,16 @@ export const CHECK_IDS = [
   "verbose-errors",
   "reflow-320",
   "client-only-validation",
+  // V1: page-wide checks.
+  "page-controls",
+  "security-headers",
+  "cookie-flags",
+  "cors",
+  "source-maps",
 ] as const;
+
+/** Checks added in V1 (single page). Everything else in CHECK_IDS shipped in V0. */
+export const V1_CHECK_IDS: readonly CheckId[] = ["page-controls", "security-headers", "cookie-flags", "cors", "source-maps"];
 
 export type CheckId = (typeof CHECK_IDS)[number];
 
@@ -86,13 +95,38 @@ export interface FormControl {
 
 export interface DiscoveredForm {
   url: string;
+  /** Position among DiscoveredPage.forms (0 = the main form, the one with the most fields). Absent in V0 plans. */
+  index?: number;
   /** Selector of the <form> element (or the container acting as one). */
   selector: string;
   /** Heading or accessible name that identifies the form, e.g. "Book a sitter". */
   name: string | null;
+  /**
+   * True for a search form (role="search", inside <search>, only search fields, or a GET form with an action and
+   * one or two short fields): it saves nothing, so checks that need a saved record leave it out. V1.
+   */
+  search?: boolean;
   fields: FormField[];
   /** Buttons and clickable controls inside the form, including the submit control. */
   controls: FormControl[];
+}
+
+/**
+ * Everything testable on one page (V1): every form, main form first, and the interactive controls outside any form.
+ */
+export interface DiscoveredPage {
+  url: string;
+  /** The document title, trimmed; null when empty. */
+  title: string | null;
+  /** Every form (or form-like container) with at least one usable field, the main one (most fields) first; at most 5. */
+  forms: DiscoveredForm[];
+  /**
+   * Buttons and button-like controls outside every form (toolbars, list actions, toggles, links that act as buttons:
+   * href="#" or javascript:). Real links are left out: they navigate by definition.
+   */
+  controls: FormControl[];
+  /** How many links with a real href the page has (not tested one by one in V1; a crawl is V3). */
+  links: number;
 }
 
 /**
@@ -207,6 +241,11 @@ export interface Finding {
    */
   locations?: string[];
   evidence: Evidence[];
+  /**
+   * What the finding's scenario tested (V1): its form ("Newsletter form") or "Whole page". Set by the runner from
+   * Scenario.scopeLabel, so a finding says which form it is about on a page with several.
+   */
+  scope?: string;
   /** Playwright spec that reproduces the finding, as source text. */
   spec?: { filename: string; source: string };
 }
@@ -236,6 +275,14 @@ export interface Scenario {
   /** Scenarios that could change or delete data beyond creating test records. Off unless the user opts in. */
   destructive: boolean;
   defaultSelected: boolean;
+  /**
+   * What the scenario tests (V1): "form" scenarios test Plan.page.forms[formIndex] (0 when absent), "page" scenarios
+   * test the page as a whole. Absent in V0 plans, which read as "form" on the only form.
+   */
+  scope?: "form" | "page";
+  formIndex?: number;
+  /** Human label of what is tested, e.g. "Book a sitter form" or "Whole page". Set by the planner. */
+  scopeLabel?: string;
 }
 
 /** Network and console activity recorded for one page. */
@@ -249,6 +296,12 @@ export interface Capture {
     failure: string | null;
     /** Response body for same-origin JSON/text responses (truncated), else null. */
     responseBody: string | null;
+    /**
+     * Response headers, lower-case names, for responses from the page's origin and other local origins (the app's
+     * API on another port); multiple values of one header (set-cookie) joined with "\n". Absent for other responses
+     * and until the response arrives.
+     */
+    responseHeaders?: Record<string, string>;
   }[];
   /** Console messages; `url` is where the message came from (for "Failed to load resource", the resource's URL). */
   console: { type: string; text: string; url?: string }[];
@@ -257,7 +310,10 @@ export interface Capture {
 
 export interface CheckContext {
   browser: Browser;
+  /** The form this scenario tests. For page-scoped scenarios, the main form (or an empty form when there is none). */
   form: DiscoveredForm;
+  /** The whole page as discovered (V1). Absent when a V0 plan is run. */
+  discoveredPage?: DiscoveredPage;
   targetUrl: string;
   /** Absolute directory for this check's artifacts. */
   artifactsDir: string;
@@ -290,8 +346,13 @@ export interface Check {
   id: CheckId;
   title: string;
   category: Category;
-  /** Scenarios this check proposes for the given form; empty if it does not apply. */
-  plan(form: DiscoveredForm): Scenario[];
+  /**
+   * "form" (default): planned once per form on the page, and run against that form. "page": planned once for the
+   * page (with the main form, or an empty form when the page has none) and run against the page as a whole.
+   */
+  scope?: "form" | "page";
+  /** Scenarios this check proposes for the given form (and page, in V1); empty if it does not apply. */
+  plan(form: DiscoveredForm, page?: DiscoveredPage): Scenario[];
   run(ctx: CheckContext, scenario: Scenario): Promise<CheckResult>;
 }
 
@@ -304,7 +365,10 @@ export interface PlanGroup {
 
 export interface Plan {
   target: string;
+  /** The main form (Plan.page.forms[0]); an empty form (no fields, no controls) when the page has none. */
   form: DiscoveredForm;
+  /** Every form and control on the page (V1). Absent in plans and reports written by V0. */
+  page?: DiscoveredPage;
   /** In run order: grouped by CHECK_GROUPS order, CHECK_IDS order inside a group. */
   scenarios: Scenario[];
   /** Every group that has at least one scenario, in CHECK_GROUPS order. Empty groups are left out. */

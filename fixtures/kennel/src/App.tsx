@@ -498,7 +498,13 @@ function BookingPage({ config }: { config: Config }) {
       </form>
 
       <section className="bookings" aria-labelledby="bookings-title">
-        <h2 id="bookings-title">Your bookings</h2>
+        <div className="bookings-head">
+          <h2 id="bookings-title">Your bookings</h2>
+          {/* F07: the page-level Refresh button (outside the form) has no click handler. */}
+          <button type="button" className="secondary" data-kennel="refresh-bookings" onClick={bug("F07") ? undefined : () => void reloadBookings()}>
+            Refresh
+          </button>
+        </div>
         {bookings.length === 0 && <p>No bookings yet.</p>}
         <ul>
           {bookings.map((b) => (

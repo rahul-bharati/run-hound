@@ -18,7 +18,7 @@ export interface ExpectedFinding {
 }
 
 export interface Golden {
-  /** "clean" or a V0 bug id. */
+  /** "clean" or a V0/V1 bug id. */
   mode: string;
   /** Checks that must fail with at least one finding. */
   mustFail: CheckId[];
@@ -46,6 +46,12 @@ export async function loadBugs(): Promise<BugEntry[]> {
   return raw.bugs;
 }
 
+/** Bugs Kennel builds today (V0 and V1); later versions are listed in bugs.json but not built yet. */
+export async function loadBuiltBugs(): Promise<BugEntry[]> {
+  return (await loadBugs()).filter((b) => b.version === "V0" || b.version === "V1");
+}
+
+/** @deprecated use loadBuiltBugs: V0 bugs only. */
 export async function loadV0Bugs(): Promise<BugEntry[]> {
   return (await loadBugs()).filter((b) => b.version === "V0");
 }

@@ -6,7 +6,7 @@
  */
 import type { Check, Scenario } from "../core/types.js";
 import { RECORD_CREATES, bodyLines, clip, controlLocator, endpointOf, evidence, fillLines, findingFactory, guarded, markText, recordFlow, requestSummary, result, specSource, tryCard } from "./lib/functional-finding.js";
-import { canaryValues, createRequests, fillForm, isCreatePlaywrightRequest, isSignInForm, SIGN_IN_NOTE, sleep, submitControl, submitForm, waitForCreates } from "./lib/functional-form.js";
+import { canaryValues, createRequests, fillForm, isCreatePlaywrightRequest, isSignInForm, SIGN_IN_NOTE, sleep, submitControl, submitForm, waitForCreates, isSearchForm } from "./lib/functional-form.js";
 
 const ID = "double-submit" as const;
 
@@ -28,6 +28,8 @@ export const check: Check = {
   category: "broken-feature",
 
   plan(form): Scenario[] {
+    // A search form saves nothing, so there is no saved record to test (V1: every form on the page is planned).
+    if (isSearchForm(form)) return [];
     const submit = submitControl(form);
     return [
       {

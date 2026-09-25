@@ -1,0 +1,16 @@
+{
+  "mode": "S08",
+  "mustFail": [
+    "source-maps"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "source-maps",
+      "severity": "medium",
+      "titleIncludes": "source map is public"
+    }
+  ],
+  "notes": "The build always writes hidden source maps (no sourceMappingURL comment); with S08 the server serves them, and source-maps finds the guessed <script>.map with sourcesContent. bundle-secrets scans scripts only, never maps."
+}

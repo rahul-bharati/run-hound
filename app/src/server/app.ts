@@ -45,6 +45,16 @@ interface RunState {
   controller?: AbortController;
 }
 
+/**
+ * What a run tested, for the runs list: the form's name (V0, or a V1 page with one named form), "2 forms" on a page
+ * with several, or null. Redacted.
+ */
+function subjectOf(plan: Plan): string | null {
+  const forms = plan.page?.forms;
+  if (forms && forms.length > 1) return `${forms.length} forms${forms[0]!.name ? `, including "${redactSecrets(forms[0]!.name)}"` : ""}`;
+  return plan.form?.name ? redactSecrets(plan.form.name) : null;
+}
+
 /** One row of GET /api/runs. */
 interface RunSummary {
   runId: string;
@@ -304,7 +314,7 @@ export function createApp(options: ServerOptions = {}): Hono {
     const out: RunSummary = {
       runId,
       target: redactSecrets(report?.target ?? state.plan.target),
-      formName: (report?.plan ?? state.plan).form?.name ? redactSecrets((report?.plan ?? state.plan).form.name!) : null,
+      formName: subjectOf(report?.plan ?? state.plan),
       status: state.status,
       startedAt: state.startedAt,
       completed: state.completed,
@@ -374,7 +384,9 @@ export function createApp(options: ServerOptions = {}): Hono {
       live: true,
       onProgress: (e) => {
         if (e.type === "scenario-end") state.completed += 1;
-        // The runner names the browser only in the report; by the first scenario it has launched Playwright's own build.
+        // The runner reports the browser it really launched; until then (and for runners that don't), the build the
+        // installed Playwright ships.
+        if (e.type === "browser") state.live.browser = e.name;
         if (e.type === "scenario-start" && state.live.browser === null) state.live.browser = bundledChromium();
         applyProgress(state.live, plan, e);
       },

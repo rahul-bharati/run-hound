@@ -57,7 +57,7 @@ export function explainNoForm(page: LoadedPage): string | undefined {
     moved = false;
   }
   if (moved) {
-    const login = /log-?in|sign-?in|auth/i.test(page.final) ? ", which looks like a sign-in page (pages behind a login aren't supported in V0)" : "";
+    const login = /log-?in|sign-?in|auth/i.test(page.final) ? ", which looks like a sign-in page (pages behind a login aren't supported yet)" : "";
     reasons.push(`the page redirected to ${page.final}${login}`);
   }
   return reasons.length > 0 ? reasons.join("; ") : undefined;

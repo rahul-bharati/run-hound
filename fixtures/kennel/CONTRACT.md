@@ -9,7 +9,7 @@ Anything named here (texts, attribute values, field keys) is load-bearing: tests
 - Env:
   - `PORT` (default `3000`): Kennel app and API.
   - `ANALYTICS_PORT` (default `3001`): mock third-party analytics server, started by the same process.
-  - `KENNEL_BUGS`: `none` (default), `all`, or a comma list such as `F01,A03` (case-insensitive, whitespace ignored).
+  - `KENNEL_BUGS`: `none` (default), `all` (every V0 and V1 bug), or a comma list such as `F01,A03` (case-insensitive, whitespace ignored).
   - `HOST` (default `0.0.0.0`): bind address for both servers.
 - When both servers are listening, the process writes a line containing `kennel listening` to stdout.
 - Exits cleanly on `SIGTERM` / `SIGINT`.
@@ -72,6 +72,14 @@ In clean mode no response body ever contains a stack trace, file path or `node:i
 - Focus: every focusable control shows an outline (non-`none` style, width > 0) or a box-shadow change when focused by keyboard.
 - Layout: at a 320x800 viewport the page has no horizontal scroll (`scrollWidth <= clientWidth + 1`).
 - Paste is never prevented; no console errors, page errors, failed requests or 4xx/5xx responses on load or on the golden path.
+- V1, outside the form: the "Your bookings" heading has a `Refresh` button (type button, `data-kennel="refresh-bookings"`) that reloads the list with `GET /api/bookings`.
+
+## Response headers, cookies and source maps (V1)
+
+- Every response carries `Content-Security-Policy` (`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://<request hostname>:<ANALYTICS_PORT>; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'`), `X-Content-Type-Options: nosniff` and `Referrer-Policy: strict-origin-when-cross-origin`.
+- `GET /book` sets `kennel_session=<uuid>; Path=/; HttpOnly; SameSite=Lax` when the request has no `kennel_session` cookie.
+- The API sends no CORS headers (the frontend is same-origin); `OPTIONS` on `/api/*` answers `204`.
+- The build writes source maps next to the bundle without a `sourceMappingURL` comment (Vite `sourcemap: "hidden"`); requests for `*.map` answer `404`.
 
 ## Bugs (each changes exactly one behaviour)
 
@@ -96,3 +104,8 @@ In clean mode no response body ever contains a stack trace, file path or `node:i
 | S02 | `index.html` loads an extra script that contains a JWT whose payload has `"role":"service_role"`. |
 | S03 | After booking, the frontend calls `GET <analyticsUrl>/collect?event=booking_created&email=<ownerEmail>` (URL-encoded). |
 | S04 | The `500` body includes a `stack` (a real `Error().stack`) and the page shows it in the error message. |
+| F07 | V1. The `Refresh` button beside "Your bookings" (outside the form) has no click handler. |
+| S05 | V1. No `Content-Security-Policy`, `X-Content-Type-Options` or `Referrer-Policy` on any response. |
+| S06 | V1. The `kennel_session` cookie is set without `HttpOnly` (still `SameSite=Lax`). |
+| S07 | V1. Every `/api/*` response echoes the request's `Origin` (including `null`) in `Access-Control-Allow-Origin`, with `Access-Control-Allow-Credentials: true`. |
+| S08 | V1. The source maps (`/assets/*.js.map`, with `sourcesContent`) are served with `200`. |

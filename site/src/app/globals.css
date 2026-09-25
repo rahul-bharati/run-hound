@@ -39,6 +39,16 @@
   html {
     color-scheme: dark;
     background: var(--color-bg);
+    /* In-page anchors land below the sticky header. */
+    scroll-padding-top: 5.5rem;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
   }
 
   body {
@@ -51,6 +61,11 @@
     outline: 2px solid var(--color-accent);
     outline-offset: 3px;
     border-radius: 6px;
+  }
+
+  /* Headings and targets reached from a table of contents get the same breathing room as sections. */
+  :target {
+    scroll-margin-top: 5.5rem;
   }
 
   ::selection {
@@ -89,6 +104,7 @@
   }
   .prose-night h2 {
     margin-top: 2.4em;
+    text-wrap: balance;
     color: var(--color-fg);
     font-family: var(--font-display);
     font-size: 1.75rem;
@@ -171,5 +187,41 @@
   .prose-night th {
     color: var(--color-fg);
     font-weight: 600;
+  }
+
+  /*
+   * Legal pages: a single reading column capped near 70 characters, a rule above each numbered section, and a
+   * "#" link beside each heading that appears on hover or keyboard focus.
+   */
+  .prose-legal {
+    max-width: 70ch;
+  }
+  .prose-legal > h2 {
+    margin-top: 2.2em;
+    padding-top: 1.6em;
+    border-top: 1px solid var(--color-line-soft);
+    font-size: 1.625rem;
+  }
+  .prose-legal > h2:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+  .prose-legal .heading-anchor {
+    margin-left: 0.4em;
+    color: var(--color-dim);
+    text-decoration: none;
+    opacity: 0;
+    transition: opacity 150ms;
+  }
+  .prose-legal h2:hover .heading-anchor,
+  .prose-legal h3:hover .heading-anchor,
+  .prose-legal .heading-anchor:focus-visible {
+    opacity: 1;
+  }
+  @media (hover: none) {
+    .prose-legal .heading-anchor {
+      opacity: 1;
+    }
   }
 }

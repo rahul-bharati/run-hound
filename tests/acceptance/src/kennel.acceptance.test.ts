@@ -1,5 +1,5 @@
 /**
- * End-to-end acceptance: Run Hound against Kennel in clean mode and with each V0 bug on.
+ * End-to-end acceptance: Run Hound against Kennel in clean mode and with each V0 and V1 bug on.
  * For every mode: start Kennel (KENNEL_BUGS=<mode>), reset, discoverAndPlan(<kennel>/book),
  * approve every scenario (allowDestructive false), runPlan, compare with fixtures/kennel/expected/<mode>.json.
  */
@@ -10,10 +10,10 @@ import { afterAll, beforeAll, describe, it } from "vitest";
 import { checks } from "../../../app/src/checks/index.js";
 import { CHECK_IDS } from "../../../app/src/core/types.js";
 import { discoverAndPlan, runPlan } from "../../../app/src/engine/runner.js";
-import { compareToGolden, lineDiff, loadGolden, loadV0Bugs, observedGolden } from "./golden.js";
+import { compareToGolden, lineDiff, loadGolden, loadBuiltBugs, observedGolden } from "./golden.js";
 import { buildKennel, filesUnder, kennelFakeSecrets, startKennel } from "./kennel.js";
 
-const bugs = await loadV0Bugs();
+const bugs = await loadBuiltBugs();
 const fakeSecrets = await kennelFakeSecrets();
 const allModes = ["clean", ...bugs.map((b) => b.id)];
 const only = process.env.ACCEPTANCE_MODES?.split(",").map((s) => s.trim()).filter(Boolean);

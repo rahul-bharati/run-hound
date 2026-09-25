@@ -11,7 +11,11 @@ export const V0_BUGS = [
   "A01", "A02", "A03", "A04", "A05", "A06", "A07", "A08", "A09",
   "S01", "S02", "S03", "S04",
 ] as const;
-export type BugId = (typeof V0_BUGS)[number];
+/** V1 (single page): a page-level control, response headers, cookie flags, CORS and source maps. */
+export const V1_BUGS = ["F07", "S05", "S06", "S07", "S08"] as const;
+/** Every bug KENNEL_BUGS=all turns on. */
+export const ALL_BUGS = [...V0_BUGS, ...V1_BUGS] as const;
+export type BugId = (typeof ALL_BUGS)[number];
 
 export interface AnalyticsHit {
   method: string;

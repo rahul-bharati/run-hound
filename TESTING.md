@@ -1,28 +1,30 @@
-# Testing Run Hound V0 (0.1.0)
+# Testing Run Hound V1 (0.2.0)
 
-Thanks for trying Run Hound before anyone else does. Run Hound is AI-assisted UI testing for AI-built apps: AI plans and explains, real checks decide. This preview ships the real checks; AI planning and AI explanations are coming soon. This guide covers what V0 does, how to run it on Kennel (the demo app) and then on your own app, how to read the report, and what to send back.
+Thanks for trying Run Hound before anyone else does. Run Hound is AI-assisted UI testing for AI-built apps: AI plans and explains, real checks decide. This preview ships the real checks; AI planning and AI explanations are coming soon. This guide covers what V1 does, how to run it on Kennel (the demo app) and then on your own app, how to read the report, and what to send back.
 
-**Contents:** [Who this is for](#who-this-is-for) · [What V0 does](#what-v0-does-and-doesnt-do) · [Requirements](#requirements) · [Install](#install) · [Try it on Kennel first](#try-it-on-kennel-first-10-minutes) · [Test your own app](#test-your-own-app) · [Reading the report](#reading-the-report) · [Known limitations](#known-limitations) · [Sending feedback](#sending-feedback)
+**Contents:** [Who this is for](#who-this-is-for) · [What V1 does](#what-v1-does-and-doesnt-do) · [Requirements](#requirements) · [Install](#install) · [Try it on Kennel first](#try-it-on-kennel-first-10-minutes) · [Test your own app](#test-your-own-app) · [Reading the report](#reading-the-report) · [Known limitations](#known-limitations) · [Sending feedback](#sending-feedback)
 
 ## Who this is for
 
-Developers who have a web app running on their own machine with a form in it (sign-up, contact, booking, checkout details, settings) and who can spare 30 minutes. You don't need to know Playwright or accessibility rules; the report explains each finding in plain language.
+Developers who have a web app running on their own machine (a page with forms, buttons, an API behind it: sign-up, contact, booking, settings) and who can spare 30 minutes. You don't need to know Playwright or accessibility rules; the report explains each finding in plain language.
 
 What we most want to learn: **is every finding real, and did it miss a bug you know about?** A wrong finding costs you time, so we treat each false positive as a bug in Run Hound.
 
-## What V0 does and doesn't do
+## What V1 does and doesn't do
 
-**It does:** open one page of your local app in a headless Chromium, find the main form on it, plan 13 to 15 test scenarios, let you pick which ones to run, run them, and write a report with evidence (annotated screenshots, short GIFs, request and response cards) and a Playwright test for each finding.
+**It does:** open one page of your local app in a headless Chromium, find every form on it (up to 5, the one with the most fields first) and the buttons outside them, plan the form checks for each form plus the page-wide checks (usually 15 to 20 scenarios for a page with one form), let you pick which ones to run, run them, and write a report with evidence (annotated screenshots, short GIFs, request and response cards) and a Playwright test for each finding.
+
+**New in V1 (single page):** every form on the page instead of only the main one; buttons outside the forms; and page-wide checks for security headers, session cookie flags, CORS and public source maps. A page without a form now gets the page-wide checks instead of an error.
 
 **It doesn't:**
 
-- test more than one form per page (it picks the main one), or follow links to other pages;
+- follow links to other pages (one page per run; whole features across pages are V2);
 - log in: pages behind a login aren't supported, and a login form itself can only be partly tested (you'd need a real account);
 - test public websites: only your own machine and private network addresses (see [Safety rules](#safety-rules));
-- plan with AI yet: **AI planning and AI explanations are coming soon**. In V0 the plan comes from the built-in checks below, the explanations are written for each check, and nothing is sent to any AI provider. Every pass or fail comes from a real check in a real browser, and that won't change when AI arrives;
+- plan with AI yet: **AI planning and AI explanations are coming soon**. In V1 the plan comes from the built-in checks below, the explanations are written for each check, and nothing is sent to any AI provider. Every pass or fail comes from a real check in a real browser, and that won't change when AI arrives;
 - delete the test records it creates (see [Test records](#test-records-it-creates)).
 
-### The 15 checks
+### The 20 checks
 
 | Check | What it does, in plain words | Creates test records |
 |---|---|---|
@@ -41,10 +43,19 @@ What we most want to learn: **is every finding real, and did it miss a bug you k
 | `verbose-errors` | Sends far too much text and a broken request body and looks for stack traces, file paths or error dumps. | up to 2, if your server accepts them |
 | `reflow-320` | Opens the page 320 px wide (a small phone, or 400% zoom) and checks it doesn't scroll sideways. | 0 |
 | `client-only-validation` | Captures the save request, then sends it straight to the server with one field invalid and checks the server rejects it. Localhost targets only; skipped otherwise, with a reason. | 0 |
+| `page-controls` (V1) | Clicks every button outside the forms (toolbars, list actions, toggles, `href="#"` links), each on a freshly loaded page, and flags the ones that do nothing. Destructive-looking ones are left out unless you allow them. | 0, unless a button saves something |
+| `security-headers` (V1) | Reads the page's response headers: Content-Security-Policy, clickjacking protection (`frame-ancestors` or `X-Frame-Options`), `X-Content-Type-Options: nosniff`, a leaky `Referrer-Policy`, and on https `Strict-Transport-Security`. | 0 |
+| `cookie-flags` (V1) | Reads the cookies the page sets; session-like cookies must be `HttpOnly`, not `SameSite=None`, and on https `Secure`. Values are never shown. | 0 |
+| `cors` (V1) | Repeats up to 5 of the page's own GET requests from a sandboxed frame (`Origin: null`, which any website can produce) and flags answers other websites may read, especially with the visitor's cookies. | 0 |
+| `source-maps` (V1) | Looks for public source maps of the page's own scripts (header, `sourceMappingURL` comment, or `<script>.map`) and flags maps anyone can download, especially with the original source code. Skipped on a dev server. | 0 |
 
-The checks are grouped as **Accessibility** (`axe-states`, `keyboard-completion`, `focus-visible`, `error-announcement`, `credential-fields`, `reflow-320`), **Features** (`console-network-errors`, `dead-control`, `silent-failure`, `persistence`, `double-submit`, `client-only-validation`) and **Security** (`bundle-secrets`, `pii-leak`, `verbose-errors`). The plan, the run, the progress and the report all follow that order.
+The checks are grouped as **Accessibility** (`axe-states`, `keyboard-completion`, `focus-visible`, `error-announcement`, `credential-fields`, `reflow-320`), **Features** (`console-network-errors`, `dead-control`, `silent-failure`, `persistence`, `double-submit`, `client-only-validation`, `page-controls`) and **Security** (`bundle-secrets`, `pii-leak`, `verbose-errors`, `security-headers`, `cookie-flags`, `cors`, `source-maps`).
 
-Scenarios that don't apply to your form (no password field, no JSON save request) are **skipped with a plain reason**, never silently dropped. Each scenario's description in the plan says whether it creates records.
+Form checks run once per form; on a page with several forms their scenarios are named after the form ("… (Newsletter form)"). `page-controls`, `security-headers`, `cookie-flags`, `cors`, `source-maps`, `bundle-secrets`, `focus-visible` and `reflow-320` run once for the whole page. A search form gets only the checks that make sense for it (it saves nothing), and a form that never shows what it saved (a newsletter signup) has its `persistence` scenario skipped with that reason rather than reported as lost data. Buttons that sign you out, cancel a subscription or empty a cart are never clicked unless you allow destructive scenarios.
+
+**Dev servers:** a dev server (Vite, Next.js dev, webpack dev server, …) doesn't send the headers, cookie flags and CORS settings of your production build, so on a dev server those findings are marked advisory and `source-maps` is skipped. Check them again on a production build (`vite preview`, `next start`). The plan, the run, the progress and the report all follow that order.
+
+Scenarios that don't apply to your page (no password field, no JSON save request) are **skipped with a plain reason**, never silently dropped. Each scenario's description in the plan says whether it creates records.
 
 ### Test records it creates
 
@@ -55,9 +66,9 @@ Scenarios that could change or delete existing data (clicking a "Delete" button,
 ### Confirmed and advisory findings
 
 - **Confirmed**: decided by a real check with evidence (a request was sent twice, axe found a rule violation, a value was missing after reload). These should always be right. If one is wrong, please report it.
-- **Advisory**: relies on judgement (for example a missing `autocomplete` hint). Worth a look, not a failure.
+- **Advisory**: relies on judgement (for example a missing `autocomplete` hint), or on production settings a dev server doesn't have (headers, cookies, CORS on a dev server). Worth a look, not a failure.
 
-The command line exits with **0** when there are no confirmed findings (advisory ones don't fail the run), **1** when there is at least one confirmed finding, and **2** on an error: a refused or unreachable target, a page without a form, or a bad option.
+The command line exits with **0** when there are no confirmed findings (advisory ones don't fail the run), **1** when there is at least one confirmed finding, and **2** on an error: a refused or unreachable target, an error page (such as a 404), or a bad option.
 
 When the same problem affects several elements (no visible focus on 6 controls), you get one finding that lists every place, not six findings.
 
@@ -89,7 +100,7 @@ If `git clone` asks for a username or says the repository isn't found, your GitH
 ```sh
 git clone https://github.com/rahul-bharati/run-hound.git
 cd run-hound
-git checkout v0                     # the V0 tester branch, until it is merged
+git checkout claude/eloquent-archimedes-he6hxy   # the V1 branch, until it is merged
 corepack enable                     # once, if pnpm isn't installed
 pnpm install
 pnpm --filter run-hound exec playwright install chromium
@@ -98,21 +109,37 @@ pnpm --filter kennel build          # only needed for the Kennel demo
 
 On Ubuntu or Debian, if Chromium complains about missing libraries, run `pnpm --filter run-hound exec playwright install --with-deps chromium` (it uses sudo). On other Linux distributions Playwright prints "BEWARE: your OS is not officially supported"; that is harmless as long as Chromium starts.
 
-Check it works: `cd app && pnpm exec tsx src/cli.ts --version` prints `run-hound 0.1.0`.
+Check it works: `cd app && pnpm exec tsx src/cli.ts --version` prints `run-hound 0.2.0`.
 
 ### Docker or Podman
 
 ```sh
 git clone https://github.com/rahul-bharati/run-hound.git
 cd run-hound
-git checkout v0
+git checkout claude/eloquent-archimedes-he6hxy   # the V1 branch, until it is merged
+cp .env.example .env                # optional: ports, KENNEL_BUGS and allowed hosts live here
 mkdir -p runs                       # reports land here; create it yourself so the files belong to you
-docker compose up --build           # or: podman-compose up --build
+docker compose up --build           # or: podman compose up --build (podman-compose works too)
 ```
+
+This starts Run Hound and every test app, each on its own port bound to `127.0.0.1`:
+
+| Service | Enter this in the Run Hound UI | Open it in your browser | What it is |
+|---|---|---|---|
+| `run-hound` | | <http://localhost:4000> | The web UI |
+| `kennel` | `http://kennel:3000/book` | <http://localhost:3000/book> | Kennel with the bugs in `KENNEL_BUGS` (default: all V0 and V1 bugs) |
+| `kennel-clean` | `http://kennel-clean:3000/book` | <http://localhost:3100/book> | Kennel in clean mode: every check should pass |
+| `classic-post` | `http://classic-post:4101/signup` | <http://localhost:4101/signup> | Server-rendered sign-up form, no JavaScript |
+| `spa-fetch` | `http://spa-fetch:4102/` | <http://localhost:4102/> | Contact form saving with `fetch` |
+| `login` | `http://login:4103/` | <http://localhost:4103/> | Sign-in form (`demo@example.test` / `correct-horse`) |
+| `cross-origin-api` | `http://cross-origin-api:4104/` | <http://localhost:4104/> | RSVP form whose API is on another origin (port 4105) |
+| `multi-form` | `http://multi-form:4106/` | <http://localhost:4106/> | Three forms on one page (header search, contact, footer newsletter) and buttons outside them |
+
+The sample apps are well built on purpose: **any confirmed finding on them is a false positive**, please report it. Every setting (host ports, `KENNEL_BUGS`, the runs folder, `RUNHOUND_ALLOWED_HOSTS`) is documented in [`.env.example`](.env.example).
 
 The first build downloads about 2 GB. When you see `Run Hound UI: open http://localhost:4000`, open that address. The log also shows `listening on http://0.0.0.0:4000` and a warning about serving beyond localhost: that address is inside the container, and on your machine the port is bound to `127.0.0.1` only.
 
-Ports taken? `RUNHOUND_HOST_PORT=4400 KENNEL_HOST_PORT=5310 KENNEL_ANALYTICS_HOST_PORT=5311 docker compose up --build`.
+Ports taken? Change them in `.env` (for example `RUNHOUND_HOST_PORT=4400`), or on the command line: `RUNHOUND_HOST_PORT=4400 KENNEL_HOST_PORT=5310 docker compose up --build`.
 
 ## Try it on Kennel first (10 minutes)
 
@@ -153,7 +180,7 @@ With `docker compose up` running, open <http://localhost:4000> and enter `http:/
 docker compose run --rm run-hound run http://kennel:3000/book --approve all
 ```
 
-For a clean Kennel: `KENNEL_BUGS=none docker compose up`. In containers the target isn't `localhost`, so `client-only-validation` is skipped and the report says why.
+For a clean Kennel, enter `http://kennel-clean:3000/book`: it runs next to the broken one. To change which bugs `kennel` has, set `KENNEL_BUGS` in `.env` (for example `KENNEL_BUGS=S05,S07`) and run `docker compose up -d kennel` again. In containers the target isn't `localhost`, so `client-only-validation` is skipped and the report says why.
 
 ## Test your own app
 
@@ -182,7 +209,7 @@ On Linux the container can share your machine's network, so `localhost` means yo
 ```sh
 docker compose build run-hound      # once (or reuse the image from docker compose up --build)
 mkdir -p runs
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.1.0 \
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.2.0 \
   run http://localhost:5173/signup --approve all
 ```
 
@@ -191,7 +218,7 @@ The command prints `Report: /repo/app/runs/<runId>/report.html`; on your machine
 For the web UI on the host network, bind it to loopback so it isn't exposed to your network:
 
 ```sh
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.1.0 \
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.2.0 \
   serve --host 127.0.0.1 --port 4310
 ```
 
@@ -243,7 +270,7 @@ The report has:
 
 - **A summary**: how long the run took ("Finished in 38 s"), findings by severity (critical, high, medium, low), confirmed versus advisory, scenarios passed, failed, errored and skipped, a table per group (Accessibility, Features, Security) with its results, findings and time, and how many test records the run may have created.
 - **Findings**, each with a title, its group, severity, confirmed or advisory, where on the page (every place, when there are several), *What this means*, *Why it matters*, *What to ask your AI (or developer) to fix*, and the evidence: frames (screenshots with the element boxed and the measured facts), GIFs of flows such as a double-click, and cards with the request, response or script line that proves it.
-- **Scenarios**: every scenario that ran, under its group, with its result, how long it took and notes (why it was skipped or errored), the ones you didn't approve, and checks that had nothing to test on your form.
+- **Scenarios**: every scenario that ran, under its group, with its result, how long it took and notes (why it was skipped or errored), the ones you didn't approve, and checks that had nothing to test on your page.
 - **Pages tested**: every URL the run loaded. Check it: if your URL redirected somewhere (a login page), the run tested that page instead.
 - **What a browser can't see**: backups, webhook signatures and other things no browser test can check, so a clean report isn't mistaken for a clean app.
 
@@ -251,7 +278,9 @@ To judge a finding, look at its evidence first, then try it by hand in your brow
 
 ## Known limitations
 
-- **One form, one page, no login.** Run Hound tests the main form on the page you give it. Pages that redirect to a login screen get the login form tested instead (check **Pages tested**).
+- **One page, no login.** Run Hound tests every form (up to 5) and the buttons outside them on the page you give it, but doesn't follow links. Pages that redirect to a login screen get the login page tested instead (check **Pages tested**). Cookies that are only set after signing in aren't checked yet.
+- **Limits per page**: up to 5 forms and 20 buttons outside them are tested; links are counted, not followed. Buttons that sign you out, delete, pay or cancel something are only clicked with destructive scenarios allowed.
+- **Dev servers**: header, cookie and CORS findings are advisory and source maps are skipped on a dev server (Vite, Next.js, webpack, Nuxt, Astro). For those checks, run Run Hound against a production build.
 - **Login forms** need a real account for anything past the first submit; expect those scenarios to be skipped or limited.
 - **Unusual apps** may still produce false findings. We've tested classic HTML forms that post and redirect, fetch-based single-page apps, login forms and forms whose API is on another origin, but not your stack. That's what this test round is for.
 - **Development overlays** (Next.js dev tools, Vite's error overlay) are part of the page in development; if a finding points at one, tell us.
@@ -261,7 +290,7 @@ To judge a finding, look at its evidence first, then try it by hand in your brow
 
 ## Sending feedback
 
-Open an issue with the **V0 tester feedback** form: <https://github.com/rahul-bharati/run-hound/issues/new/choose>. If you'd rather not use GitHub, email the same details to the person who invited you.
+Open an issue with the **tester feedback** form: <https://github.com/rahul-bharati/run-hound/issues/new/choose>. If you'd rather not use GitHub, email the same details to the person who invited you.
 
 Please include:
 

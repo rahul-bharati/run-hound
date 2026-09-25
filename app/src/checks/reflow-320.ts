@@ -84,11 +84,13 @@ export const check: Check = {
   id: "reflow-320",
   title: "Page fits a narrow (320 px) screen",
   category: "accessibility",
+  // One page, one set of scripts and one layout, however many forms it has.
+  scope: "page",
 
   plan(_form: DiscoveredForm): Scenario[] {
     return [
       scenarioFor("reflow-320", "narrow-viewport", {
-        title: "Load the form on a 320 px wide screen",
+        title: "Load the page on a 320 px wide screen",
         description: "Opens the page at 320x800 (a small phone, or 400% zoom) and checks it does not scroll sideways.",
         priority: "medium",
       }),

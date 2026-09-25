@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startKennel, V0_BUGS, type Kennel } from "./kennel.js";
+import { ALL_BUGS, startKennel, type Kennel } from "./kennel.js";
 import { listBookings, postBooking, STACK_RE, validBooking } from "./form.js";
 
 describe("Kennel API contract (clean mode)", () => {
@@ -205,7 +205,7 @@ describe("KENNEL_BUGS parsing", () => {
     const k = await startKennel("all");
     started.push(k);
     const body = (await (await fetch(`${k.url}/api/__config`)).json()) as { bugs: string[] };
-    expect(body.bugs).toEqual([...V0_BUGS].sort());
+    expect(body.bugs).toEqual([...ALL_BUGS].sort());
   });
 
   it("a comma list is case-insensitive and ignores whitespace", async () => {

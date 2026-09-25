@@ -1,0 +1,16 @@
+{
+  "mode": "S05",
+  "mustFail": [
+    "security-headers"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "security-headers",
+      "severity": "medium",
+      "titleIncludes": "security header problems"
+    }
+  ],
+  "notes": "Every Kennel response loses its Content-Security-Policy, X-Content-Type-Options and Referrer-Policy headers. Referrer-Policy missing is not a finding (browsers default to strict-origin-when-cross-origin), so the finding lists CSP, clickjacking protection and nosniff. No other check reads headers."
+}

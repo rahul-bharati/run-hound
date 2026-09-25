@@ -14,8 +14,13 @@ import { check as piiLeak } from "./pii-leak.js";
 import { check as verboseErrors } from "./verbose-errors.js";
 import { check as reflow320 } from "./reflow-320.js";
 import { check as clientOnlyValidation } from "./client-only-validation.js";
+import { check as pageControls } from "./page-controls.js";
+import { check as securityHeaders } from "./security-headers.js";
+import { check as cookieFlags } from "./cookie-flags.js";
+import { check as cors } from "./cors.js";
+import { check as sourceMaps } from "./source-maps.js";
 
-/** Every V0 check, in CHECK_IDS order. */
+/** Every check (V0 and V1), in CHECK_IDS order. */
 export const checks: Check[] = [
   consoleNetworkErrors,
   deadControl,
@@ -32,4 +37,9 @@ export const checks: Check[] = [
   verboseErrors,
   reflow320,
   clientOnlyValidation,
+  pageControls,
+  securityHeaders,
+  cookieFlags,
+  cors,
+  sourceMaps,
 ];

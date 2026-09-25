@@ -1,13 +1,36 @@
 import { groupOf } from "../core/format.js";
-import { CHECK_GROUPS, CHECK_IDS, type Check, type CheckGroup, type DiscoveredForm, type Plan, type Scenario } from "../core/types.js";
+import { CHECK_GROUPS, CHECK_IDS, type Check, type CheckGroup, type DiscoveredForm, type DiscoveredPage, type Plan, type Scenario } from "../core/types.js";
+import { emptyForm } from "./discover.js";
+
+/** "Book a sitter form", "Form 2": how a form is named in scenario titles and the plan. */
+export function formLabel(form: DiscoveredForm, index = form.index ?? 0): string {
+  const name = form.name?.replace(/\s+/g, " ").trim();
+  if (!name) return form.search ? "Search form" : `Form ${index + 1}`;
+  return /\bform$/i.test(name) ? name : `${name} form`;
+}
+
+/** Label of page-scoped scenarios. */
+export const WHOLE_PAGE = "Whole page";
+
+function isPage(value: DiscoveredForm | DiscoveredPage): value is DiscoveredPage {
+  return Array.isArray((value as DiscoveredPage).forms);
+}
 
 /**
  * Collects scenarios from every check, in run order: group by group (CHECK_GROUPS order), CHECK_IDS order inside a
- * group. Scenario ids must be unique across the plan. Destructive scenarios are included but never defaultSelected.
- * A colliding id is disambiguated by prefixing the check id (and a counter if still taken).
- * Plan.groups lists each non-empty group with its scenario ids.
+ * group, forms in page order inside a check. Scenario ids must be unique across the plan. Destructive scenarios are
+ * included but never defaultSelected. A colliding id is disambiguated by prefixing the check id (and a counter if
+ * still taken). Plan.groups lists each non-empty group with its scenario ids.
+ *
+ * Given a form (V0), every check plans for that form. Given a page (V1), form-scoped checks plan once per form (ids of
+ * the second and later forms end in "@form-<n>", and titles name the form when there is more than one) and
+ * page-scoped checks plan once for the page; every scenario carries its scope and a scopeLabel.
  */
-export function buildPlan(target: string, form: DiscoveredForm, checks: Check[]): Plan {
+export function buildPlan(target: string, formOrPage: DiscoveredForm | DiscoveredPage, checks: Check[]): Plan {
+  const page = isPage(formOrPage) ? formOrPage : undefined;
+  const forms = page ? page.forms : [formOrPage as DiscoveredForm];
+  const mainForm = forms[0] ?? emptyForm(page?.url ?? target);
+
   const groupRank = (check: Check) => CHECK_GROUPS.findIndex((g) => g.id === groupOf(check.category));
   const rank = (check: Check) => {
     const i = (CHECK_IDS as readonly string[]).indexOf(check.id);
@@ -18,22 +41,63 @@ export function buildPlan(target: string, form: DiscoveredForm, checks: Check[])
   const seen = new Set<string>();
   const scenarios: Scenario[] = [];
   const byGroup = new Map<CheckGroup, string[]>();
-  for (const check of ordered) {
-    const group = groupOf(check.category);
-    for (const proposed of check.plan(form)) {
-      let id = proposed.id;
-      if (seen.has(id)) {
-        id = `${check.id}:${proposed.id}`;
-        for (let n = 2; seen.has(id); n++) id = `${check.id}:${proposed.id}#${n}`;
-      }
-      seen.add(id);
-      const defaultSelected = proposed.destructive ? false : proposed.defaultSelected;
-      scenarios.push(
-        id === proposed.id && defaultSelected === proposed.defaultSelected ? proposed : { ...proposed, id, defaultSelected },
-      );
-      byGroup.set(group, [...(byGroup.get(group) ?? []), id]);
+  const add = (check: Check, proposed: Scenario, extra: Partial<Scenario>, idSuffix = "") => {
+    let id = proposed.id + idSuffix;
+    if (seen.has(id)) {
+      id = `${check.id}:${proposed.id}${idSuffix}`;
+      for (let n = 2; seen.has(id); n++) id = `${check.id}:${proposed.id}${idSuffix}#${n}`;
     }
+    seen.add(id);
+    const defaultSelected = proposed.destructive ? false : proposed.defaultSelected;
+    const unchanged = id === proposed.id && defaultSelected === proposed.defaultSelected && Object.keys(extra).length === 0;
+    scenarios.push(unchanged ? proposed : { ...proposed, ...extra, id, defaultSelected });
+    const group = groupOf(check.category);
+    byGroup.set(group, [...(byGroup.get(group) ?? []), id]);
+  };
+
+  for (const check of ordered) {
+    if (!page) {
+      for (const proposed of check.plan(mainForm)) add(check, proposed, {});
+      continue;
+    }
+    if (check.scope === "page") {
+      for (const proposed of check.plan(mainForm, page)) add(check, proposed, { scope: "page", scopeLabel: WHOLE_PAGE });
+      continue;
+    }
+    forms.forEach((form, index) => {
+      const label = formLabel(form, index);
+      for (const proposed of check.plan(form, page)) {
+        const title = forms.length > 1 ? `${proposed.title} (${label})` : proposed.title;
+        add(check, proposed, { scope: "form", formIndex: index, scopeLabel: label, title }, index === 0 ? "" : `@form-${index + 1}`);
+      }
+    });
   }
   const groups = CHECK_GROUPS.filter((g) => byGroup.has(g.id)).map((g) => ({ id: g.id, label: g.label, scenarioIds: byGroup.get(g.id)! }));
-  return { target, form, scenarios, groups };
+  return { target, form: mainForm, ...(page ? { page } : {}), scenarios, groups };
+}
+
+/** The form a scenario tests: its form on the page (V1), else the plan's only form (V0). */
+export function formOfScenario(plan: Plan, scenario: Scenario): DiscoveredForm {
+  if (scenario.scope === "page") return plan.form;
+  return plan.page?.forms[scenario.formIndex ?? 0] ?? plan.form;
+}
+
+function count(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/**
+ * One line on what the plan covers, for the CLI and the web UI: `Found "Book a sitter" with 8 fields; 20 scenarios
+ * planned.` for one form; with several forms, each form and its field count; with controls outside the forms, how many.
+ */
+export function planSummary(plan: Plan): string {
+  const forms = plan.page?.forms ?? [plan.form];
+  const named = (f: DiscoveredForm) => (f.name ? `"${f.name}"` : f.search ? "a search form" : "a form");
+  let found: string;
+  if (forms.length === 0) found = "no form";
+  else if (forms.length === 1) found = `${named(forms[0]!)} with ${count(forms[0]!.fields.length, "field")}`;
+  else found = `${count(forms.length, "form")} (${forms.map((f) => `${named(f)}: ${count(f.fields.length, "field")}`).join(", ")})`;
+  const controls = plan.page?.controls.length ?? 0;
+  const outside = controls > 0 ? ` and ${count(controls, "control")} outside ${forms.length === 1 ? "it" : "them"}` : "";
+  return `Found ${found}${outside}; ${count(plan.scenarios.length, "scenario")} planned.`;
 }

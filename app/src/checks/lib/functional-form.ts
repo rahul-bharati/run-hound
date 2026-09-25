@@ -63,7 +63,8 @@ function hashDigits(text: string, digits: number): string {
  * Canaries are lowercase where it matters (emails), contain the token, and fit maxLength.
  */
 export function canaryValues(form: DiscoveredForm, token: string, salt: string): FieldValue[] {
-  const tag = `${token}${salt}`.toLowerCase().replace(/[^a-z0-9]/g, "");
+  // Each form on a page gets its own values (V1), so one form's saved record never answers for another's.
+  const tag = `${token}${salt}${form.index ? `f${form.index + 1}` : ""}`.toLowerCase().replace(/[^a-z0-9]/g, "");
   const dates = form.fields.filter((f) => f.type === "date");
   const start = isoDay(14);
   const values: FieldValue[] = [];
@@ -197,6 +198,14 @@ export function createRequests(capture: Capture, pageUrl: string, runToken = "")
  * refused there, so a 400/401/403/422 answer is the app working, and nothing is saved.
  * A sign-up form (a "new-password" field, or password + confirm) is not a sign-in form.
  */
+/**
+ * A search form: it finds things and saves nothing (it usually loads a results page with GET). Checks that need a
+ * saved record (persistence, double-submit, silent-failure, client-only-validation, verbose-errors) don't plan for it.
+ */
+export function isSearchForm(form: DiscoveredForm): boolean {
+  return form.search === true;
+}
+
 export function isSignInForm(form: DiscoveredForm): boolean {
   const passwords = form.fields.filter((f) => f.type === "password");
   if (passwords.length !== 1) return false;

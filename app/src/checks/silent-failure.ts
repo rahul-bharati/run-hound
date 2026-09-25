@@ -19,8 +19,7 @@ import {
   submitControl,
   submitForm,
   waitFor,
-  type FieldValue,
-} from "./lib/functional-form.js";
+  type FieldValue, isSearchForm } from "./lib/functional-form.js";
 
 const ID = "silent-failure" as const;
 const BUDGET_MS = 5000;
@@ -92,6 +91,8 @@ export const check: Check = {
   category: "broken-feature",
 
   plan(form): Scenario[] {
+    // A search form saves nothing, so there is no saved record to test (V1: every form on the page is planned).
+    if (isSearchForm(form)) return [];
     return [
       {
         id: "server-error-500",

@@ -1,39 +1,45 @@
-# Run Hound + Kennel (the deliberately broken demo target), local only. See TESTING.md.
-#   mkdir -p runs && docker compose up --build     (or: podman-compose up --build)
-#   Open http://localhost:4000 and test http://kennel:3000/book.
+# Run Hound V1 plus the apps it is tested against, all local. See TESTING.md.
 #
-# Environment (all optional):
-#   KENNEL_BUGS=none            clean Kennel (default: every V0 bug on)
-#   RUNHOUND_HOST_PORT=4400     host port for the Run Hound UI (default 4000)
-#   KENNEL_HOST_PORT / KENNEL_ANALYTICS_HOST_PORT   host ports for Kennel and its analytics (default 3000 / 3001)
+#   cp .env.example .env        # optional: every setting has a default; edit ports and options there
+#   mkdir -p runs               # reports land in ./runs; create it first so the files belong to you
+#   docker compose up --build   # or: podman compose up --build  (podman-compose works too)
 #
-# Reports are written to ./runs on your machine (one folder per run).
+# Then open the Run Hound UI (http://localhost:4000 by default) and test one of these targets. Inside the compose
+# network the apps are reached by service name, so enter these addresses in the UI:
+#
+#   http://kennel:3000/book            Kennel with its planted bugs (KENNEL_BUGS, default: every V0 and V1 bug)
+#   http://kennel-clean:3000/book      Kennel in clean mode: every check should pass
+#   http://classic-post:4101/signup    sample: server-rendered form, no JavaScript
+#   http://spa-fetch:4102/             sample: vanilla-JS contact form, same-origin JSON API
+#   http://login:4103/                 sample: sign-in form (401 on wrong credentials)
+#   http://cross-origin-api:4104/      sample: RSVP form whose API is on another origin (port 4105)
+#   http://multi-form:4106/            sample: three forms (search, contact, newsletter) and buttons outside them
+#
+# The samples are well built on purpose: any confirmed finding on them is a false positive (please report it).
+# Every service is also published on 127.0.0.1 so you can open it in your own browser (ports in .env.example).
 #
 # Testing an app running on your machine: enter http://host.docker.internal:<port>/<page> in the UI. Your dev server
 # must listen on all interfaces and accept that host name (TESTING.md has the settings for Vite and Next.js).
 # On Linux, `docker run --network host` (TESTING.md) is simpler: it tests http://localhost:<port> directly.
-services:
-  kennel:
-    build:
-      context: .
-      dockerfile: fixtures/kennel/Dockerfile
-    image: rahulrbharati/run-hound-kennel:0.1.0
-    environment:
-      KENNEL_BUGS: ${KENNEL_BUGS:-all}
-    ports:
-      - "127.0.0.1:${KENNEL_HOST_PORT:-3000}:3000"
-      - "127.0.0.1:${KENNEL_ANALYTICS_HOST_PORT:-3001}:3001"
 
+x-sample: &sample
+  build:
+    context: .
+    dockerfile: fixtures/samples/Dockerfile
+  image: rahulrbharati/run-hound-samples:0.2.0
+  init: true
+
+services:
   run-hound:
     build:
       context: .
       dockerfile: app/Dockerfile
-    image: rahulrbharati/run-hound:0.1.0
+    image: rahulrbharati/run-hound:0.2.0
     init: true
     environment:
-      # Named hosts the safety gate accepts besides localhost and private addresses: the Kennel service and the
-      # names Docker and Podman give your machine. Nothing public is added.
-      RUNHOUND_ALLOWED_HOSTS: kennel,host.docker.internal,host.containers.internal
+      # Named hosts the safety gate accepts besides localhost and private addresses: the test apps and the names
+      # Docker and Podman give your machine. Nothing public is added. Override in .env to add your own.
+      RUNHOUND_ALLOWED_HOSTS: ${RUNHOUND_ALLOWED_HOSTS:-kennel,kennel-clean,classic-post,spa-fetch,login,cross-origin-api,multi-form,host.docker.internal,host.containers.internal}
       RUNHOUND_PUBLIC_URL: http://localhost:${RUNHOUND_HOST_PORT:-4000}
     extra_hosts:
       # Docker Desktop defines host.docker.internal itself; this adds it on Linux Docker and Podman too.
@@ -41,6 +47,78 @@ services:
     ports:
       - "127.0.0.1:${RUNHOUND_HOST_PORT:-4000}:4000"
     volumes:
-      - ./runs:/repo/app/runs
+      - ${RUNHOUND_RUNS_DIR:-./runs}:/repo/app/runs
     depends_on:
       - kennel
+      - kennel-clean
+      - classic-post
+      - spa-fetch
+      - login
+      - cross-origin-api
+      - multi-form
+
+  # ---- Kennel: the deliberately broken booking app -------------------------------------------------------------
+  kennel: &kennel
+    build:
+      context: .
+      dockerfile: fixtures/kennel/Dockerfile
+    image: rahulrbharati/run-hound-kennel:0.2.0
+    environment:
+      KENNEL_BUGS: ${KENNEL_BUGS:-all}
+    ports:
+      - "127.0.0.1:${KENNEL_HOST_PORT:-3000}:3000"
+      - "127.0.0.1:${KENNEL_ANALYTICS_HOST_PORT:-3001}:3001"
+
+  kennel-clean:
+    <<: *kennel # same image as kennel, clean mode
+    environment:
+      KENNEL_BUGS: none
+    ports:
+      - "127.0.0.1:${KENNEL_CLEAN_HOST_PORT:-3100}:3000"
+      - "127.0.0.1:${KENNEL_CLEAN_ANALYTICS_HOST_PORT:-3101}:3001"
+
+  # ---- Sample apps: unfamiliar, well-built apps (fixtures/samples) ---------------------------------------------
+  classic-post:
+    <<: *sample
+    command: ["node", "classic-post/server.mjs"]
+    environment:
+      PORT: 4101
+    ports:
+      - "127.0.0.1:${CLASSIC_POST_HOST_PORT:-4101}:4101"
+
+  spa-fetch:
+    <<: *sample
+    command: ["node", "spa-fetch/server.mjs"]
+    environment:
+      PORT: 4102
+    ports:
+      - "127.0.0.1:${SPA_FETCH_HOST_PORT:-4102}:4102"
+
+  login:
+    <<: *sample
+    command: ["node", "login/server.mjs"]
+    environment:
+      PORT: 4103
+    ports:
+      - "127.0.0.1:${LOGIN_HOST_PORT:-4103}:4103"
+
+  cross-origin-api:
+    <<: *sample
+    command: ["node", "cross-origin-api/server.mjs"]
+    environment:
+      PORT: 4104
+      API_PORT: 4105
+      # The page is opened as http://cross-origin-api:4104 inside the network; let the API allow that origin.
+      PAGE_HOSTS: cross-origin-api
+    # The page calls its API on the same host name and port 4105, so publish both on the same numbers.
+    ports:
+      - "127.0.0.1:4104:4104"
+      - "127.0.0.1:4105:4105"
+
+  multi-form:
+    <<: *sample
+    command: ["node", "multi-form/server.mjs"]
+    environment:
+      PORT: 4106
+    ports:
+      - "127.0.0.1:${MULTI_FORM_HOST_PORT:-4106}:4106"

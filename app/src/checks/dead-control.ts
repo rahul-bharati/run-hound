@@ -20,9 +20,17 @@ const REACTION_MS = 1500;
 const DESTRUCTIVE_NAME =
   /\b(delete|remove|destroy|erase|wipe|purge|revoke|deactivate|unsubscribe|archive|discard|pay|purchase|buy|checkout|charge|refund|transfer|invite|publish|deploy)\b/i;
 
-/** True when clicking this control could change or destroy data beyond creating a test record. */
+/**
+ * Controls that end the session or undo account-level state. Clicking "Sign out" in a header would leave every later
+ * scenario testing a signed-out page, so these are treated as destructive too.
+ */
+const SESSION_ENDING_NAME =
+  /\b(log\s?-?out|sign\s?-?out|logoff|log\s+off|disconnect|unlink|clear\s+all|empty\s+(the\s+)?(cart|basket|trash|bin)|reset\s+(all|everything|data|account|settings)|cancel\s+(my\s+|the\s+)?(subscription|plan|order|booking|membership|account|reservation)|close\s+(my\s+)?account)\b/i;
+
+/** True when clicking this control could change or destroy data beyond creating a test record, or end the session. */
 export function isDestructiveControl(control: FormControl): boolean {
-  return DESTRUCTIVE_NAME.test(`${control.accessibleName ?? ""} ${control.text}`);
+  const name = `${control.accessibleName ?? ""} ${control.text}`;
+  return DESTRUCTIVE_NAME.test(name) || SESSION_ENDING_NAME.test(name);
 }
 
 /**
@@ -197,11 +205,27 @@ export const check: Check = {
   },
 
   run(ctx, scenario) {
-    return guarded(ID, scenario, ctx, async (started) => {
-      const controls = ctx.form.controls.filter((c) => !c.isSubmit);
-      const values = canaryValues(ctx.form, ctx.runToken, "dead");
+    return clickEach(ctx, scenario, {
+      id: ID,
+      controls: ctx.form.controls.filter((c) => !c.isSubmit),
+      values: canaryValues(ctx.form, ctx.runToken, "dead"),
+    });
+  },
+};
+
+/**
+ * Clicks each control on a freshly loaded page (with `values` typed in first) and reports the ones that do nothing as
+ * one finding. Shared by dead-control (the controls in a form) and page-controls (the controls outside every form).
+ */
+export function clickEach(
+  ctx: CheckContext,
+  scenario: Scenario,
+  options: { id: "dead-control" | "page-controls"; controls: FormControl[]; values: FieldValue[] },
+) {
+  const { id, controls, values } = options;
+  return guarded(id, scenario, ctx, async (started) => {
       const { page, capture } = await ctx.openPage();
-      const make = findingFactory(ID, "broken-feature", scenario);
+      const make = findingFactory(id, "broken-feature", scenario);
       const findings = [];
       const notes: string[] = [];
       const dead: { control: FormControl; name: string; shots: Evidence[] }[] = [];
@@ -223,8 +247,10 @@ export const check: Check = {
           continue;
         }
         notes.push(`"${name}": no reaction`);
-        ctx.step(`"${name}" did nothing; recording the click as evidence`, page);
-        const shots = await recordDeadClick(ctx, page, capture, control, values).catch(() => []);
+        // The finding shows the first 6 recordings; recording more would only cost time.
+        const record = dead.length < 6;
+        if (record) ctx.step(`"${name}" did nothing; recording the click as evidence`, page);
+        const shots = record ? await recordDeadClick(ctx, page, capture, control, values).catch(() => []) : [];
         dead.push({ control, name, shots });
       }
 
@@ -237,6 +263,9 @@ export const check: Check = {
         const probeLines = (control: FormControl, name: string) => [
           `{`,
           `  const control = ${controlLocator(control)};`,
+          `  // Let the page finish loading first, so its own loading isn't mistaken for the click's effect.`,
+          `  await page.waitForLoadState("networkidle");`,
+          `  await control.waitFor();`,
           `  const requests: string[] = [];`,
           `  page.on("request", (r) => requests.push(r.url()));`,
           `  const before = await snapshot();`,
@@ -295,7 +324,6 @@ export const check: Check = {
           }),
         );
       }
-      return result(ID, scenario, started, findings, notes.join("; "));
+      return result(id, scenario, started, findings, notes.join("; "));
     });
-  },
-};
+}
