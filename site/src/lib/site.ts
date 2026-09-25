@@ -1,4 +1,5 @@
 const version = "0.3.0";
+const composeFileUrl = "https://raw.githubusercontent.com/rahul-bharati/run-hound/main/run-hound.compose.yml";
 
 export const site = {
   name: "Run Hound",
@@ -20,11 +21,12 @@ export const site = {
   feedback: "https://github.com/rahul-bharati/run-hound/issues/new/choose",
   license: "MIT",
   licenseUrl: "https://github.com/rahul-bharati/run-hound/blob/main/LICENSE",
-  // Run from a clone of the repository. Starts Run Hound, Kennel and the sample apps (README.md "Quickest start").
-  // Podman: `podman compose up --build`.
-  dockerCommand: "cp .env.example .env && mkdir -p runs && docker compose up --build",
-  // Images published to GHCR on release (run-hound, run-hound-kennel, run-hound-samples). The first release may not
-  // be published yet, so every `docker run` on the site notes `docker compose build run-hound` as the fallback.
+  // No clone needed: downloads run-hound.compose.yml and starts Run Hound, Kennel and the sample apps from the
+  // published images (README.md "Quickest start"). Podman: `podman compose -f run-hound.compose.yml up`.
+  composeFileUrl,
+  dockerCommand: `curl -fsSLO ${composeFileUrl} && mkdir -p runs && docker compose -f run-hound.compose.yml up`,
+  // Images published to GHCR with the v0.3.0 release (run-hound, run-hound-kennel, run-hound-samples; linux/amd64 and
+  // arm64). Until they are published, a clone builds the same images: `docker compose up --build` (docker-compose.yml).
   image: `ghcr.io/rahul-bharati/run-hound:${version}`,
   // Placeholders until real addresses exist.
   contactEmail: "contact@rahulbharati.dev",

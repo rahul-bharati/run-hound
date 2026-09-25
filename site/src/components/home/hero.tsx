@@ -82,7 +82,7 @@ export function Hero() {
               </ButtonLink>
             </div>
             <p className="text-sm text-dim">
-              Free and open source: clone it, try it and{" "}
+              Free and open source: try it without cloning anything, and{" "}
               <a
                 href={links.issues}
                 className="text-muted underline decoration-line-strong underline-offset-4 hover:text-accent hover:decoration-accent"

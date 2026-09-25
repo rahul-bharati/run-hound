@@ -1,13 +1,19 @@
 # Run Hound: local UI + API on port 4000, with Playwright Chromium included.
-# Build from the repository root (the pnpm workspace and lockfile live there):
+# Published as ghcr.io/rahul-bharati/run-hound:0.3.0 (linux/amd64, linux/arm64), so running it needs no clone; the
+# commands below work from any folder. To build it yourself, from the repository root (the pnpm workspace and
+# lockfile live there):
 #   docker build -f app/Dockerfile -t ghcr.io/rahul-bharati/run-hound:0.3.0 .
-# Web UI (open http://localhost:4000):
-#   docker run --rm --init -p 127.0.0.1:4000:4000 -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.3.0
+# Web UI (open http://localhost:4000; the --add-host and allowed-hosts flags let it reach your machine as
+# host.docker.internal on Linux too):
+#   mkdir -p runs
+#   docker run --rm --init -p 127.0.0.1:4000:4000 --add-host host.docker.internal:host-gateway \
+#     -e RUNHOUND_ALLOWED_HOSTS=host.docker.internal -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.3.0
 # Command line against an app on your machine (Linux; the container shares the host's network):
 #   docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.3.0 \
 #     run http://localhost:5173/signup --approve all
 # Run Hound only tests localhost, private addresses and hosts listed in RUNHOUND_ALLOWED_HOSTS
-# (e.g. -e RUNHOUND_ALLOWED_HOSTS=kennel when the target is another compose service). See TESTING.md.
+# (e.g. -e RUNHOUND_ALLOWED_HOSTS=kennel when the target is another compose service). See TESTING.md; the whole test
+# lab from published images is run-hound.compose.yml at the repository root.
 
 # The image tag must match the installed "playwright" version so the bundled browsers fit.
 FROM mcr.microsoft.com/playwright:v1.63.0-noble

@@ -4,21 +4,80 @@ AI-assisted UI testing for AI-built apps: it hunts for the holes AI-generated ap
 
 **AI plans and explains; real checks decide.** Since 0.3.0 you can bring your own model (Ollama, LM Studio, llama.cpp, vLLM, any OpenAI-compatible endpoint, or Amazon Bedrock) to review the plan, suggest extra flows and explain findings. AI is **off by default**; without it the plan comes from Run Hound's built-in checks and nothing is sent to any AI provider. See [AI (optional)](#ai-optional).
 
-> **V1 open-source preview (0.3.0): single page, optional AI.** V1 tests a whole page of an app running on your own machine: every form on it, the buttons outside them, and page-wide checks for security headers, session cookies, CORS and public source maps; 0.3.0 adds optional AI planning and explanations with your own model. The repository is public: anyone can clone it, try it and [file an issue](https://github.com/rahul-bharati/run-hound/issues/new/choose). To try it, start with **[TESTING.md](TESTING.md)**: install, a 10-minute run on the Kennel demo, testing your own app (local or Docker), reading the report, and how to send feedback. Changes: [CHANGELOG.md](CHANGELOG.md).
+> **V1 open-source preview (0.3.0): single page, optional AI.** V1 tests a whole page of an app running on your own machine: every form on it, the buttons outside them, and page-wide checks for security headers, session cookies, CORS and public source maps; 0.3.0 adds optional AI planning and explanations with your own model. The repository is public: anyone can try it, read the code and [file an issue](https://github.com/rahul-bharati/run-hound/issues/new/choose). To try it, start with **[TESTING.md](TESTING.md)**: install (Docker, no clone, or from source), a 10-minute run on the Kennel demo, testing your own app (local or Docker), reading the report, and how to send feedback. Changes: [CHANGELOG.md](CHANGELOG.md).
 >
-> **Quickest start:** `cp .env.example .env && mkdir -p runs && docker compose up --build` (or `podman compose up --build`) starts Run Hound on <http://localhost:4000> together with every test app: Kennel (broken and clean) and four well-built sample apps. See [Containers](#containers).
+> **Quickest start (no clone, just Docker or Podman):** in an empty folder,
+>
+> ```sh
+> curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/main/run-hound.compose.yml
+> mkdir -p runs && docker compose -f run-hound.compose.yml up   # or: podman compose -f run-hound.compose.yml up
+> ```
+>
+> starts Run Hound on <http://localhost:4000> from the published images, together with every test app: Kennel (broken and clean) and five well-built sample apps. See [Running V1 locally](#running-v1-locally).
 
 ## Running V1 locally
 
-V1 tests one page of a local app: point it at the page, and Run Hound finds every form and control on it, plans the form checks for each form plus the page-wide checks, you approve the plan, watch the run, and get a report with annotated evidence. Needs Node 22+ (24 recommended), pnpm (`corepack enable`) and Chromium. The step-by-step guide, [TESTING.md](TESTING.md), covers the same steps with more detail and troubleshooting.
+V1 tests one page of a local app: point it at the page, and Run Hound finds every form and control on it, plans the form checks for each form plus the page-wide checks, you approve the plan, watch the run, and get a report with annotated evidence. The quickest way needs only Docker or Podman and no clone: the image has Run Hound's web UI, its command line and Chromium. To contribute, or to run it with Node, install it [from source](#from-source-contributing). The step-by-step guide, [TESTING.md](TESTING.md), covers the same steps with more detail and troubleshooting.
+
+The images (`ghcr.io/rahul-bharati/run-hound:0.3.0`, `run-hound-kennel`, `run-hound-samples`; linux/amd64 and arm64) appear on GitHub's registry with the v0.3.0 release. Until then, build them from a clone: `docker compose up --build` ([From source](#from-source-contributing)).
+
+### With Docker or Podman
+
+**The test lab: Run Hound and every test app.** Every command below works from an empty folder.
 
 ```sh
+curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/main/run-hound.compose.yml
+mkdir -p runs                                  # reports land in ./runs; create it first so the files belong to you
+docker compose -f run-hound.compose.yml up     # UI on http://localhost:4000 (Podman: podman compose -f run-hound.compose.yml up)
+```
+
+Open <http://localhost:4000> and enter `http://kennel:3000/book`; the other targets are listed under [Containers](#containers). Every setting (host ports, `KENNEL_BUGS`, allowed hosts, the runs folder, AI) has a default; to change one, put it in a `.env` next to the compose file, starting from the documented example:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rahul-bharati/run-hound/main/.env.example -o .env
+```
+
+**Only Run Hound, in a single container** (the web UI on <http://localhost:4000>, no test apps):
+
+```sh
+mkdir -p runs
+docker run --rm --init -p 127.0.0.1:4000:4000 \
+  --add-host host.docker.internal:host-gateway -e RUNHOUND_ALLOWED_HOSTS=host.docker.internal \
+  -e RUNHOUND_CONFIG_DIR=/repo/app/runs/.config \
+  -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.3.0
+```
+
+`--add-host` and `RUNHOUND_ALLOWED_HOSTS` let it reach apps on your machine as `http://host.docker.internal:<port>` (Docker Desktop defines that name itself; the flag adds it on Linux), and `RUNHOUND_CONFIG_DIR` keeps the AI settings you save in the UI in `./runs/.config`. Podman works the same (`podman run …`; `host.containers.internal` also works there).
+
+**The command line in a container.** The image's entrypoint takes `serve`, `run`, `ai`, `help` and `--version`:
+
+```sh
+# against the test lab (in the folder with run-hound.compose.yml)
+docker compose -f run-hound.compose.yml run --rm run-hound run http://kennel:3000/book --approve all
+
+# Linux: share the host's network, so localhost is your machine and nothing in your app changes
+mkdir -p runs
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.3.0 run http://localhost:5173/signup --approve all
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.3.0 serve --host 127.0.0.1 --port 4310   # the UI this way, on loopback only
+```
+
+Testing an app on your machine from a container has a few rules (the dev server must accept `host.docker.internal` except with `--network host`): see [Containers](#containers).
+
+### From source (contributing)
+
+Needs Node 22+ (24 recommended), pnpm (`corepack enable`), git and Chromium. The examples in the next sections use this install.
+
+```sh
+git clone https://github.com/rahul-bharati/run-hound.git
+cd run-hound
 pnpm install
 pnpm --filter run-hound exec playwright install chromium   # once, and its system deps if prompted
 pnpm --filter kennel build                                 # build the demo target (Vite bundle)
 ```
 
-### Ports
+In the clone, `docker compose up --build` builds and starts the same test lab from your working tree ([`docker-compose.yml`](docker-compose.yml)).
+
+#### Ports
 
 The defaults are Kennel on 3000 (its mock analytics service on 3001) and the Run Hound UI on 4000. Port 3000 is often taken by another dev server, so the examples below use free ports instead:
 
@@ -27,13 +86,13 @@ KENNEL_BUGS=all PORT=5310 ANALYTICS_PORT=5311 pnpm kennel   # Kennel on http://l
 pnpm serve --port 4310                                      # web UI + API on http://127.0.0.1:4310
 ```
 
-`PORT` and `ANALYTICS_PORT` move Kennel (the analytics port must differ from the app's, so it counts as a third party); `serve --port` moves the UI. `EADDRINUSE` means the port is taken: choose another. The examples below use these ports.
+`PORT` and `ANALYTICS_PORT` move Kennel (the analytics port must differ from the app's, so it counts as a third party); `serve --port` moves the UI. `EADDRINUSE` means the port is taken: choose another. The examples below use these ports; in the test lab the UI is <http://localhost:4000> and Kennel is `http://kennel:3000/book`.
 
 ### Web UI
 
-Open <http://localhost:4310>. The sidebar has three pages (on a narrow screen they're under **Menu**):
+Open the UI (<http://localhost:4000> in the test lab, <http://localhost:4310> with the ports above). The sidebar has three pages (on a narrow screen they're under **Menu**):
 
-- **New Run**: enter `http://localhost:5310/book` (the `http://` is optional) and press **Plan checks**. A strip above the plan shows what was found: each form with its fields and buttons, the controls outside the forms, and the whole page. The plan is grouped as **Accessibility**, **Features** and **Security** (each with a "Select all" box), and the scenarios run in that order. Press **Start run (N scenarios)**.
+- **New Run**: enter `http://kennel:3000/book` in the test lab or `http://localhost:5310/book` from source (the `http://` is optional) and press **Plan checks**. A strip above the plan shows what was found: each form with its fields and buttons, the controls outside the forms, and the whole page. The plan is grouped as **Accessibility**, **Features** and **Security** (each with a "Select all" box), and the scenarios run in that order. Press **Start run (N scenarios)**.
 - **The running view** shows the numbered scenario list with each one's status and time (the current one expanded with its live steps), a counter and progress bar, the elapsed time, the browser (Chromium version), a live preview of the page under test with its address, and a timestamped activity log. **Stop run** stops it for real: the scenario in progress and the rest are marked skipped ("Stopped by you") and a report is still written. **Back to test plan** plans the same page again with the same scenarios ticked.
 - **The report** (same address once the run ends): the verdict and counts, **Re-run** (runs the same scenarios on the same page again), **Open HTML report**, **Download** (report.md, report.json, specs), results you can filter (All, Passed, Issues, Skipped), and for the selected scenario its evidence, reproduction steps, key facts, what to ask your AI and the generated Playwright test.
 - **Runs**: every run on this machine, newest first, including finished runs read back from the runs folder after a restart.
@@ -44,17 +103,18 @@ Open <http://localhost:4310>. The sidebar has three pages (on a narrow screen th
 ### Command line
 
 ```sh
-cd app
-pnpm exec tsx src/cli.ts run http://localhost:5310/book --plan-only          # list the scenarios and their ids
-pnpm exec tsx src/cli.ts run http://localhost:5310/book --approve all         # run everything
-pnpm exec tsx src/cli.ts run localhost:5310/book --approve all --headed       # same, in a visible browser window
+# in the folder with run-hound.compose.yml (the test lab)
+docker compose -f run-hound.compose.yml run --rm run-hound run http://kennel:3000/book --plan-only    # list the scenarios and their ids
+docker compose -f run-hound.compose.yml run --rm run-hound run http://kennel:3000/book --approve all   # run everything
 ```
+
+From source, the same commands start with `pnpm exec tsx src/cli.ts` in `app/` instead (`pnpm exec tsx src/cli.ts run http://localhost:5310/book --approve all`), and `--headed` runs them in a visible browser window.
 
 The plan lists each scenario with what it tests (`[Book a sitter form]`, `[Whole page]`). Options: `--approve all|default|<id,id>`, `--plan-only`, `--allow-destructive`, `--headed`, `--runs-dir <dir>`, `--json` (report on stdout; progress and the run folder on stderr). Progress lines on stderr name each group (`== Accessibility (6 scenarios; group 1 of 3) ==`), each step and each page as it loads (`> page http://…`); each scenario's result line ends with its duration, and the summary starts with `Finished in <duration>` and a line per group. `run-hound help` prints the usage, `--version` the version. `run` exits 0 with no confirmed findings (advisory findings are reported but don't fail the run), 1 with at least one confirmed finding, and 2 on an error: a refused or unreachable target, an error page (such as a 404), or an approval that names no scenarios. A page without a form is planned with the page-wide checks only, with a warning.
 
 ### Reports and evidence
 
-Reports land in `app/runs/<runId>/`: `report.html`, `report.md`, `report.json`, an `artifacts/` folder and a `specs/` folder of Playwright tests. Every finding carries evidence you can check without rerunning anything:
+Reports land in `./runs/<runId>/` with Docker (`app/runs/<runId>/` from source): `report.html`, `report.md`, `report.json`, an `artifacts/` folder and a `specs/` folder of Playwright tests. Every finding carries evidence you can check without rerunning anything:
 
 - **Frames** (`.png`): the screenshot with the element boxed and labelled, a header with the page URL, time, check and step, a caption, and a facts panel with the measured data.
 - **GIFs** (`.gif`): flows such as a double-click, a Tab walk or a submit-and-reload, one annotated frame per step.
@@ -73,13 +133,18 @@ AI is off until you turn it on. A model **reviews the plan** (recommends and ran
 **Command line:**
 
 ```sh
-cd app
-pnpm exec tsx src/cli.ts ai status                                    # the effective settings and what's missing
-pnpm exec tsx src/cli.ts run localhost:5310/book --ai --ai-provider ollama --ai-model qwen3:8b --plan-only
-pnpm exec tsx src/cli.ts ai test                                      # one small call to check the model answers
+# in the folder with run-hound.compose.yml; Ollama on your machine, listening on all interfaces
+docker compose -f run-hound.compose.yml run --rm run-hound ai status          # the effective settings and what's missing
+docker compose -f run-hound.compose.yml run --rm run-hound run http://kennel:3000/book --plan-only \
+  --ai --ai-provider ollama --ai-model qwen3:8b --ai-base-url http://host.docker.internal:11434/v1
+docker compose -f run-hound.compose.yml run --rm run-hound ai test            # one small call to check the model answers
 ```
 
-Settings come from the Settings page (saved to `~/.config/run-hound/ai.json`, mode 0600), then `RUNHOUND_AI_*` environment variables, then `--ai*` flags; the full list is in [docs/ai-spec.md](docs/ai-spec.md) and `.env.example`.
+From source, run the same commands as `pnpm exec tsx src/cli.ts ai status` and so on in `app/` (Ollama is then found at its default address, no `--ai-base-url` needed).
+
+**Ollama from a container:** with `--network host` on Linux it is `http://127.0.0.1:11434/v1`; otherwise `http://host.docker.internal:11434/v1` (Docker) or `http://host.containers.internal:11434/v1` (Podman), and Ollama must listen on all interfaces (`OLLAMA_HOST=0.0.0.0 ollama serve`). Settings saved from the UI persist in `./runs/.config` when `RUNHOUND_CONFIG_DIR=/repo/app/runs/.config` (the compose file sets it; add `-e RUNHOUND_CONFIG_DIR=/repo/app/runs/.config` to a plain `docker run`).
+
+Settings come from the Settings page (saved to `~/.config/run-hound/ai.json`, mode 0600, or to `$RUNHOUND_CONFIG_DIR/ai.json` when it is set), then `RUNHOUND_AI_*` environment variables, then `--ai*` flags; the full list is in [docs/ai-spec.md](docs/ai-spec.md) and `.env.example`.
 
 **Privacy:** only redacted page structure is sent (the page title and path, field labels and types, option labels, button names, the scenario list; the full page address only to a local model), never typed values, cookies, response bodies or screenshots. A local endpoint (localhost or a private address) needs nothing more; a remote one (OpenAI, OpenRouter, Bedrock, …) is refused until you consent (the Settings checkbox, `--ai-allow-remote` or `RUNHOUND_AI_ALLOW_REMOTE=1`). API keys stay on the server and never appear in the UI or reports. Bedrock takes a Bedrock API key, AWS access keys, or an AWS profile from `~/.aws` (`RUNHOUND_AI_AWS_PROFILE` or `AWS_PROFILE`; static keys, `credential_process` or IAM Identity Center after `aws sso login`; assume-role profiles aren't supported yet).
 
@@ -87,14 +152,10 @@ Settings come from the Settings page (saved to `~/.config/run-hound/ai.json`, mo
 
 ### Containers
 
-Run Hound and every test app in containers (host ports bound to `127.0.0.1`; Podman works with `podman compose` or `podman-compose`):
+Two compose files start the same test lab, Run Hound and every test app (host ports bound to `127.0.0.1`; Podman works with `podman compose` or `podman-compose`):
 
-```sh
-cp .env.example .env             # optional: host ports, KENNEL_BUGS, allowed hosts, runs folder (all have defaults)
-mkdir -p runs                    # reports land in ./runs; create it first so the files belong to you
-docker compose up --build        # UI on http://localhost:4000 (or `docker compose pull && docker compose up` for the published images)
-docker compose run --rm run-hound run http://kennel:3000/book --approve all   # the CLI in a container
-```
+- [`run-hound.compose.yml`](run-hound.compose.yml) uses the published images: download it and run `docker compose -f run-hound.compose.yml up`, no clone needed ([With Docker or Podman](#with-docker-or-podman)).
+- [`docker-compose.yml`](docker-compose.yml) builds the same services from source, for contributors: `docker compose up --build` in a clone (then `docker compose run --rm run-hound run …` for the CLI).
 
 Targets to enter in the UI (inside the compose network, apps are reached by service name):
 
@@ -108,7 +169,7 @@ Targets to enter in the UI (inside the compose network, apps are reached by serv
 | `http://cross-origin-api:4104/` | Sample: RSVP form whose API is on another origin |
 | `http://multi-form:4106/` | Sample: three forms on one page (search, contact, newsletter) and buttons outside them |
 
-The samples are well built on purpose, so any confirmed finding on them is a false positive. [`.env.example`](.env.example) documents every setting.
+The samples are well built on purpose, so any confirmed finding on them is a false positive. [`.env.example`](.env.example) documents every setting; both compose files read it from a `.env` next to them.
 
 Reports are written to `./runs/<runId>/` on your machine (the CLI prints the container path, `/repo/app/runs/<runId>`); the image runs as the owner of that folder, or as its non-root user when nothing is mounted. In the containers the target is `kennel`, not localhost, so the `client-only-validation` scenario (localhost only) is planned but skipped, and the report says why. **Show the browser window** needs a display, so it doesn't work in a container.
 
@@ -116,17 +177,17 @@ To test an app running on your machine from a container:
 
 - **Linux**: share the host's network, so `localhost` is your machine and nothing in your app changes:
   ```sh
-  docker pull ghcr.io/rahul-bharati/run-hound:0.3.0   # or build it here: docker compose build run-hound
+  mkdir -p runs
   docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.3.0 run http://localhost:5173/signup --approve all
   ```
   For the UI this way, bind it to loopback: `... ghcr.io/rahul-bharati/run-hound:0.3.0 serve --host 127.0.0.1 --port 4310`.
-- **Docker Desktop (Mac, Windows) or the compose UI**: enter `http://host.docker.internal:<port>/<page>`. In a container `localhost` is the container itself. Your dev server must listen on all interfaces (`vite --host`) and accept that host name (Vite `server.allowedHosts`, Next.js `allowedDevOrigins`); a frontend that calls its API on `localhost:<apiPort>` won't work this way. The compose file allows `host.docker.internal` and `host.containers.internal` through the safety gate with `RUNHOUND_ALLOWED_HOSTS`. Details in [TESTING.md](TESTING.md#test-your-own-app).
+- **Docker Desktop (Mac, Windows), the test lab UI or the single container**: enter `http://host.docker.internal:<port>/<page>`. In a container `localhost` is the container itself. Your dev server must listen on all interfaces (`vite --host`) and accept that host name (Vite `server.allowedHosts`, Next.js `allowedDevOrigins`); a frontend that calls its API on `localhost:<apiPort>` won't work this way. Both compose files allow `host.docker.internal` and `host.containers.internal` through the safety gate with `RUNHOUND_ALLOWED_HOSTS` and add `host.docker.internal` on Linux (the single-container command above does the same with its flags). Details in [TESTING.md](TESTING.md#test-your-own-app).
 
 ### Safety
 
 The target must be `localhost`, a private address, or listed in `RUNHOUND_ALLOWED_HOSTS` (which skips the address check with no ownership check, so list only hosts you own); the browser is pinned to the address the gate approved and is stopped if a page navigates off it; requests a check replays or re-fetches are sent from the page, so they get the same pinning. Destructive scenarios only run with `--allow-destructive`. The UI and API answer only on loopback names and IP addresses; add others with `RUNHOUND_SERVER_HOSTS`.
 
-### Running the suites
+### Running the suites (from source)
 
 ```sh
 pnpm --filter run-hound test                  # unit + browser tests for the engine and checks

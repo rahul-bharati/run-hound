@@ -151,11 +151,11 @@ export default function Home() {
         </ul>
         <div className="flex flex-col gap-3">
           <p className="flex flex-wrap items-center gap-2 font-mono text-xs tracking-widest text-dim">
-            TRY IT WITH THE TEST APPS, IN A CLONE OF THE REPOSITORY <NewTag />
+            TRY IT WITH THE TEST APPS, FROM AN EMPTY FOLDER <NewTag />
           </p>
           <CommandCopy command={site.dockerCommand} className="w-full max-w-2xl" />
           <p className="text-sm text-dim">
-            Or <code className="font-mono text-muted">podman compose up --build</code>. Then open{" "}
+            No clone needed. Podman: <code className="font-mono text-muted">podman compose -f run-hound.compose.yml up</code>. Then open{" "}
             <code className="font-mono text-muted">http://localhost:4000</code>.{" "}
             <a href="#start" className="text-muted underline underline-offset-4 hover:text-accent">
               Both ways to start, step by step
@@ -254,8 +254,8 @@ export default function Home() {
       <Section
         id="start"
         eyebrow="START NOW · FREE AND OPEN SOURCE"
-        title="Clone it and run it. Nothing to sign up for."
-        intro="The repository is public and MIT licensed. Pick the local install or Docker; the getting-started guide walks through a first run on Kennel, then your own app."
+        title="Download one file and run it. Nothing to sign up for."
+        intro="The repository is public and MIT licensed. Start with Docker or Podman (no clone), or build it from source; the getting-started guide walks through a first run on Kennel, then your own app."
         className="border-t border-line-soft bg-band"
       >
         <GetStarted />

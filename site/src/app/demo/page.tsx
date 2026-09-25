@@ -60,10 +60,9 @@ KENNEL_BUGS=all PORT=5310 ANALYTICS_PORT=5311 pnpm kennel
 # terminal 2: the web UI, then open http://localhost:4310
 pnpm serve --port 4310`;
 
-const dockerCommands = `git clone https://github.com/rahul-bharati/run-hound.git
-cd run-hound
-cp .env.example .env && mkdir -p runs
-docker compose up --build   # or: podman compose up --build
+const dockerCommands = `curl -fsSLO ${site.composeFileUrl}
+mkdir -p runs
+docker compose -f run-hound.compose.yml up   # or: podman compose -f run-hound.compose.yml up
 
 # then open http://localhost:4000 and enter http://kennel:3000/book`;
 
@@ -185,16 +184,16 @@ export default function DemoPage() {
         id="try"
         className="bg-band"
         title="Run the same demo yourself"
-        intro="Kennel ships in the repository. The quickest way is one Docker or Podman command, which also starts the sample apps; the local install takes two terminals. Then switch Kennel to KENNEL_BUGS=none: a clean Kennel should give zero confirmed findings."
+        intro="Kennel ships with Run Hound. The quickest way needs no clone: download one compose file and start it with Docker or Podman, which also starts the sample apps; from source it takes two terminals. Then switch Kennel to KENNEL_BUGS=none: a clean Kennel should give zero confirmed findings."
       >
         <div className="grid items-start gap-8 lg:grid-cols-[1.3fr_1fr] lg:gap-12">
           <div className="flex min-w-0 flex-col gap-5">
             <CodeBlock label="Docker or Podman">{dockerCommands}</CodeBlock>
-            <CodeBlock label="Local install, from the repository root">{kennelCommands}</CodeBlock>
+            <CodeBlock label="From source, in a clone">{kennelCommands}</CodeBlock>
           </div>
           <div className="flex flex-col gap-4">
             <p className="leading-relaxed text-muted">
-              With the local install, enter <code className="font-mono text-fg">http://localhost:5310/book</code>.
+              From source, enter <code className="font-mono text-fg">http://localhost:5310/book</code>.
               Approve the plan and watch the live view. The{" "}
               <Link href="/docs#quick-start" className="text-accent underline underline-offset-4 hover:text-accent-strong">
                 docs
