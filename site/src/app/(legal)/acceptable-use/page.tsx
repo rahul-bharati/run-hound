@@ -58,8 +58,10 @@ export default function AcceptableUsePage() {
           <code>&lt;meta&gt;</code> tag in the site&apos;s HTML head. The test runs only where the nonce is found.
         </li>
         <li>
-          <strong>You approve the plan.</strong> {site.name} shows every check it plans for the page, and what each
-          one may create, and waits for your approval before it runs.
+          <strong>You approve the plan.</strong> The web UI shows every check it plans for the page, and what each
+          one may create, and waits for your approval before it runs. On the command line, only the recommended
+          scenarios run unless you choose others with <code>--approve</code>, and <code>--plan-only</code> shows the
+          plan without running anything.
         </li>
         <li>
           <strong>Destructive actions are opt-in.</strong> Actions with real consequences, such as real payments or

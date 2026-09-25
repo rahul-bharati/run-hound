@@ -143,15 +143,15 @@ export default function ChecksPage() {
               Dev servers such as <code className="font-mono text-fg">next dev</code> or{" "}
               <code className="font-mono text-fg">vite</code> don&apos;t send the headers, cookie settings or CORS rules
               your production build will. When the target looks like a dev server, header, cookie and CORS findings are
-              marked advisory and never fail the run. For confirmed results, run them against a production build
-              served locally.
+              marked advisory and never fail the run, and the source-map check is skipped. For confirmed results, run
+              them against a production build served locally.
             </p>
           </div>
         </div>
 
         <p className="max-w-3xl text-[15px] leading-relaxed text-muted">
-          Checks that don&apos;t apply to your page (no form, no password field, no JSON save request, no API) are
-          skipped with a plain reason. Every finding carries evidence and an exported Playwright test, and destructive
+          Checks that don&apos;t apply to your page (no form, no password field, no JSON save request) are skipped
+          with a plain reason. Every finding carries evidence and an exported Playwright test, and destructive
           scenarios are off by default.{" "}
           <Link href="/docs#checks" className={linkClass}>
             How each check works, and the test records it creates
@@ -272,8 +272,8 @@ export default function ChecksPage() {
           ))}
         </ul>
         <p className="max-w-3xl text-[15px] leading-relaxed text-muted">
-          Reports also mark areas the browser can&apos;t inspect, such as canvas content, closed shadow DOM and
-          cross-origin iframes, as unscanned.
+          Checks also can&apos;t see inside canvas content, closed shadow DOM or cross-origin iframes. Marking those
+          areas as unscanned in reports is planned.
         </p>
       </Section>
 

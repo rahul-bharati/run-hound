@@ -25,7 +25,7 @@ Bring your own model. AI is off by default and never decides pass or fail. Contr
 
 ### Privacy
 
-- Only redacted page structure is sent (labels, field types, button names, the page path, scenario titles), never typed values, selectors, cookies, bodies or screenshots.
+- Only redacted page structure is sent (labels, field types, button names, the page path, scenario titles), plus the finding text and evidence facts for explanations, never typed values, selectors, cookies, bodies or screenshots.
 - Remote endpoints (anything not on this machine or a private network, and Bedrock) need explicit consent; without it nothing is sent, not even a model list request.
 - API keys are never returned by the API, shown in the UI or written to reports. A saved key is bound to the endpoint it was saved for: changing the endpoint (in Settings, a flag or an environment variable) never sends it elsewhere, and saving a new endpoint without a new key removes it.
 - Consent for a remote endpoint is bound to its host; pointing Run Hound at another remote host asks again.

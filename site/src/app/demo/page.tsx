@@ -43,7 +43,7 @@ const planted = [
     version: "V2 · PLANNED",
     count: 7,
     title: "Two-account bugs",
-    body: "Access problems that only show up when two owned test accounts try to see each other's data. Not tested by V0 or V1.",
+    body: "Access problems that only show up when two owned test accounts try to see each other's data. Listed for V2, not built into Kennel yet.",
     groups: [
       { name: "Data access", count: 4 },
       { name: "Auth", count: 2 },
@@ -170,7 +170,7 @@ export default function DemoPage() {
           <EvidenceFigure
             shot={evidence.corsNullOrigin}
             label="CORS · REQUEST CARD"
-            caption="The page's own reads, repeated from a sandboxed frame as any website could: Kennel's API lets each one be read with the visitor's cookies."
+            caption="The page's own reads, repeated from a sandboxed frame as any website could: Kennel's API lets two of them be read with the visitor's cookies. The page itself stays unreadable."
           />
           <EvidenceFigure
             shot={evidence.missingHeaders}

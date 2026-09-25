@@ -42,7 +42,7 @@ What we most want to learn: **is every finding real, and did it miss a bug you k
 | `pii-leak` | Sends a test email and phone number and checks no request to another site carries them (or their hashes). | 1 |
 | `verbose-errors` | Sends far too much text and a broken request body and looks for stack traces, file paths or error dumps. | up to 2, if your server accepts them |
 | `reflow-320` | Opens the page 320 px wide (a small phone, or 400% zoom) and checks it doesn't scroll sideways. | 0 |
-| `client-only-validation` | Captures the save request, then sends it straight to the server with one field invalid and checks the server rejects it. Localhost targets only; skipped otherwise, with a reason. | 0 |
+| `client-only-validation` | Captures the save request, then sends it straight to the server with one field invalid and checks the server rejects it. Localhost targets only; skipped otherwise, with a reason. | up to 1, if the server accepts it |
 | `page-controls` (V1) | Clicks every button outside the forms (toolbars, list actions, toggles, `href="#"` links), each on a freshly loaded page, and flags the ones that do nothing. Destructive-looking ones are left out unless you allow them. | 0, unless a button saves something |
 | `security-headers` (V1) | Reads the page's response headers: Content-Security-Policy, clickjacking protection (`frame-ancestors` or `X-Frame-Options`), `X-Content-Type-Options: nosniff`, a leaky `Referrer-Policy`, and on https `Strict-Transport-Security`. | 0 |
 | `cookie-flags` (V1) | Reads the cookies the page sets; session-like cookies must be `HttpOnly`, not `SameSite=None`, and on https `Secure`. Values are never shown. | 0 |

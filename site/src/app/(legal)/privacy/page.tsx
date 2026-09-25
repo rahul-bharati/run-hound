@@ -42,8 +42,9 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong>AI is optional and off by default.</strong> With AI off, the current preview ({site.release}{" "}
-            {site.version}) sends nothing to any AI provider. If you turn it on, only redacted page structure is sent,
-            and only to the AI provider you configure; {site.name} itself operates no AI service.
+            {site.version}) sends nothing to any AI provider. If you turn it on, only redacted page structure and
+            finding text are sent, and only to the AI provider you configure; {site.name} itself operates no AI
+            service.
           </li>
           <li>
             <strong>Analytics only with your consent.</strong> This site loads Google Analytics only if you accept it
@@ -208,14 +209,15 @@ export default function PrivacyPage() {
           <strong>What it reads from the app you test.</strong> To run its checks, {site.name} reads what a browser
           can see of the page you point it at: the page and its scripts, the requests the page sends and the answers
           it gets, response headers, the cookies the app sets and any public source-map files. Some checks send
-          requests of their own to that same app, for example with a made-up origin to see how its API answers. All
+          requests of their own to that same app, for example from a sandboxed frame, as another website could, to
+          see how its API answers. All
           of this happens between your machine and the app you are testing, and what it records is kept in the reports
           on your machine.
         </li>
         <li>
           <strong>AI features are optional, and off by default.</strong> With AI off, the software uses no AI model and
           sends nothing to any AI provider. If you turn them on, it sends redacted page structure (the page title and
-          path, field labels and types, option labels, button names and the list of planned checks; for explanations, the finding text and
+          path (a local model gets the redacted address with its query), field labels and types, option labels, button names and the list of planned checks; for explanations, the finding text and
           its evidence facts without test values) only to the AI provider you configure, which handles it under its
           own terms. It never sends typed values, cookies, response bodies or screenshots. A local model keeps this on
           your machine or private network; a remote provider receives nothing until you consent for its host.{" "}

@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 
 const openCore: { core: string; later: string }[] = [
   {
-    core: "The agent loop and all checks: functional, accessibility and security",
+    core: "The test engine and all checks: functional, accessibility and security",
     later: "Hosted inference: run without a GPU, Ollama or your own model API key",
   },
   {
@@ -45,7 +45,7 @@ const roadmap: RoadmapStage[] = [
     status: "shipped",
     release: "0.1.0",
     summary:
-      "Point it at a form on localhost. It plans golden- and danger-path scenarios in three groups (Accessibility, Features, Security), you approve them, it runs them and reports with evidence, timings and exported Playwright tests.",
+      "Point it at a form on localhost. It plans golden- and danger-path scenarios, you approve them, it runs them and reports with evidence and exported Playwright tests.",
     adds: "15 checks. Shipped as 0.1.0.",
   },
   {
@@ -123,8 +123,8 @@ export default function OpenSourcePage() {
         <Card className="flex max-w-3xl flex-col gap-3">
           <p className="font-mono text-xs tracking-widest text-accent">IN EFFECT · {site.license.toUpperCase()}</p>
           <p className="text-lg leading-relaxed">
-            In one line: you can use, copy, modify, distribute and sell it, as long as you keep the copyright notice;
-            it comes with no warranty.
+            In one line: you can use, copy, modify, distribute and sell it, as long as you keep the copyright and
+            license notice; it comes with no warranty.
           </p>
           <p className="text-[15px] leading-relaxed text-dim">
             The full text is in the{" "}
@@ -197,7 +197,7 @@ export default function OpenSourcePage() {
       <Section
         id="kennel"
         title="Test fixture: Kennel"
-        intro="Run Hound is developed and scored against Kennel, a small, deliberately broken pet-sitting booking app on a local Supabase. Every planted bug sits behind its own toggle, and a clean mode fixes them all properly."
+        intro="Run Hound is developed and scored against Kennel, a small, deliberately broken pet-sitting booking app that ships in the repository and runs on your machine. Every planted bug sits behind its own toggle, and a clean mode fixes them all properly."
         className="bg-band"
       >
         <p className="max-w-3xl leading-relaxed text-muted">
@@ -215,9 +215,9 @@ export default function OpenSourcePage() {
           ))}
         </ul>
         <p className="leading-relaxed text-muted">
-          See every planted bug in the{" "}
-          <a href={`${site.github}/blob/main/docs/fixtures.md`} className={externalLink}>
-            fixture document
+          See every planted bug in{" "}
+          <a href={`${site.github}/blob/main/fixtures/kennel/bugs.json`} className={externalLink}>
+            Kennel&apos;s bug list
           </a>
           .
         </p>
@@ -226,7 +226,7 @@ export default function OpenSourcePage() {
       <Section id="contributing" title="Contributing">
         <div className="grid gap-6 lg:grid-cols-2">
           <Card className="flex flex-col gap-3">
-            <h3 className="font-display text-xl font-bold">Issues and discussions</h3>
+            <h3 className="font-display text-xl font-bold">Issues and feedback</h3>
             <p className="leading-relaxed text-muted">
               Anyone can file feedback and bugs with the issue forms on GitHub. Tell us which holes you keep finding in
               AI-built apps; that shapes the checks.
@@ -257,8 +257,9 @@ export default function OpenSourcePage() {
           <ul className="flex list-disc flex-col gap-3 pl-5 leading-relaxed text-muted marker:text-dim">
             <li>
               <strong className="font-semibold text-fg">It runs locally.</strong> Run Hound runs on your machine,
-              with Node or in your Docker. AI is optional and off by default; turn it on and only redacted page
-              structure goes to the model you choose, local or cloud. Run Hound operates no AI service of its own.
+              with Node or in Docker or Podman. AI is optional and off by default; turn it on and only redacted page
+              structure and finding text go to the model you choose, local or cloud. Run Hound operates no AI service
+              of its own.
             </li>
             <li>
               <strong className="font-semibold text-fg">No telemetry about the app you test.</strong> Nothing about

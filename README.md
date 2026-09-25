@@ -146,7 +146,7 @@ From source, run the same commands as `pnpm exec tsx src/cli.ts ai status` and s
 
 Settings come from the Settings page (saved to `~/.config/run-hound/ai.json`, mode 0600, or to `$RUNHOUND_CONFIG_DIR/ai.json` when it is set), then `RUNHOUND_AI_*` environment variables, then `--ai*` flags; the full list is in [docs/ai-spec.md](docs/ai-spec.md) and `.env.example`.
 
-**Privacy:** only redacted page structure is sent (the page title and path, field labels and types, option labels, button names, the scenario list; the full page address only to a local model), never typed values, cookies, response bodies or screenshots. A local endpoint (localhost or a private address) needs nothing more; a remote one (OpenAI, OpenRouter, Bedrock, …) is refused until you consent (the Settings checkbox, `--ai-allow-remote` or `RUNHOUND_AI_ALLOW_REMOTE=1`). API keys stay on the server and never appear in the UI or reports. Bedrock takes a Bedrock API key, AWS access keys, or an AWS profile from `~/.aws` (`RUNHOUND_AI_AWS_PROFILE` or `AWS_PROFILE`; static keys, `credential_process` or IAM Identity Center after `aws sso login`; assume-role profiles aren't supported yet).
+**Privacy:** only redacted page structure is sent (the page title and path, field labels and types, option labels, button names, the scenario list; the full page address only to a local model; for explanations, the finding text and its evidence facts), never typed values, cookies, response bodies or screenshots. A local endpoint (localhost or a private address) needs nothing more; a remote one (OpenAI, OpenRouter, Bedrock, …) is refused until you consent (the Settings checkbox, `--ai-allow-remote` or `RUNHOUND_AI_ALLOW_REMOTE=1`). API keys stay on the server and never appear in the UI or reports. Bedrock takes a Bedrock API key, AWS access keys, or an AWS profile from `~/.aws` (`RUNHOUND_AI_AWS_PROFILE` or `AWS_PROFILE`; static keys, `credential_process` or IAM Identity Center after `aws sso login`; assume-role profiles aren't supported yet).
 
 **Models:** small local models work (tested with a 9B model on Ollama). Ollama is called through its native API with thinking turned off, so reasoning models answer without spending their output on thinking, and asked to keep the model loaded for 15 minutes so it is still there for the explanations after the run. An explanation that times out is retried once; after two timeouts in a row the rest are skipped with a warning (raise `RUNHOUND_AI_TIMEOUT_MS` for a slow model). With other servers, prefer a non-reasoning model or turn reasoning off.
 
@@ -255,7 +255,7 @@ Full catalog with severity and detectability: [docs/research.md §3](docs/resear
 - TypeScript + Playwright, with `@axe-core/playwright` for accessibility rules
 - Local web UI for approving the plan, served from the container
 - Docker for delivery
-- Inference (optional, bring your own model, since 0.3.0): local via Ollama, LM Studio, llama.cpp or vLLM, or cloud via Amazon Bedrock or any OpenAI-compatible endpoint. Off by default; with AI off nothing is sent to any AI provider, and with it on only redacted page structure goes to the endpoint you configure. See [AI (optional)](#ai-optional).
+- Inference (optional, bring your own model, since 0.3.0): local via Ollama, LM Studio, llama.cpp or vLLM, or cloud via Amazon Bedrock or any OpenAI-compatible endpoint. Off by default; with AI off nothing is sent to any AI provider, and with it on only redacted page structure and finding text go to the endpoint you configure. See [AI (optional)](#ai-optional).
 
 ## Delivery
 
