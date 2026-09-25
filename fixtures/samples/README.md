@@ -1,6 +1,6 @@
 # Sample apps (unfamiliar, well-built)
 
-Four small apps that Run Hound was **not** built or tuned against. Each one is correct and accessible on purpose: labels on every field, errors marked with `aria-invalid` and linked with `aria-describedby`, announced status messages, visible focus, correct `autocomplete`, layouts that reflow at 320 px, server-side validation with plain JSON or HTML errors (no stack traces), and no third-party requests.
+Five small apps that Run Hound was **not** built or tuned against. Each one is correct and accessible on purpose: labels on every field, errors marked with `aria-invalid` and linked with `aria-describedby`, announced status messages, visible focus, correct `autocomplete`, layouts that reflow at 320 px, server-side validation with plain JSON or HTML errors (no stack traces), and no third-party requests.
 
 So **any confirmed finding Run Hound reports on these apps is a false positive.** They are the regression suite for the "Unfamiliar apps" rule in [`docs/v0-spec.md`](../../docs/v0-spec.md) (Tester release). Planted bugs belong in Kennel (`fixtures/kennel`), never here.
 
@@ -12,6 +12,7 @@ Each app is one Node file (`server.mjs`, `node:http` only, no dependencies, no b
 | `spa-fetch` | Vanilla-JS contact form. Validates in the browser, saves with `fetch` (JSON) to same-origin `/api/messages`, lists saved messages (they survive a reload). `role="status"` live region, button disabled while the request is pending, `:focus-visible` outlines. | `PORT=4102 node fixtures/samples/spa-fetch/server.mjs` | `http://localhost:4102/` |
 | `login` | Email and password sign-in (`autocomplete="email"` / `"current-password"`, paste allowed), a "Show password" toggle button (`aria-pressed`), `401` on wrong credentials with the error announced in a `role="alert"` region. The only account is `demo@example.test` / `correct-horse`. | `PORT=4103 node fixtures/samples/login/server.mjs` | `http://localhost:4103/` |
 | `cross-origin-api` | RSVP form on `PORT` whose JavaScript saves JSON to an API on `API_PORT`, a **different origin** that allows the page through CORS. This is the "API on another origin" case: checks that assume a same-origin API must skip with a plain reason, not report failures. | `PORT=4104 API_PORT=4105 node fixtures/samples/cross-origin-api/server.mjs` | `http://localhost:4104/` |
+| `multi-form` | V1 (single page): a header with a **search form** (plain GET to `/search`) and a "Menu" toggle, a contact form saving JSON to `/api/messages` (listed under "Messages you've sent", with a **Refresh** button outside the form), and a footer **newsletter form** saving to `/api/subscribe` that never shows the address again. Tests every form on a page, search-form handling, forms that don't display what they save, and buttons outside forms. | `PORT=4106 node fixtures/samples/multi-form/server.mjs` | `http://localhost:4106/` |
 
 Pick any free ports (port 3000 is Kennel's default). For `cross-origin-api`, `PORT` and `API_PORT` must differ; open the page at `localhost` or `127.0.0.1` (a CSP can't name an IPv6 literal, so a page opened at `[::1]` can't reach the API).
 

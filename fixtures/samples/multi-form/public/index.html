@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contact us - Lantern Outdoor</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css">
+<script type="module" src="/app.js"></script>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="/">Lantern Outdoor</a>
+  <button type="button" class="secondary" id="menu-toggle" aria-expanded="false" aria-controls="site-nav">Menu</button>
+  <nav id="site-nav" aria-label="Main" hidden>
+    <ul>
+      <li><a href="/">Contact</a></li>
+      <li><a href="/search?q=tents">Tents</a></li>
+      <li><a href="/search?q=lanterns">Lanterns</a></li>
+    </ul>
+  </nav>
+  <form class="search" role="search" action="/search" method="get">
+    <label for="q" class="visually-hidden">Search products</label>
+    <input type="search" id="q" name="q" placeholder="Search products" maxlength="100">
+    <button type="submit">Search</button>
+  </form>
+</header>
+
+<main>
+  <h1 id="form-title">Contact us</h1>
+  <p>Questions about an order or a product? Fields marked "required" must be filled in.</p>
+
+  <form id="contact" aria-labelledby="form-title" novalidate>
+    <div class="field">
+      <label for="name">Your name (required)</label>
+      <input type="text" id="name" name="name" autocomplete="name" required maxlength="80" aria-describedby="name-error">
+      <p class="error" id="name-error"></p>
+    </div>
+    <div class="field">
+      <label for="email">Email address (required)</label>
+      <p class="hint" id="email-hint">We reply to this address.</p>
+      <input type="email" id="email" name="email" autocomplete="email" spellcheck="false" required maxlength="254" aria-describedby="email-hint email-error">
+      <p class="error" id="email-error"></p>
+    </div>
+    <div class="field">
+      <label for="order">Order number</label>
+      <input type="text" id="order" name="order" maxlength="20" aria-describedby="order-error">
+      <p class="error" id="order-error"></p>
+    </div>
+    <div class="field">
+      <label for="message">Message (required)</label>
+      <textarea id="message" name="message" required maxlength="1000" aria-describedby="message-error"></textarea>
+      <p class="error" id="message-error"></p>
+    </div>
+    <button type="submit" id="send">Send message</button>
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+  </form>
+
+  <section aria-labelledby="sent-title">
+    <div class="section-head">
+      <h2 id="sent-title">Messages you've sent</h2>
+      <button type="button" class="secondary" id="refresh">Refresh</button>
+    </div>
+    <p id="empty" class="meta">No messages yet.</p>
+    <ul class="list" id="messages"></ul>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <h2 id="news-title">Newsletter</h2>
+  <form id="newsletter" class="newsletter" aria-labelledby="news-title" novalidate>
+    <div class="field">
+      <label for="news-email">Email address (required)</label>
+      <input type="email" id="news-email" name="email" autocomplete="email" spellcheck="false" required maxlength="254" aria-describedby="news-error">
+      <p class="error" id="news-error"></p>
+    </div>
+    <button type="submit" id="subscribe">Subscribe</button>
+  </form>
+  <p class="status" id="news-status" role="status" aria-live="polite"></p>
+</footer>
+</body>
+</html>

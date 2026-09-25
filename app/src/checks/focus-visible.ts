@@ -5,7 +5,7 @@
  */
 import { PNG } from "pngjs";
 import type { Page } from "playwright";
-import type { Box, Check, CheckContext, DiscoveredForm, Evidence, Fact, Scenario } from "../core/types.js";
+import type { Box, Check, CheckContext, DiscoveredForm, DiscoveredPage, Evidence, Fact, Scenario } from "../core/types.js";
 import { checkResult, clip, evalIn, fieldName, FindingList, guarded, listOf, playwrightSpec, plural, scenarioFor, uniquePlaces } from "./lib/a11y-common.js";
 
 const MAX_TABS = 300;
@@ -274,9 +274,14 @@ export const check: Check = {
   id: "focus-visible",
   title: "Keyboard focus is always visible",
   category: "accessibility",
+  // Tab walks the whole page, whatever form it starts from: once per page.
+  scope: "page",
 
-  plan(form: DiscoveredForm): Scenario[] {
-    if (form.fields.length === 0 && form.controls.length === 0) return [];
+  plan(form: DiscoveredForm, page?: DiscoveredPage): Scenario[] {
+    const anything = page
+      ? page.forms.some((f) => f.fields.length > 0 || f.controls.length > 0) || page.controls.length > 0
+      : form.fields.length > 0 || form.controls.length > 0;
+    if (!anything) return [];
     return [
       scenarioFor("focus-visible", "tab-through", {
         title: "Tab through every control and look for a focus indicator",
@@ -290,9 +295,12 @@ export const check: Check = {
     return guarded("focus-visible", scenario, async (startedAt) => {
       const findings = new FindingList("focus-visible", "accessibility");
       const { page } = await ctx.openPage();
+      // Names for every control Run Hound discovered: all forms and the controls outside them (V1), else the form.
+      const forms = ctx.discoveredPage?.forms ?? [ctx.form];
       const known = [
-        ...ctx.form.fields.map((f) => ({ selector: f.selector, name: fieldName(f) })),
-        ...ctx.form.controls.map((c) => ({ selector: c.selector, name: c.accessibleName ?? c.text })),
+        ...forms.flatMap((form) => form.fields.map((f) => ({ selector: f.selector, name: fieldName(f) }))),
+        ...forms.flatMap((form) => form.controls.map((c) => ({ selector: c.selector, name: c.accessibleName ?? c.text }))),
+        ...(ctx.discoveredPage?.controls ?? []).map((c) => ({ selector: c.selector, name: c.accessibleName ?? c.text })),
       ];
       ctx.step("Pressing Tab through every control", page);
       // Computed styles miss native focus cues (a date field highlights its first segment): a control whose styles

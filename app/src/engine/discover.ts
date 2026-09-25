@@ -19,6 +19,7 @@ interface RawControl extends Omit<FormControl, "accessibleName"> {
 interface RawForm {
   selector: string;
   name: string | null;
+  search?: boolean;
   fields: RawField[];
   controls: RawControl[];
 }
@@ -379,7 +380,16 @@ const SCAN_SCRIPT = String.raw`((opts) => {
     fallbackName: nameFallback(el) || ownText(el) || (el.tagName === "INPUT" ? norm(el.value) : null) || null,
   }));
 
-  return { selector: selectorFor(scope), name: formName, fields, controls };
+  // A search form saves nothing: role=search, a <search> element, only search fields, or a GET form with an action
+  // and one or two short text fields (no textarea).
+  const method = isForm ? (scope.getAttribute("method") || "get").toLowerCase() : "";
+  const shortFields = fields.length > 0 && fields.length <= 2 && fields.every((f) => f.type !== "textarea" && f.type !== "password");
+  const search =
+    !!scope.closest("[role=search], search") || !!scope.querySelector("[role=search]") ||
+    (fields.length > 0 && fields.every((f) => f.type === "search")) ||
+    (isForm && method === "get" && scope.hasAttribute("action") && shortFields);
+
+  return { selector: selectorFor(scope), name: formName, fields, controls, ...(search ? { search: true } : {}) };
 })(__OPTS__)`;
 
 function scan(options: ScanOptions): string {
@@ -413,7 +423,15 @@ async function finishForm(page: Page, raw: RawForm, index: number): Promise<Disc
     const role = field.type === "radio" || field.type === "custom" ? field.role : (aria?.role ?? field.role);
     fields.push({ ...field, role, accessibleName: aria ? aria.name : fallbackName });
   }
-  return { url: page.url(), index, selector: raw.selector, name: raw.name, fields, controls: await finishControls(page, raw.controls) };
+  return {
+    url: page.url(),
+    index,
+    selector: raw.selector,
+    name: raw.name,
+    ...(raw.search ? { search: true } : {}),
+    fields,
+    controls: await finishControls(page, raw.controls),
+  };
 }
 
 async function finishControls(page: Page, raw: RawControl[]): Promise<FormControl[]> {

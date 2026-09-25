@@ -338,7 +338,7 @@ export const CLIENT = String.raw`
       const outside = p.page ? p.page.controls.length : 0;
       const formLabel = (f, i) => {
         const name = f.name ? f.name.replace(/\s+/g, " ").trim() : "";
-        return name ? (/\bform$/i.test(name) ? name : name + " form") : "Form " + (i + 1);
+        return name ? (/\bform$/i.test(name) ? name : name + " form") : (f.search ? "Search form" : "Form " + (i + 1));
       };
       summary.replaceChildren(
         forms.length === 1 && forms[0].name ? h("span", {}, "Found ", h("b", { text: "“" + forms[0].name + "”" })) : h("span", {}, "Found ", h("b", { text: forms.length ? plural(forms.length, "form") : "no form" })),

@@ -5,7 +5,7 @@ import { emptyForm } from "./discover.js";
 /** "Book a sitter form", "Form 2": how a form is named in scenario titles and the plan. */
 export function formLabel(form: DiscoveredForm, index = form.index ?? 0): string {
   const name = form.name?.replace(/\s+/g, " ").trim();
-  if (!name) return `Form ${index + 1}`;
+  if (!name) return form.search ? "Search form" : `Form ${index + 1}`;
   return /\bform$/i.test(name) ? name : `${name} form`;
 }
 
@@ -92,7 +92,7 @@ function count(n: number, one: string, many = `${one}s`): string {
  */
 export function planSummary(plan: Plan): string {
   const forms = plan.page?.forms ?? [plan.form];
-  const named = (f: DiscoveredForm) => (f.name ? `"${f.name}"` : "a form");
+  const named = (f: DiscoveredForm) => (f.name ? `"${f.name}"` : f.search ? "a search form" : "a form");
   let found: string;
   if (forms.length === 0) found = "no form";
   else if (forms.length === 1) found = `${named(forms[0]!)} with ${count(forms[0]!.fields.length, "field")}`;

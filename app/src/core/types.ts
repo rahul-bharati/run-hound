@@ -101,6 +101,11 @@ export interface DiscoveredForm {
   selector: string;
   /** Heading or accessible name that identifies the form, e.g. "Book a sitter". */
   name: string | null;
+  /**
+   * True for a search form (role="search", inside <search>, only search fields, or a GET form with an action and
+   * one or two short fields): it saves nothing, so checks that need a saved record leave it out. V1.
+   */
+  search?: boolean;
   fields: FormField[];
   /** Buttons and clickable controls inside the form, including the submit control. */
   controls: FormControl[];

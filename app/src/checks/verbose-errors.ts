@@ -5,7 +5,7 @@
  */
 import type { Capture, Check, Evidence, Fact, Scenario } from "../core/types.js";
 import { clip, controlLocator, endpointOf, evidence, fillLines, findingFactory, guarded, markText, result, specSource, tryCapture, tryCard } from "./lib/functional-finding.js";
-import { canaryValues, createRequests, fillForm, isCreatePlaywrightRequest, settle, submitControl, submitForm, waitForCreates, type FieldValue } from "./lib/functional-form.js";
+import { canaryValues, createRequests, fillForm, isCreatePlaywrightRequest, settle, submitControl, submitForm, waitForCreates, type FieldValue, isSearchForm } from "./lib/functional-form.js";
 
 const ID = "verbose-errors" as const;
 
@@ -79,6 +79,8 @@ export const check: Check = {
   category: "security",
 
   plan(form): Scenario[] {
+    // A search form saves nothing, so there is no saved record to test (V1: every form on the page is planned).
+    if (isSearchForm(form)) return [];
     return [
       {
         id: "oversized-and-malformed",

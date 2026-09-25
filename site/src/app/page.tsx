@@ -38,7 +38,7 @@ const whatsNew = [
   {
     icon: Box,
     title: "Test apps in one command",
-    text: "Docker or Podman starts Run Hound with Kennel, our deliberately broken demo app, and four sample apps, so you can try it straight away.",
+    text: "Docker or Podman starts Run Hound with Kennel, our deliberately broken demo app, and five sample apps, so you can try it straight away.",
   },
 ];
 

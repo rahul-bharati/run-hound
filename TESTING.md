@@ -51,7 +51,7 @@ What we most want to learn: **is every finding real, and did it miss a bug you k
 
 The checks are grouped as **Accessibility** (`axe-states`, `keyboard-completion`, `focus-visible`, `error-announcement`, `credential-fields`, `reflow-320`), **Features** (`console-network-errors`, `dead-control`, `silent-failure`, `persistence`, `double-submit`, `client-only-validation`, `page-controls`) and **Security** (`bundle-secrets`, `pii-leak`, `verbose-errors`, `security-headers`, `cookie-flags`, `cors`, `source-maps`).
 
-Form checks run once per form; on a page with several forms their scenarios are named after the form ("… (Newsletter form)"). `page-controls`, `security-headers`, `cookie-flags`, `cors`, `source-maps`, `bundle-secrets` and `reflow-320` run once for the whole page.
+Form checks run once per form; on a page with several forms their scenarios are named after the form ("… (Newsletter form)"). `page-controls`, `security-headers`, `cookie-flags`, `cors`, `source-maps`, `bundle-secrets`, `focus-visible` and `reflow-320` run once for the whole page. A search form gets only the checks that make sense for it (it saves nothing), and a form that never shows what it saved (a newsletter signup) has its `persistence` scenario skipped with that reason rather than reported as lost data. Buttons that sign you out, cancel a subscription or empty a cart are never clicked unless you allow destructive scenarios.
 
 **Dev servers:** a dev server (Vite, Next.js dev, webpack dev server, …) doesn't send the headers, cookie flags and CORS settings of your production build, so on a dev server those findings are marked advisory and `source-maps` is skipped. Check them again on a production build (`vite preview`, `next start`). The plan, the run, the progress and the report all follow that order.
 
@@ -133,6 +133,7 @@ This starts Run Hound and every test app, each on its own port bound to `127.0.0
 | `spa-fetch` | `http://spa-fetch:4102/` | <http://localhost:4102/> | Contact form saving with `fetch` |
 | `login` | `http://login:4103/` | <http://localhost:4103/> | Sign-in form (`demo@example.test` / `correct-horse`) |
 | `cross-origin-api` | `http://cross-origin-api:4104/` | <http://localhost:4104/> | RSVP form whose API is on another origin (port 4105) |
+| `multi-form` | `http://multi-form:4106/` | <http://localhost:4106/> | Three forms on one page (header search, contact, footer newsletter) and buttons outside them |
 
 The sample apps are well built on purpose: **any confirmed finding on them is a false positive**, please report it. Every setting (host ports, `KENNEL_BUGS`, the runs folder, `RUNHOUND_ALLOWED_HOSTS`) is documented in [`.env.example`](.env.example).
 

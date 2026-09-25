@@ -40,6 +40,8 @@ interface SampleSpec {
   formName: RegExp;
   /** Field keys discovery must find. */
   fieldKeys: string[];
+  /** V1: how many forms discovery must find on the page, and which of them (by index) are search forms. */
+  forms?: { count: number; search: number[] };
 }
 
 const SAMPLES: SampleSpec[] = [
@@ -47,6 +49,8 @@ const SAMPLES: SampleSpec[] = [
   { name: "spa-fetch", path: "/", extraPorts: [], formName: /contact us/i, fieldKeys: ["name", "email", "topic", "message"] },
   { name: "login", path: "/", extraPorts: [], formName: /sign in/i, fieldKeys: ["email", "password"] },
   { name: "cross-origin-api", path: "/", extraPorts: ["API_PORT"], formName: /rsvp/i, fieldKeys: ["name", "email", "attending", "guests", "dietary"] },
+  // V1: a header search form, the contact form, a footer newsletter form and buttons outside the forms.
+  { name: "multi-form", path: "/", extraPorts: [], formName: /contact us/i, fieldKeys: ["name", "email", "order", "message"], forms: { count: 3, search: [1] } },
 ];
 
 const only = process.env.ACCEPTANCE_SAMPLES?.split(",").map((s) => s.trim()).filter(Boolean);
@@ -166,6 +170,11 @@ describe.concurrent("Run Hound on unfamiliar, well-built sample apps", () => {
       expect(plan.form.name, "discovered form name").toMatch(spec.formName);
       const keys = plan.form.fields.map((f) => f.key);
       expect(spec.fieldKeys.filter((k) => !keys.includes(k)), `fields discovery missed (found ${keys.join(", ")})`).toEqual([]);
+      if (spec.forms) {
+        expect(plan.page?.forms.length, "forms on the page").toBe(spec.forms.count);
+        expect(plan.page!.forms.flatMap((f, i) => (f.search ? [i] : [])), "search forms").toEqual(spec.forms.search);
+        expect(plan.page!.controls.length, "controls outside the forms").toBeGreaterThan(0);
+      }
 
       // A check with nothing to test on this form (no password field, no extra buttons) may plan nothing; the report
       // lists it under "nothing to test". Printed, not asserted.

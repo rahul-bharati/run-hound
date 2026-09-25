@@ -13,6 +13,7 @@
 #   http://spa-fetch:4102/             sample: vanilla-JS contact form, same-origin JSON API
 #   http://login:4103/                 sample: sign-in form (401 on wrong credentials)
 #   http://cross-origin-api:4104/      sample: RSVP form whose API is on another origin (port 4105)
+#   http://multi-form:4106/            sample: three forms (search, contact, newsletter) and buttons outside them
 #
 # The samples are well built on purpose: any confirmed finding on them is a false positive (please report it).
 # Every service is also published on 127.0.0.1 so you can open it in your own browser (ports in .env.example).
@@ -38,7 +39,7 @@ services:
     environment:
       # Named hosts the safety gate accepts besides localhost and private addresses: the test apps and the names
       # Docker and Podman give your machine. Nothing public is added. Override in .env to add your own.
-      RUNHOUND_ALLOWED_HOSTS: ${RUNHOUND_ALLOWED_HOSTS:-kennel,kennel-clean,classic-post,spa-fetch,login,cross-origin-api,host.docker.internal,host.containers.internal}
+      RUNHOUND_ALLOWED_HOSTS: ${RUNHOUND_ALLOWED_HOSTS:-kennel,kennel-clean,classic-post,spa-fetch,login,cross-origin-api,multi-form,host.docker.internal,host.containers.internal}
       RUNHOUND_PUBLIC_URL: http://localhost:${RUNHOUND_HOST_PORT:-4000}
     extra_hosts:
       # Docker Desktop defines host.docker.internal itself; this adds it on Linux Docker and Podman too.
@@ -54,6 +55,7 @@ services:
       - spa-fetch
       - login
       - cross-origin-api
+      - multi-form
 
   # ---- Kennel: the deliberately broken booking app -------------------------------------------------------------
   kennel: &kennel
@@ -112,3 +114,11 @@ services:
     ports:
       - "127.0.0.1:4104:4104"
       - "127.0.0.1:4105:4105"
+
+  multi-form:
+    <<: *sample
+    command: ["node", "multi-form/server.mjs"]
+    environment:
+      PORT: 4106
+    ports:
+      - "127.0.0.1:${MULTI_FORM_HOST_PORT:-4106}:4106"

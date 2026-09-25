@@ -23,8 +23,7 @@ import {
   STOPPED_PAGE_POST_HTML,
   submitForm,
   waitFor,
-  type FieldValue,
-} from "./lib/functional-form.js";
+  type FieldValue, isSearchForm } from "./lib/functional-form.js";
 
 const ID = "client-only-validation" as const;
 
@@ -129,6 +128,8 @@ export const check: Check = {
   category: "validation",
 
   plan(form: DiscoveredForm): Scenario[] {
+    // A search form saves nothing, so there is no saved record to test (V1: every form on the page is planned).
+    if (isSearchForm(form)) return [];
     const hasRange = form.fields.filter((f) => f.type === "date").length >= 2;
     // Planned on every target so a non-localhost run shows it (and why it was skipped) instead of silently leaving it out.
     const local = isLocalTarget(form.url);

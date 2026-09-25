@@ -360,6 +360,14 @@ export const check: Check = {
           .waitForResponse(
             (r) => {
               const req = r.request();
+              // A GET form (a search box) is sent by loading its results page on the same site.
+              if (req.isNavigationRequest() && req.frame() === page.mainFrame() && req.method() === "GET") {
+                try {
+                  if (new URL(req.url()).origin === new URL(ctx.targetUrl).origin && req.url() !== page.url()) return true;
+                } catch {
+                  // not a URL: not the form
+                }
+              }
               return isSaveRequest({ method: req.method(), resourceType: req.resourceType(), url: req.url(), postData: req.postData() }, ctx.targetUrl, ctx.runToken);
             },
             { timeout: 10_000 },

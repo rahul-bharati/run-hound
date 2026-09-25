@@ -85,6 +85,7 @@ Targets to enter in the UI (inside the compose network, apps are reached by serv
 | `http://spa-fetch:4102/` | Sample: vanilla-JS contact form, same-origin JSON API |
 | `http://login:4103/` | Sample: sign-in form (401 on wrong credentials) |
 | `http://cross-origin-api:4104/` | Sample: RSVP form whose API is on another origin |
+| `http://multi-form:4106/` | Sample: three forms on one page (search, contact, newsletter) and buttons outside them |
 
 The samples are well built on purpose, so any confirmed finding on them is a false positive. [`.env.example`](.env.example) documents every setting.
 

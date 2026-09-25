@@ -62,6 +62,7 @@ const testApps: { name: string; body: string }[] = [
   { name: "spa-fetch", body: "A contact form that saves with fetch and lists what it saved. Target: http://spa-fetch:4102/." },
   { name: "login", body: "An email and password sign-in form with a show-password toggle. Target: http://login:4103/." },
   { name: "cross-origin-api", body: "An RSVP form whose API lives on another origin, allowed through CORS. Target: http://cross-origin-api:4104/." },
+  { name: "multi-form", body: "Three forms on one page (header search, contact, footer newsletter) and buttons outside them. Target: http://multi-form:4106/." },
 ];
 
 const kennelLocal = `# terminal 1: Kennel with every bug on (the analytics port must differ from the app's)
@@ -224,7 +225,7 @@ export default function DocsPage() {
               </ul>
               <div className="prose-night">
                 <p>
-                  Kennel should give findings for its planted bugs. The four sample apps are built correctly on
+                  Kennel should give findings for its planted bugs. The five sample apps are built correctly on
                   purpose, so <strong>any confirmed finding on them is a false positive</strong>, and worth reporting.
                   Enter these addresses in the Run Hound UI: inside the compose network each app is reached by its service name. Every app is also published on 127.0.0.1 (ports in <code>.env.example</code>).
                 </p>

@@ -4,7 +4,7 @@ import { startBookingApp, sampleForm, type BookingServer } from "../../test/fixt
 import { allFindings } from "../../test/fixtures/checks/assert-finding.js";
 import { expectCheckShape, expectCleanPass, expectFailure, expectPlan, findingText } from "../../test/fixtures/checks/_behavior/expectations.js";
 import type { DiscoveredForm } from "../core/types.js";
-import { check } from "./dead-control.js";
+import { check, isDestructiveControl } from "./dead-control.js";
 
 const ID = "dead-control" as const;
 const servers: BookingServer[] = [];
@@ -131,6 +131,20 @@ describe("dead-control: BAD", () => {
     expect(f.location).toBe(f.locations![0]);
     expect(f.locations!.join("\n")).toMatch(/Save draft/);
     expect(f.locations!.join("\n")).toMatch(/Clear pet name/);
+  });
+});
+
+describe("isDestructiveControl", () => {
+  const control = (text: string) => ({ accessibleName: text, text, role: "button", tag: "button", selector: "#x", isSubmit: false });
+  it("treats deleting, paying and session-ending controls as destructive", () => {
+    for (const name of ["Delete", "Remove booking", "Pay now", "Log out", "Logout", "Sign out", "Sign-out", "Log off", "Disconnect GitHub", "Clear all", "Empty cart", "Reset all settings", "Cancel subscription", "Cancel my booking", "Close account"]) {
+      expect(isDestructiveControl(control(name)), name).toBe(true);
+    }
+  });
+  it("leaves ordinary controls alone", () => {
+    for (const name of ["Save draft", "Cancel", "Reset", "Refresh", "Show password", "Sign in", "Log in", "Menu", "Clear pet name", "Close"]) {
+      expect(isDestructiveControl(control(name)), name).toBe(false);
+    }
   });
 });
 

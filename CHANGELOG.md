@@ -11,15 +11,18 @@ Run Hound now tests a whole page instead of one form. How to run it: [TESTING.md
 - **Every form on the page**: discovery finds up to 5 forms (the one with the most fields first) and runs the form checks on each. Scenarios of the second and later forms get `@form-<n>` ids and name their form. `Plan.page` describes the page; each scenario has a `scope` ("form" or "page") and a `scopeLabel`.
 - **Buttons outside the forms**: the new `page-controls` check clicks every button, toggle and `href="#"` link outside the forms and reports the ones that do nothing.
 - **Page-wide security checks**: `security-headers` (CSP, clickjacking protection, nosniff, referrer policy, HSTS on https), `cookie-flags` (session cookies without HttpOnly, SameSite=None, or Secure on https), `cors` (answers any website may read, especially with the visitor's cookies, probed with `Origin: null` from a sandboxed frame) and `source-maps` (public source maps, especially with the original source code). On a dev server their findings are advisory, and `source-maps` is skipped, because dev servers don't send production settings.
+- **Search forms and forms that don't show what they save**: search forms are recognised and planned without the checks that need a saved record; `persistence` skips (with the reason) when a page never displays what it saved, such as a newsletter form, instead of reporting lost data. Each form gets its own test values, and `axe-states` reports a problem once, in the form it belongs to.
+- **Sign-out and similar buttons are never clicked by default**: "Log out", "Sign out", "Cancel subscription", "Close account", "Empty cart" and similar count as destructive.
 - **A page without a form** is planned with the page-wide checks and a warning, instead of failing. Error pages (4xx/5xx) are still refused.
 - **Web UI**: the plan shows what was found (each form with its fields and buttons, the controls outside the forms, the whole page), a scope chip on each scenario and a "New in V1" tag on the new checks; the runs list names pages with several forms; a more compact "Results by group" table.
 - **CLI**: the plan summary describes the page ("Found 2 forms (…) and 3 controls outside them"), and `--plan-only` shows each scenario's scope.
 - **Kennel V1 bugs**: F07 (dead Refresh button outside the form), S05 (no security headers), S06 (session cookie without HttpOnly), S07 (CORS echoes any origin with credentials), S08 (public source maps), with golden files. Clean Kennel now sends security headers, sets an HttpOnly session cookie and builds hidden source maps.
-- **One-command test lab**: `.env.example` and a compose file that starts Run Hound with Kennel (broken and clean) and the four sample apps (`fixtures/samples/Dockerfile`), all bound to `127.0.0.1`, for Docker and Podman.
+- **One-command test lab**: `.env.example` and a compose file that starts Run Hound with Kennel (broken and clean) and the five sample apps (`fixtures/samples/Dockerfile`), all bound to `127.0.0.1`, for Docker and Podman.
 
 ### Changed
 
-- `bundle-secrets` and `reflow-320` run once per page (they were already page-wide).
+- `bundle-secrets`, `reflow-320` and `focus-visible` run once per page (they were already page-wide).
+- A new sample app, `multi-form` (search, contact and newsletter forms on one page), joins the false-positive suite.
 - The browser's locale is set from the machine's locale, so pages that format dates work when `LANG` is unset (as in many containers), where Chromium otherwise reports the invalid `en-US@posix`.
 - Reports say "Checks with nothing to test on this page" and "V1 tester preview".
 
