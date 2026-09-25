@@ -1,0 +1,121 @@
+# Builds and publishes the Docker images when a version tag is pushed (git tag v0.3.0 && git push origin v0.3.0):
+#   ghcr.io/rahul-bharati/run-hound          Run Hound (web UI + CLI, Chromium included)
+#   ghcr.io/rahul-bharati/run-hound-kennel   Kennel, the deliberately broken demo app
+#   ghcr.io/rahul-bharati/run-hound-samples  the well-built sample apps (false-positive suite)
+# Tags: 0.3.0, 0.3 and latest, for linux/amd64 and linux/arm64.
+#
+# GHCR needs no setup: the workflow's GITHUB_TOKEN pushes. New GHCR packages are private: after the first release,
+# open each package (github.com/rahul-bharati?tab=packages) → Package settings → Change visibility → Public.
+#
+# Optional Docker Hub mirror: add the repository variable DOCKERHUB_USERNAME (Settings → Secrets and variables →
+# Actions → Variables) and the secret DOCKERHUB_TOKEN (a Docker Hub access token with Read & Write). When both are
+# set, every release is also pushed to docker.io/<DOCKERHUB_USERNAME>/<image>; without them the step is skipped.
+name: Release images
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, e.g. 0.3.0 (must match app/package.json)"
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: release-images-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: The tag matches app/package.json
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          tag="${INPUT_VERSION:-${GITHUB_REF_NAME#v}}"
+          pkg=$(node -p "require('./app/package.json').version")
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::Version $tag does not match app/package.json ($pkg)"
+            exit 1
+          fi
+          echo "version=$pkg" >> "$GITHUB_OUTPUT"
+
+  image:
+    needs: check-version
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: run-hound
+            file: app/Dockerfile
+            title: Run Hound
+            description: AI-assisted UI testing for AI-built apps; real checks in a real browser decide.
+          - name: run-hound-kennel
+            file: fixtures/kennel/Dockerfile
+            title: Run Hound Kennel
+            description: Kennel, a deliberately broken booking app for trying Run Hound.
+          - name: run-hound-samples
+            file: fixtures/samples/Dockerfile
+            title: Run Hound sample apps
+            description: Well-built sample apps Run Hound should report no confirmed findings on.
+    env:
+      HAS_DOCKERHUB: ${{ vars.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-qemu-action@v4
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub (optional mirror)
+        if: env.HAS_DOCKERHUB == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Image names and tags
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}
+            ${{ env.HAS_DOCKERHUB == 'true' && format('docker.io/{0}/{1}', vars.DOCKERHUB_USERNAME, matrix.name) || '' }}
+          tags: |
+            type=semver,pattern={{version}},value=v${{ needs.check-version.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.check-version.outputs.version }}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=${{ matrix.title }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.licenses=MIT
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
