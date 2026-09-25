@@ -118,6 +118,29 @@ describe("chatJson", () => {
     expect(fake.calls).toHaveLength(1);
   });
 
+  const OUT_OF_SPACE =
+    "The model used up its output space before answering (reasoning models often spend it thinking). Choose a non-reasoning model, turn reasoning off on the server, or raise its context length.";
+
+  it("rejects with bad-output and a plain message when the model ran out of space before answering", async () => {
+    fake.reply({ raw: "", finishReason: "length" });
+    const error = await caught(chatJson(config(), MESSAGES, SCHEMA));
+    expect(error.code).toBe("bad-output");
+    expect(error.message).toBe(OUT_OF_SPACE);
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it("treats a length stop with only a think block as out of space too", async () => {
+    fake.reply({ raw: "<think>\nThe user wants a plan. Let me consider", finishReason: "length" });
+    expect((await caught(chatJson(config(), MESSAGES, SCHEMA))).message).toBe(OUT_OF_SPACE);
+    fake.reply({ raw: "<think>\nDone thinking.\n</think>\n  ", finishReason: "length" });
+    expect((await caught(chatJson(config(), MESSAGES, SCHEMA))).message).toBe(OUT_OF_SPACE);
+  });
+
+  it("returns partial content on a length stop for the client to judge", async () => {
+    fake.reply({ raw: '{"answer": 4', finishReason: "length" });
+    expect(await chatJson(config(), MESSAGES, SCHEMA)).toBe('{"answer": 4');
+  });
+
   it("rejects with unreachable when nothing is listening", async () => {
     const error = await caught(chatJson(config({ baseUrl: await closedPortUrl() }), MESSAGES, SCHEMA));
     expect(error.code).toBe("unreachable");

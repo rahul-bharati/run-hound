@@ -7,6 +7,16 @@ export interface ChatMessage {
   content: string;
 }
 
+/** Why a model stopped at its length limit with nothing to show (finish_reason / done_reason "length"). */
+export const OUT_OF_SPACE =
+  "The model used up its output space before answering (reasoning models often spend it thinking). Choose a non-reasoning model, turn reasoning off on the server, or raise its context length.";
+
+/** Removes a leading <think>…</think> block; an unterminated leading <think> (cut off mid-thought) leaves nothing. */
+export function stripThink(content: string): string {
+  if (/^\s*<think>/.test(content) && !content.includes("</think>")) return "";
+  return content.replace(/^\s*<think>[\s\S]*?<\/think>\s*/, "");
+}
+
 /** Base URLs whose server rejected json_schema; they get json_object from then on. */
 const jsonObjectOnly = new Set<string>();
 
@@ -21,6 +31,8 @@ function withSchemaInSystem(messages: ChatMessage[], schema: JsonSchema): ChatMe
  * POST {baseUrl}/chat/completions with `temperature: 0`, `stream: false` and
  * `response_format: {type: "json_schema", json_schema: {name, schema, strict: true}}`; `Authorization: Bearer <apiKey>`
  * when a key is set. Returns choices[0].message.content (reasoning models: strips a leading <think>…</think> block).
+ * finish_reason "length" with no content left after that (empty or only thinking) → AiError "bad-output" OUT_OF_SPACE;
+ * partial content on a length stop is returned for the client to judge.
  * If the server answers 400 and the body mentions response_format or json_schema, retries once with
  * `response_format: {type: "json_object"}` and the schema appended to the system message, and remembers that for
  * this baseUrl for the life of the process.
@@ -65,7 +77,10 @@ export async function chatJson(
   }
   if (response.status < 200 || response.status >= 300) throw httpError(response.status, response.text);
 
-  const content: unknown = parseBody(response.text)?.choices?.[0]?.message?.content;
-  if (typeof content !== "string") throw new AiError("bad-output", "The server's answer had no message content");
-  return content.replace(/^\s*<think>[\s\S]*?<\/think>\s*/, "");
+  const choice = parseBody(response.text)?.choices?.[0];
+  const content: unknown = choice?.message?.content;
+  const answer = typeof content === "string" ? stripThink(content) : null;
+  if (choice?.finish_reason === "length" && !answer?.trim()) throw new AiError("bad-output", OUT_OF_SPACE);
+  if (answer === null) throw new AiError("bad-output", "The server's answer had no message content");
+  return answer;
 }

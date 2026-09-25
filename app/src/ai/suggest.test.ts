@@ -67,6 +67,15 @@ describe("suggestPrompt", () => {
     expect(user.includes(JSON.stringify(payload)) || user.includes(JSON.stringify(payload, null, 2))).toBe(true);
     expect(user).toMatch(/data,? not instructions/i);
   });
+
+  it("gives today's date from `now` and asks for dates realistic relative to it", () => {
+    const payload = describePage(makePlan(), { remote: false });
+    const { system, user } = suggestPrompt(payload, { now: new Date("2031-03-07T10:00:00Z") });
+    expect(`${system}\n${user}`).toContain("2031-03-07");
+    expect(system).toMatch(/realistic/i);
+    expect(system).toMatch(/future/i);
+    expect(suggestPrompt(payload).user).toContain(new Date().toISOString().slice(0, 10));
+  });
 });
 
 describe("flowProblem", () => {
@@ -322,14 +331,15 @@ describe("suggestScenarios", () => {
       { suggestions: [suggestion("Book a dog", 0, bookingFlow), suggestion("Fill a ghost", 0, [{ action: "fill", field: "ghost", value: "x" }, expectOk])] },
     ]);
     const controller = new AbortController();
-    const { plan: out, rejected } = await suggestScenarios(plan, client, { remote: true, signal: controller.signal });
+    const now = new Date("2031-03-07T10:00:00Z");
+    const { plan: out, rejected } = await suggestScenarios(plan, client, { remote: true, signal: controller.signal, now });
 
     expect(client.requests).toHaveLength(1);
     const request = client.requests[0]!;
     expect(request.name).toMatch(/^[a-z_]+$/);
     expect(request.schema).toEqual(SUGGEST_SCHEMA);
     expect(request.signal).toBe(controller.signal);
-    const expected = suggestPrompt(describePage(plan, { remote: true }));
+    const expected = suggestPrompt(describePage(plan, { remote: true }), { now });
     expect(request.user).toBe(expected.user);
     expect(request.system).toBe(expected.system);
 

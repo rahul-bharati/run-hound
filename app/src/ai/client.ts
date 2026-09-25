@@ -3,7 +3,8 @@ import { AiError } from "./types.js";
 import { converseJson } from "./bedrock.js";
 import { endpointHost, isRemote } from "./config.js";
 import { originOf } from "./http.js";
-import { chatJson, type ChatMessage } from "./openai-compatible.js";
+import { ollamaChatJson } from "./ollama.js";
+import { chatJson, OUT_OF_SPACE, type ChatMessage } from "./openai-compatible.js";
 
 /** Removes a ``` / ```json fence around the whole answer. */
 function stripFences(text: string): string {
@@ -16,10 +17,11 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 /**
  * Builds the client for a resolved config. Throws AiError "not-configured" when disabled or no model, and
  * "remote-not-allowed" (before any request) when isRemote(config) && !config.allowRemote.
- * generateJson: calls chatJson (ollama, openai-compatible) or converseJson (bedrock); strips ``` fences; JSON.parse;
- * request.validate. On a parse or validation error, one retry with the model's answer as an assistant message and a
- * user message "Your answer was not valid: <error>. Answer again with JSON that matches the schema." A second
- * failure → AiError "bad-output". Transport errors are not retried.
+ * generateJson: calls ollamaChatJson (ollama, native /api/chat), chatJson (openai-compatible) or converseJson
+ * (bedrock); strips ``` fences; JSON.parse; request.validate. On a parse or validation error, one retry with the
+ * model's answer as an assistant message and a user message "Your answer was not valid: <error>. Answer again with
+ * JSON that matches the schema." A second failure → AiError "bad-output". Errors thrown by the provider call
+ * (transport, HTTP, and "bad-output" such as OUT_OF_SPACE, which would only happen again) are not retried.
  * `env` (AWS credentials for bedrock SigV4) is for tests; it defaults to process.env.
  */
 export function createLlmClient(config: AiConfig, options: { env?: NodeJS.ProcessEnv } = {}): LlmClient {
@@ -30,7 +32,11 @@ export function createLlmClient(config: AiConfig, options: { env?: NodeJS.Proces
   }
   const env = options.env ?? process.env;
   const call = (messages: ChatMessage[], schema: { name: string; schema: Record<string, unknown> }, signal?: AbortSignal) =>
-    config.provider === "bedrock" ? converseJson(config, messages, schema, signal, env) : chatJson(config, messages, schema, signal);
+    config.provider === "bedrock"
+      ? converseJson(config, messages, schema, signal, env)
+      : config.provider === "ollama"
+        ? ollamaChatJson(config, messages, schema, signal)
+        : chatJson(config, messages, schema, signal);
 
   return {
     provider: config.provider,
@@ -71,6 +77,7 @@ function explain(error: unknown, config: AiConfig): string {
     case "auth":
       return `The server refused the credentials (HTTP ${error.status ?? "?"}); check the API key`;
     case "bad-output":
+      if (error.message === OUT_OF_SPACE) return error.message;
       return `The model answered, but not with valid JSON: ${error.message}`;
     default:
       return error.message;

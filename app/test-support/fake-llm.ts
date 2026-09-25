@@ -1,20 +1,25 @@
 import type { ServerResponse } from "node:http";
 import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "./server.js";
 
-/** What the fake answers to one chat/converse call: a JSON value (serialized as the answer), raw text, or an HTTP error. */
-export type FakeReply = unknown | { raw: string } | { status: number; body: string };
+/**
+ * What the fake answers to one chat/converse call: a JSON value (serialized as the answer), raw text (optionally with a
+ * finish reason other than "stop", e.g. "length"; Ollama native: done_reason), or an HTTP error sent as is.
+ */
+export type FakeReply = unknown | { raw: string; finishReason?: string } | { status: number; body: string };
 
 export interface FakeLlm extends FixtureServer {
   /** OpenAI-compatible base URL, e.g. http://127.0.0.1:5000/v1 */
   baseUrl: string;
-  /** Chat-completion and converse requests, parsed. */
+  /** Chat-completion, Ollama /api/chat and converse requests, parsed. */
   calls: { path: string; body: any; headers: RecordedRequest["headers"] }[];
   /** Queue replies; each call takes the next one (the last one repeats when the queue runs dry). */
   reply(...replies: FakeReply[]): void;
 }
 
-function isRaw(r: FakeReply): r is { raw: string } {
-  return typeof r === "object" && r !== null && "raw" in r && Object.keys(r).length === 1;
+function isRaw(r: FakeReply): r is { raw: string; finishReason?: string } {
+  if (typeof r !== "object" || r === null || !("raw" in r)) return false;
+  const keys = Object.keys(r);
+  return keys.length === 1 || (keys.length === 2 && "finishReason" in r);
 }
 function isError(r: FakeReply): r is { status: number; body: string } {
   return typeof r === "object" && r !== null && "status" in r && "body" in r && Object.keys(r).length === 2;
@@ -22,7 +27,7 @@ function isError(r: FakeReply): r is { status: number; body: string } {
 
 /**
  * A fake LLM server for tests: OpenAI-compatible `POST /v1/chat/completions`, `GET /v1/models`, Ollama `GET /api/tags`
- * and Bedrock `POST /model/<id>/converse` (any model id). Replies come from the queue set with reply().
+ * and `POST /api/chat` (native, non-streaming) and Bedrock `POST /model/<id>/converse` (any model id). Replies come from the queue set with reply().
  * `models` sets /v1/models and /api/tags (Ollama-style entries with details and capabilities).
  */
 export async function startFakeLlm(options: {
@@ -35,7 +40,7 @@ export async function startFakeLlm(options: {
   const next = (): FakeReply => (queue.length > 1 ? queue.shift() : queue[0]) ?? { ok: true };
   const wait = () => new Promise((r) => setTimeout(r, options.delayMs ?? 0));
 
-  const send = async (req: RecordedRequest, res: ServerResponse, shape: "openai" | "bedrock"): Promise<void> => {
+  const send = async (req: RecordedRequest, res: ServerResponse, shape: "openai" | "ollama" | "bedrock"): Promise<void> => {
     const path = new URL(req.url, "http://x").pathname;
     let body: any = null;
     try {
@@ -52,13 +57,17 @@ export async function startFakeLlm(options: {
       return;
     }
     const text = isRaw(r) ? r.raw : JSON.stringify(r);
+    const finish = (isRaw(r) && r.finishReason) || "stop";
     if (shape === "openai") {
       return json(res, 200, {
         id: "chatcmpl-fake",
         object: "chat.completion",
         model: body?.model ?? "fake",
-        choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: text } }],
+        choices: [{ index: 0, finish_reason: finish, message: { role: "assistant", content: text } }],
       });
+    }
+    if (shape === "ollama") {
+      return json(res, 200, { model: body?.model ?? "fake", message: { role: "assistant", content: text }, done: true, done_reason: finish });
     }
     // Bedrock Converse with a forced tool: the answer is the tool input (raw text can't be tool input; send it as text).
     const content = isRaw(r) ? [{ text }] : [{ toolUse: { toolUseId: "t1", name: body?.toolConfig?.tools?.[0]?.toolSpec?.name ?? "answer", input: r } }];
@@ -69,6 +78,7 @@ export async function startFakeLlm(options: {
   const server = await startFixtureServer({
     routes: {
       "POST /v1/chat/completions": (req, res) => send(req, res, "openai"),
+      "POST /api/chat": (req, res) => send(req, res, "ollama"),
       "GET /v1/models": (_req, res) => json(res, 200, { object: "list", data: models.map((m) => ({ id: m.id, object: "model" })) }),
       "GET /api/tags": (_req, res) =>
         json(res, 200, {

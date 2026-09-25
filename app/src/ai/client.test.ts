@@ -75,7 +75,7 @@ async function closedPortUrl(): Promise<string> {
   await server.close();
   return `${server.url}/v1`;
 }
-/** Messages of an OpenAI-compatible call. */
+/** Messages of an OpenAI-compatible or Ollama native call. */
 const messagesOf = (i: number) => fake.calls[i]!.body.messages as ChatMessage[];
 
 describe("createLlmClient", () => {
@@ -108,19 +108,38 @@ describe("generateJson", () => {
     const value = await createLlmClient(ollama(), { env: {} }).generateJson(request());
     expect(value).toEqual({ ok: true });
     expect(fake.calls).toHaveLength(1);
-    expect(fake.calls[0]!.path).toBe("/v1/chat/completions");
+    expect(fake.calls[0]!.path).toBe("/api/chat");
     expect(messagesOf(0)).toEqual([
       { role: "system", content: "Answer with JSON." },
       { role: "user", content: "Are you there?" },
     ]);
-    expect(fake.calls[0]!.body.response_format.json_schema.name).toBe("ok_check");
+    expect(fake.calls[0]!.body.format).toEqual(request().schema);
+    expect(fake.calls[0]!.body.think).toBe(false);
   });
 
   it("returns the validated answer from an OpenAI-compatible server, with the key", async () => {
     fake.reply({ ok: true });
     const client = createLlmClient(ollama({ provider: "openai-compatible", apiKey: "sk-test-key" }), { env: {} });
     expect(await client.generateJson(request())).toEqual({ ok: true });
+    expect(fake.calls[0]!.path).toBe("/v1/chat/completions");
+    expect(fake.calls[0]!.body.response_format.json_schema.name).toBe("ok_check");
     expect(fake.calls[0]!.headers.authorization).toBe("Bearer sk-test-key");
+  });
+
+  it("does not retry when the model ran out of output space", async () => {
+    fake.reply({ raw: "", finishReason: "length" });
+    const client = createLlmClient(ollama({ provider: "openai-compatible" }), { env: {} });
+    const error = await caught(client.generateJson(request()));
+    expect(error.code).toBe("bad-output");
+    expect(error.message).toContain("used up its output space");
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it("does not retry when Ollama doesn't have the model", async () => {
+    fake.reply({ status: 404, body: JSON.stringify({ error: 'model "nope:1b" not found, try pulling it first' }) });
+    const error = await caught(createLlmClient(ollama({ model: "nope:1b" }), { env: {} }).generateJson(request()));
+    expect(error.message).toBe("Ollama doesn't have the model nope:1b — run `ollama pull nope:1b`");
+    expect(fake.calls).toHaveLength(1);
   });
 
   it("returns the validated answer from Bedrock", async () => {

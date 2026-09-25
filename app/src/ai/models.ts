@@ -1,5 +1,6 @@
 import type { AiConfig, AiModelInfo, AiModelList } from "./types.js";
 import { endpointHost, isRemote } from "./config.js";
+import { ollamaRoot } from "./ollama.js";
 
 const TIMEOUT_MS = 5_000;
 
@@ -78,7 +79,7 @@ export async function listModels(config: Pick<AiConfig, "provider" | "baseUrl" |
 
   let models: AiModelInfo[] | null = null;
   if (ollama) {
-    const tags = await getJson(`${base.replace(/\/v1$/, "")}/api/tags`, config.apiKey, origin, serverName);
+    const tags = await getJson(`${ollamaRoot(base)}/api/tags`, config.apiKey, origin, serverName);
     if (!tags.ok) return { models: [], error: tags.error };
     if (tags.status !== 404) models = fromOllamaTags(tags.body);
   }

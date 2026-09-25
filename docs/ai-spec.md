@@ -32,9 +32,10 @@ Bedrock auth: a Bedrock API key (Bearer), else SigV4 from `AWS_ACCESS_KEY_ID`/`A
 
 ## Providers (no new dependencies)
 
-- **ollama / openai-compatible** (`ai/openai-compatible.ts`): Chat Completions with `response_format: json_schema` (strict), temperature 0; falls back to `json_object` with the schema in the prompt when a server rejects `json_schema`. Covers Ollama, LM Studio, llama.cpp, vLLM, OpenAI, OpenRouter, Groq, Together and other OpenAI-compatible endpoints.
+- **ollama** (`ai/ollama.ts`): Ollama's native `POST /api/chat` (base URL minus a trailing `/v1`) with `think: false`, `format: <schema>`, `stream: false` and `options: {temperature: 0, num_ctx: 16384}`. Thinking is off and the context raised because a reasoning model on Ollama's default 4096-token context spends it all thinking and never answers. A model without thinking control (400 mentioning "think") is retried once without `think`, remembered per model. A missing model says to run `ollama pull <model>`.
+- **openai-compatible** (`ai/openai-compatible.ts`): Chat Completions with `response_format: json_schema` (strict), temperature 0; falls back to `json_object` with the schema in the prompt when a server rejects `json_schema`. Covers LM Studio, llama.cpp, vLLM, OpenAI, OpenRouter, Groq, Together and other OpenAI-compatible endpoints. `finish_reason: "length"` with no answer (only thinking) is a `bad-output` error saying the model ran out of output space; it is not retried.
 - **bedrock** (`ai/bedrock.ts`): Converse with one forced tool whose input schema is the answer schema.
-- **client** (`ai/client.ts`): parse, validate, one retry with the error fed back, then `AiError("bad-output")`.
+- **client** (`ai/client.ts`): parse, validate, one retry with the error fed back, then `AiError("bad-output")`. Errors from the provider call itself (transport, HTTP, out of output space) are not retried.
 - Schemas use the portable subset: every property required, nullable instead of optional, `additionalProperties: false`, no numeric or length limits.
 
 ## Features
