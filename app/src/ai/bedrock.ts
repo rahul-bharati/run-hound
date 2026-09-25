@@ -4,6 +4,7 @@ import type { ChatMessage } from "./openai-compatible.js";
 import { httpError, parseBody, send } from "./http.js";
 import { signV4 } from "./sigv4.js";
 import { awsProfileRegion, resolveAwsCredentials } from "./aws-credentials.js";
+import { isAwsRegion } from "./config.js";
 
 /**
  * Bedrock Converse: POST {endpoint}/model/{encodeURIComponent(model)}/converse, endpoint = baseUrl or
@@ -32,6 +33,7 @@ export async function converseJson(
   const aws = { env, profile: config.awsProfile ?? null, ...(options.home ? { home: options.home } : {}) };
   const region = config.region || (config.apiKey && config.baseUrl ? null : awsProfileRegion(aws));
   if (!config.baseUrl && !region) throw new AiError("not-configured", "Choose a Bedrock region");
+  if (region && !isAwsRegion(region)) throw new AiError("not-configured", `"${region}" is not an AWS region, such as us-east-1`);
   const endpoint = (config.baseUrl || `https://bedrock-runtime.${region}.amazonaws.com`).replace(/\/+$/, "");
   const url = `${endpoint}/model/${encodeURIComponent(config.model)}/converse`;
   const body = JSON.stringify({

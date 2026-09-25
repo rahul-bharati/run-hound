@@ -9,6 +9,7 @@ import {
   DEFAULT_AI_CONFIG,
   DEFAULT_BASE_URLS,
   endpointHost,
+  isAwsRegion,
   isRemote,
   resolveAiConfig,
   saveAiConfig,
@@ -609,6 +610,29 @@ describe("the saved key does not follow a changed endpoint", () => {
     await saveAiConfig({ provider: "openai-compatible", baseUrl: "https://api.a.example/v1" }, { env, home: tmp });
     const r = await saveAiConfig({ baseUrl: "https://api.b.example/v1" }, { env, home: tmp });
     expect(r.notice).toBeUndefined();
+  });
+});
+
+describe("AWS region validation", () => {
+  it("accepts AWS region names only", () => {
+    for (const region of ["us-east-1", "eu-central-2", "ap-southeast-1", "us-gov-west-1", "cn-north-1", "il-central-1"]) expect(isAwsRegion(region)).toBe(true);
+    for (const region of ["", "x@evil.com/", "evil.com#", "us-east-1.evil.com", "us-east-1/", "US-EAST-1", "us-east", null]) expect(isAwsRegion(region)).toBe(false);
+  });
+
+  it("refuses to save a region that would move the Bedrock host, keeping the saved key where it was", async () => {
+    await saveAiConfig({ provider: "bedrock", region: "us-east-1", apiKey: "saved-key", allowRemote: true }, { env, home: tmp });
+    await expect(saveAiConfig({ region: "x@evil.com/" }, { env, home: tmp })).rejects.toThrow(/not an AWS region/);
+    const r = await resolveAiConfig({ env, home: tmp });
+    expect(r.config).toMatchObject({ region: "us-east-1", apiKey: "saved-key" });
+    expect(endpointHost(r.config)).toBe("bedrock-runtime.us-east-1.amazonaws.com");
+  });
+
+  it("ignores a malformed region from the file or the environment", async () => {
+    await writeSaved({ provider: "bedrock", region: "evil.com#" });
+    let r = await resolveAiConfig({ env, home: tmp });
+    expect(r.config.region).toBeNull();
+    r = await resolveAiConfig({ env: { ...env, RUNHOUND_AI_REGION: "x@evil.com/", AWS_REGION: "evil.com#", AWS_DEFAULT_REGION: "eu-west-1" }, home: tmp });
+    expect(r.config.region).toBe("eu-west-1");
   });
 });
 

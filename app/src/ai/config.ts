@@ -81,7 +81,7 @@ function fromFile(raw: unknown): Layer {
   if (typeof r.baseUrl === "string") out.baseUrl = r.baseUrl;
   if (typeof r.model === "string") out.model = r.model;
   if (typeof r.apiKey === "string" && r.apiKey !== "") out.apiKey = r.apiKey;
-  if (typeof r.region === "string" && r.region !== "") out.region = r.region;
+  if (isAwsRegion(r.region)) out.region = r.region;
   if (typeof r.awsProfile === "string" && r.awsProfile !== "") out.awsProfile = r.awsProfile;
   if (typeof r.allowRemote === "boolean") out.allowRemote = r.allowRemote;
   if (typeof r.allowRemoteHost === "string" && r.allowRemoteHost !== "") out.allowRemoteHost = r.allowRemoteHost;
@@ -126,7 +126,7 @@ function fromEnv(env: NodeJS.ProcessEnv): { layer: Layer; names: Partial<Record<
   set("baseUrl", str("RUNHOUND_AI_BASE_URL"), "RUNHOUND_AI_BASE_URL");
   set("model", str("RUNHOUND_AI_MODEL"), "RUNHOUND_AI_MODEL");
   set("apiKey", str("RUNHOUND_AI_API_KEY"), "RUNHOUND_AI_API_KEY");
-  set("region", str("RUNHOUND_AI_REGION"), "RUNHOUND_AI_REGION");
+  set("region", isAwsRegion(env.RUNHOUND_AI_REGION) ? env.RUNHOUND_AI_REGION : undefined, "RUNHOUND_AI_REGION");
   set("awsProfile", str("RUNHOUND_AI_AWS_PROFILE"), "RUNHOUND_AI_AWS_PROFILE");
   set("allowRemote", envBool(env.RUNHOUND_AI_ALLOW_REMOTE), "RUNHOUND_AI_ALLOW_REMOTE");
   const timeout = env.RUNHOUND_AI_TIMEOUT_MS?.trim() ? Number(env.RUNHOUND_AI_TIMEOUT_MS) : undefined;
@@ -190,14 +190,15 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
       envNames.awsProfile = "AWS_PROFILE";
     }
     if (config.region === null) {
-      const name = env.AWS_REGION ? "AWS_REGION" : env.AWS_DEFAULT_REGION ? "AWS_DEFAULT_REGION" : null;
+      const name = isAwsRegion(env.AWS_REGION) ? "AWS_REGION" : isAwsRegion(env.AWS_DEFAULT_REGION) ? "AWS_DEFAULT_REGION" : null;
       if (name) {
         config.region = env[name]!;
         sources.region = "env";
         envNames.region = name;
       } else {
         // The profile's region (shared config file); source stays "default", so the Settings page can override it.
-        config.region = awsProfileRegion({ env, profile: config.awsProfile ?? null, ...(home ? { home } : {}) });
+        const region = awsProfileRegion({ env, profile: config.awsProfile ?? null, ...(home ? { home } : {}) });
+        config.region = isAwsRegion(region) ? region : null;
       }
     }
   }
@@ -230,6 +231,14 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
     if (config.allowRemote && host !== endpointHost(config)) config.allowRemote = false;
   }
   return { config, sources, file, envNames, ...(staleKey ? { staleKey } : {}) };
+}
+
+/**
+ * True for an AWS region name such as us-east-1, eu-central-2 or us-gov-west-1. The region becomes part of the host
+ * bedrock-runtime.<region>.amazonaws.com, so anything else (e.g. "x@evil.com/") could send the key to another host.
+ */
+export function isAwsRegion(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z]{2}(-[a-z0-9]+)+-\d+$/.test(value);
 }
 
 /**
@@ -356,6 +365,7 @@ export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS
     }
     if ((field === "enabled" || field === "allowRemote") && typeof value !== "boolean") throw new Error(`${field} must be true or false`);
     if ((field === "model" || field === "region" || field === "apiKey" || field === "awsProfile") && value !== null && typeof value !== "string") throw new Error(`${field} must be a string`);
+    if (field === "region" && value !== null && value !== "" && !isAwsRegion(value)) throw new Error(`"${String(value)}" is not an AWS region, such as us-east-1`);
     if (field === "features") value = { ...current.config.features, ...(value as Partial<AiFeatures>) };
     if (current.sources[field] === "env") {
       if (JSON.stringify(value) === JSON.stringify(current.config[field])) continue;

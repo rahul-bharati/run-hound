@@ -115,6 +115,15 @@ describe("converseJson", () => {
     expect(fake.calls).toHaveLength(0);
   });
 
+  it("refuses a region that is not an AWS region name and sends nothing", async () => {
+    fake.reply({ answer: 1 });
+    for (const region of ["x@evil.com/", "evil.com#", "us-east-1.evil.com"]) {
+      const error = await caught(converseJson(config({ region, apiKey: "key" }), MESSAGES, SCHEMA, undefined, {}, { home }));
+      expect(error.code).toBe("not-configured");
+    }
+    expect(fake.calls).toHaveLength(0);
+  });
+
   it("signs with the keys of the AWS profile when there is no API key and no env keys", async () => {
     await mkdir(join(home, ".aws"), { recursive: true });
     await writeFile(join(home, ".aws", "credentials"), `[work]\naws_access_key_id = AKIDPROFILE\naws_secret_access_key = profile-secret\naws_session_token = profile-token\n`);
