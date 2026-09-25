@@ -128,8 +128,10 @@ describe("GET /api/ai", () => {
     const res = await app.request("/api/ai");
     const text = await res.text();
     expect(text).not.toContain(SECRET);
-    expect(text).not.toMatch(/"apiKey"\s*:/);
     const status = JSON.parse(text) as AiStatus;
+    // Only sources.apiKey (where the key came from) may carry the name; no field anywhere holds a key value.
+    expect(status).not.toHaveProperty("apiKey");
+    expect(Object.keys(status.sources)).toContain("apiKey");
     expect(status.hasKey).toBe(true);
     expect(status.sources.apiKey).toBe("file");
   });

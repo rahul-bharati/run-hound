@@ -1,4 +1,4 @@
-# Run Hound V1 plus the apps it is tested against, all local. See TESTING.md.
+# Run Hound (0.3.0) plus the apps it is tested against, all local. See TESTING.md.
 #
 #   cp .env.example .env        # optional: every setting has a default; edit ports and options there
 #   mkdir -p runs               # reports land in ./runs; create it first so the files belong to you
@@ -41,6 +41,22 @@ services:
       # Docker and Podman give your machine. Nothing public is added. Override in .env to add your own.
       RUNHOUND_ALLOWED_HOSTS: ${RUNHOUND_ALLOWED_HOSTS:-kennel,kennel-clean,classic-post,spa-fetch,login,cross-origin-api,multi-form,host.docker.internal,host.containers.internal}
       RUNHOUND_PUBLIC_URL: http://localhost:${RUNHOUND_HOST_PORT:-4000}
+      # AI (optional, off by default; docs/ai-spec.md). Settings saved from the web UI go to ./runs/.config/ai.json
+      # on your machine (inside the reports folder, so they belong to you and survive a rebuild).
+      RUNHOUND_CONFIG_DIR: /repo/app/runs/.config
+      RUNHOUND_AI: ${RUNHOUND_AI:-}
+      RUNHOUND_AI_PROVIDER: ${RUNHOUND_AI_PROVIDER:-}
+      RUNHOUND_AI_BASE_URL: ${RUNHOUND_AI_BASE_URL:-}
+      RUNHOUND_AI_MODEL: ${RUNHOUND_AI_MODEL:-}
+      RUNHOUND_AI_API_KEY: ${RUNHOUND_AI_API_KEY:-}
+      RUNHOUND_AI_REGION: ${RUNHOUND_AI_REGION:-}
+      RUNHOUND_AI_ALLOW_REMOTE: ${RUNHOUND_AI_ALLOW_REMOTE:-}
+      RUNHOUND_AI_FEATURES: ${RUNHOUND_AI_FEATURES:-}
+      AWS_BEARER_TOKEN_BEDROCK: ${AWS_BEARER_TOKEN_BEDROCK:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_REGION: ${AWS_REGION:-}
     extra_hosts:
       # Docker Desktop defines host.docker.internal itself; this adds it on Linux Docker and Podman too.
       - "host.docker.internal:host-gateway"

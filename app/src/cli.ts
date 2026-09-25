@@ -8,6 +8,12 @@
  *   confirmed finding, 2 error (including a refused target, an unreachable page and an empty approval).
  * With --json, stdout carries exactly one JSON document (the report, or the plan with --plan-only); progress, the run
  * folder and errors go to stderr.
+ *   AI (docs/ai-spec.md, off by default): --ai / --no-ai, --ai-provider, --ai-model, --ai-base-url, --ai-allow-remote
+ *   override the saved config and RUNHOUND_AI_* env. With AI the plan is reviewed and extended with suggested flows,
+ *   and findings get advisory explanations. --ai with an endpoint that can't be used (a remote one without consent,
+ *   no model) is exit 2 before anything is sent; AI enabled only by the config or env falls back to no AI with a warning.
+ * run-hound ai status [--ai-* flags]   the resolved AI settings (never the key), exit 0
+ * run-hound ai test [--ai-* flags]     one tiny call to the model: exit 0 and "ok", or exit 1 with the reason
  * run-hound help | --help | -h, run-hound --version (also run --version, serve --version)
  */
 import { parseArgs } from "node:util";
@@ -19,6 +25,12 @@ import { canShowBrowser, discoverAndPlan, NO_DISPLAY_MESSAGE, NothingToRunError,
 import { planSummary } from "./engine/plan.js";
 import { exitQuietlyOnClosedPipe } from "./engine/stdio.js";
 import { createApp } from "./server/app.js";
+import { testConnection } from "./ai/client.js";
+import { aiStatus, resolveAiConfig, type AiFlags } from "./ai/config.js";
+import { flowStepWords } from "./ai/describe.js";
+import { aiSession, type AiSession } from "./ai/session.js";
+import { AI_PROVIDERS, type AiProvider, type AiStatus } from "./ai/types.js";
+import { formOfScenario } from "./engine/plan.js";
 
 /** "1 field", "9 fields". */
 const count = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -34,12 +46,20 @@ const USAGE = `Usage:
       --headed                        open a visible browser window so you can watch the run
       --runs-dir <dir>                where run folders go (default: ./runs)
       --json                          print the report (or the plan) as JSON on stdout
+      --ai / --no-ai                  use the AI model to review the plan, suggest flows and explain findings
+                                      (off unless turned on here, in Settings or with RUNHOUND_AI=1)
+      --ai-provider <name>            ollama, openai-compatible or bedrock
+      --ai-model <id>                 model id, e.g. ornith-1.5:9b
+      --ai-base-url <url>             e.g. http://127.0.0.1:11434/v1
+      --ai-allow-remote               consent to send redacted page structure to a non-local endpoint
+  run-hound ai status | ai test [--ai-provider … --ai-model … --ai-base-url … --ai-allow-remote]
+      Show the AI settings (never the key), or check that the model answers.
   run-hound help | --version
 
 Exit codes for run:
   0  no confirmed findings (advisory findings, which rely on judgement, are reported but don't fail the run)
   1  at least one confirmed finding
-  2  an error: a refused or unreachable target, no form found, or bad arguments
+  2  an error: a refused or unreachable target, no form found, bad arguments, or --ai when AI can't be used
 
 Run Hound only tests local and private-network addresses (localhost, 127.0.0.1, 10.x, 172.16-31.x, 192.168.x,
 fc00::/7, link-local); add other hosts you own to RUNHOUND_ALLOWED_HOSTS. Scenarios that submit the form create
@@ -60,6 +80,42 @@ function parse<R>(run: () => R): R {
   }
 }
 
+/** parseArgs options shared by `run` and `ai`: overrides of the AI config. */
+const AI_OPTIONS = {
+  ai: { type: "boolean" },
+  "ai-provider": { type: "string" },
+  "ai-model": { type: "string" },
+  "ai-base-url": { type: "string" },
+  "ai-allow-remote": { type: "boolean" },
+} as const;
+
+/** The --ai-* values as config flags; an unknown provider is a usage error. */
+function aiFlags(values: { ai?: boolean; "ai-provider"?: string; "ai-model"?: string; "ai-base-url"?: string; "ai-allow-remote"?: boolean }): AiFlags {
+  const provider = values["ai-provider"];
+  if (provider !== undefined && !(AI_PROVIDERS as readonly string[]).includes(provider)) {
+    throw new UsageError(`unknown --ai-provider "${provider}" (use ${AI_PROVIDERS.join(", ")})`);
+  }
+  const flags: AiFlags = {};
+  if (values.ai !== undefined) flags.enabled = values.ai;
+  if (provider !== undefined) flags.provider = provider as AiProvider;
+  if (values["ai-model"] !== undefined) flags.model = values["ai-model"];
+  if (values["ai-base-url"] !== undefined) flags.baseUrl = values["ai-base-url"];
+  if (values["ai-allow-remote"]) flags.allowRemote = true;
+  return flags;
+}
+
+/** How to fix an AI problem from the command line, appended to its reason. */
+function aiRemedy(status: AiStatus): string {
+  if (status.remote && !status.allowRemote && status.problem?.includes("consent")) {
+    return ` Nothing was sent. Pass --ai-allow-remote (or set RUNHOUND_AI_ALLOW_REMOTE=1) to send redacted page structure to ${status.host}, or use a local endpoint.`;
+  }
+  if (status.problem === "Choose a model") return " Pass --ai-model <id> or set RUNHOUND_AI_MODEL.";
+  return "";
+}
+
+/** "ollama/ornith-1.5:9b". */
+const modelOf = (s: { provider: string; model: string }): string => `${s.provider}/${s.model}`;
+
 /** Reports an error (secrets redacted) and sets exit code 2; exitCode (not exit()) lets piped stdout/stderr flush first. */
 function fail(message: string): void {
   process.stderr.write(`run-hound: ${redactSecrets(message)}\n`);
@@ -79,7 +135,9 @@ async function runCommand(args: string[]): Promise<number> {
       "plan-only": { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
       version: { type: "boolean", short: "v", default: false },
+      ...AI_OPTIONS,
     },
+    allowNegative: true,
   }));
   if (values.help) {
     process.stdout.write(`${USAGE}\n`);
@@ -94,12 +152,32 @@ async function runCommand(args: string[]): Promise<number> {
 
   const log = (line: string) => process.stderr.write(`${redactSecrets(line)}\n`);
   const headed = values.headed;
+
+  // AI is settled before anything is opened or sent: --ai that can't be used is an error; AI enabled only by the
+  // saved config or env falls back to none, with a warning.
+  let ai: AiSession | undefined;
+  const flags = aiFlags(values);
+  const resolved = await resolveAiConfig({ flags });
+  if (resolved.config.enabled) {
+    const out = aiSession(resolved);
+    if ("session" in out) ai = out.session;
+    else if (values.ai === true) throw new Error(`--ai: ${out.problem}.${aiRemedy(out.status)}`);
+    else log(`Warning: AI is not used: ${out.problem}.${aiRemedy(out.status)}`);
+  }
+
   // Discovery runs headless without a display; the gate still judges the target first, so a refused target is
   // reported as refused, and only then is --headed refused.
-  const plan = await discoverAndPlan(url, { headed: headed && canShowBrowser() });
+  const plan = await discoverAndPlan(url, { headed: headed && canShowBrowser(), ...(ai ? { ai } : {}), onProgress: (e) => {
+    if (e.type === "step" && /^Asking /.test(e.label)) log(`- ${e.label}`);
+  } });
   if (headed && !canShowBrowser()) throw new Error(`--headed: ${NO_DISPLAY_MESSAGE}`);
   log(planSummary(plan));
   for (const warning of planWarnings(plan)) log(`Warning: ${warning}`);
+  if (plan.ai) {
+    const suggested = plan.ai.suggested ? `; ${count(plan.ai.suggested, "suggested flow")} (not run unless approved)` : "";
+    log(`AI: ${plan.ai.reviewed ? "plan reviewed" : "plan not reviewed"} by ${modelOf(plan.ai)}${plan.ai.remote ? " (remote)" : ""}${suggested}`);
+    for (const warning of plan.ai.warnings) log(`Warning: AI: ${warning}`);
+  }
 
   if (values["plan-only"]) {
     if (values.json) process.stdout.write(`${JSON.stringify(JSON.parse(redactSecrets(JSON.stringify(plan))))}\n`);
@@ -112,9 +190,17 @@ async function runCommand(args: string[]): Promise<number> {
           if (!s) continue;
           const tags = [s.kind, s.destructive ? "destructive" : ""].filter(Boolean).join(", ");
           const scope = s.scopeLabel ? ` [${redactSecrets(s.scopeLabel)}]` : "";
-          process.stdout.write(`  ${s.defaultSelected ? "*" : " "} ${s.id}  ${redactSecrets(s.title)} (${tags})${scope}\n`);
+          const suggested = s.ai?.suggested || s.checkId === "ai-flow";
+          const aiTag = suggested ? ", suggested by AI" : "";
+          process.stdout.write(`  ${s.defaultSelected ? "*" : " "} ${s.id}  ${redactSecrets(s.title)} (${tags}${aiTag})${scope}\n`);
           // What the scenario does, including whether it creates test records in the app, before anyone approves it.
           process.stdout.write(`      ${redactSecrets(s.description)}\n`);
+          if (suggested) {
+            const form = formOfScenario(plan, s);
+            for (const [i, step] of (s.flow ?? []).entries()) process.stdout.write(`        ${i + 1}. ${redactSecrets(flowStepWords(step, form))}\n`);
+          } else if (s.ai) {
+            process.stdout.write(`      AI: ${s.ai.recommended ? "recommended" : "not recommended"} — ${redactSecrets(s.ai.rationale)}\n`);
+          }
         }
       }
     }
@@ -136,6 +222,7 @@ async function runCommand(args: string[]): Promise<number> {
     allowDestructive: values["allow-destructive"],
     runsDir: values["runs-dir"],
     headed,
+    ...(ai ? { ai } : {}),
     onProgress: (e) => {
       if (e.type === "group-start") {
         log(`== ${e.label} (${count(e.scenarios, "scenario")}; group ${e.index + 1} of ${e.total}) ==`);
@@ -176,15 +263,68 @@ async function runCommand(args: string[]): Promise<number> {
       const places = f.locations && f.locations.length > 1 ? ` [${f.locations.length} places]` : "";
       process.stdout.write(`  [${f.severity}${f.confidence === "advisory" ? ", advisory" : ""}] ${f.title} (${f.checkId})${places}\n`);
     }
+    if (report.ai) {
+      process.stdout.write(`AI explanations (advisory) from ${modelOf(report.ai)} for ${count(report.ai.explained, "finding")}; see the report.\n`);
+    }
     const testData = testDataSentence(report);
     if (testData) process.stdout.write(`${testData}\n`);
     process.stdout.write(`Report: ${dir}/report.html\n`);
   }
+  for (const warning of report.ai?.warnings ?? []) log(`Warning: AI: ${warning}`);
   if (report.summary.errored > 0) {
     log(`Note: ${count(report.summary.errored, "scenario")} errored and tested nothing; see "Checks that errored" in the report.`);
   }
   // Advisory findings rely on judgement: they are reported but never fail the run.
   return report.findings.some((f) => f.confidence === "confirmed") ? 1 : 0;
+}
+
+/** `run-hound ai status` and `run-hound ai test`. Returns the exit code. */
+async function aiCommand(args: string[]): Promise<number> {
+  const { values, positionals } = parse(() => parseArgs({
+    args,
+    allowPositionals: true,
+    options: { help: { type: "boolean", short: "h", default: false }, ...AI_OPTIONS },
+    allowNegative: true,
+  }));
+  if (values.help) {
+    process.stdout.write(`${USAGE}\n`);
+    return 0;
+  }
+  const [sub, ...extra] = positionals;
+  if (extra.length) throw new UsageError(`unexpected argument: ${extra[0]}`);
+  const resolved = await resolveAiConfig({ flags: aiFlags(values) });
+  const status = aiStatus(resolved);
+
+  if (sub === "status") {
+    const from = (field: keyof AiStatus["sources"]) => (status.sources[field] === "env" || status.sources[field] === "flag" ? ` (from ${status.sources[field]})` : "");
+    const features = (Object.keys(status.features) as (keyof AiStatus["features"])[]).filter((f) => status.features[f]);
+    const lines = [
+      `AI: ${status.enabled ? "on" : "off"}${from("enabled")}`,
+      `Provider: ${status.provider}${from("provider")}`,
+      `Model: ${status.model || "(none)"}${from("model")}`,
+      `Endpoint: ${status.baseUrl ? `${status.baseUrl}${from("baseUrl")} ` : ""}(${status.remote ? "remote" : "local"}: ${status.host})`,
+      ...(status.provider === "bedrock" ? [`Region: ${status.region ?? "(none)"}${from("region")}`] : []),
+      `Key: ${status.hasKey ? "set" : "not set"}${status.hasKey ? from("apiKey") : ""}`,
+      ...(status.remote ? [`Consent to send to ${status.host}: ${status.allowRemote ? "yes" : "no"}${from("allowRemote")}`] : []),
+      `Features: ${features.length ? features.join(", ") : "none"}${from("features")}`,
+      `Timeout: ${formatDuration(status.timeoutMs)}${from("timeoutMs")}`,
+      `Config file: ${status.file}`,
+      status.problem ? `Problem: ${status.problem}.${aiRemedy(status)}` : "Ready.",
+    ];
+    process.stdout.write(`${redactSecrets(lines.join("\n"))}\n`);
+    return 0;
+  }
+  if (sub === "test") {
+    // Tests the settings even while AI is switched off, so they can be tried before turning it on.
+    const result = await testConnection({ ...resolved.config, enabled: true });
+    if (result.ok) {
+      process.stdout.write(`ok: ${modelOf({ provider: status.provider, model: result.model })} answered in ${formatDuration(result.ms)}\n`);
+      return 0;
+    }
+    process.stderr.write(`run-hound: AI test failed: ${redactSecrets(result.error)}${aiRemedy(status)}\n`);
+    return 1;
+  }
+  throw new UsageError(sub ? `unknown ai command: ${sub} (use "ai status" or "ai test")` : 'ai needs a command: "ai status" or "ai test"');
 }
 
 function serveCommand(args: string[]): void {
@@ -233,6 +373,10 @@ async function main(argv: string[]): Promise<void> {
     if (command === "serve") return serveCommand(rest);
     if (command === "run") {
       process.exitCode = await runCommand(rest);
+      return;
+    }
+    if (command === "ai") {
+      process.exitCode = await aiCommand(rest);
       return;
     }
     if (command === "--help" || command === "-h" || command === "help") {

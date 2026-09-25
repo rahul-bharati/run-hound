@@ -2,7 +2,9 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join, posix } from "node:path";
 import { BRAND, FONT_MONO, FONT_SANS, MARK_DATA_URI } from "../core/brand.js";
 import { formatDuration } from "../core/format.js";
-import { AI_CHECK_IDS, CHECK_GROUPS, CHECK_IDS, type CheckResult, type Evidence, type Finding, type Report, type ReportGroup, type Severity } from "../core/types.js";
+import { flowStepWords } from "../ai/describe.js";
+import { AI_CHECK_IDS, CHECK_GROUPS, CHECK_IDS, type CheckResult, type Evidence, type Finding, type Report, type ReportGroup, type Scenario, type Severity } from "../core/types.js";
+import { formOfScenario } from "./plan.js";
 import { redactSecrets } from "./redact.js";
 
 /** Always listed in reports: things a browser can't see. */
@@ -46,18 +48,71 @@ interface ScenarioLine {
   notes: string | undefined;
   findings: number;
   durationMs: number;
+  /** What an AI model said about the scenario (0.3.0); absent when AI was off. */
+  ai?: ScenarioAiLines;
+}
+
+/** A scenario's AI rationale, and for an AI-suggested flow its steps in human words. */
+interface ScenarioAiLines {
+  /** "AI: recommended — <rationale>" or, for a suggested flow, "Suggested by AI — <rationale>". */
+  note: string;
+  steps: string[];
+}
+
+function scenarioAi(report: Report, scenario: Scenario | undefined): ScenarioAiLines | undefined {
+  if (!scenario?.ai) return undefined;
+  const rationale = oneLine(scenario.ai.rationale);
+  if (scenario.ai.suggested || scenario.checkId === "ai-flow") {
+    const form = formOfScenario(report.plan, scenario);
+    return { note: `Suggested by AI — ${rationale}`, steps: (scenario.flow ?? []).map((step) => oneLine(flowStepWords(step, form))) };
+  }
+  return { note: `AI: ${scenario.ai.recommended ? "recommended" : "not recommended"} — ${rationale}`, steps: [] };
 }
 
 function scenarioLines(report: Report): ScenarioLine[] {
-  return report.results.map((r) => ({
-    id: r.scenarioId,
-    checkId: r.checkId,
-    title: report.plan.scenarios.find((s) => s.id === r.scenarioId)?.title ?? r.scenarioId,
-    status: r.status,
-    notes: r.notes,
-    findings: r.findings.length,
-    durationMs: r.durationMs,
-  }));
+  return report.results.map((r) => {
+    const scenario = report.plan.scenarios.find((s) => s.id === r.scenarioId);
+    const ai = scenarioAi(report, scenario);
+    return {
+      id: r.scenarioId,
+      checkId: r.checkId,
+      title: scenario?.title ?? r.scenarioId,
+      status: r.status,
+      notes: r.notes,
+      findings: r.findings.length,
+      durationMs: r.durationMs,
+      ...(ai ? { ai } : {}),
+    };
+  });
+}
+
+/** "Planned with help from ollama/ornith-1.5:9b" and "Findings explained by …", or nothing for a report without AI. */
+function aiHeaderLines(report: Report): string[] {
+  const lines: string[] = [];
+  const plan = report.plan.ai;
+  if (plan) lines.push(`Planned with help from ${plan.provider}/${plan.model}${plan.remote ? " (remote)" : ""}`);
+  if (report.ai) {
+    const n = report.ai.explained;
+    lines.push(`${n} ${n === 1 ? "finding" : "findings"} explained by ${report.ai.provider}/${report.ai.model} (advisory)`);
+  }
+  return lines;
+}
+
+/** Every AI warning of the plan and the report (the model failed, a suggestion was left out). */
+function aiWarnings(report: Report): string[] {
+  return [...(report.plan.ai?.warnings ?? []), ...(report.ai?.warnings ?? [])].map(oneLine);
+}
+
+/** Markdown lines (indented under a list item) for a scenario's AI note and steps. */
+function scenarioAiMarkdown(ai: ScenarioAiLines | undefined): string[] {
+  if (!ai) return [];
+  return [`  - ${ai.note}`, ...(ai.steps.length ? ["  - Steps:", ...ai.steps.map((step, i) => `    ${i + 1}. ${step}`)] : [])];
+}
+
+function scenarioAiHtml(ai: ScenarioAiLines | undefined): string {
+  if (!ai) return "";
+  const steps = ai.steps.length ? `<ol class="flow">${ai.steps.map((step) => `<li>${esc(step)}</li>`).join("")}</ol>` : "";
+  return `<br><span class="ai-note">${esc(ai.note)}</span>${steps}`;
 }
 
 /** formatDuration that tolerates a missing or bad value (reports written before durations existed). */
@@ -100,9 +155,14 @@ function groupSummary(g: ReportGroup): string {
 }
 
 /** Planned scenarios the user did not approve, so a partial run never looks like a full one. */
-function notApproved(report: Report): { id: string; checkId: string; title: string }[] {
+function notApproved(report: Report): { id: string; checkId: string; title: string; ai?: ScenarioAiLines }[] {
   const approved = new Set(report.approved);
-  return report.plan.scenarios.filter((s) => !approved.has(s.id)).map((s) => ({ id: s.id, checkId: s.checkId, title: s.title }));
+  return report.plan.scenarios
+    .filter((s) => !approved.has(s.id))
+    .map((s) => {
+      const ai = scenarioAi(report, s);
+      return { id: s.id, checkId: s.checkId, title: s.title, ...(ai ? { ai } : {}) };
+    });
 }
 
 /** Checks that proposed nothing for this page (e.g. no password field for credential-fields, no buttons outside forms). */
@@ -243,6 +303,7 @@ export function renderMarkdown(report: Report): string {
     `- Run: ${report.runId} (${report.startedAt} to ${report.finishedAt})${finished ? ` · ${finished}` : ""}`,
     `- Run Hound ${report.runHoundVersion}`,
     ...(report.browser ? [`- Browser: ${report.browser}`] : []),
+    ...aiHeaderLines(report).map((line) => `- ${line}`),
     "",
     ...(report.stopped ? [`**Run stopped.** You stopped this run; scenarios it did not finish are listed as skipped.`, ""] : []),
     "## Summary",
@@ -278,6 +339,9 @@ export function renderMarkdown(report: Report): string {
       if (places.length === 1) lines.push(`- Where: ${oneLine(places[0]!)}`);
       else if (places.length > 1) lines.push(`- Where (${places.length} places):`, ...places.map((p) => `  - ${oneLine(p)}`));
       lines.push(`- What it means: ${f.meaning}`, `- Impact: ${f.impact}`, `- Fix: ${f.fix}`);
+      if (f.ai) {
+        lines.push(`- AI explanation (advisory, from ${oneLine(f.ai.model)}): ${oneLine(f.ai.summary)}`, `  - Ask your AI: ${oneLine(f.ai.askYourAi)}`);
+      }
       if (f.spec) lines.push(`- Reproduce: specs/${safeSpecFilename(f.spec.filename)}`);
       if (f.evidence.length > 0) {
         lines.push("- Evidence:");
@@ -311,19 +375,21 @@ export function renderMarkdown(report: Report): string {
       const took = duration(r.durationMs);
       lines.push(
         `- ${STATUS_WORD[r.status]}${found}: ${oneLine(r.title)}${took ? ` · ${took}` : ""} · ${r.checkId} · ${r.id}${r.notes ? `\n  - ${oneLine(r.notes)}` : ""}`,
+        ...scenarioAiMarkdown(r.ai),
       );
     }
     lines.push("");
   }
   const skippedByUser = notApproved(report);
   if (skippedByUser.length) {
-    lines.push("## Planned but not approved (not run)", "", ...skippedByUser.map((n) => `- ${oneLine(n.title)} · ${n.checkId} · ${n.id}`), "");
+    lines.push("## Planned but not approved (not run)", "", ...skippedByUser.flatMap((n) => [`- ${oneLine(n.title)} · ${n.checkId} · ${n.id}`, ...scenarioAiMarkdown(n.ai)]), "");
   }
   section("Checks with nothing to test on this page", notPlanned(report));
 
   section("Passed checks", checksByStatus(report.results, "pass"));
   section("Checks that errored", reasons(report, "error"));
   section("Skipped checks", reasons(report, "skipped"));
+  section("AI notes", aiWarnings(report));
 
   lines.push("## What a browser can't see", "", ...report.notVisible.map((item) => `- ${item}`), "");
   return lines.join("\n");
@@ -405,8 +471,16 @@ function findingHtml(f: Finding): string {
 <p class="meta">${findingGroupLabel(f) ? `${esc(findingGroupLabel(f)!)} · ` : ""}${f.scope ? `${esc(f.scope)} · ` : ""}${esc(f.checkId)} · <span class="sev">${esc(f.severity)}</span> · ${esc(f.confidence)}${places.length === 1 ? ` · ${esc(places[0]!)}` : ""}</p>
 ${places.length > 1 ? `<p class="where">Where (${places.length} places):</p><ul class="where">${places.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}
 <dl><dt>What it means</dt><dd>${esc(f.meaning)}</dd><dt>Impact</dt><dd>${esc(f.impact)}</dd><dt>Fix</dt><dd>${esc(f.fix)}</dd></dl>
-${spec}${figures}${details}
+${aiExplanationHtml(f)}${spec}${figures}${details}
 </article>`;
+}
+
+/** A finding's AI explanation, labelled advisory, after the built-in texts; "" when it has none. */
+function aiExplanationHtml(f: Finding): string {
+  if (!f.ai) return "";
+  return `<div class="ai-explain"><p class="ai-head"><strong>AI explanation (advisory)</strong> <span class="muted">· ${esc(f.ai.model)}</span></p><p>${esc(
+    f.ai.summary,
+  )}</p><p class="ai-head">Ask your AI</p><pre>${esc(f.ai.askYourAi)}</pre></div>\n`;
 }
 
 /** Self-contained HTML report (inline CSS, no external requests), same content as markdown. All text HTML-escaped. */
@@ -432,7 +506,7 @@ export function renderHtml(report: Report): string {
         const took = duration(r.durationMs);
         return `<li><span class="st st-${esc(r.status)}">${esc(STATUS_WORD[r.status])}</span> ${esc(r.title)}${r.findings ? ` (${r.findings} ${r.findings === 1 ? "finding" : "findings"})` : ""}${
           took ? ` <span class="dur">· ${esc(took)}</span>` : ""
-        } <span class="muted">· ${esc(r.checkId)} · ${esc(r.id)}</span>${r.notes ? `<br><span class="muted">${esc(r.notes)}</span>` : ""}</li>`;
+        } <span class="muted">· ${esc(r.checkId)} · ${esc(r.id)}</span>${r.notes ? `<br><span class="muted">${esc(r.notes)}</span>` : ""}${scenarioAiHtml(r.ai)}</li>`;
       })
       .join("")}</ul>`;
   const scenariosHtml = grouped.length
@@ -448,13 +522,17 @@ export function renderHtml(report: Report): string {
   const unapproved = notApproved(report);
   const unapprovedHtml = unapproved.length
     ? `<section aria-labelledby="not-approved"><h2 id="not-approved">Planned but not approved (not run)</h2><ul>${unapproved
-        .map((n) => `<li>${esc(n.title)} <span class="muted">· ${esc(n.checkId)} · ${esc(n.id)}</span></li>`)
+        .map((n) => `<li>${esc(n.title)} <span class="muted">· ${esc(n.checkId)} · ${esc(n.id)}</span>${scenarioAiHtml(n.ai)}</li>`)
         .join("")}</ul></section>`
     : "";
   const unplanned = notPlanned(report);
   const unplannedHtml = unplanned.length
     ? `<section aria-labelledby="not-planned"><h2 id="not-planned">Checks with nothing to test on this page</h2>${list(unplanned)}</section>`
     : "";
+  const warningsAi = aiWarnings(report);
+  const aiNotesHtml = warningsAi.length ? `<section aria-labelledby="ai-notes"><h2 id="ai-notes">AI notes</h2>${list(warningsAi)}</section>\n` : "";
+  const aiHeader = aiHeaderLines(report);
+  const aiHeaderHtml = aiHeader.length ? `<p class="ai-line">${aiHeader.map(esc).join(" · ")}</p>\n` : "";
 
   return `<!doctype html>
 <html lang="en">
@@ -534,6 +612,13 @@ table.groups caption { text-align:left; font:600 .72rem/1.4 var(--mono); letter-
 table.groups th, table.groups td { text-align:left; padding:.4rem .6rem; border-bottom:1px solid var(--line); white-space:nowrap; }
 table.groups thead th { color:var(--muted); font-weight:600; font-size:.85rem; }
 .dur { color:var(--muted); font-family:var(--mono); font-size:.9em; }
+.ai-note { color:var(--muted); font-size:.92rem; }
+ol.flow { margin:.3rem 0 .2rem; padding-left:1.4rem; color:var(--muted); font-size:.92rem; }
+.ai-explain { margin:.6rem 0 0; padding:.6rem .8rem; border:1px dashed var(--line-strong); border-radius:8px; background:var(--surface-3); }
+.ai-explain p { margin:.2rem 0 .4rem; overflow-wrap:anywhere; }
+.ai-explain .ai-head { font:600 .7rem/1.4 var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--dim); }
+.ai-explain .ai-head strong { color:var(--fg); }
+p.ai-line { color:var(--muted); margin:.25rem 0 0; }
 .visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 footer { max-width:64rem; margin:0 auto; padding:0 1rem 2.5rem; color:var(--dim); font-size:.85rem; }
 @media (max-width: 30rem) { section { padding:.85rem .9rem; } .hero { gap:.75rem; } .ring-big { width:2.6rem; height:2.6rem; font-size:1.1rem; } }
@@ -549,7 +634,7 @@ footer { max-width:64rem; margin:0 auto; padding:0 1rem 2.5rem; color:var(--dim)
 <p class="runmeta">${report.results.length} ${report.results.length === 1 ? "scenario" : "scenarios"} run · ${s.passed} passed · ${esc(findingCounts(report.findings))}</p>
 </div></div>
 <p class="muted">Run ${esc(report.runId)} · ${esc(report.startedAt)} to ${esc(report.finishedAt)}${finished ? ` · ${esc(finished)}` : ""} · Run Hound ${esc(report.runHoundVersion)}${report.browser ? ` · ${esc(report.browser)}` : ""}</p>
-${report.stopped ? '<p class="stopped"><strong>Run stopped.</strong> You stopped this run; scenarios it did not finish are listed as skipped.</p>\n' : ""}<section aria-labelledby="summary"><h2 id="summary">Summary</h2>${finished ? `<p class="finished">${esc(finished)}.</p>` : ""}<div class="stats">
+${aiHeaderHtml}${report.stopped ? '<p class="stopped"><strong>Run stopped.</strong> You stopped this run; scenarios it did not finish are listed as skipped.</p>\n' : ""}<section aria-labelledby="summary"><h2 id="summary">Summary</h2>${finished ? `<p class="finished">${esc(finished)}.</p>` : ""}<div class="stats">
 ${cell("critical", s.critical, s.critical ? "hot" : "")}${cell("high", s.high, s.high ? "hot" : "")}${cell("medium", s.medium, s.medium ? "warm" : "")}${cell("low", s.low)}${cell("scenarios passed", s.passed, s.passed ? "good" : "")}${cell("scenarios failed", s.failed, s.failed ? "hot" : "")}${cell("scenarios errored", s.errored, s.errored ? "hot" : "")}${cell("scenarios skipped", s.skipped)}
 </div><p class="muted">${report.approved.length} of ${report.plan.scenarios.length} planned scenarios were approved and run. ${esc(findingCounts(report.findings))}; advisory findings rely on judgement and don't fail the run.</p>${groupTableHtml(report)}</section>
 <section aria-labelledby="test-data"><h2 id="test-data">Test data</h2><p>${esc(testDataSentence(report) ?? "Not recorded for this run.")}</p></section>
@@ -562,7 +647,7 @@ ${unapprovedHtml}${unplannedHtml}
 <section aria-labelledby="passed"><h2 id="passed">Passed checks</h2>${list(checksByStatus(report.results, "pass"))}</section>
 <section aria-labelledby="errored"><h2 id="errored">Checks that errored</h2>${list(reasons(report, "error"))}</section>
 <section aria-labelledby="skipped"><h2 id="skipped">Skipped checks</h2>${list(reasons(report, "skipped"))}</section>
-<section aria-labelledby="not-visible"><h2 id="not-visible">What a browser can't see</h2>${list(report.notVisible)}</section>
+${aiNotesHtml}<section aria-labelledby="not-visible"><h2 id="not-visible">What a browser can't see</h2>${list(report.notVisible)}</section>
 </main>
 <footer>Run Hound ${esc(report.runHoundVersion)} · V1 tester preview · real checks in a real browser, on local and private addresses only</footer>
 </body>

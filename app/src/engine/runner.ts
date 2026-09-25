@@ -23,6 +23,10 @@ import { buildPlan, formOfScenario } from "./plan.js";
 import { redactSecrets } from "./redact.js";
 import { NOT_VISIBLE, redactReport, writeReport } from "./report.js";
 import { checkTarget, pinArgs, type SafetyOptions } from "./safety.js";
+import { explainFindings } from "../ai/explain.js";
+import { reviewPlan } from "../ai/review.js";
+import { modelLabel, type AiSession } from "../ai/session.js";
+import { suggestScenarios } from "../ai/suggest.js";
 
 export interface RunOptions {
   /**
@@ -51,6 +55,12 @@ export interface RunOptions {
   live?: boolean;
   /** Open a visible browser window instead of headless Chromium, so a person can watch. Default false. */
   headed?: boolean;
+  /**
+   * The optional AI layer (docs/ai-spec.md). discoverAndPlan reviews (features.review) then suggests flows
+   * (features.suggest) after building the plan; runPlan explains findings (features.explain) before writing the report.
+   * AI failures never throw: they become Plan.ai.warnings / Report.ai.warnings. Absent = AI off, nothing is sent.
+   */
+  ai?: AiSession;
 }
 
 export type ProgressEvent =
@@ -143,6 +153,7 @@ export async function discoverAndPlan(rawUrl: string, options: RunOptions = {}):
   const checks = await resolveChecks(options);
   engineStep(options, "Opening the page to find its forms and controls", url);
   const browser = await chromium.launch(launchOptions(target, options));
+  let closed = false;
   try {
     const context = await browser.newContext({ locale: BROWSER_LOCALE });
     const guard = await guardContext(context, safety);
@@ -173,10 +184,59 @@ export async function discoverAndPlan(rawUrl: string, options: RunOptions = {}):
     if (found.forms.length === 0 && plan.scenarios.length === 0) {
       throw new NoFormFoundError(url, "none of the page-wide checks apply to it either");
     }
-    return plan;
-  } finally {
+    if (!options.ai) return plan;
+    // The model can take minutes: the browser is not needed while it thinks.
+    const pageUrl = page.url();
+    closed = true;
     await browser.close();
+    return await planWithAi(plan, options.ai, options, pageUrl);
+  } finally {
+    if (!closed) await browser.close();
   }
+}
+
+/** A plain-language reason from an AI failure. */
+function aiReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return redactSecrets(message.replace(/\.+$/, ""));
+}
+
+/**
+ * The AI review, then the suggestions, on top of the built-in plan (docs/ai-spec.md "Features"). Each failure keeps
+ * the plan as it was and adds a warning; nothing here throws. Sets Plan.ai when at least one of the two features is on.
+ */
+async function planWithAi(built: Plan, ai: AiSession, options: RunOptions, url: string): Promise<Plan> {
+  if (!ai.features.review && !ai.features.suggest) return built;
+  const label = modelLabel(ai.client);
+  const warnings: string[] = [];
+  let plan = built;
+  let reviewed = false;
+  let suggested = 0;
+  if (ai.features.review) {
+    engineStep(options, `Asking ${label} to review the plan`, url);
+    try {
+      plan = await reviewPlan(plan, ai.client, { remote: ai.remote, signal: options.signal });
+      reviewed = true;
+    } catch (error) {
+      warnings.push(`${label} could not review the plan (${aiReason(error)}), so the built-in plan is shown.`);
+    }
+  }
+  if (ai.features.suggest) {
+    engineStep(options, `Asking ${label} to suggest flows`, url);
+    try {
+      const before = plan.scenarios.length;
+      const out = await suggestScenarios(plan, ai.client, { remote: ai.remote, signal: options.signal });
+      plan = out.plan;
+      suggested = plan.scenarios.length - before;
+      for (const rejected of out.rejected) warnings.push(`Left out a flow ${label} suggested: ${redactSecrets(rejected)}`);
+    } catch (error) {
+      warnings.push(`${label} could not suggest flows (${aiReason(error)}), so none were added.`);
+    }
+  }
+  return {
+    ...plan,
+    ai: { provider: ai.client.provider, model: ai.client.model, remote: ai.remote, warnings, reviewedAt: new Date().toISOString(), reviewed, suggested },
+  };
 }
 
 /**
@@ -230,6 +290,9 @@ function makeUnique(findings: Report["findings"]): void {
     f.spec.filename = file;
   }
 }
+
+/** explainFindings explains at most this many findings (the rest get none). */
+const MAX_EXPLAINED = 20;
 
 /** Notes of every scenario a stopped run did not finish (RunOptions.signal). */
 export const STOPPED_NOTE = "Stopped by you";
@@ -452,17 +515,14 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
     }
   }
 
-  engineStep(options, "Writing the report", plan.target);
   const findings = results.flatMap((r) => r.findings);
   makeUnique(findings);
-  // Callers (CLI, server) get the same redacted report that was written to disk.
-  const finishedMs = Date.now();
-  const report: Report = redactReport({
+  let raw: Report = {
     runId,
     target: plan.target,
     startedAt,
-    finishedAt: new Date(finishedMs).toISOString(),
-    durationMs: finishedMs - startedMs,
+    finishedAt: startedAt,
+    durationMs: 0,
     groups: groupResults(results, groupOfScenario),
     runHoundVersion: RUN_HOUND_VERSION,
     plan,
@@ -475,7 +535,22 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
     testRecordsCreated,
     ...(wasStopped ? { stopped: true } : {}),
     ...(browserName ? { browser: browserName } : {}),
-  });
+  };
+  // AI explanations (advisory) before the report is written; a stopped run is not explained.
+  const ai = options.ai;
+  if (ai?.features.explain && findings.length > 0 && !stopped()) {
+    const n = Math.min(findings.length, MAX_EXPLAINED);
+    engineStep(options, `Asking ${modelLabel(ai.client)} to explain ${n} ${n === 1 ? "finding" : "findings"}`, plan.target);
+    try {
+      raw = await explainFindings(raw, ai.client, { remote: ai.remote, signal });
+    } catch {
+      // Only a stop rejects: the report is written without explanations.
+    }
+  }
+  engineStep(options, "Writing the report", plan.target);
+  // Callers (CLI, server) get the same redacted report that was written to disk.
+  const finishedMs = Date.now();
+  const report: Report = redactReport({ ...raw, finishedAt: new Date(finishedMs).toISOString(), durationMs: finishedMs - startedMs });
   await writeReport(report, dir);
   return { report, dir };
 }
