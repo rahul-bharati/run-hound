@@ -129,6 +129,27 @@ export interface FormField {
   options?: { label: string; selector: string }[];
   /** The field's autocomplete hint, lowercased ("email", "current-password"), when it has one. */
   autocomplete?: string;
+  /**
+   * A non-native widget (0.4.0), as Radix/shadcn, Headless UI or cmdk render them, and how to set its value:
+   * - "aria-select": a button[role=combobox] (Radix Select) whose listbox opens in a portal; `options` are its choices.
+   * - "aria-combobox": a text input[role=combobox] with a listbox of suggestions (cmdk, Downshift).
+   * - "aria-checkbox" / "aria-switch": a button[role=checkbox|switch] with aria-checked.
+   * - "aria-radio": a [role=radiogroup] of [role=radio] items; `options` are the items.
+   * - "aria-slider": a [role=slider] set with the arrow keys.
+   * `selector` is always the visible, focusable control. Absent for native controls.
+   */
+  widget?: "aria-select" | "aria-combobox" | "aria-checkbox" | "aria-switch" | "aria-radio" | "aria-slider";
+  /**
+   * The hidden native input a widget mirrors its value into (Radix "bubble" inputs: an aria-hidden <select> or
+   * <input type=checkbox|radio> inside the form), when it has one. Setting that input is the fastest reliable way to
+   * set the widget; the visible control is still the one focused and clicked.
+   */
+  nativeSelector?: string;
+  /**
+   * Why `required` is true (0.4.0): "attribute" (required / aria-required) or "label" (the label or its marker says so:
+   * "*", "(required)", "required"). Schema-validated forms (react-hook-form + zod) usually have only the label.
+   */
+  requiredBy?: "attribute" | "label";
   /** Native constraints, when present. */
   constraints?: { min?: string; max?: string; minLength?: number; maxLength?: number; pattern?: string };
 }
@@ -161,6 +182,12 @@ export interface DiscoveredForm {
   fields: FormField[];
   /** Buttons and clickable controls inside the form, including the submit control. */
   controls: FormControl[];
+  /**
+   * The control that shows this form (0.4.0): a form inside a dialog, sheet or popover that only exists after a click
+   * ("New project", "Book a demo"). CheckContext.openPage clicks it after every page load (engine/open-form.ts), so a
+   * check always finds the form on screen. Absent for forms that are on the page when it loads.
+   */
+  opener?: { selector: string; name: string | null };
 }
 
 /**

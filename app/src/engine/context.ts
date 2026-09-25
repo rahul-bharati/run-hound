@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { Browser, BrowserContext, CDPSession, Page } from "playwright";
 import { notImplemented } from "../ai/not-implemented.js";
 import type { SessionState } from "./auth.js";
+import { openForm } from "./open-form.js";
 import { SIMULATED_RESPONSE_HEADER, type AccountRef, type Box, type CheckContext, type DiscoveredForm, type DiscoveredPage, type Evidence, type Fact, type FrameOptions, type Highlight, type Recording } from "../core/types.js";
 import { isAcceptedStatus, isSaveRequest } from "../core/saves.js";
 import { attachCapture } from "./capture.js";
@@ -315,6 +316,8 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
       }
       // Bounded: a page that polls or keeps a stream open never reaches network idle.
       await page.waitForLoadState("networkidle", { timeout: NETWORK_IDLE_TIMEOUT_MS }).catch(() => undefined);
+      // A form in a dialog or sheet (0.4.0): open it, so every check finds its form on screen.
+      if (options.form.opener) await openForm(page, options.form);
       return { context, page, capture };
     },
 
