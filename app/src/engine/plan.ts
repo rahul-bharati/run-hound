@@ -1,5 +1,5 @@
 import { groupOf } from "../core/format.js";
-import { CHECK_GROUPS, CHECK_IDS, type Check, type CheckGroup, type DiscoveredForm, type DiscoveredPage, type Plan, type Scenario } from "../core/types.js";
+import { CHECK_GROUPS, CHECK_IDS, type Check, type CheckGroup, type DiscoveredForm, type DiscoveredPage, type Plan, type PlanEnv, type Scenario } from "../core/types.js";
 import { emptyForm } from "./discover.js";
 
 /** "Book a sitter form", "Form 2": how a form is named in scenario titles and the plan. */
@@ -25,8 +25,9 @@ function isPage(value: DiscoveredForm | DiscoveredPage): value is DiscoveredPage
  * Given a form (V0), every check plans for that form. Given a page (V1), form-scoped checks plan once per form (ids of
  * the second and later forms end in "@form-<n>", and titles name the form when there is more than one) and
  * page-scoped checks plan once for the page; every scenario carries its scope and a scopeLabel.
+ * `env` (0.4.0) is passed to every check's plan(): whether the run is signed in and has a second account.
  */
-export function buildPlan(target: string, formOrPage: DiscoveredForm | DiscoveredPage, checks: Check[]): Plan {
+export function buildPlan(target: string, formOrPage: DiscoveredForm | DiscoveredPage, checks: Check[], env?: PlanEnv): Plan {
   const page = isPage(formOrPage) ? formOrPage : undefined;
   const forms = page ? page.forms : [formOrPage as DiscoveredForm];
   const mainForm = forms[0] ?? emptyForm(page?.url ?? target);
@@ -57,16 +58,16 @@ export function buildPlan(target: string, formOrPage: DiscoveredForm | Discovere
 
   for (const check of ordered) {
     if (!page) {
-      for (const proposed of check.plan(mainForm)) add(check, proposed, {});
+      for (const proposed of check.plan(mainForm, undefined, env)) add(check, proposed, {});
       continue;
     }
     if (check.scope === "page") {
-      for (const proposed of check.plan(mainForm, page)) add(check, proposed, { scope: "page", scopeLabel: WHOLE_PAGE });
+      for (const proposed of check.plan(mainForm, page, env)) add(check, proposed, { scope: "page", scopeLabel: WHOLE_PAGE });
       continue;
     }
     forms.forEach((form, index) => {
       const label = formLabel(form, index);
-      for (const proposed of check.plan(form, page)) {
+      for (const proposed of check.plan(form, page, env)) {
         const title = forms.length > 1 ? `${proposed.title} (${label})` : proposed.title;
         add(check, proposed, { scope: "form", formIndex: index, scopeLabel: label, title }, index === 0 ? "" : `@form-${index + 1}`);
       }

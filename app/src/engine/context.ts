@@ -2,7 +2,9 @@ import { randomBytes } from "node:crypto";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Browser, BrowserContext, CDPSession, Page } from "playwright";
-import { SIMULATED_RESPONSE_HEADER, type Box, type CheckContext, type DiscoveredForm, type DiscoveredPage, type Evidence, type Fact, type FrameOptions, type Highlight, type Recording } from "../core/types.js";
+import { notImplemented } from "../ai/not-implemented.js";
+import type { SessionState } from "./auth.js";
+import { SIMULATED_RESPONSE_HEADER, type AccountRef, type Box, type CheckContext, type DiscoveredForm, type DiscoveredPage, type Evidence, type Fact, type FrameOptions, type Highlight, type Recording } from "../core/types.js";
 import { isAcceptedStatus, isSaveRequest } from "../core/saves.js";
 import { attachCapture } from "./capture.js";
 import { composeFrame, encodeGif, gifScale, renderCard, resolveHighlights, type FrameHeader } from "./evidence.js";
@@ -36,6 +38,16 @@ export interface ContextOptions extends SafetyOptions {
    * across scenarios ("001-…", "002-…"). Each context counts on its own when omitted.
    */
   fileCounter?: { value: number };
+  /**
+   * Signed-in runs (0.4.0, docs/v2-spec.md): the sessions openPage({ as }) and request() use. `self` is the run's
+   * account (absent = the run is signed out), `other` the second account (absent = none; openPage/request as "other"
+   * then throw).
+   */
+  sessions?: { self?: SessionState; other?: SessionState };
+  /** Labels of those accounts, exposed as CheckContext.accounts. */
+  accounts?: { self: AccountRef | null; other: AccountRef | null };
+  /** CheckContext.accountMarkers(): strings identifying the run account's data (its username). Never printed. */
+  markers?: string[];
 }
 
 /** How long openPage waits for the network to go quiet after "load"; apps that poll or stream never go idle. */
@@ -258,6 +270,18 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
 
     testRecordsCreated() {
       return acceptedSaves;
+    },
+
+    ...(options.accounts ? { accounts: options.accounts } : {}),
+
+    accountMarkers() {
+      return [...(options.markers ?? [])];
+    },
+
+    async request(as, request) {
+      void as;
+      void request;
+      return notImplemented("CheckContext.request");
     },
 
     async openPage(pageOptions = {}) {

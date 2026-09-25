@@ -99,3 +99,13 @@ export function redactSecrets(text: string): string {
   }
   return out;
 }
+
+/**
+ * Registers literal secrets (0.4.0: test-account passwords and the session values sign-in produced) that
+ * redactSecrets must replace with "[REDACTED:account-secret]" wherever they appear, until the returned function
+ * unregisters them. Values shorter than 4 characters are ignored (they would redact ordinary text).
+ */
+export function registerSecretLiterals(values: string[]): () => void {
+  void values;
+  throw new Error("registerSecretLiterals is not implemented yet");
+}

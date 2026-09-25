@@ -4,7 +4,8 @@ import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { chromium, type Browser, type LaunchOptions } from "playwright";
 import { groupOf } from "../core/format.js";
-import { CHECK_GROUPS, type Check, type CheckGroup, type CheckResult, type Plan, type Report, type Scenario } from "../core/types.js";
+import type { AccountsConfig } from "../accounts/types.js";
+import { CHECK_GROUPS, type AccountId, type Check, type CheckGroup, type CheckResult, type Plan, type Report, type Scenario } from "../core/types.js";
 import { BROWSER_LOCALE, createCheckContext } from "./context.js";
 import { discoverPage } from "./discover.js";
 import {
@@ -61,6 +62,17 @@ export interface RunOptions {
    * AI failures never throw: they become Plan.ai.warnings / Report.ai.warnings. Absent = AI off, nothing is sent.
    */
   ai?: AiSession;
+  /**
+   * Sign in as this test account (0.4.0, docs/v2-spec.md) before discovery (discoverAndPlan) and for every scenario
+   * (runPlan uses the plan's account; this option is for discoverAndPlan). A failed sign-in throws SignInError before
+   * anything else runs. Absent = signed out, as before.
+   */
+  signInAs?: AccountId;
+  /**
+   * The resolved test accounts; defaults to resolveAccounts() (accounts.json + RUNHOUND_ACCOUNT_* env). Tests inject
+   * their own. runPlan signs in the plan's account, and the other slot too when an approved scenario needs it.
+   */
+  accounts?: AccountsConfig;
 }
 
 export type ProgressEvent =

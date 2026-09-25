@@ -20,8 +20,11 @@ import { check as cookieFlags } from "./cookie-flags.js";
 import { check as cors } from "./cors.js";
 import { check as sourceMaps } from "./source-maps.js";
 import { check as aiFlow } from "./ai-flow.js";
+import { check as accessControl } from "./access-control.js";
+import { check as massAssignment } from "./mass-assignment.js";
+import { check as deepLinks } from "./deep-links.js";
 
-/** Every check (V0, V1 and the 0.3.0 AI flow runner), in CHECK_IDS order. */
+/** Every check (V0, V1, the 0.3.0 AI flow runner and the 0.4.0 V2 checks), in CHECK_IDS order. */
 export const checks: Check[] = [
   consoleNetworkErrors,
   deadControl,
@@ -44,4 +47,7 @@ export const checks: Check[] = [
   cors,
   sourceMaps,
   aiFlow,
+  accessControl,
+  massAssignment,
+  deepLinks,
 ];
