@@ -14,7 +14,13 @@ export interface SuggestAnswer {
 }
 
 const ACTIONS: readonly FlowStep["action"][] = ["fill", "choose", "click", "press", "expect"];
-const KEYS: readonly FlowKey[] = ["Enter", "Tab", "Escape", "Space"];
+/**
+ * Keys a suggested flow may press. FlowKey also has "Tab" and "Space", but they are refused: Tab moves focus to an
+ * arbitrary control (a "Delete account" button next to a field) and Space activates the focused button, so together
+ * they would reach a destructive control without a click step the destructive gate can see (Rule 5).
+ */
+const KEYS: readonly FlowKey[] = ["Enter", "Escape"];
+const REFUSED_KEYS: readonly FlowKey[] = ["Tab", "Space"];
 const EXPECTATIONS: readonly FlowExpectation[] = ["request-ok", "text-visible", "text-absent", "url-changes", "no-errors", "field-kept"];
 const MAX_TEXT = 200;
 const MAX_TITLE = 80;
@@ -103,7 +109,7 @@ Every step has all of these properties: action, field, value, control, key, expe
 - fill: field = a field key of that form; value = the text to type (at most 200 characters).
 - choose: field = a field of that form that has options; value = one of its option labels, exactly.
 - click: control = a control index of that form.
-- press: key = "Enter", "Tab", "Escape" or "Space".
+- press: key = "Enter" (submits from the field that was just filled) or "Escape". No other key is allowed.
 - expect: expect = one of:
   "request-ok" (a save request succeeded), "no-errors" (no page or console errors), "url-changes",
   "field-kept" (filled fields still hold their values, e.g. after a rejected submit),
@@ -154,6 +160,7 @@ function stepProblem(step: FlowStep, n: number, form: ReturnType<typeof planForm
       if (!Number.isInteger(step.control) || step.control < 0 || step.control >= form.controls.length) return `${at} clicks a control the form doesn't have (${String(step.control)})`;
       return null;
     case "press":
+      if ((REFUSED_KEYS as readonly unknown[]).includes(step.key)) return `${at} presses ${String(step.key)}, which could reach or activate a destructive control; only Enter and Escape are allowed`;
       return (KEYS as readonly unknown[]).includes(step.key) ? null : `${at} presses a key that is not allowed (${String(step.key)})`;
     case "expect": {
       if (!(EXPECTATIONS as readonly unknown[]).includes(step.expect)) return `${at} expects something unknown (${String(step.expect)})`;
@@ -172,7 +179,7 @@ function stepProblem(step: FlowStep, n: number, form: ReturnType<typeof planForm
  * Validates one suggested flow against the plan's forms. Returns the problem, or null when valid:
  * the form index exists; 1–MAX_FLOW_STEPS steps; the last step is an "expect"; every fill/choose field is a key of
  * that form (choose: option is one of the field's option labels, case-insensitive); every click control is an index
- * into that form's controls; press keys are FlowKey; expect kinds are FlowExpectation, and text-visible/text-absent
+ * into that form's controls; press keys are Enter or Escape (Tab and Space are refused anywhere in a flow, see KEYS); expect kinds are FlowExpectation, and text-visible/text-absent
  * have non-empty text (≤ 200 chars); fill values ≤ 200 chars.
  */
 export function flowProblem(plan: Plan, form: number, steps: FlowStep[]): string | null {

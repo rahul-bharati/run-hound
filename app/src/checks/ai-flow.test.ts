@@ -16,6 +16,9 @@ import { check } from "./ai-flow.js";
  *
  * Interpretations pinned here:
  * - "press" acts on whatever has focus; after a "fill" the filled field has focus, so Enter submits the form.
+ *   Enter is only pressed while focus is on a field of the scenario's form; Escape anywhere; Tab and Space never
+ *   (they can reach and activate a destructive control) → "skipped". Focus landing on a destructive control after
+ *   any step, without allowDestructive, stops the flow → "skipped".
  * - An unknown field key or an out-of-range control index is a step that can't be performed → status "error" with
  *   notes naming the problem, no findings.
  * - A destructive control without allowDestructive → "skipped" before anything is clicked, notes name the control.
@@ -30,6 +33,10 @@ interface AppOptions {
   throwOnSubmit?: boolean;
   /** pushState to /done?saved=1 after a successful save. */
   navigateOnSuccess?: boolean;
+  /** Put the "Delete account" button right after the email field, so one Tab from email reaches it. */
+  deleteNextToEmail?: boolean;
+  /** Move focus to "Delete account" whenever the email field is typed into. */
+  focusDeleteOnInput?: boolean;
 }
 
 function formPage(o: AppOptions): string {
@@ -39,10 +46,11 @@ function formPage(o: AppOptions): string {
   <h1>Your profile</h1>
   <label for="name">Full name</label><input id="name" name="name" autocomplete="name">
   <label for="email">Email</label><input id="email" name="email" type="email">
+  ${o.deleteNextToEmail ? '<button type="button" id="delete">Delete account</button>' : ""}
   <label for="plan">Plan</label>
   <select id="plan" name="plan"><option value="">Choose…</option><option value="basic">Basic</option><option value="pro">Pro</option></select>
   <button type="submit" id="save">Save</button>
-  <button type="button" id="delete">Delete account</button>
+  ${o.deleteNextToEmail ? "" : '<button type="button" id="delete">Delete account</button>'}
   <p id="status" role="status"></p>
 </form>
 </main>
@@ -53,6 +61,7 @@ function formPage(o: AppOptions): string {
   document.getElementById("delete").addEventListener("click", function () {
     fetch("/api/delete", { method: "POST" }).then(function () { statusEl.textContent = "Account deleted"; });
   });
+  ${o.focusDeleteOnInput ? '$("email").addEventListener("input", function () { $("delete").focus(); });' : ""}
   form.addEventListener("submit", function (e) {
     e.preventDefault();
     var body = JSON.stringify({ name: $("name").value, email: $("email").value, plan: $("plan").value });
@@ -305,6 +314,70 @@ describe("ai-flow: choose and press", () => {
     ]);
     expect(result.status, result.notes).toBe("pass");
     expect(s.saves()).toBe(1);
+  });
+});
+
+describe("ai-flow: the keyboard can't reach a destructive control", () => {
+  it("refuses fill email → Tab → Space next to a Delete account button, and nothing is deleted", async () => {
+    const s = await app({ deleteNextToEmail: true });
+    const { result } = await runFlow(`${s.url}/profile`, () => [
+      { action: "fill", field: "email", value: "rex@example.com" },
+      { action: "press", key: "Tab" },
+      { action: "press", key: "Space" },
+      { action: "expect", expect: "text-absent", text: "Account deleted" },
+    ]);
+    expect(result.status).toBe("skipped");
+    expect(result.notes).toMatch(/Tab/);
+    expect(result.findings).toEqual([]);
+    expect(s.deletes()).toBe(0);
+  });
+
+  it("refuses Space on its own", async () => {
+    const s = await app({ deleteNextToEmail: true });
+    const { result } = await runFlow(`${s.url}/profile`, () => [
+      { action: "fill", field: "email", value: "rex@example.com" },
+      { action: "press", key: "Space" },
+      { action: "expect", expect: "no-errors", text: null },
+    ]);
+    expect(result.status).toBe("skipped");
+    expect(result.notes).toMatch(/Space/);
+    expect(s.deletes()).toBe(0);
+  });
+
+  it("stops when the page moves focus onto a destructive control, before Enter can activate it", async () => {
+    const s = await app({ focusDeleteOnInput: true });
+    const { result } = await runFlow(`${s.url}/profile`, () => [
+      { action: "fill", field: "email", value: "rex@example.com" },
+      { action: "press", key: "Enter" },
+      { action: "expect", expect: "request-ok", text: null },
+    ]);
+    expect(result.status).toBe("skipped");
+    expect(result.notes).toMatch(/Delete account/);
+    expect(s.deletes()).toBe(0);
+    expect(s.saves()).toBe(0);
+  });
+
+  it("does not press Enter when focus is on a button rather than a field", async () => {
+    const s = await app();
+    const { result } = await runFlow(`${s.url}/profile`, (f) => [
+      { action: "fill", field: "name", value: "Rex Barker" },
+      { action: "click", control: controlIndex(f, /^\s*save\s*$/i) },
+      { action: "press", key: "Enter" },
+      { action: "expect", expect: "request-ok", text: null },
+    ]);
+    expect(result.status).toBe("skipped");
+    expect(result.notes).toMatch(/Enter/);
+    expect(s.saves()).toBe(1);
+  });
+
+  it("presses Escape anywhere", async () => {
+    const s = await app();
+    const { result } = await runFlow(`${s.url}/profile`, () => [
+      { action: "fill", field: "name", value: "Rex Barker" },
+      { action: "press", key: "Escape" },
+      { action: "expect", expect: "field-kept", text: null },
+    ]);
+    expect(result.status, result.notes).toBe("pass");
   });
 });
 

@@ -86,6 +86,55 @@ function resolve(flow: FlowStep[], fields: FormField[], controls: FormControl[])
   return steps;
 }
 
+/** Keys a flow may never press: Tab moves focus to arbitrary controls and Space activates buttons (Rule 5). */
+const REFUSED_KEYS = new Set(["Tab", "Space"]);
+
+/** What has focus: whether it is a text-entry field of the scenario's form, and whether it is a destructive control. */
+interface Focus {
+  inFormField: boolean;
+  /** Name of the focused control when it is destructive, else null. */
+  destructive: string | null;
+}
+
+/**
+ * Runs in the page (a string, so the bundler's helpers never leak in). `__ARGS__` is replaced with JSON of
+ * {fields, formSelector, risky}: selectors of the form's fields, the form's selector, and [selector, name] of every
+ * destructive control discovered. Returns whether focus is on a text-entry field of the form, the name of a matching
+ * discovered destructive control, and the focused element's own name when it is button-like (checked in Node with
+ * isDestructiveControl, so an undiscovered "Delete account" button is caught too).
+ */
+const FOCUS_SCRIPT = `(() => {
+  const args = __ARGS__;
+  const el = document.activeElement;
+  if (!el || el === document.body || el === document.documentElement) return { inFormField: false, risky: null, buttonName: null };
+  const safe = (sel) => { try { return el.matches(sel); } catch { return false; } };
+  const tag = el.tagName.toLowerCase();
+  const type = (el.getAttribute("type") || "").toLowerCase();
+  const buttonTypes = ["button", "submit", "reset", "image"];
+  const textEntry = (tag === "input" && !buttonTypes.includes(type) && type !== "file") || tag === "textarea" || tag === "select";
+  let inForm = args.fields.some(safe);
+  if (!inForm && args.formSelector) { try { const form = document.querySelector(args.formSelector); inForm = !!form && form !== document.body && form.contains(el); } catch {} }
+  const hit = args.risky.find((r) => safe(r[0]));
+  const role = el.getAttribute("role") || "";
+  const buttonLike = tag === "button" || tag === "a" || tag === "summary" || (tag === "input" && buttonTypes.includes(type)) || ["button", "link", "menuitem", "tab", "option"].includes(role);
+  const buttonName = buttonLike ? [el.getAttribute("aria-label"), el.textContent, el.getAttribute("value"), el.getAttribute("title")].filter(Boolean).join(" ").replace(/\\s+/g, " ").trim() : null;
+  return { inFormField: textEntry && inForm, risky: hit ? hit[1] : null, buttonName };
+})()`;
+
+/** Where focus is now. An unreadable page counts as focus on no field and no destructive control. */
+async function focusOf(page: Page, ctx: CheckContext): Promise<Focus> {
+  const controls = [...ctx.form.controls, ...(ctx.discoveredPage?.controls ?? []), ...(ctx.discoveredPage?.forms.flatMap((f) => f.controls) ?? [])];
+  const risky = controls.filter(isDestructiveControl).map((c) => [c.selector, controlName(c)]);
+  const args = { fields: ctx.form.fields.map((f) => f.selector), formSelector: ctx.form.selector, risky };
+  const raw = (await page.evaluate(FOCUS_SCRIPT.replace("__ARGS__", JSON.stringify(args))).catch(() => null)) as
+    | { inFormField: boolean; risky: string | null; buttonName: string | null }
+    | null;
+  if (!raw) return { inFormField: false, destructive: null };
+  const name = raw.buttonName ? clip(raw.buttonName, 60) : null;
+  const byName = name && isDestructiveControl({ accessibleName: name, text: name, role: "button", tag: "button", selector: "", isSubmit: false }) ? name : null;
+  return { inFormField: raw.inFormField, destructive: raw.risky ?? byName };
+}
+
 /** Visible elements whose text contains `text` (Playwright's getByText, case-insensitive substring). */
 async function visibleMatches(page: Page, text: string): Promise<number> {
   return page.getByText(text).filter({ visible: true }).count().catch(() => 0);
@@ -272,6 +321,17 @@ export const check: Check = {
       if (flow.length === 0) return errorResult(ID, scenario, started, "This AI-suggested scenario has no steps to run.");
       const resolved = resolve(flow, ctx.form.fields, ctx.form.controls);
       if (typeof resolved === "string") return errorResult(ID, scenario, started, `Could not run this flow: ${resolved}`);
+      // Refused whatever the plan says: an older saved plan may still hold them (suggest.ts rejects them now).
+      const refused = resolved.find((s): s is Extract<Resolved, { action: "press" }> => s.action === "press" && REFUSED_KEYS.has(s.key));
+      if (refused) {
+        return errorResult(
+          ID,
+          scenario,
+          started,
+          `Skipped: this flow presses ${refused.key}, which could move focus to or activate a control that changes or deletes data. AI flows may press only Enter and Escape.`,
+          "skipped",
+        );
+      }
       if (!ctx.allowDestructive) {
         const risky = resolved.find((s): s is Extract<Resolved, { action: "click" }> => s.action === "click" && isDestructiveControl(s.control));
         if (risky) {
@@ -301,24 +361,53 @@ export const check: Check = {
         await recording.step(label, highlights ? { highlights } : {});
       };
 
+      /** Ends the flow as "skipped" with what was done so far. */
+      const stop = async (why: string): Promise<CheckResult> => {
+        return { ...errorResult(ID, scenario, started, redactSecrets(`Skipped after ${done.length} step${done.length === 1 ? "" : "s"}: ${why}`), "skipped"), steps };
+      };
+      /** After an action: focus that landed on a destructive control (the page moved it, or a step did) stops the flow. */
+      const focusGuard = async (): Promise<string | null> => {
+        if (ctx.allowDestructive) return null;
+        const focus = await focusOf(page, ctx);
+        return focus.destructive
+          ? `focus moved onto ${focus.destructive}, which may change or delete data, so no further step is taken. Allow destructive scenarios to run it.`
+          : null;
+      };
+
       for (const step of resolved) {
         switch (step.action) {
           case "fill":
-          case "choose":
+          case "choose": {
             await fillForm(page, [step.value]);
             if (step.action === "fill") filled.push(step.value);
             await record(step.label, [{ selector: step.value.field.selector, label: clip(step.label, 50), tone: "info" }]);
+            const moved = await focusGuard();
+            if (moved) return stop(moved);
             continue;
-          case "click":
+          }
+          case "click": {
             await page.locator(step.control.selector).first().click();
             await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
             await record(step.label);
+            const moved = await focusGuard();
+            if (moved) return stop(moved);
             continue;
-          case "press":
+          }
+          case "press": {
+            // Escape anywhere; Enter only from a field of this form, where it submits the form (never a focused button).
+            if (step.key !== "Escape") {
+              const focus = await focusOf(page, ctx);
+              if (step.key !== "Enter" || !focus.inFormField || (focus.destructive && !ctx.allowDestructive)) {
+                return stop(`${step.label} was not done because focus is not on a field of this form, so the key could activate another control. Enter is pressed only in a form field.`);
+              }
+            }
             await page.keyboard.press(step.key);
             await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
             await record(step.label);
+            const moved = await focusGuard();
+            if (moved) return stop(moved);
             continue;
+          }
           case "expect":
             break;
         }

@@ -22,10 +22,25 @@ describe("describePage: page URL", () => {
     expect(describePage(makePlan(), { remote: false }).page).toBe(PAGE_URL);
   });
 
-  it("sends only path and query to a remote endpoint", () => {
+  it("sends only the path to a remote endpoint: no origin, query or hash", () => {
     const payload = describePage(makePlan(), { remote: true });
-    expect(payload.page).toBe("/book?step=1");
+    expect(payload.page).toBe("/book");
     expect(JSON.stringify(payload)).not.toContain("localhost:5310");
+    expect(JSON.stringify(payload)).not.toContain("step=1");
+  });
+
+  it("never sends a remote endpoint a token carried in the query or hash", () => {
+    const url = "https://app.example.com/reset-password?token=s3cr3t-reset-token-123&email=ada%40example.com#access_token=hash-token-456";
+    const payload = describePage(makePlan({ page: discoveredPage({ url }) }), { remote: true });
+    expect(payload.page).toBe("/reset-password");
+    const json = JSON.stringify(payload);
+    for (const leak of ["s3cr3t-reset-token-123", "hash-token-456", "ada%40example.com", "app.example.com"]) expect(json).not.toContain(leak);
+  });
+
+  it("keeps path and query locally, redacted, and drops the hash", () => {
+    const url = `http://localhost:5310/book?key=${FAKE_AWS_KEY}#frag-marker`;
+    const payload = describePage(makePlan({ page: discoveredPage({ url }) }), { remote: false });
+    expect(payload.page).toBe(`http://localhost:5310/book?key=${REDACTED_AWS}`);
   });
 });
 

@@ -6,7 +6,10 @@ import { safeText } from "./schema.js";
 
 /** What the model is told about the page. Built only from the plan; no selectors, values, cookies or bodies. */
 export interface PagePayload {
-  /** Path and query of the page, plus the origin only when `remote` is false ("http://localhost:5310/book" vs "/book"). */
+  /**
+   * Remote: the path only, never the query or hash (they can carry reset tokens, session ids or emails): "/book".
+   * Local: origin, path and query, redacted; never the hash: "http://localhost:5310/book?step=1".
+   */
   page: string;
   title: string | null;
   forms: {
@@ -46,13 +49,13 @@ export function planForms(plan: Plan): DiscoveredForm[] {
 }
 
 function pageText(url: string, remote: boolean): string {
-  if (!remote) return text(url);
+  let parsed: URL;
   try {
-    const parsed = new URL(url);
-    return text(`${parsed.pathname}${parsed.search}`);
+    parsed = new URL(url);
   } catch {
-    return "/";
+    return remote ? "/" : text(url.split("#")[0]!);
   }
+  return remote ? text(parsed.pathname) : text(`${parsed.protocol}//${parsed.host}${parsed.pathname}${parsed.search}`);
 }
 
 function constraintsOf(field: FormField): string | null {
@@ -89,7 +92,7 @@ function scopeOf(scenario: Scenario): string {
 }
 
 /**
- * Builds the payload. Every string passes through redactSecrets (engine/redact.ts) and is cut to 200 characters;
+ * Builds the payload. `page` is the path only when `remote` (see PagePayload.page). Every string passes through redactSecrets (engine/redact.ts) and is cut to 200 characters;
  * field and control names use fieldName/controlName (checks/lib/functional-form.ts); `destructive` uses
  * isDestructiveControl (checks/dead-control.ts). At most 5 forms, 40 fields per form, 40 controls (per form and
  * outside the forms). A form's `index` is its position among the plan's forms (Plan.page.forms, or [Plan.form] for a

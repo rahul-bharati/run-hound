@@ -81,6 +81,72 @@ describe("explainPrompt", () => {
   });
 });
 
+describe("explainPrompt: what a remote model never sees", () => {
+  const target = "https://shop.example.com/account/settings?session=abc123secret&ref=mail#tab=billing";
+  const leaky = () =>
+    makeFinding({
+      title: "Saving settings fails",
+      meaning: `Submitting the form on ${target} answered 500 (POST /api/save?token=tok-in-path-999).`,
+      impact: `People on ${target} lose their changes.`,
+      fix: `Ask your AI or developer: "Run these steps on ${target}: type into Email, click Save."`,
+      location: `Email field on ${target}`,
+      evidence: [
+        {
+          kind: "frame",
+          label: "After saving",
+          facts: [
+            { label: "Requests sent", value: "2" },
+            { label: "Value sent", value: "ada.lovelace@private-mail.example" },
+            { label: "Test values typed", value: "Rex Barker" },
+            { label: "Now", value: "leftover-now-value" },
+            { label: "Field", value: "owner.3fa9c01bpersist@example.test" },
+            { label: "Matched text", value: "Name 3fa9c01bpersist" },
+            { label: "Page", value: target },
+            { label: "Status", value: "500" },
+          ],
+        },
+      ],
+    });
+
+  it("replaces every absolute URL with its path and strips query strings and hashes", () => {
+    const { system, user } = explainPrompt(leaky(), { remote: true });
+    const all = system + user;
+    for (const leak of ["shop.example.com", "https://", "abc123secret", "ref=mail", "tab=billing", "tok-in-path-999"]) expect(all).not.toContain(leak);
+    expect(user).toContain("/account/settings");
+    expect(user).toContain("POST /api/save");
+    expect(user).toContain("answered 500");
+  });
+
+  it("drops facts that carry typed or sent values and facts holding the run's canary values", () => {
+    const { user } = explainPrompt(leaky(), { remote: true, runToken: "3fa9c01b" });
+    for (const leak of ["Value sent", "ada.lovelace@private-mail.example", "Test values typed", "Rex Barker", "leftover-now-value", "3fa9c01b", "example.test"]) {
+      expect(user).not.toContain(leak);
+    }
+    expect(user).toContain("Requests sent: 2");
+    expect(user).toContain("Status: 500");
+  });
+
+  it("recognises canary values without the run token too", () => {
+    const { user } = explainPrompt(leaky(), { remote: true });
+    expect(user).not.toContain("3fa9c01bpersist");
+    expect(user).not.toContain("example.test");
+  });
+
+  it("locally keeps URLs but still drops value-bearing facts", () => {
+    const { user } = explainPrompt(leaky(), { remote: false });
+    expect(user).toContain("https://shop.example.com/account/settings");
+    for (const leak of ["Value sent", "ada.lovelace@private-mail.example", "Rex Barker", "3fa9c01bpersist"]) expect(user).not.toContain(leak);
+    expect(user).toContain("Requests sent: 2");
+  });
+
+  it("explainFindings sends the remote-redacted prompt to a remote client", async () => {
+    const client = new FakeClient([answer()]);
+    await explainFindings(makeReport([leaky()]), client, { remote: true });
+    expect(client.requests[0]!.user).not.toContain("shop.example.com");
+    expect(client.requests[0]!.user).not.toContain("ada.lovelace@private-mail.example");
+  });
+});
+
 describe("explainFindings", () => {
   it("explains each finding with one call, sets Finding.ai and Report.ai", async () => {
     const report = makeReport(findings(2));

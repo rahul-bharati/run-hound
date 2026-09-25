@@ -132,9 +132,27 @@ describe("flowProblem", () => {
   });
 
   it("rejects a key that is not a FlowKey", () => {
-    for (const key of ["Enter", "Tab", "Escape", "Space"]) expect(problem(bad({ action: "press", key }))).toBeNull();
+    for (const key of ["Enter", "Escape"]) expect(problem(bad({ action: "press", key }))).toBeNull();
     expect(problem(bad({ action: "press", key: "F5" }))).toEqual(expect.any(String));
     expect(problem(bad({ action: "press", key: "Control+W" }))).toEqual(expect.any(String));
+  });
+
+  it("rejects Tab and Space anywhere in a flow (they can move focus to, and activate, a destructive control)", () => {
+    for (const key of ["Tab", "Space"]) {
+      expect(problem(bad({ action: "press", key }))).toMatch(new RegExp(key));
+      // The keyboard route to "Delete account": fill, Tab onto the button, Space activates it.
+      expect(
+        problem([{ action: "fill", field: "name", value: "Ada" }, { action: "press", key } as FlowStep, { action: "press", key: "Enter" }, expectOk]),
+      ).toEqual(expect.any(String));
+    }
+  });
+
+  it("offers only Enter and Escape in the schema and the prompt", () => {
+    const steps = (SUGGEST_SCHEMA.properties as Record<string, { items: { properties: { steps: { items: { properties: { key: { enum?: unknown[] } } } } } } }>).suggestions!;
+    expect(steps.items.properties.steps.items.properties.key.enum?.filter((k) => k !== null)).toEqual(["Enter", "Escape"]);
+    const { system } = suggestPrompt(describePage(makePlan(), { remote: false }));
+    expect(system).not.toMatch(/"Tab"|"Space"/);
+    expect(system).toMatch(/"Enter"/);
   });
 
   it("rejects an unknown action", () => {
