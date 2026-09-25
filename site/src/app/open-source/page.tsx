@@ -8,12 +8,12 @@ import { site } from "@/lib/site";
 export const metadata: Metadata = {
   title: "Open source",
   description:
-    "Run Hound is open source by design, with every check in the core and an Apache-2.0 license planned. See the roadmap, the Kennel test fixture, how to contribute and the privacy promise.",
+    "Run Hound is open source under the MIT license in a public GitHub repository, with every check in the core. See the roadmap, the Kennel test fixture, how to contribute and the privacy promise.",
 };
 
 const openCore: { core: string; later: string }[] = [
   {
-    core: "The agent loop and all checks: functional, accessibility and security",
+    core: "The test engine and all checks: functional, accessibility and security",
     later: "Hosted inference: run without a GPU, Ollama or your own model API key",
   },
   {
@@ -21,7 +21,7 @@ const openCore: { core: string; later: string }[] = [
     later: "Hosted runner: test a deployed app behind domain-ownership verification",
   },
   {
-    core: "Bring your own model · coming soon: local via Ollama, or any cloud provider (Bedrock or any OpenAI-compatible endpoint)",
+    core: "Bring your own model (optional, off by default): local via Ollama, LM Studio, llama.cpp or vLLM, or any OpenAI-compatible endpoint or Amazon Bedrock",
     later: "Team dashboard: run history, trends and regressions across runs",
   },
   {
@@ -45,17 +45,17 @@ const roadmap: RoadmapStage[] = [
     status: "shipped",
     release: "0.1.0",
     summary:
-      "Point it at a form on localhost. It plans golden- and danger-path scenarios in three groups (Accessibility, Features, Security), you approve them, it runs them and reports with evidence, timings and exported Playwright tests.",
-    adds: "15 checks. Shipped to invited testers as 0.1.0.",
+      "Point it at a form on localhost. It plans golden- and danger-path scenarios, you approve them, it runs them and reports with evidence and exported Playwright tests.",
+    adds: "15 checks. Shipped as 0.1.0.",
   },
   {
     version: "V1",
     name: "Single page",
-    status: "tester preview",
-    release: "0.2.0",
+    status: "current",
+    release: "0.2.0 · 0.3.0",
     summary:
       "Point it at a page. It finds every form and interactive control on it, plans form checks for each form plus page-wide checks, you approve, and it runs them in a real browser. Local only.",
-    adds: "Adds security headers, cookie flags, CORS, public source maps and dead controls across the whole page: 20 checks. One Docker or Podman command starts it with Kennel and the sample apps. AI planning, AI explanations and bring-your-own-model are coming soon.",
+    adds: "0.2.0 adds security headers, cookie flags, CORS, public source maps and dead controls across the whole page: 20 checks, and one Docker or Podman command starts it with Kennel and the sample apps. 0.3.0 (current) adds optional AI with your own model: plan review, up to 5 suggested flows and explanations. Off by default, and never the judge of pass or fail.",
   },
   {
     version: "V2",
@@ -74,9 +74,9 @@ const roadmap: RoadmapStage[] = [
   },
   {
     version: "V4",
-    name: "Public release",
+    name: "Live staging",
     status: "planned",
-    summary: "Open-source release, with support for testing live staging and dev sites behind ownership verification.",
+    summary: "Support for testing live staging and dev sites behind ownership verification.",
     adds: "Adds checks for live hosts, such as mixed content and email DNS records.",
   },
 ];
@@ -100,13 +100,16 @@ export default function OpenSourcePage() {
             Open source, <span className="text-accent">every check included.</span>
           </>
         }
-        lede="Finding the holes is the whole point, so no check will ever sit behind a paywall. The code opens up with the public release."
+        lede="Finding the holes is the whole point, so no check will ever sit behind a paywall. The code is public on GitHub: clone it, try it, file issues."
       >
         <p className="max-w-2xl text-[15px] leading-relaxed text-dim">
-          {site.release} ({site.releaseName.toLowerCase()}, {site.version}) is a tester preview. The repository is
-          invite-only while it is tested;{" "}
-          <a href={site.accessMail} className={externalLink}>
-            ask for access
+          {site.release} ({site.releaseName.toLowerCase()}, {site.version}) is released under the MIT license. The{" "}
+          <a href={site.github} className={externalLink}>
+            repository
+          </a>{" "}
+          is public: anyone can clone it, try it and{" "}
+          <a href={site.feedback} className={externalLink}>
+            file an issue
           </a>
           .
         </p>
@@ -115,13 +118,20 @@ export default function OpenSourcePage() {
       <Section
         id="license"
         title="License"
-        intro="The core is planned to be released under the Apache License 2.0."
+        intro="Run Hound is released under the MIT License."
       >
         <Card className="flex max-w-3xl flex-col gap-3">
-          <p className="font-mono text-xs tracking-widest text-accent">PLANNED · {site.license.toUpperCase()}</p>
+          <p className="font-mono text-xs tracking-widest text-accent">IN EFFECT · {site.license.toUpperCase()}</p>
           <p className="text-lg leading-relaxed">
-            In one line: you can use, change and ship it, including commercially, as long as you keep the license and
-            notices; it also includes a patent grant.
+            In one line: you can use, copy, modify, distribute and sell it, as long as you keep the copyright and
+            license notice; it comes with no warranty.
+          </p>
+          <p className="text-[15px] leading-relaxed text-dim">
+            The full text is in the{" "}
+            <a href={site.licenseUrl} className={externalLink}>
+              LICENSE file
+            </a>{" "}
+            in the repository.
           </p>
         </Card>
       </Section>
@@ -179,7 +189,7 @@ export default function OpenSourcePage() {
       <Section
         id="roadmap"
         title="Roadmap"
-        intro="Each stage widens what Run Hound can test, from one form to a whole app. V0 has shipped, V1 is with testers now, and V2 onward is planned."
+        intro="Each stage widens what Run Hound can test, from one form to a whole app. V0 has shipped, V1 is current (0.3.0, with optional AI), and V2 onward is planned: whole features, the whole app and live staging."
       >
         <RoadmapList stages={roadmap} />
       </Section>
@@ -187,7 +197,7 @@ export default function OpenSourcePage() {
       <Section
         id="kennel"
         title="Test fixture: Kennel"
-        intro="Run Hound is developed and scored against Kennel, a small, deliberately broken pet-sitting booking app on a local Supabase. Every planted bug sits behind its own toggle, and a clean mode fixes them all properly."
+        intro="Run Hound is developed and scored against Kennel, a small, deliberately broken pet-sitting booking app that ships in the repository and runs on your machine. Every planted bug sits behind its own toggle, and a clean mode fixes them all properly."
         className="bg-band"
       >
         <p className="max-w-3xl leading-relaxed text-muted">
@@ -205,9 +215,9 @@ export default function OpenSourcePage() {
           ))}
         </ul>
         <p className="leading-relaxed text-muted">
-          See every planted bug in the{" "}
-          <a href={`${site.github}/blob/main/docs/fixtures.md`} className={externalLink}>
-            fixture document
+          See every planted bug in{" "}
+          <a href={`${site.github}/blob/main/fixtures/kennel/bugs.json`} className={externalLink}>
+            Kennel&apos;s bug list
           </a>
           .
         </p>
@@ -216,9 +226,9 @@ export default function OpenSourcePage() {
       <Section id="contributing" title="Contributing">
         <div className="grid gap-6 lg:grid-cols-2">
           <Card className="flex flex-col gap-3">
-            <h3 className="font-display text-xl font-bold">Issues and discussions</h3>
+            <h3 className="font-display text-xl font-bold">Issues and feedback</h3>
             <p className="leading-relaxed text-muted">
-              Testers file feedback and bugs with the issue forms on GitHub. Tell us which holes you keep finding in
+              Anyone can file feedback and bugs with the issue forms on GitHub. Tell us which holes you keep finding in
               AI-built apps; that shapes the checks.
             </p>
             <div className="mt-2 flex flex-wrap gap-3">
@@ -247,8 +257,9 @@ export default function OpenSourcePage() {
           <ul className="flex list-disc flex-col gap-3 pl-5 leading-relaxed text-muted marker:text-dim">
             <li>
               <strong className="font-semibold text-fg">It runs locally.</strong> Run Hound runs on your machine,
-              with Node or in your Docker. The current preview sends nothing to any AI provider; AI features
-              are coming soon and will be opt-in, with a local model option.
+              with Node or in Docker or Podman. AI is optional and off by default; turn it on and only redacted page
+              structure and finding text go to the model you choose, local or cloud. Run Hound operates no AI service
+              of its own.
             </li>
             <li>
               <strong className="font-semibold text-fg">No telemetry about the app you test.</strong> Nothing about

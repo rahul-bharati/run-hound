@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { LegalDoc, LegalHeading, type LegalTocItem, MailLink, ReviewNote } from "@/components/legal/legal";
+import { LegalDoc, LegalHeading, type LegalTocItem, MailLink } from "@/components/legal/legal";
 import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -78,7 +78,11 @@ export default function SecurityPage() {
         <li>
           the {site.name} source code in the <a href={site.github}>official repository</a>;
         </li>
-        <li>official {site.name} releases and container images, once published;</li>
+        <li>
+          official {site.name} releases and the container images published from the repository (
+          <code>ghcr.io/rahul-bharati/run-hound</code>, <code>run-hound-kennel</code> and{" "}
+          <code>run-hound-samples</code>);
+        </li>
         <li>
           the safeguards that limit what {site.name} may test, such as the local-only target check, pinning the
           browser to the approved address and the opt-in for destructive actions;
@@ -106,9 +110,6 @@ export default function SecurityPage() {
       </ul>
 
       <LegalHeading id="safe-harbor">Good-faith research</LegalHeading>
-      <ReviewNote>
-        This section is a draft and will be reviewed by a lawyer before launch. It is not yet a binding commitment.
-      </ReviewNote>
       <p>
         If you act in good faith and follow this policy, we will not pursue or support legal action against you for
         your research, and we will consider it authorized. Good faith means that you:

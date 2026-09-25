@@ -6,13 +6,13 @@ body:
   - type: markdown
     attributes:
       value: |
-        Use this form when Run Hound itself misbehaves. For a finding you think is wrong, or a bug it missed in your app, use **Tester feedback** instead.
+        Use this form when Run Hound itself misbehaves. For a finding you think is wrong, or a bug it missed in your app, use **Feedback** instead.
   - type: input
     id: version
     attributes:
       label: Run Hound version
       description: "`run-hound --version`, or `runHoundVersion` in report.json."
-      placeholder: run-hound 0.2.0
+      placeholder: run-hound 0.3.0
     validations:
       required: true
   - type: input

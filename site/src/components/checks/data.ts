@@ -2,7 +2,7 @@ import type { Severity } from "@/components/finding";
 
 /**
  * Roadmap stage a check is in or planned for. V0 = single form on localhost (shipped, 0.1.0); V1 = single page
- * (current tester preview, 0.2.0); V4 = live staging behind domain verification.
+ * (current open-source preview; page-wide checks since 0.2.0, optional AI since 0.3.0); V4 = live staging behind domain verification.
  */
 export type Version = "V0" | "V1" | "V2" | "V3" | "V4";
 
@@ -36,7 +36,7 @@ export type CheckCategory = {
 
 export const versionMeaning: Record<Version, string> = {
   V0: "One form on localhost: shipped",
-  V1: "One page: in the tester preview now, more to come",
+  V1: "One page: available now, more to come",
   V2: "One feature, end to end",
   V3: "The whole app",
   V4: "Live staging, domain verified",
@@ -59,10 +59,10 @@ export const categories: CheckCategory[] = [
       },
       {
         name: "Forms that fail silently",
-        line: "When the server errors, times out or the connection drops, the form should say so and keep what you typed.",
+        line: "When a save fails on the server, the form should say so and keep what you typed.",
         severity: "high",
         version: "V0",
-        signal: "simulated failure on your own app",
+        signal: "simulated server error",
       },
       {
         name: "Looks saved, isn't",
@@ -81,7 +81,7 @@ export const categories: CheckCategory[] = [
       {
         name: "Calls to things that don't exist",
         line: "Console errors and failed requests, including code that calls functions or endpoints that were never built.",
-        severity: "high",
+        severity: "medium",
         version: "V0",
         signal: "console and network capture",
       },
@@ -184,7 +184,7 @@ export const categories: CheckCategory[] = [
         line: "The form rejects bad input, but the server quietly accepts it anyway.",
         severity: "high",
         version: "V0",
-        note: "stretch",
+        note: "localhost only",
         signal: "server accepts what the form rejects",
       },
       {
@@ -246,8 +246,8 @@ export const categories: CheckCategory[] = [
         signal: "axe-core rule",
       },
       {
-        name: "Low contrast in any state",
-        line: "Text or controls too faint to read, including hover, focus, error and dark states.",
+        name: "Low contrast in any form state",
+        line: "Text too faint to read, with the form empty, showing errors or after a save.",
         severity: "high",
         version: "V0",
         signal: "contrast rule per state",
@@ -261,14 +261,14 @@ export const categories: CheckCategory[] = [
       },
       {
         name: "Can't finish with a keyboard",
-        line: "The form can't be completed and submitted without a mouse, focus gets trapped, or the order jumps around.",
+        line: "The form can't be filled in and sent without a mouse: a field can't be reached with Tab or set from the keyboard.",
         severity: "high",
         version: "V0",
         signal: "keyboard traversal",
       },
       {
         name: "Errors not announced",
-        line: "Validation errors and status messages that screen reader users never hear.",
+        line: "Validation and save errors that screen reader users never hear.",
         severity: "high",
         version: "V0",
         signal: "live-region check after submit",
@@ -282,16 +282,17 @@ export const categories: CheckCategory[] = [
       },
       {
         name: "Missing autocomplete",
-        line: "Name, email and address fields that don't tell the browser what they are, so autofill can't help.",
-        severity: "medium",
+        line: "Password and one-time-code fields that don't tell the browser what they hold, so password managers can't fill them.",
+        severity: "low",
         version: "V0",
-        signal: "autocomplete purpose check",
+        signal: "autocomplete check on credential fields",
+        advisory: true,
       },
       {
         name: "Label doesn't match what you see",
         line: "A button's spoken name differs from its visible text, which confuses voice control users.",
         severity: "medium",
-        version: "V0",
+        version: "V1",
         signal: "Label in Name rule",
       },
       {
@@ -303,7 +304,7 @@ export const categories: CheckCategory[] = [
       },
       {
         name: "Breaks at 320px",
-        line: "Layouts that overflow or hide content on a narrow phone or when zoomed in.",
+        line: "Layouts that scroll sideways on a narrow phone or when zoomed in.",
         severity: "medium",
         version: "V0",
         signal: "viewport reflow check",
@@ -454,11 +455,11 @@ export const categories: CheckCategory[] = [
       },
       {
         name: "Permissive cross-origin access",
-        line: "Your API answers any origin with credentials, or reflects whatever Origin it is sent, so other websites can read signed-in responses.",
+        line: "Your API echoes whatever Origin it is sent, or trusts the null origin any website can send, so other websites can read its answers, even signed-in ones.",
         severity: "high",
         version: "V1",
         shipped: true,
-        signal: "made-up origin, CORS headers compared",
+        signal: "requests from a sandboxed frame",
       },
       {
         name: "Open redirects",
@@ -491,7 +492,7 @@ export const categories: CheckCategory[] = [
       },
       {
         name: "Personal data sent to trackers",
-        line: "Emails, names or phone numbers typed into forms end up in analytics, ad pixels or the URL.",
+        line: "Emails or phone numbers typed into forms end up in analytics, ad pixels or other third-party requests, as plain text or hashed.",
         severity: "high",
         version: "V0",
         signal: "canary value in third-party requests",
@@ -550,7 +551,7 @@ export const categories: CheckCategory[] = [
       },
       {
         name: "Missing security headers",
-        line: "Standard browser protections your server never switched on: a Content-Security-Policy, nosniff, clickjacking protection, a Referrer-Policy and, on https, HSTS.",
+        line: "Standard browser protections your server never switched on: a Content-Security-Policy, nosniff, clickjacking protection and, on https, HSTS. A Referrer-Policy that leaks full URLs counts too.",
         severity: "medium",
         version: "V1",
         shipped: true,
@@ -558,8 +559,8 @@ export const categories: CheckCategory[] = [
       },
       {
         name: "Session cookie flags",
-        line: "Session-like cookies missing HttpOnly, Secure or SameSite, so scripts can read them or other sites can send them.",
-        severity: "medium",
+        line: "Session-like cookies without HttpOnly, set to SameSite=None, or without Secure on https, so scripts can read them or other sites can send them.",
+        severity: "high",
         version: "V1",
         shipped: true,
         signal: "cookie inspection",
@@ -634,7 +635,7 @@ export type PreviewCheck = {
 };
 
 /**
- * The 20 checks in the V1 tester preview (0.2.0), in the three groups the plan, run and report follow: V0's 15
+ * The 20 built-in checks in the V1 preview (0.2.0 and later), in the three groups the plan, run and report follow: V0's 15
  * form checks plus five page-wide checks new in V1. Source of truth: TESTING.md and app/src/checks.
  */
 export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = [
@@ -727,14 +728,14 @@ export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = 
         id: "client-only-validation",
         name: "Client-only validation",
         line: "Sends the captured save request straight to the server with one field invalid and checks the server rejects it. Localhost targets only.",
-        records: "0",
+        records: "up to 1, if your server accepts it",
         since: "V0",
       },
       {
         id: "page-controls",
         name: "Page controls",
         line: "Clicks the buttons and controls outside the forms, across the whole page, and flags the ones that do nothing at all. Destructive-looking controls are left out unless you allow them.",
-        records: "0",
+        records: "0, unless a button saves something",
         since: "V1",
       },
     ],
@@ -766,7 +767,7 @@ export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = 
       {
         id: "security-headers",
         name: "Security headers",
-        line: "Reads the page's response headers and checks for a Content-Security-Policy, X-Content-Type-Options, clickjacking protection (frame-ancestors or X-Frame-Options), a Referrer-Policy and, on https, HSTS.",
+        line: "Reads the page's response headers and checks for a Content-Security-Policy that limits scripts, X-Content-Type-Options: nosniff, clickjacking protection (frame-ancestors or X-Frame-Options) and, on https, HSTS. It also flags a Referrer-Policy that leaks full URLs.",
         records: "0",
         since: "V1",
         devServerAdvisory: true,
@@ -774,7 +775,7 @@ export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = 
       {
         id: "cookie-flags",
         name: "Cookie flags",
-        line: "Looks at the cookies the app sets and flags session-like ones missing HttpOnly, Secure or SameSite.",
+        line: "Looks at the cookies the app sets and flags session-like ones without HttpOnly, set to SameSite=None, or without Secure on https.",
         records: "0",
         since: "V1",
         devServerAdvisory: true,
@@ -782,7 +783,7 @@ export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = 
       {
         id: "cors",
         name: "CORS",
-        line: "Asks the page's API with a made-up origin and flags an API that answers any origin with credentials, or reflects whatever Origin it is sent.",
+        line: "Repeats up to 5 of the page's own GET requests from a sandboxed frame (Origin: null, which any website can send) and flags answers other websites may read, especially with the visitor's cookies.",
         records: "0",
         since: "V1",
         devServerAdvisory: true,
@@ -790,13 +791,25 @@ export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = 
       {
         id: "source-maps",
         name: "Public source maps",
-        line: "Checks whether the page's scripts have public .map files that expose your original source code.",
+        line: "Checks whether the page's own scripts have public source maps that anyone can download, especially ones holding your original source code. Skipped on a dev server, which always serves them.",
         records: "0",
         since: "V1",
       },
     ],
   },
 ];
+
+/**
+ * The optional check added in 0.3.0. It runs only when AI is on and you tick a suggested flow, so it is listed
+ * beside the 20 built-in checks rather than counted with them.
+ */
+export const aiFlowCheck = {
+  id: "ai-flow",
+  name: "AI-suggested flows",
+  group: "Features" as PreviewGroup,
+  line: "Runs up to 5 extra flows your model suggests, built only from the fields and buttons Run Hound found, each ending in a deterministic check: a save succeeds, text is shown or gone, the address changes, no errors, typed values kept. Unticked by default; a failed flow is an advisory finding with a GIF, a frame and a Playwright test.",
+  records: "depends on the flow",
+};
 
 /** Not visible from outside: listed in every report as a checklist, never as browser checks. */
 export const notVisible: { name: string; line: string }[] = [

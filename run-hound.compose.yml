@@ -1,0 +1,146 @@
+# Run Hound 0.3.0 and the apps it is tested against, from the published images: no clone, no build.
+#
+#   curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/main/run-hound.compose.yml
+#   mkdir -p runs                                  # reports land in ./runs; create it first so the files belong to you
+#   docker compose -f run-hound.compose.yml up     # or: podman compose -f run-hound.compose.yml up
+#
+# Then open http://localhost:4000 and test one of these targets (inside the compose network the apps are reached by
+# service name, so enter these addresses in the UI):
+#
+#   http://kennel:3000/book            Kennel with its planted bugs (KENNEL_BUGS, default: every bug)
+#   http://kennel-clean:3000/book      Kennel in clean mode: every check should pass
+#   http://classic-post:4101/signup    sample: server-rendered form, no JavaScript
+#   http://spa-fetch:4102/             sample: vanilla-JS contact form, same-origin JSON API
+#   http://login:4103/                 sample: sign-in form (401 on wrong credentials)
+#   http://cross-origin-api:4104/      sample: RSVP form whose API is on another origin (port 4105)
+#   http://multi-form:4106/            sample: three forms (search, contact, newsletter) and buttons outside them
+#
+# Your own app on this machine: enter http://host.docker.internal:<port>/<page> (TESTING.md has the dev-server
+# settings). Every setting below has a default; override them in a .env file next to this one (the variables are
+# listed in https://github.com/rahul-bharati/run-hound/blob/main/.env.example). All ports are bound to 127.0.0.1.
+#
+# Only want Run Hound itself? `docker compose -f run-hound.compose.yml up run-hound` still starts the test apps it
+# depends on; for Run Hound alone use the single `docker run` in the README.
+# Working from a clone? docker-compose.yml builds these same services from source.
+
+x-sample: &sample
+  image: ghcr.io/rahul-bharati/run-hound-samples:0.3.0
+  init: true
+
+services:
+  run-hound:
+    image: ghcr.io/rahul-bharati/run-hound:0.3.0
+    init: true
+    environment:
+      # Named hosts the safety gate accepts besides localhost and private addresses: the test apps and the names
+      # Docker and Podman give your machine. Nothing public is added. Override in .env to add your own.
+      RUNHOUND_ALLOWED_HOSTS: ${RUNHOUND_ALLOWED_HOSTS:-kennel,kennel-clean,classic-post,spa-fetch,login,cross-origin-api,multi-form,host.docker.internal,host.containers.internal}
+      RUNHOUND_PUBLIC_URL: http://localhost:${RUNHOUND_HOST_PORT:-4000}
+      # AI (optional, off by default; docs/ai-spec.md). Settings saved from the web UI go to ./runs/.config/ai.json
+      # on your machine (inside the reports folder, so they belong to you and survive a rebuild).
+      RUNHOUND_CONFIG_DIR: /repo/app/runs/.config
+      RUNHOUND_AI: ${RUNHOUND_AI:-}
+      RUNHOUND_AI_PROVIDER: ${RUNHOUND_AI_PROVIDER:-}
+      RUNHOUND_AI_BASE_URL: ${RUNHOUND_AI_BASE_URL:-}
+      RUNHOUND_AI_MODEL: ${RUNHOUND_AI_MODEL:-}
+      RUNHOUND_AI_API_KEY: ${RUNHOUND_AI_API_KEY:-}
+      RUNHOUND_AI_REGION: ${RUNHOUND_AI_REGION:-}
+      RUNHOUND_AI_ALLOW_REMOTE: ${RUNHOUND_AI_ALLOW_REMOTE:-}
+      RUNHOUND_AI_FEATURES: ${RUNHOUND_AI_FEATURES:-}
+      RUNHOUND_AI_TIMEOUT_MS: ${RUNHOUND_AI_TIMEOUT_MS:-}
+      AWS_BEARER_TOKEN_BEDROCK: ${AWS_BEARER_TOKEN_BEDROCK:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_REGION: ${AWS_REGION:-}
+      # Bedrock with an AWS profile (optional): name it here and uncomment the ~/.aws mount under volumes plus the two
+      # AWS_*_FILE lines below. The files are then read from the mount whatever HOME the container user gets (the
+      # entrypoint sets HOME=/home/pwuser when it runs as pwuser, HOME=/tmp when it runs as the uid owning your runs
+      # folder, and rootless Podman runs as root with HOME=/root). Static keys in the profile always work this way.
+      # IAM Identity Center (SSO) tokens are read from $HOME/.aws/sso/cache, so SSO works only when HOME is
+      # /home/pwuser (run `aws sso login` on your machine first); credential_process needs its program inside the
+      # container, and the image has no AWS CLI.
+      AWS_PROFILE: ${AWS_PROFILE:-}
+      RUNHOUND_AI_AWS_PROFILE: ${RUNHOUND_AI_AWS_PROFILE:-}
+      # AWS_CONFIG_FILE: /home/pwuser/.aws/config
+      # AWS_SHARED_CREDENTIALS_FILE: /home/pwuser/.aws/credentials
+    extra_hosts:
+      # Docker Desktop defines host.docker.internal itself; this adds it on Linux Docker and Podman too.
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${RUNHOUND_HOST_PORT:-4000}:4000"
+    volumes:
+      - ${RUNHOUND_RUNS_DIR:-./runs}:/repo/app/runs
+      # Optional, read-only: your AWS profiles for Bedrock (see AWS_PROFILE above).
+      # - ~/.aws:/home/pwuser/.aws:ro
+    depends_on:
+      - kennel
+      - kennel-clean
+      - classic-post
+      - spa-fetch
+      - login
+      - cross-origin-api
+      - multi-form
+
+  # ---- Kennel: the deliberately broken booking app -------------------------------------------------------------
+  kennel: &kennel
+    image: ghcr.io/rahul-bharati/run-hound-kennel:0.3.0
+    environment:
+      KENNEL_BUGS: ${KENNEL_BUGS:-all}
+    ports:
+      - "127.0.0.1:${KENNEL_HOST_PORT:-3000}:3000"
+      - "127.0.0.1:${KENNEL_ANALYTICS_HOST_PORT:-3001}:3001"
+
+  kennel-clean:
+    <<: *kennel # same image as kennel, clean mode
+    environment:
+      KENNEL_BUGS: none
+    ports:
+      - "127.0.0.1:${KENNEL_CLEAN_HOST_PORT:-3100}:3000"
+      - "127.0.0.1:${KENNEL_CLEAN_ANALYTICS_HOST_PORT:-3101}:3001"
+
+  # ---- Sample apps: unfamiliar, well-built apps (fixtures/samples) ---------------------------------------------
+  classic-post:
+    <<: *sample
+    command: ["node", "classic-post/server.mjs"]
+    environment:
+      PORT: 4101
+    ports:
+      - "127.0.0.1:${CLASSIC_POST_HOST_PORT:-4101}:4101"
+
+  spa-fetch:
+    <<: *sample
+    command: ["node", "spa-fetch/server.mjs"]
+    environment:
+      PORT: 4102
+    ports:
+      - "127.0.0.1:${SPA_FETCH_HOST_PORT:-4102}:4102"
+
+  login:
+    <<: *sample
+    command: ["node", "login/server.mjs"]
+    environment:
+      PORT: 4103
+    ports:
+      - "127.0.0.1:${LOGIN_HOST_PORT:-4103}:4103"
+
+  cross-origin-api:
+    <<: *sample
+    command: ["node", "cross-origin-api/server.mjs"]
+    environment:
+      PORT: 4104
+      API_PORT: 4105
+      # The page is opened as http://cross-origin-api:4104 inside the network; let the API allow that origin.
+      PAGE_HOSTS: cross-origin-api
+    # The page calls its API on the same host name and port 4105, so publish both on the same numbers.
+    ports:
+      - "127.0.0.1:4104:4104"
+      - "127.0.0.1:4105:4105"
+
+  multi-form:
+    <<: *sample
+    command: ["node", "multi-form/server.mjs"]
+    environment:
+      PORT: 4106
+    ports:
+      - "127.0.0.1:${MULTI_FORM_HOST_PORT:-4106}:4106"

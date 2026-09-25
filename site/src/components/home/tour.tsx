@@ -9,7 +9,7 @@ export type TourTab = { id: string; label: string; title: string; text: string; 
  * aren't shown stay hidden, so their (lazy) images load only when someone opens that tab. Arrow keys, Home and
  * End move between tabs, as in the WAI-ARIA tabs pattern.
  */
-export function Tour({ tabs }: { tabs: TourTab[] }) {
+export function Tour({ tabs, label = "Steps of a real run" }: { tabs: TourTab[]; label?: string }) {
   const [active, setActive] = useState(0);
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const base = useId();
@@ -36,7 +36,7 @@ export function Tour({ tabs }: { tabs: TourTab[] }) {
     <div className="flex flex-col gap-6">
       <div
         role="tablist"
-        aria-label="Steps of a real run"
+        aria-label={label}
         className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap"
       >
         {tabs.map((tab, i) => {

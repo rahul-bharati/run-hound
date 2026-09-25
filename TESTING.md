@@ -1,8 +1,8 @@
-# Testing Run Hound V1 (0.2.0)
+# Trying Run Hound V1 (0.3.0)
 
-Thanks for trying Run Hound before anyone else does. Run Hound is AI-assisted UI testing for AI-built apps: AI plans and explains, real checks decide. This preview ships the real checks; AI planning and AI explanations are coming soon. This guide covers what V1 does, how to run it on Kennel (the demo app) and then on your own app, how to read the report, and what to send back.
+Thanks for trying Run Hound. The repository is public and open source: anyone can try it (no clone needed with Docker), read the code and file issues. Run Hound is AI-assisted UI testing for AI-built apps: AI plans and explains, real checks decide. This preview ships the real checks, and since 0.3.0 you can add your own model to review the plan, suggest extra flows and explain findings (optional, off by default). This guide covers what V1 does, how to run it on Kennel (the demo app) and then on your own app, how to read the report, and what to send back.
 
-**Contents:** [Who this is for](#who-this-is-for) · [What V1 does](#what-v1-does-and-doesnt-do) · [Requirements](#requirements) · [Install](#install) · [Try it on Kennel first](#try-it-on-kennel-first-10-minutes) · [Test your own app](#test-your-own-app) · [Reading the report](#reading-the-report) · [Known limitations](#known-limitations) · [Sending feedback](#sending-feedback)
+**Contents:** [Who this is for](#who-this-is-for) · [What V1 does](#what-v1-does-and-doesnt-do) · [Requirements](#requirements) · [Install](#install) · [Try it on Kennel first](#try-it-on-kennel-first-10-minutes) · [Test your own app](#test-your-own-app) · [Trying the AI features](#trying-the-ai-features) · [Reading the report](#reading-the-report) · [Known limitations](#known-limitations) · [Sending feedback](#sending-feedback)
 
 ## Who this is for
 
@@ -21,7 +21,7 @@ What we most want to learn: **is every finding real, and did it miss a bug you k
 - follow links to other pages (one page per run; whole features across pages are V2);
 - log in: pages behind a login aren't supported, and a login form itself can only be partly tested (you'd need a real account);
 - test public websites: only your own machine and private network addresses (see [Safety rules](#safety-rules));
-- plan with AI yet: **AI planning and AI explanations are coming soon**. In V1 the plan comes from the built-in checks below, the explanations are written for each check, and nothing is sent to any AI provider. Every pass or fail comes from a real check in a real browser, and that won't change when AI arrives;
+- use AI unless you turn it on: with AI off (the default) the plan comes from the built-in checks below, the explanations are written for each check, and nothing is sent to any AI provider. With AI on (see [Trying the AI features](#trying-the-ai-features)) your model reviews the plan, suggests flows and explains findings, but every pass or fail still comes from a real check in a real browser;
 - delete the test records it creates (see [Test records](#test-records-it-creates)).
 
 ### The 20 checks
@@ -42,7 +42,7 @@ What we most want to learn: **is every finding real, and did it miss a bug you k
 | `pii-leak` | Sends a test email and phone number and checks no request to another site carries them (or their hashes). | 1 |
 | `verbose-errors` | Sends far too much text and a broken request body and looks for stack traces, file paths or error dumps. | up to 2, if your server accepts them |
 | `reflow-320` | Opens the page 320 px wide (a small phone, or 400% zoom) and checks it doesn't scroll sideways. | 0 |
-| `client-only-validation` | Captures the save request, then sends it straight to the server with one field invalid and checks the server rejects it. Localhost targets only; skipped otherwise, with a reason. | 0 |
+| `client-only-validation` | Captures the save request, then sends it straight to the server with one field invalid and checks the server rejects it. Localhost targets only; skipped otherwise, with a reason. | up to 1, if the server accepts it |
 | `page-controls` (V1) | Clicks every button outside the forms (toolbars, list actions, toggles, `href="#"` links), each on a freshly loaded page, and flags the ones that do nothing. Destructive-looking ones are left out unless you allow them. | 0, unless a button saves something |
 | `security-headers` (V1) | Reads the page's response headers: Content-Security-Policy, clickjacking protection (`frame-ancestors` or `X-Frame-Options`), `X-Content-Type-Options: nosniff`, a leaky `Referrer-Policy`, and on https `Strict-Transport-Security`. | 0 |
 | `cookie-flags` (V1) | Reads the cookies the page sets; session-like cookies must be `HttpOnly`, not `SameSite=None`, and on https `Secure`. Values are never shown. | 0 |
@@ -82,45 +82,28 @@ When the same problem affects several elements (no visible focus on 6 controls),
 
 ## Requirements
 
-| | Local install (recommended) | Docker or Podman |
+| | Docker or Podman (quickest, no clone) | From source |
 |---|---|---|
-| You need | Node 22 or newer (24 recommended), pnpm (via `corepack enable`, or any pnpm: it switches itself to 12.3.4), git | Docker 24+ with Compose, Docker Desktop, or Podman with podman-compose |
-| Disk | About 1 GB (dependencies and Chromium) | About 2.7 GB (the image is built on Microsoft's Playwright image) |
-| Works on | Linux and macOS. Windows: use WSL2 | Linux, macOS, Windows |
-| Testing your own app | Just enter `http://localhost:<port>/<page>` | Linux: `--network host`, same as local. Mac/Windows: extra dev-server settings ([below](#docker-desktop-mac-windows-or-the-compose-ui)) |
+| You need | Docker 24+ with Compose, Docker Desktop, or Podman with podman-compose, and curl. No git, no Node | Node 22 or newer (24 recommended), pnpm (via `corepack enable`, or any pnpm: it switches itself to 12.3.4), git |
+| Disk | About 2.7 GB (the image is built on Microsoft's Playwright image) | About 1 GB (dependencies and Chromium) |
+| Works on | Linux, macOS, Windows (amd64 and arm64) | Linux and macOS. Windows: use WSL2 |
+| Testing your own app | Linux: `--network host`, same as local. Mac/Windows: extra dev-server settings ([below](#docker-desktop-mac-windows-or-the-compose-ui)) | Just enter `http://localhost:<port>/<page>` |
 
-**Use the local install if you can.** It tests your app exactly as your browser sees it, with no networking set-up.
+**Docker or Podman is the quickest start**: one downloaded file, nothing to clone or build, the test apps included. On Linux it tests your own app as simply as a local install (host network). On a Mac or Windows, **the install from source** tests your app exactly as your browser sees it, with no networking set-up.
 
 ## Install
 
-If `git clone` asks for a username or says the repository isn't found, your GitHub account hasn't been given access yet: accept the invitation GitHub emailed you, or ask the person who invited you.
+### Docker or Podman (no clone)
 
-### Local install
-
-```sh
-git clone https://github.com/rahul-bharati/run-hound.git
-cd run-hound
-git checkout claude/eloquent-archimedes-he6hxy   # the V1 branch, until it is merged
-corepack enable                     # once, if pnpm isn't installed
-pnpm install
-pnpm --filter run-hound exec playwright install chromium
-pnpm --filter kennel build          # only needed for the Kennel demo
-```
-
-On Ubuntu or Debian, if Chromium complains about missing libraries, run `pnpm --filter run-hound exec playwright install --with-deps chromium` (it uses sudo). On other Linux distributions Playwright prints "BEWARE: your OS is not officially supported"; that is harmless as long as Chromium starts.
-
-Check it works: `cd app && pnpm exec tsx src/cli.ts --version` prints `run-hound 0.2.0`.
-
-### Docker or Podman
+In an empty folder:
 
 ```sh
-git clone https://github.com/rahul-bharati/run-hound.git
-cd run-hound
-git checkout claude/eloquent-archimedes-he6hxy   # the V1 branch, until it is merged
-cp .env.example .env                # optional: ports, KENNEL_BUGS and allowed hosts live here
-mkdir -p runs                       # reports land here; create it yourself so the files belong to you
-docker compose up --build           # or: podman compose up --build (podman-compose works too)
+curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/main/run-hound.compose.yml
+mkdir -p runs                                  # reports land here; create it yourself so the files belong to you
+docker compose -f run-hound.compose.yml up     # or: podman compose -f run-hound.compose.yml up (podman-compose works too)
 ```
+
+The images (`ghcr.io/rahul-bharati/run-hound:0.3.0`, `run-hound-kennel` and `run-hound-samples`) appear on GitHub's registry with the v0.3.0 release. Until then, clone the repository ([From source](#from-source)) and run `docker compose up --build` there: `docker-compose.yml` builds the same services from source.
 
 This starts Run Hound and every test app, each on its own port bound to `127.0.0.1`:
 
@@ -135,19 +118,66 @@ This starts Run Hound and every test app, each on its own port bound to `127.0.0
 | `cross-origin-api` | `http://cross-origin-api:4104/` | <http://localhost:4104/> | RSVP form whose API is on another origin (port 4105) |
 | `multi-form` | `http://multi-form:4106/` | <http://localhost:4106/> | Three forms on one page (header search, contact, footer newsletter) and buttons outside them |
 
-The sample apps are well built on purpose: **any confirmed finding on them is a false positive**, please report it. Every setting (host ports, `KENNEL_BUGS`, the runs folder, `RUNHOUND_ALLOWED_HOSTS`) is documented in [`.env.example`](.env.example).
+The sample apps are well built on purpose: **any confirmed finding on them is a false positive**, please report it.
 
-The first build downloads about 2 GB. When you see `Run Hound UI: open http://localhost:4000`, open that address. The log also shows `listening on http://0.0.0.0:4000` and a warning about serving beyond localhost: that address is inside the container, and on your machine the port is bound to `127.0.0.1` only.
+The first start downloads about 2 GB of images. When you see `Run Hound UI: open http://localhost:4000`, open that address. The log also shows `listening on http://0.0.0.0:4000` and a warning about serving beyond localhost: that address is inside the container, and on your machine the port is bound to `127.0.0.1` only.
 
-Ports taken? Change them in `.env` (for example `RUNHOUND_HOST_PORT=4400`), or on the command line: `RUNHOUND_HOST_PORT=4400 KENNEL_HOST_PORT=5310 docker compose up --build`.
+**Settings.** Every setting (host ports, `KENNEL_BUGS`, the runs folder, `RUNHOUND_ALLOWED_HOSTS`, AI) has a default. To change one, put it in a `.env` file next to the compose file; the documented example is [`.env.example`](.env.example):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rahul-bharati/run-hound/main/.env.example -o .env   # then edit it
+```
+
+Ports taken? Set them in `.env` (for example `RUNHOUND_HOST_PORT=4400`), or on the command line: `RUNHOUND_HOST_PORT=4400 KENNEL_HOST_PORT=5310 docker compose -f run-hound.compose.yml up`.
+
+**Only Run Hound, without the test apps**, in a single container (the web UI on <http://localhost:4000>):
+
+```sh
+mkdir -p runs
+docker run --rm --init -p 127.0.0.1:4000:4000 \
+  --add-host host.docker.internal:host-gateway -e RUNHOUND_ALLOWED_HOSTS=host.docker.internal \
+  -e RUNHOUND_CONFIG_DIR=/repo/app/runs/.config \
+  -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.3.0
+```
+
+The `--add-host` and `RUNHOUND_ALLOWED_HOSTS` flags let it reach apps on your machine as `host.docker.internal` (Docker Desktop defines that name itself; the flag adds it on Linux); `RUNHOUND_CONFIG_DIR` keeps the AI settings you save in `./runs/.config`. Podman works the same (`podman run ...`).
+
+Check it works: `docker run --rm ghcr.io/rahul-bharati/run-hound:0.3.0 --version` prints `run-hound 0.3.0`.
+
+### From source
+
+For contributors, and anyone who would rather run it with Node:
+
+```sh
+git clone https://github.com/rahul-bharati/run-hound.git
+cd run-hound
+corepack enable                     # once, if pnpm isn't installed
+pnpm install
+pnpm --filter run-hound exec playwright install chromium
+pnpm --filter kennel build          # only needed for the Kennel demo
+```
+
+On Ubuntu or Debian, if Chromium complains about missing libraries, run `pnpm --filter run-hound exec playwright install --with-deps chromium` (it uses sudo). On other Linux distributions Playwright prints "BEWARE: your OS is not officially supported"; that is harmless as long as Chromium starts.
+
+Check it works: `cd app && pnpm exec tsx src/cli.ts --version` prints `run-hound 0.3.0`. In the clone, `docker compose up --build` builds and starts the same containers as above from your working tree.
 
 ## Try it on Kennel first (10 minutes)
 
 Kennel is a pet-sitting booking form with planted bugs you can switch on and off ([fixtures/kennel/bugs.json](fixtures/kennel/bugs.json) lists them). Trying it first shows you what findings, evidence and a clean run look like.
 
-### Local install
+### Docker or Podman
 
-Two terminals, from the repository root. The ports below are examples; any free ports work.
+With the test lab running (`docker compose -f run-hound.compose.yml up`, see [Install](#docker-or-podman-no-clone)), open <http://localhost:4000> and enter `http://kennel:3000/book` (inside the containers Kennel is called `kennel`), then follow steps 2 to 4 below. Or from the command line, in the same folder:
+
+```sh
+docker compose -f run-hound.compose.yml run --rm run-hound run http://kennel:3000/book --approve all
+```
+
+For a clean Kennel, enter `http://kennel-clean:3000/book`: it runs next to the broken one. To change which bugs `kennel` has, set `KENNEL_BUGS` in `.env` (for example `KENNEL_BUGS=S05,S07`) and run `docker compose -f run-hound.compose.yml up -d kennel` again. In containers the target isn't `localhost`, so `client-only-validation` is skipped and the report says why.
+
+### From source
+
+Two terminals, from the root of your clone. The ports below are examples; any free ports work.
 
 ```sh
 # terminal 1: Kennel with every bug on (the analytics port must differ from the app's)
@@ -158,7 +188,7 @@ pnpm serve --port 4310
 ```
 
 1. Open <http://localhost:4310> (the **New Run** page), enter `http://localhost:5310/book` and press **Plan checks**.
-2. Read the plan, shown under Accessibility, Features and Security headings (each has a "Select all" box). Each scenario says what it does and whether it creates test records. Keep them all ticked and press **Start run (15 scenarios)**.
+2. Read the plan, shown under Accessibility, Features and Security headings (each has a "Select all" box). Each scenario says what it does and whether it creates test records. Keep them all ticked and press **Start run (20 scenarios)**.
 3. Watch the running view: the numbered scenarios with their status and time (the current one opens to show its steps), the elapsed time, the browser, a live preview of the page under test and the activity log. A run takes about a minute. **Stop run** ends it early; what ran is still reported.
 4. Read the report, which replaces the running view when the run ends. The first issue is selected: its evidence, reproduction steps, key facts, what to ask your AI and the generated Playwright test. **Open HTML report** opens the full `report.html`; **Re-run** runs the same scenarios again; every run stays listed under **Runs** (including past runs read back from the runs folder after a restart). **Settings** holds the defaults for "Allow destructive scenarios" and "Show the browser window" (saved in this browser) and shows the runs folder, allowed hosts and version. You should see findings for most of Kennel's planted bugs: a button that does nothing, a double-submit, a secret key in the bundle, an email sent to the analytics service, missing focus outlines and more.
 5. Stop Kennel, restart it with `KENNEL_BUGS=none` and press **Re-run** (or plan it again). **A clean Kennel should give zero confirmed findings.** If it doesn't, that's a bug worth reporting.
@@ -172,44 +202,19 @@ pnpm exec tsx src/cli.ts run http://localhost:5310/book --approve all   # run ev
 echo $?                                                                 # 1: confirmed findings
 ```
 
-### Docker or Podman
-
-With `docker compose up` running, open <http://localhost:4000> and enter `http://kennel:3000/book` (inside the containers Kennel is called `kennel`). Or from the command line:
-
-```sh
-docker compose run --rm run-hound run http://kennel:3000/book --approve all
-```
-
-For a clean Kennel, enter `http://kennel-clean:3000/book`: it runs next to the broken one. To change which bugs `kennel` has, set `KENNEL_BUGS` in `.env` (for example `KENNEL_BUGS=S05,S07`) and run `docker compose up -d kennel` again. In containers the target isn't `localhost`, so `client-only-validation` is skipped and the report says why.
-
 ## Test your own app
 
 1. Start your app the way you normally develop it, with a **throwaway database**.
 2. Find the exact URL of the page that has the form, for example `http://localhost:5173/signup`. Use `localhost`, not `0.0.0.0`.
 3. Run Run Hound on it (below), then check each finding against your app.
 
-### Local install
-
-Web UI: `pnpm serve --port 4310`, open <http://localhost:4310>, enter your form's URL.
-
-Command line:
-
-```sh
-cd app
-pnpm exec tsx src/cli.ts run http://localhost:5173/signup --plan-only
-pnpm exec tsx src/cli.ts run http://localhost:5173/signup --approve all
-```
-
-Options: `--approve all|default|<id,id>` (default: the recommended scenarios), `--plan-only`, `--allow-destructive`, `--headed` (a visible browser window), `--runs-dir <dir>`, `--json`. `pnpm exec tsx src/cli.ts help` lists them.
-
 ### Docker on Linux (host network)
 
 On Linux the container can share your machine's network, so `localhost` means your machine and nothing in your app needs to change:
 
 ```sh
-docker compose build run-hound      # once (or reuse the image from docker compose up --build)
 mkdir -p runs
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.2.0 \
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.3.0 \
   run http://localhost:5173/signup --approve all
 ```
 
@@ -218,7 +223,7 @@ The command prints `Report: /repo/app/runs/<runId>/report.html`; on your machine
 For the web UI on the host network, bind it to loopback so it isn't exposed to your network:
 
 ```sh
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.2.0 \
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.3.0 \
   serve --host 127.0.0.1 --port 4310
 ```
 
@@ -234,15 +239,29 @@ Here `localhost` inside the container is the container itself, not your machine.
    - Vite: `server: { allowedHosts: ["host.docker.internal"] }` in `vite.config`. Without it Vite answers "Blocked request. This host is not allowed" and Run Hound reports "No form found".
    - Next.js: `allowedDevOrigins: ["host.docker.internal"]` in `next.config`. Without it the page never becomes interactive and you get false findings.
    - Django: add it to `ALLOWED_HOSTS`; Rails: `config.hosts << "host.docker.internal"`.
-3. Enter `http://host.docker.internal:5173/signup` in the UI at <http://localhost:4000>, or run:
+3. Enter `http://host.docker.internal:5173/signup` in the UI at <http://localhost:4000> (the test lab or the single container from [Install](#docker-or-podman-no-clone)), or run, in the folder with `run-hound.compose.yml`:
 
    ```sh
-   docker compose run --rm run-hound run http://host.docker.internal:5173/signup --approve all
+   docker compose -f run-hound.compose.yml run --rm run-hound run http://host.docker.internal:5173/signup --approve all
    ```
 
-The compose file already allows `host.docker.internal` and `host.containers.internal` through the safety check and adds `host.docker.internal` on Linux too.
+The compose file already allows `host.docker.internal` and `host.containers.internal` through the safety check and adds `host.docker.internal` on Linux too; the single-container command does the same with `--add-host` and `RUNHOUND_ALLOWED_HOSTS`.
 
-Limits of this set-up: a frontend that calls its API at `http://localhost:<apiPort>` will call the container instead and fail (use the host-network set-up or the local install); `client-only-validation` is skipped for non-localhost targets; **Show the browser window** doesn't work in a container (there is no display).
+Limits of this set-up: a frontend that calls its API at `http://localhost:<apiPort>` will call the container instead and fail (use the host-network set-up or the install from source); `client-only-validation` is skipped for non-localhost targets; **Show the browser window** doesn't work in a container (there is no display).
+
+### From source
+
+In your clone. Web UI: `pnpm serve --port 4310`, open <http://localhost:4310>, enter your form's URL.
+
+Command line:
+
+```sh
+cd app
+pnpm exec tsx src/cli.ts run http://localhost:5173/signup --plan-only
+pnpm exec tsx src/cli.ts run http://localhost:5173/signup --approve all
+```
+
+Options: `--approve all|default|<id,id>` (default: the recommended scenarios), `--plan-only`, `--allow-destructive`, `--headed` (a visible browser window), `--runs-dir <dir>`, `--json`. `pnpm exec tsx src/cli.ts help` lists them.
 
 ### Common problems
 
@@ -252,13 +271,26 @@ Limits of this set-up: a frontend that calls its API at `http://localhost:<apiPo
 | `No form found on …` | The page has no `<form>` (or equivalent), the URL is wrong, the page returned an error (404, a dev server "Blocked request"), or it redirected to a login page. Open the URL in your browser and check. |
 | `Refusing to test …` | The host isn't local or private. Use `localhost`; list your own internal host names in `RUNHOUND_ALLOWED_HOSTS`. |
 | `EADDRINUSE` | The port is taken. Pick another (`--port`, `PORT`, `RUNHOUND_HOST_PORT`). |
+| `manifest unknown` or `denied` pulling `ghcr.io/rahul-bharati/run-hound…` | The images aren't published yet (they appear with the v0.3.0 release). Until then, build them from a clone: `docker compose up --build` ([From source](#from-source)). |
 | `EACCES … mkdir '/repo/app/runs/…'` | The container can't write to your reports folder. Create it yourself first (`mkdir -p runs`); on Podman avoid `--user`. |
 | `Error: executing /usr/bin/podman-compose run … exit status 1` | Podman's `docker compose` wrapper repeating Run Hound's exit code, not a crash: 1 means the run finished and found confirmed findings (the report was written), 2 an error (the message above it says which). |
 | "Looks like you launched a headed browser without having a XServer running" | You ticked **Show the browser window** in a container or on a machine without a display. Untick it. |
 
+## Trying the AI features
+
+Optional, and new in 0.3.0. You need a model: the easiest is [Ollama](https://ollama.com) on your machine (`ollama pull qwen3:8b`, or any model you like), or LM Studio, or an OpenAI-compatible / Amazon Bedrock endpoint you have access to.
+
+1. In the web UI open **Settings → AI**, turn it on, choose **Ollama**, pick the model from the dropdown, press **Save**, then **Test connection** (it tests the saved settings). (Command line: add `--ai --ai-provider ollama --ai-model <model>` to `run`; `ai status` shows what's set.)
+2. Plan a page with **Review with AI** ticked. Planning takes longer (a 9B model on a laptop: about a minute). Each scenario shows the model's reason; **Suggested by AI** scenarios show their steps and are unticked: tick the ones that look useful.
+3. After the run, findings have an **AI explanation** panel below the built-in one.
+
+In a container, Ollama on your machine is `http://127.0.0.1:11434/v1` with `--network host` on Linux; otherwise it is `http://host.docker.internal:11434/v1` (Docker) or `http://host.containers.internal:11434/v1` (Podman), and Ollama must listen on all interfaces (`OLLAMA_HOST=0.0.0.0 ollama serve`). Settings you save in the UI are kept in `./runs/.config` with the compose file (it sets `RUNHOUND_CONFIG_DIR=/repo/app/runs/.config`); with a plain `docker run`, add `-e RUNHOUND_CONFIG_DIR=/repo/app/runs/.config` or they are lost with the container. A remote endpoint needs you to tick the consent box first; nothing is sent until then.
+
+What we'd like to hear: were the reasons and suggested flows useful or noise, did a suggested flow report something that isn't a bug, and which model you used.
+
 ## Reading the report
 
-Every run writes a folder: `app/runs/<runId>/` for the local install, `./runs/<runId>/` for Docker. In it:
+Every run writes a folder: `./runs/<runId>/` for Docker, `app/runs/<runId>/` from source. In it:
 
 - `report.html`: open this one in your browser. The UI's report has an **Open HTML report** button for it.
 - `report.md`: the same report as text; the easiest thing to send us.
@@ -282,22 +314,23 @@ To judge a finding, look at its evidence first, then try it by hand in your brow
 - **Limits per page**: up to 5 forms and 20 buttons outside them are tested; links are counted, not followed. Buttons that sign you out, delete, pay or cancel something are only clicked with destructive scenarios allowed.
 - **Dev servers**: header, cookie and CORS findings are advisory and source maps are skipped on a dev server (Vite, Next.js, webpack, Nuxt, Astro). For those checks, run Run Hound against a production build.
 - **Login forms** need a real account for anything past the first submit; expect those scenarios to be skipped or limited.
-- **Unusual apps** may still produce false findings. We've tested classic HTML forms that post and redirect, fetch-based single-page apps, login forms and forms whose API is on another origin, but not your stack. That's what this test round is for.
+- **Unusual apps** may still produce false findings. We've tested classic HTML forms that post and redirect, fetch-based single-page apps, login forms and forms whose API is on another origin, but not your stack. That's what your feedback is for.
 - **Development overlays** (Next.js dev tools, Vite's error overlay) are part of the page in development; if a finding points at one, tell us.
 - **Test records aren't deleted** (see above).
 - **Docker**: the image is large (about 2.7 GB); `localhost` in the container isn't your machine except with `--network host` on Linux; no visible browser window.
 - **Windows** is only supported through WSL2 or Docker.
+- **AI**: output quality depends on the model; small models sometimes suggest flows that are rejected (they name a button the form doesn't have) or give generic reasons. Findings from AI-suggested flows are advisory: check them by hand.
 
 ## Sending feedback
 
-Open an issue with the **tester feedback** form: <https://github.com/rahul-bharati/run-hound/issues/new/choose>. If you'd rather not use GitHub, email the same details to the person who invited you.
+Open an issue with the **Feedback** form: <https://github.com/rahul-bharati/run-hound/issues/new/choose>. If you'd rather not use GitHub, email the same details to contact@rahulbharati.dev.
 
 Please include:
 
-1. **The version**: `pnpm exec tsx src/cli.ts --version` in `app/`, or `runHoundVersion` in `report.json`.
-2. **Your OS and how you ran it**: local install or Docker, web UI or command line, Node version.
+1. **The version**: `docker run --rm ghcr.io/rahul-bharati/run-hound:0.3.0 --version`, `pnpm exec tsx src/cli.ts --version` in `app/` from source, or `runHoundVersion` in `report.json`.
+2. **Your OS and how you ran it**: Docker (compose or single container) or from source, web UI or command line, Node version.
 3. **What you tested**: the framework, the dev server, and what the form does (not the URL, if it's private).
-4. **The report**: `report.md`, or the whole run folder zipped (`zip -r run.zip app/runs/<runId>`). **Look through the screenshots first**: they show whatever your page showed and can't be redacted.
+4. **The report**: `report.md`, or the whole run folder zipped (`zip -r run.zip runs/<runId>`, or `app/runs/<runId>` from source). **Look through the screenshots first**: they show whatever your page showed and can't be redacted.
 5. **What was wrong**, one of:
    - *False positive*: which finding (its title) and why it's wrong;
    - *Missed bug*: a problem you know your form has that Run Hound didn't report, and how to see it by hand;

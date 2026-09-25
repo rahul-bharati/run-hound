@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { EyeOff, Info } from "lucide-react";
+import { EyeOff, Info, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { ArrowIcon, ButtonLink } from "@/components/button-link";
 import { Icon, groupIcons } from "@/components/icon";
 import { AdvisoryBadge, CheckCard, VersionBadge, isShipped } from "@/components/checks/check-card";
-import { categories, notVisible, previewGroups, versionMeaning, type Version } from "@/components/checks/data";
+import { aiFlowCheck, categories, notVisible, previewGroups, versionMeaning, type Version } from "@/components/checks/data";
 import { Container, Eyebrow, NewTag, PageHeader, Section } from "@/components/layout";
 import { site } from "@/lib/site";
 import { SeverityLabel } from "@/components/finding";
@@ -14,7 +14,7 @@ const newTotal = previewGroups.reduce((sum, g) => sum + g.checks.filter((c) => c
 
 export const metadata: Metadata = {
   title: "Checks",
-  description: `The ${previewTotal} checks in the Run Hound V1 tester preview (${site.version}), grouped as Accessibility, Features and Security, including ${newTotal} page-wide checks new in V1, and the full catalog of gaps it is planned to hunt for, with typical severity and roadmap version.`,
+  description: `The ${previewTotal} built-in checks in Run Hound V1 (${site.version}), grouped as Accessibility, Features and Security, including ${newTotal} page-wide checks new in V1, plus the optional AI-suggested flows check, and the full catalog of gaps it is planned to hunt for, with typical severity and roadmap version.`,
 };
 
 const versions = Object.keys(versionMeaning) as Version[];
@@ -34,7 +34,7 @@ export default function ChecksPage() {
             Everything <span className="text-accent">it hunts for.</span>
           </>
         }
-        lede={`What the ${site.release} preview checks today, then the full catalog: the gaps AI-built apps tend to ship with, grouped the way you'd notice them, with typical severity and the roadmap version each check is in or planned for.`}
+        lede={`What ${site.release} checks today, then the full catalog: the gaps AI-built apps tend to ship with, grouped the way you'd notice them, with typical severity and the roadmap version each check is in or planned for.`}
       >
         <nav aria-label="Check categories">
           <ul className="flex flex-wrap gap-2">
@@ -64,17 +64,17 @@ export default function ChecksPage() {
 
       <Section
         id="preview"
-        eyebrow={`${site.release} TESTER PREVIEW · ${site.version}`}
+        eyebrow={`${site.release} TODAY · ${site.version}`}
         className="border-t border-line-soft bg-band"
         title={
           <>
             In {site.release} today:{" "}
             <span className="text-accent">
-              {previewTotal} checks, {previewGroups.length} groups.
+              {previewTotal} built-in checks, {previewGroups.length} groups.
             </span>
           </>
         }
-        intro={`${site.release} tests one page of your local app. It finds every form and interactive control on the page, plans the form checks for each form plus ${newTotal} page-wide checks new in ${site.release}, and the plan, the run and the report all follow the same three groups. Every pass and fail comes from a real check in a real browser, with evidence.`}
+        intro={`${site.release} tests one page of your local app. It finds every form and interactive control on the page, plans the form checks for each form plus ${newTotal} page-wide checks new in ${site.release}, and the plan, the run and the report all follow the same three groups. With AI on, one optional check joins them: AI-suggested flows. Every pass and fail comes from a real check in a real browser, with evidence.`}
       >
         <div className="grid gap-5 lg:grid-cols-3">
           {previewGroups.map((g) => (
@@ -115,6 +115,26 @@ export default function ChecksPage() {
           ))}
         </div>
 
+        <section
+          aria-labelledby="preview-ai-flow"
+          className="flex flex-col gap-3 rounded-2xl border border-dashed border-line-strong bg-surface p-6 sm:p-7"
+        >
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs tracking-widest text-dim">
+            <span className="text-accent">ONLY WHEN AI IS ON</span>
+            <span aria-hidden="true">·</span>
+            <span>{aiFlowCheck.group.toUpperCase()} · NEW IN {site.version}</span>
+          </p>
+          <h3 id="preview-ai-flow" className="flex items-center gap-3 font-display text-2xl font-bold tracking-tight">
+            <Icon icon={Sparkles} size={24} className="text-accent" />
+            {aiFlowCheck.name}
+          </h3>
+          <p className="max-w-3xl text-[15px] leading-relaxed text-muted">{aiFlowCheck.line}</p>
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-dim">
+            <span>{aiFlowCheck.id}</span>
+            <span className="text-muted">always advisory · not counted in the {previewTotal}</span>
+          </p>
+        </section>
+
         <div className="flex max-w-3xl gap-4 rounded-2xl border border-line bg-surface p-5 sm:p-6">
           <Icon icon={Info} size={20} className="mt-0.5 text-accent" />
           <div className="flex flex-col gap-2 text-[15px] leading-relaxed text-muted">
@@ -123,15 +143,15 @@ export default function ChecksPage() {
               Dev servers such as <code className="font-mono text-fg">next dev</code> or{" "}
               <code className="font-mono text-fg">vite</code> don&apos;t send the headers, cookie settings or CORS rules
               your production build will. When the target looks like a dev server, header, cookie and CORS findings are
-              marked advisory and never fail the run. For confirmed results, run them against a production build
-              served locally.
+              marked advisory and never fail the run, and the source-map check is skipped. For confirmed results, run
+              them against a production build served locally.
             </p>
           </div>
         </div>
 
         <p className="max-w-3xl text-[15px] leading-relaxed text-muted">
-          Checks that don&apos;t apply to your page (no form, no password field, no JSON save request, no API) are
-          skipped with a plain reason. Every finding carries evidence and an exported Playwright test, and destructive
+          Checks that don&apos;t apply to your page (no form, no password field, no JSON save request) are skipped
+          with a plain reason. Every finding carries evidence and an exported Playwright test, and destructive
           scenarios are off by default.{" "}
           <Link href="/docs#checks" className={linkClass}>
             How each check works, and the test records it creates
@@ -144,7 +164,7 @@ export default function ChecksPage() {
         id="catalog"
         eyebrow="THE FULL CATALOG"
         title="How to read the catalog"
-        intro={`${total} checks across ${categories.length} categories, ${available} of them in the ${site.release} preview today. Severity is the typical level when the check fails; a real report grades each finding on its evidence. The signal is what Run Hound looks at, never a recipe.`}
+        intro={`${total} checks across ${categories.length} categories, ${available} of them in ${site.release} today. Severity is the typical level when the check fails; a real report grades each finding on its evidence. The signal is what Run Hound looks at, never a recipe.`}
       >
         <div className="grid gap-8 rounded-2xl border border-line bg-surface p-6 sm:p-7 lg:grid-cols-[1fr_1.5fr] lg:gap-10">
           <div className="flex flex-col gap-4">
@@ -162,7 +182,7 @@ export default function ChecksPage() {
                 <dt>
                   <VersionBadge version="V1" shipped />
                 </dt>
-                <dd className="text-sm text-muted">Lit: runs in the preview today</dd>
+                <dd className="text-sm text-muted">Lit: runs in {site.release} today</dd>
               </div>
               <div className="flex items-center gap-3">
                 <dt>
@@ -210,7 +230,7 @@ export default function ChecksPage() {
               </h2>
               <p className="text-pretty text-lg leading-relaxed text-muted">{category.intro}</p>
               <p className="font-mono text-xs tracking-widest text-dim">
-                {category.checks.filter(isShipped).length} OF {category.checks.length} IN THE PREVIEW TODAY
+                {category.checks.filter(isShipped).length} OF {category.checks.length} IN {site.release} TODAY
               </p>
             </div>
             <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -226,7 +246,7 @@ export default function ChecksPage() {
         id="advisory"
         className="border-t border-line-soft"
         title="Advisory findings are labelled"
-        intro={`Some findings rely on judgement rather than a pass-or-fail check, such as a missing autocomplete attribute. In ${site.release}, header, cookie and CORS findings are also advisory when the target looks like a dev server. Planned checks like alt-text quality, generic link and button labels, and placeholder or demo data will be advisory too. Reports mark all of them, and advisory findings never fail a run.`}
+        intro={`Some findings rely on judgement rather than a pass-or-fail check, such as a missing autocomplete attribute. In ${site.release}, header, cookie and CORS findings are also advisory when the target looks like a dev server, and so is every finding from an AI-suggested flow and every AI explanation. Planned checks like alt-text quality, generic link and button labels, and placeholder or demo data will be advisory too. Reports mark all of them, and advisory findings never fail a run.`}
       >
         <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
           <AdvisoryBadge />
@@ -252,8 +272,8 @@ export default function ChecksPage() {
           ))}
         </ul>
         <p className="max-w-3xl text-[15px] leading-relaxed text-muted">
-          Reports also mark areas the browser can&apos;t inspect, such as canvas content, closed shadow DOM and
-          cross-origin iframes, as unscanned.
+          Checks also can&apos;t see inside canvas content, closed shadow DOM or cross-origin iframes. Marking those
+          areas as unscanned in reports is planned.
         </p>
       </Section>
 

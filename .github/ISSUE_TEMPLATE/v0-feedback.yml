@@ -1,12 +1,12 @@
-name: Tester feedback
-description: Tell us how Run Hound 0.2.0 did on your app (a wrong finding, a bug it missed, a crash, or something confusing).
+name: Feedback
+description: Tell us how Run Hound 0.3.0 did on your app (a wrong finding, a bug it missed, a crash, or something confusing).
 title: "[Feedback] "
 labels: ["v0-feedback"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for testing Run Hound. The most useful feedback names the finding (or the bug it missed) and attaches the report.
+        Thanks for trying Run Hound. The most useful feedback names the finding (or the bug it missed) and attaches the report.
         **Before attaching anything, look through it:** screenshots show whatever your page showed, and Run Hound can only redact text, not pixels.
         See [TESTING.md](https://github.com/rahul-bharati/run-hound/blob/main/TESTING.md#sending-feedback) for what to include.
   - type: dropdown
@@ -27,7 +27,7 @@ body:
     attributes:
       label: Run Hound version
       description: The output of `run-hound --version` (`pnpm exec tsx src/cli.ts --version` in `app/`), or `runHoundVersion` in report.json.
-      placeholder: run-hound 0.2.0
+      placeholder: run-hound 0.3.0
     validations:
       required: true
   - type: input

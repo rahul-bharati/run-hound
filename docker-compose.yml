@@ -1,4 +1,4 @@
-# Run Hound V1 plus the apps it is tested against, all local. See TESTING.md.
+# Run Hound (0.3.0) plus the apps it is tested against, all local. See TESTING.md.
 #
 #   cp .env.example .env        # optional: every setting has a default; edit ports and options there
 #   mkdir -p runs               # reports land in ./runs; create it first so the files belong to you
@@ -26,7 +26,7 @@ x-sample: &sample
   build:
     context: .
     dockerfile: fixtures/samples/Dockerfile
-  image: rahulrbharati/run-hound-samples:0.2.0
+  image: ghcr.io/rahul-bharati/run-hound-samples:0.3.0
   init: true
 
 services:
@@ -34,13 +34,41 @@ services:
     build:
       context: .
       dockerfile: app/Dockerfile
-    image: rahulrbharati/run-hound:0.2.0
+    image: ghcr.io/rahul-bharati/run-hound:0.3.0
     init: true
     environment:
       # Named hosts the safety gate accepts besides localhost and private addresses: the test apps and the names
       # Docker and Podman give your machine. Nothing public is added. Override in .env to add your own.
       RUNHOUND_ALLOWED_HOSTS: ${RUNHOUND_ALLOWED_HOSTS:-kennel,kennel-clean,classic-post,spa-fetch,login,cross-origin-api,multi-form,host.docker.internal,host.containers.internal}
       RUNHOUND_PUBLIC_URL: http://localhost:${RUNHOUND_HOST_PORT:-4000}
+      # AI (optional, off by default; docs/ai-spec.md). Settings saved from the web UI go to ./runs/.config/ai.json
+      # on your machine (inside the reports folder, so they belong to you and survive a rebuild).
+      RUNHOUND_CONFIG_DIR: /repo/app/runs/.config
+      RUNHOUND_AI: ${RUNHOUND_AI:-}
+      RUNHOUND_AI_PROVIDER: ${RUNHOUND_AI_PROVIDER:-}
+      RUNHOUND_AI_BASE_URL: ${RUNHOUND_AI_BASE_URL:-}
+      RUNHOUND_AI_MODEL: ${RUNHOUND_AI_MODEL:-}
+      RUNHOUND_AI_API_KEY: ${RUNHOUND_AI_API_KEY:-}
+      RUNHOUND_AI_REGION: ${RUNHOUND_AI_REGION:-}
+      RUNHOUND_AI_ALLOW_REMOTE: ${RUNHOUND_AI_ALLOW_REMOTE:-}
+      RUNHOUND_AI_FEATURES: ${RUNHOUND_AI_FEATURES:-}
+      RUNHOUND_AI_TIMEOUT_MS: ${RUNHOUND_AI_TIMEOUT_MS:-}
+      AWS_BEARER_TOKEN_BEDROCK: ${AWS_BEARER_TOKEN_BEDROCK:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_REGION: ${AWS_REGION:-}
+      # Bedrock with an AWS profile (optional): name it here and uncomment the ~/.aws mount under volumes plus the two
+      # AWS_*_FILE lines below. The files are then read from the mount whatever HOME the container user gets (the
+      # entrypoint sets HOME=/home/pwuser when it runs as pwuser, HOME=/tmp when it runs as the uid owning your runs
+      # folder, and rootless Podman runs as root with HOME=/root). Static keys in the profile always work this way.
+      # IAM Identity Center (SSO) tokens are read from $HOME/.aws/sso/cache, so SSO works only when HOME is
+      # /home/pwuser (run `aws sso login` on your machine first); credential_process needs its program inside the
+      # container, and the image has no AWS CLI.
+      AWS_PROFILE: ${AWS_PROFILE:-}
+      RUNHOUND_AI_AWS_PROFILE: ${RUNHOUND_AI_AWS_PROFILE:-}
+      # AWS_CONFIG_FILE: /home/pwuser/.aws/config
+      # AWS_SHARED_CREDENTIALS_FILE: /home/pwuser/.aws/credentials
     extra_hosts:
       # Docker Desktop defines host.docker.internal itself; this adds it on Linux Docker and Podman too.
       - "host.docker.internal:host-gateway"
@@ -48,6 +76,8 @@ services:
       - "127.0.0.1:${RUNHOUND_HOST_PORT:-4000}:4000"
     volumes:
       - ${RUNHOUND_RUNS_DIR:-./runs}:/repo/app/runs
+      # Optional, read-only: your AWS profiles for Bedrock (see AWS_PROFILE above).
+      # - ~/.aws:/home/pwuser/.aws:ro
     depends_on:
       - kennel
       - kennel-clean
@@ -62,7 +92,7 @@ services:
     build:
       context: .
       dockerfile: fixtures/kennel/Dockerfile
-    image: rahulrbharati/run-hound-kennel:0.2.0
+    image: ghcr.io/rahul-bharati/run-hound-kennel:0.3.0
     environment:
       KENNEL_BUGS: ${KENNEL_BUGS:-all}
     ports:

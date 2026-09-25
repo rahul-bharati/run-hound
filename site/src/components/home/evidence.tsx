@@ -38,7 +38,7 @@ const stills: Shot[] = [
     shot: evidence.corsNullOrigin,
     kind: "CARD · NEW IN V1 · WHOLE PAGE",
     title: "Any website can read your API, with your cookies",
-    text: "Run Hound repeats the page's own reads from a sandboxed frame, as any site can. Kennel's API lets each one be read with the visitor's cookies.",
+    text: "Run Hound repeats the page's own reads from a sandboxed frame, as any site can. Both API reads come back readable with the visitor's cookies; the page itself stays blocked.",
   },
   {
     shot: evidence.missingHeaders,

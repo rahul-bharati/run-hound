@@ -43,7 +43,7 @@ const planted = [
     version: "V2 · PLANNED",
     count: 7,
     title: "Two-account bugs",
-    body: "Access problems that only show up when two owned test accounts try to see each other's data. Not tested by V0 or V1.",
+    body: "Access problems that only show up when two owned test accounts try to see each other's data. Listed for V2, not built into Kennel yet.",
     groups: [
       { name: "Data access", count: 4 },
       { name: "Auth", count: 2 },
@@ -52,13 +52,17 @@ const planted = [
   },
 ];
 
-const kennelCommands = `# terminal 1: Kennel with every bug on
+const kennelCommands = `# once: git clone, pnpm install, playwright install chromium, pnpm --filter kennel build (see the docs)
+
+# terminal 1: Kennel with every bug on
 KENNEL_BUGS=all PORT=5310 ANALYTICS_PORT=5311 pnpm kennel
 
 # terminal 2: the web UI, then open http://localhost:4310
 pnpm serve --port 4310`;
 
-const dockerCommands = `cp .env.example .env && docker compose up --build   # or: podman compose up --build
+const dockerCommands = `curl -fsSLO ${site.composeFileUrl}
+mkdir -p runs
+docker compose -f run-hound.compose.yml up   # or: podman compose -f run-hound.compose.yml up
 
 # then open http://localhost:4000 and enter http://kennel:3000/book`;
 
@@ -66,7 +70,7 @@ export default function DemoPage() {
   return (
     <>
       <PageHeader
-        eyebrow={`DEMO · REAL OUTPUT FROM ${site.release} ${site.version}`}
+        eyebrow={`DEMO · REAL OUTPUT FROM ${site.release}`}
         title={
           <>
             Proof, <span className="text-accent">not adjectives.</span>
@@ -74,9 +78,9 @@ export default function DemoPage() {
         }
         lede={
           <>
-            Everything on this page was captured from a real run of Run Hound {site.version} ({site.release}) against
-            Kennel, our deliberately broken pet-sitting booking page, with all 24 planted bugs switched on. The keys
-            and email addresses are fake test values.
+            Everything on this page was captured from a real run of Run Hound 0.2.0 ({site.release}) against Kennel,
+            our deliberately broken pet-sitting booking page, with all 24 planted bugs switched on. With AI off,{" "}
+            {site.version} plans, runs and reports exactly the same. The keys and email addresses are fake test values.
           </>
         }
       />
@@ -166,7 +170,7 @@ export default function DemoPage() {
           <EvidenceFigure
             shot={evidence.corsNullOrigin}
             label="CORS · REQUEST CARD"
-            caption="The page's own reads, repeated from a sandboxed frame as any website could: Kennel's API lets each one be read with the visitor's cookies."
+            caption="The page's own reads, repeated from a sandboxed frame as any website could: Kennel's API lets two of them be read with the visitor's cookies. The page itself stays unreadable."
           />
           <EvidenceFigure
             shot={evidence.missingHeaders}
@@ -180,16 +184,16 @@ export default function DemoPage() {
         id="try"
         className="bg-band"
         title="Run the same demo yourself"
-        intro="Kennel ships in the repository. The quickest way is one Docker or Podman command, which also starts the sample apps; the local install takes two terminals. Then switch Kennel to KENNEL_BUGS=none: a clean Kennel should give zero confirmed findings."
+        intro="Kennel ships with Run Hound. The quickest way needs no clone: download one compose file and start it with Docker or Podman, which also starts the sample apps; from source it takes two terminals. Then switch Kennel to KENNEL_BUGS=none: a clean Kennel should give zero confirmed findings."
       >
         <div className="grid items-start gap-8 lg:grid-cols-[1.3fr_1fr] lg:gap-12">
           <div className="flex min-w-0 flex-col gap-5">
-            <CodeBlock label="Docker or Podman, from the repository root">{dockerCommands}</CodeBlock>
-            <CodeBlock label="Local install, from the repository root">{kennelCommands}</CodeBlock>
+            <CodeBlock label="Docker or Podman">{dockerCommands}</CodeBlock>
+            <CodeBlock label="From source, in a clone">{kennelCommands}</CodeBlock>
           </div>
           <div className="flex flex-col gap-4">
             <p className="leading-relaxed text-muted">
-              With the local install, enter <code className="font-mono text-fg">http://localhost:5310/book</code>.
+              From source, enter <code className="font-mono text-fg">http://localhost:5310/book</code>.
               Approve the plan and watch the live view. The{" "}
               <Link href="/docs#quick-start" className="text-accent underline underline-offset-4 hover:text-accent-strong">
                 docs
@@ -206,11 +210,15 @@ export default function DemoPage() {
               </ButtonLink>
             </div>
             <p className="text-sm text-dim">
-              Invite-only preview:{" "}
-              <a href={site.accessMail} className="text-muted underline underline-offset-4 hover:text-accent">
-                ask for access
+              Open source: clone it from{" "}
+              <a href={site.github} className="text-muted underline underline-offset-4 hover:text-accent">
+                GitHub
               </a>
-              .
+              . Want to see what AI adds? Turn it on in Settings → AI (
+              <Link href="/docs#ai" className="text-muted underline underline-offset-4 hover:text-accent">
+                AI setup
+              </Link>
+              ).
             </p>
           </div>
         </div>

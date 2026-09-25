@@ -11,30 +11,6 @@ const variants: Record<Variant, string> = {
   ghost: "text-muted hover:text-accent",
 };
 
-// Same look without hover, dimmed to read as unavailable.
-const disabledVariants: Record<Variant, string> = {
-  primary: "bg-accent/60 text-accent-ink",
-  secondary: "border border-line-strong text-muted",
-  ghost: "text-dim",
-};
-
-const badgeVariants: Record<Variant, string> = {
-  primary: "bg-accent-ink/15 text-accent-ink",
-  secondary: "border border-line-strong text-muted",
-  ghost: "border border-line-strong text-muted",
-};
-
-/** Small "Coming soon" tag for things that aren't built yet (the AI features). */
-export function ComingSoonBadge({ variant = "secondary" }: { variant?: Variant }) {
-  return (
-    <span
-      className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-widest ${badgeVariants[variant]}`}
-    >
-      Coming soon
-    </span>
-  );
-}
-
 /** Right arrow for primary calls to action. */
 export function ArrowIcon({ size = 16, className = "" }: { size?: IconSize; className?: string }) {
   return <Icon icon={ArrowRight} size={size} className={className} />;
@@ -59,30 +35,13 @@ export function GitHubIcon({ size = 20, className = "" }: { size?: IconSize; cla
 const base =
   "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-6 py-3 text-base font-semibold transition-colors";
 
-/**
- * Button-styled link (internal routes or absolute URLs). `comingSoon` renders a disabled button with a
- * "Coming soon" tag instead; nothing uses it while every call to action is live.
- */
+/** Button-styled link (internal routes or absolute URLs). */
 export function ButtonLink({
   variant = "primary",
-  comingSoon = false,
   className = "",
   children,
   ...props
-}: ComponentProps<typeof Link> & { variant?: Variant; comingSoon?: boolean }) {
-  if (comingSoon) {
-    return (
-      <button
-        type="button"
-        disabled
-        className={`${base} ${disabledVariants[variant]} cursor-not-allowed ${className}`}
-      >
-        {children}
-        <ComingSoonBadge variant={variant} />
-      </button>
-    );
-  }
-
+}: ComponentProps<typeof Link> & { variant?: Variant }) {
   return (
     <Link {...props} className={`${base} ${variants[variant]} ${className}`}>
       {children}

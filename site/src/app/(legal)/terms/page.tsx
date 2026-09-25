@@ -6,7 +6,7 @@ import { site } from "@/lib/site";
 export const metadata: Metadata = {
   title: "Terms",
   description:
-    "Terms of use for the Run Hound website, and how the planned Apache-2.0 license will govern the Run Hound software.",
+    "Terms of use for the Run Hound website, and how the MIT license governs the Run Hound software.",
 };
 
 const toc: LegalTocItem[] = [
@@ -42,10 +42,10 @@ export default function TermsPage() {
 
       <LegalHeading id="software-license">The software and its license</LegalHeading>
       <p>
-        {site.name} is available only as an invite-only tester preview ({site.release} {site.version}) and has not been publicly
-        released. It is planned to be released under the{" "}
-        <a href="https://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>. Once released, the
-        license, not these terms, governs your rights to use, copy, modify and distribute the code. If these terms and the license ever
+        {site.name} is available as a public open-source preview ({site.release} {site.version}), with its source code
+        in a public repository. It is released under the <a href="https://opensource.org/license/mit">MIT License</a>{" "}
+        (the <a href={site.licenseUrl}>LICENSE file</a> in the repository). The license, not these terms, governs your
+        rights to use, copy, modify and distribute the code. If these terms and the license ever
         conflict about the code, the license wins. The source is on <a href={site.github}>GitHub</a>.
       </p>
 
@@ -57,8 +57,8 @@ export default function TermsPage() {
         and limitation of liability, which apply to the code.
       </p>
       <p>
-        {site.name} tests apps automatically, and later versions may use AI models to plan tests and explain
-        results. It can miss problems and it can report problems that are not real. Its findings are not a guarantee that an app is correct, accessible or secure, and they are not a
+        {site.name} tests apps automatically, and if you turn on its optional AI features, it uses an AI model you
+        configure to review test plans, suggest extra tests and explain results. It can miss problems and it can report problems that are not real. Its findings are not a guarantee that an app is correct, accessible or secure, and they are not a
         substitute for your own review or a professional audit.
       </p>
 
@@ -100,7 +100,7 @@ export default function TermsPage() {
 
       <LegalHeading id="content" level={3}>Content and trademarks</LegalHeading>
       <p>
-        Website text and images are provided for information only. The Apache-2.0 license covers the code; it does
+        Website text and images are provided for information only. The MIT license covers the code; it does
         not grant rights to use the {site.name} name or logo. Screenshots and evidence on this site come from runs on
         Kennel, our deliberately broken demo app, not from real apps; anything else is labelled as a sample.
       </p>

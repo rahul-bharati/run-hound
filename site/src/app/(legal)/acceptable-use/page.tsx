@@ -31,7 +31,7 @@ export default function AcceptableUsePage() {
       toc={toc}
     >
       <p>
-        This policy is part of our <Link href="/terms">Terms of use</Link>. {site.name} is an invite-only tester preview
+        This policy is part of our <Link href="/terms">Terms of use</Link>. {site.name} is a public open-source preview
         ({site.release} {site.version}); the safeguards below describe how it is designed to work, and the ones marked
         planned arrive with later versions.
       </p>
@@ -58,8 +58,10 @@ export default function AcceptableUsePage() {
           <code>&lt;meta&gt;</code> tag in the site&apos;s HTML head. The test runs only where the nonce is found.
         </li>
         <li>
-          <strong>You approve the plan.</strong> {site.name} shows every check it plans for the page, and what each
-          one may create, and waits for your approval before it runs.
+          <strong>You approve the plan.</strong> The web UI shows every check it plans for the page, and what each
+          one may create, and waits for your approval before it runs. On the command line, only the recommended
+          scenarios run unless you choose others with <code>--approve</code>, and <code>--plan-only</code> shows the
+          plan without running anything.
         </li>
         <li>
           <strong>Destructive actions are opt-in.</strong> Actions with real consequences, such as real payments or
@@ -83,7 +85,7 @@ export default function AcceptableUsePage() {
         <li>break any law or regulation that applies to you or to the system being tested.</li>
       </ul>
       <p>
-        The Apache-2.0 license lets you modify the code. Removing safeguards in your own copy does not make a
+        The MIT license lets you modify the code. Removing safeguards in your own copy does not make a
         prohibited use acceptable, and you alone are responsible for what a modified version does.
       </p>
 
