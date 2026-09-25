@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Use this form when Run Hound itself misbehaves. For a finding you think is wrong, or a bug it missed in your app, use **Tester feedback** instead.
+        Use this form when Run Hound itself misbehaves. For a finding you think is wrong, or a bug it missed in your app, use **Feedback** instead.
   - type: input
     id: version
     attributes:

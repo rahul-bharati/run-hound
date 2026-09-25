@@ -2,7 +2,7 @@ import type { Severity } from "@/components/finding";
 
 /**
  * Roadmap stage a check is in or planned for. V0 = single form on localhost (shipped, 0.1.0); V1 = single page
- * (current tester preview, 0.2.0); V4 = live staging behind domain verification.
+ * (current open-source preview; page-wide checks since 0.2.0, optional AI since 0.3.0); V4 = live staging behind domain verification.
  */
 export type Version = "V0" | "V1" | "V2" | "V3" | "V4";
 
@@ -36,7 +36,7 @@ export type CheckCategory = {
 
 export const versionMeaning: Record<Version, string> = {
   V0: "One form on localhost: shipped",
-  V1: "One page: in the tester preview now, more to come",
+  V1: "One page: in the preview now, more to come",
   V2: "One feature, end to end",
   V3: "The whole app",
   V4: "Live staging, domain verified",
@@ -634,7 +634,7 @@ export type PreviewCheck = {
 };
 
 /**
- * The 20 checks in the V1 tester preview (0.2.0), in the three groups the plan, run and report follow: V0's 15
+ * The 20 built-in checks in the V1 preview (0.2.0 and later), in the three groups the plan, run and report follow: V0's 15
  * form checks plus five page-wide checks new in V1. Source of truth: TESTING.md and app/src/checks.
  */
 export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = [
@@ -797,6 +797,18 @@ export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = 
     ],
   },
 ];
+
+/**
+ * The optional check added in 0.3.0. It runs only when AI is on and you tick a suggested flow, so it is listed
+ * beside the 20 built-in checks rather than counted with them.
+ */
+export const aiFlowCheck = {
+  id: "ai-flow",
+  name: "AI-suggested flows",
+  group: "Features" as PreviewGroup,
+  line: "Runs up to 5 extra flows your model suggests, built only from the fields and buttons Run Hound found, each ending in a deterministic check: a save succeeds, text is shown or gone, the address changes, no errors, typed values kept. Unticked by default; a failed flow is an advisory finding with a GIF, a frame and a Playwright test.",
+  records: "depends on the flow",
+};
 
 /** Not visible from outside: listed in every report as a checklist, never as browser checks. */
 export const notVisible: { name: string; line: string }[] = [

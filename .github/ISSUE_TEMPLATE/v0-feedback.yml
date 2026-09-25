@@ -1,4 +1,4 @@
-name: Tester feedback
+name: Feedback
 description: Tell us how Run Hound 0.3.0 did on your app (a wrong finding, a bug it missed, a crash, or something confusing).
 title: "[Feedback] "
 labels: ["v0-feedback"]
@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for testing Run Hound. The most useful feedback names the finding (or the bug it missed) and attaches the report.
+        Thanks for trying Run Hound. The most useful feedback names the finding (or the bug it missed) and attaches the report.
         **Before attaching anything, look through it:** screenshots show whatever your page showed, and Run Hound can only redact text, not pixels.
         See [TESTING.md](https://github.com/rahul-bharati/run-hound/blob/main/TESTING.md#sending-feedback) for what to include.
   - type: dropdown

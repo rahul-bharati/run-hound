@@ -90,7 +90,7 @@ export function renderUi(options: UiOptions): string {
 <li><a href="#/settings"><span class="ic" aria-hidden="true">${ICONS.gear}</span><span>Settings</span></a></li>
 </ul>
 </nav>
-<footer class="side-foot"><span class="dot" aria-hidden="true"></span><div><b>Local · this machine</b><span>Run Hound ${version}</span><span>V1 tester preview</span></div></footer>
+<footer class="side-foot"><span class="dot" aria-hidden="true"></span><div><b>Local · this machine</b><span>Run Hound ${version}</span><span>V1 preview</span></div></footer>
 </aside>
 <main id="view" tabindex="-1"></main>
 </div>

@@ -41,8 +41,9 @@ export default function PrivacyPage() {
             there. It has no telemetry.
           </li>
           <li>
-            <strong>No AI provider receives anything.</strong> The current preview ({site.release} {site.version})
-            sends nothing to any AI provider. AI features are coming soon and will be opt-in.
+            <strong>AI is optional and off by default.</strong> With AI off, the current preview ({site.release}{" "}
+            {site.version}) sends nothing to any AI provider. If you turn it on, only redacted page structure is sent,
+            and only to the AI provider you configure; {site.name} itself operates no AI service.
           </li>
           <li>
             <strong>Analytics only with your consent.</strong> This site loads Google Analytics only if you accept it
@@ -56,7 +57,7 @@ export default function PrivacyPage() {
       </Summary>
 
       <p>
-        {site.name} is in early development and is being tried by a small group of testers. This policy describes
+        {site.name} is in early development and is available as a public open-source preview. This policy describes
         how the website and the current preview ({site.release} {site.version}) work. We will update this page before
         anything changes.
       </p>
@@ -212,10 +213,13 @@ export default function PrivacyPage() {
           on your machine.
         </li>
         <li>
-          <strong>AI features are coming soon, and opt-in.</strong> The current preview uses no AI model and
-          sends nothing to any AI provider. Later versions may let you use a model you choose: a local one, where page
-          content stays on your machine, or a cloud provider, which would receive page content and screenshots under
-          its own terms. We will describe this here before it ships.
+          <strong>AI features are optional, and off by default.</strong> With AI off, the software uses no AI model and
+          sends nothing to any AI provider. If you turn them on, it sends redacted page structure (field labels and
+          types, button names, the page path and the list of planned checks; for explanations, the finding text and
+          its evidence facts without test values) only to the AI provider you configure, which handles it under its
+          own terms. It never sends typed values, cookies, response bodies or screenshots. A local model keeps this on
+          your machine or private network; a remote provider receives nothing until you consent for its host.{" "}
+          {site.name} itself operates no AI service and receives none of this data.
         </li>
         <li>
           <strong>Paid features, if they ever exist.</strong> The core stays open source. If paid features are added

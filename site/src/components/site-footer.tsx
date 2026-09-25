@@ -6,7 +6,7 @@ import { legalNav, mainNav, site } from "@/lib/site";
 const linkClass = "inline-flex min-h-11 items-center text-muted hover:text-accent";
 
 const projectLinks = [
-  { href: site.testingGuide, label: "Tester guide" },
+  { href: site.testingGuide, label: "Getting-started guide" },
   { href: site.github, label: "GitHub" },
   { href: site.changelog, label: "Changelog" },
   { href: site.feedback, label: "Send feedback" },
@@ -22,16 +22,16 @@ export function SiteFooter() {
             {site.name}
           </Link>
           <p className="max-w-xs text-sm leading-relaxed text-dim">
-            AI-assisted UI testing for AI-built apps, open source. Runs on your machine. {site.release} tester preview{" "}
-            {site.version}; the repository is invite-only for now.
+            AI-assisted UI testing for AI-built apps, open source. Runs on your machine. {site.release} preview{" "}
+            {site.version}, with optional AI; the repository is public.
           </p>
           <p className="text-sm text-dim">
-            Want access?{" "}
+            Found a bug?{" "}
             <a
-              href={site.accessMail}
+              href={site.issues}
               className="text-muted underline underline-offset-4 hover:text-accent"
             >
-              Ask for an invite
+              File an issue on GitHub
             </a>
           </p>
         </div>
@@ -83,7 +83,7 @@ export function SiteFooter() {
           <span>{site.name}</span>
           <span aria-hidden="true">·</span>
           <span>
-            {site.release} ({site.releaseName}) {site.version} tester preview
+            {site.release} ({site.releaseName}) {site.version} preview
           </span>
           <span aria-hidden="true">·</span>
           <span>License planned: {site.license}</span>

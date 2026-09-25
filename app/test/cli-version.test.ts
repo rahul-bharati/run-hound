@@ -41,7 +41,7 @@ const passing: Check = {
 };
 
 describe("version (tester release)", () => {
-  it("package.json says 0.3.0 (V1 tester preview with optional AI)", () => {
+  it("package.json says 0.3.0 (V1 preview with optional AI)", () => {
     expect(PKG_VERSION).toBe("0.3.0");
   });
 

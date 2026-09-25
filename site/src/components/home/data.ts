@@ -1,12 +1,12 @@
 import { previewGroups } from "@/components/checks/data";
 import { site } from "@/lib/site";
 
-/** Live preview links. The repo is invite-only for now. */
+/** Live preview links. The repository is public. */
 export const links = {
   tryLocally: site.testingGuide,
   github: site.github,
   changelog: site.changelog,
-  requestAccess: site.accessMail,
+  issues: site.issues,
 } as const;
 
 const intros: Record<string, string> = {

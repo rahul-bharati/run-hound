@@ -1,6 +1,6 @@
 import { CodeXml, Monitor, ShieldCheck, Sparkles } from "lucide-react";
 import Image from "next/image";
-import { ArrowIcon, ButtonLink, ComingSoonBadge, GitHubIcon } from "@/components/button-link";
+import { ArrowIcon, ButtonLink, GitHubIcon } from "@/components/button-link";
 import { Icon } from "@/components/icon";
 import { site } from "@/lib/site";
 import { Container } from "@/components/layout";
@@ -13,7 +13,7 @@ import { Steps } from "./steps";
 const chips = [
   { label: "Open source", icon: CodeXml },
   { label: "Runs locally", icon: Monitor },
-  { label: "AI planning", icon: Sparkles, soon: true },
+  { label: "Optional AI, your own model", icon: Sparkles },
   { label: "No evidence, no finding", icon: ShieldCheck },
 ];
 
@@ -52,7 +52,7 @@ export function Hero() {
               ·
             </span>
             <span className="text-muted">
-              {site.release} TESTER PREVIEW ({site.version})
+              {site.release} PREVIEW ({site.version})
             </span>
           </p>
 
@@ -66,8 +66,8 @@ export function Hero() {
           <p className="max-w-2xl text-pretty text-lg leading-relaxed text-muted sm:text-xl">
             AI-assisted UI testing for AI-built apps. Point Run Hound at a page on your local app: it finds every form
             and control, plans the checks, and after you approve, runs them in a real browser and reports what broke,
-            with annotated evidence and a Playwright test for each finding. AI planning and explanations are coming
-            soon.
+            with annotated evidence and a Playwright test for each finding. Optionally, your own AI model reviews the
+            plan, suggests extra flows and explains findings.
           </p>
 
           <div className="flex w-full flex-col items-center gap-3">
@@ -82,23 +82,22 @@ export function Hero() {
               </ButtonLink>
             </div>
             <p className="text-sm text-dim">
-              Invite-only preview:{" "}
+              Free and open source: clone it, try it and{" "}
               <a
-                href={links.requestAccess}
+                href={links.issues}
                 className="text-muted underline decoration-line-strong underline-offset-4 hover:text-accent hover:decoration-accent"
               >
-                ask for access
+                file an issue
               </a>
               .
             </p>
           </div>
 
           <ul className="flex flex-wrap justify-center gap-x-5 gap-y-3 text-[14.5px] text-muted">
-            {chips.map(({ label, icon, soon }) => (
+            {chips.map(({ label, icon }) => (
               <li key={label} className="flex items-center gap-2">
                 <Icon icon={icon} size={18} className="text-accent" />
                 {label}
-                {soon ? <ComingSoonBadge /> : null}
               </li>
             ))}
           </ul>

@@ -24,7 +24,7 @@ const badgeVariants: Record<Variant, string> = {
   ghost: "border border-line-strong text-muted",
 };
 
-/** Small "Coming soon" tag for things that aren't built yet (the AI features). */
+/** Small "Coming soon" tag for things that aren't built yet. Unused while every feature shown is live. */
 export function ComingSoonBadge({ variant = "secondary" }: { variant?: Variant }) {
   return (
     <span

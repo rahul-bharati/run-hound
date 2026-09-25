@@ -649,7 +649,7 @@ ${unapprovedHtml}${unplannedHtml}
 <section aria-labelledby="skipped"><h2 id="skipped">Skipped checks</h2>${list(reasons(report, "skipped"))}</section>
 ${aiNotesHtml}<section aria-labelledby="not-visible"><h2 id="not-visible">What a browser can't see</h2>${list(report.notVisible)}</section>
 </main>
-<footer>Run Hound ${esc(report.runHoundVersion)} · V1 tester preview · real checks in a real browser, on local and private addresses only</footer>
+<footer>Run Hound ${esc(report.runHoundVersion)} · V1 preview · real checks in a real browser, on local and private addresses only</footer>
 </body>
 </html>
 `;

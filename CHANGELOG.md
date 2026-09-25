@@ -6,6 +6,10 @@ All notable changes to Run Hound. Versions follow [Semantic Versioning](https://
 
 Bring your own model. AI is off by default and never decides pass or fail. Contract: [docs/ai-spec.md](docs/ai-spec.md).
 
+### The repository is public
+
+- Run Hound is now open source in a public repository: <https://github.com/rahul-bharati/run-hound>. There is no invitation or access request any more; anyone can clone it, try it and file issues. The README, TESTING.md, the issue forms and the website say so, and the preview is called the "V1 preview" in reports and the web UI.
+
 ### Added
 
 - **Providers**: Ollama (native API, thinking off, larger context), any OpenAI-compatible endpoint (LM Studio, llama.cpp, vLLM, OpenAI, OpenRouter, Groq, Together, …) with JSON-schema structured output, and Amazon Bedrock (Converse, with a Bedrock API key or SigV4 from AWS access keys). No new dependencies.

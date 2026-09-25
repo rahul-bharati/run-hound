@@ -31,7 +31,7 @@ export default function AcceptableUsePage() {
       toc={toc}
     >
       <p>
-        This policy is part of our <Link href="/terms">Terms of use</Link>. {site.name} is an invite-only tester preview
+        This policy is part of our <Link href="/terms">Terms of use</Link>. {site.name} is a public open-source preview
         ({site.release} {site.version}); the safeguards below describe how it is designed to work, and the ones marked
         planned arrive with later versions.
       </p>

@@ -4,13 +4,13 @@ AI-assisted UI testing for AI-built apps: it hunts for the holes AI-generated ap
 
 **AI plans and explains; real checks decide.** Since 0.3.0 you can bring your own model (Ollama, LM Studio, llama.cpp, vLLM, any OpenAI-compatible endpoint, or Amazon Bedrock) to review the plan, suggest extra flows and explain findings. AI is **off by default**; without it the plan comes from Run Hound's built-in checks and nothing is sent to any AI provider. See [AI (optional)](#ai-optional).
 
-> **V1 tester preview (0.3.0): single page, optional AI.** V1 tests a whole page of an app running on your own machine: every form on it, the buttons outside them, and page-wide checks for security headers, session cookies, CORS and public source maps; 0.3.0 adds optional AI planning and explanations with your own model. If you've been asked to try it, start with **[TESTING.md](TESTING.md)**: install, a 10-minute run on the Kennel demo, testing your own app (local or Docker), reading the report, and how to send feedback. Changes: [CHANGELOG.md](CHANGELOG.md).
+> **V1 open-source preview (0.3.0): single page, optional AI.** V1 tests a whole page of an app running on your own machine: every form on it, the buttons outside them, and page-wide checks for security headers, session cookies, CORS and public source maps; 0.3.0 adds optional AI planning and explanations with your own model. The repository is public: anyone can clone it, try it and [file an issue](https://github.com/rahul-bharati/run-hound/issues/new/choose). To try it, start with **[TESTING.md](TESTING.md)**: install, a 10-minute run on the Kennel demo, testing your own app (local or Docker), reading the report, and how to send feedback. Changes: [CHANGELOG.md](CHANGELOG.md).
 >
 > **Quickest start:** `cp .env.example .env && mkdir -p runs && docker compose up --build` (or `podman compose up --build`) starts Run Hound on <http://localhost:4000> together with every test app: Kennel (broken and clean) and four well-built sample apps. See [Containers](#containers).
 
 ## Running V1 locally
 
-V1 tests one page of a local app: point it at the page, and Run Hound finds every form and control on it, plans the form checks for each form plus the page-wide checks, you approve the plan, watch the run, and get a report with annotated evidence. Needs Node 22+ (24 recommended), pnpm (`corepack enable`) and Chromium. The tester guide, [TESTING.md](TESTING.md), covers the same steps with more detail and troubleshooting.
+V1 tests one page of a local app: point it at the page, and Run Hound finds every form and control on it, plans the form checks for each form plus the page-wide checks, you approve the plan, watch the run, and get a report with annotated evidence. Needs Node 22+ (24 recommended), pnpm (`corepack enable`) and Chromium. The step-by-step guide, [TESTING.md](TESTING.md), covers the same steps with more detail and troubleshooting.
 
 ```sh
 pnpm install
@@ -193,12 +193,12 @@ Full catalog with severity and detectability: [docs/research.md §3](docs/resear
 - TypeScript + Playwright, with `@axe-core/playwright` for accessibility rules
 - Local web UI for approving the plan, served from the container
 - Docker for delivery
-- Inference (**coming soon**, bring your own model): local via Ollama, or cloud via AWS Bedrock or any OpenAI-compatible endpoint. V1 sends nothing to any AI provider.
+- Inference (optional, bring your own model, since 0.3.0): local via Ollama, LM Studio, llama.cpp or vLLM, or cloud via Amazon Bedrock or any OpenAI-compatible endpoint. Off by default; with AI off nothing is sent to any AI provider, and with it on only redacted page structure goes to the endpoint you configure. See [AI (optional)](#ai-optional).
 
 ## Delivery
 
 - Docker-based; no hosted platform for now.
-- Users pull the Docker image (or install from source) and run it locally. Bringing your own model (local or cloud) is **coming soon**; AI features will be opt-in.
+- Users pull the Docker image (or install from source) and run it locally. AI features are optional and off by default: bring your own model, local or cloud (see [AI (optional)](#ai-optional)).
 - The initial scope is testing localhost; later, live sites as well, mostly staging and dev, behind ownership verification.
 
 ## Roadmap
@@ -260,7 +260,7 @@ Run Hound is developed and scored against **Kennel**, a deliberately broken book
 ## License and business model
 
 - **Planned license: Apache-2.0** for the core.
-- The open core includes every check, the approval UI, reports, Playwright export, bring-your-own-model support (**coming soon**) and the Kennel fixture. **Checks are never paywalled.**
+- The open core includes every check, the approval UI, reports, Playwright export, bring-your-own-model support and the Kennel fixture. **Checks are never paywalled.**
 - A possible paid tier (later, only after demand is validated) would cover things that run on our servers: hosted inference, a hosted runner, team dashboards, CI integration and compliance exports. It would be unlocked with an API key passed to the Docker container; without a key, the core runs fully.
 
 Details: [docs/business-model.md](docs/business-model.md).

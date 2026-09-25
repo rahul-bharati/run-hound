@@ -1,4 +1,4 @@
-export type RoadmapStatus = "shipped" | "tester preview" | "planned";
+export type RoadmapStatus = "shipped" | "current" | "planned";
 
 export type RoadmapStage = {
   version: string;
@@ -12,17 +12,17 @@ export type RoadmapStage = {
 
 const statusStyle: Record<RoadmapStatus, { card: string; pill: string; dot: string }> = {
   shipped: { card: "border-line", pill: "border-line-strong text-muted", dot: "bg-muted" },
-  "tester preview": { card: "border-accent/60", pill: "border-accent text-accent", dot: "bg-accent" },
+  "current": { card: "border-accent/60", pill: "border-accent text-accent", dot: "bg-accent" },
   planned: { card: "border-line", pill: "border-line-strong text-dim", dot: "bg-line-strong" },
 };
 
-/** Vertical roadmap with a status label per stage. The current stage (the tester preview) is lit. */
+/** Vertical roadmap with a status label per stage. The current stage (the current release) is lit. */
 export function RoadmapList({ stages }: { stages: readonly RoadmapStage[] }) {
   return (
     <ol className="flex flex-col gap-4">
       {stages.map((stage) => {
         const style = statusStyle[stage.status];
-        const current = stage.status === "tester preview";
+        const current = stage.status === "current";
         return (
           <li
             key={stage.version}

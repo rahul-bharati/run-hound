@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowIcon, ButtonLink } from "@/components/button-link";
-import { previewGroups } from "@/components/checks/data";
+import { aiFlowCheck, previewGroups } from "@/components/checks/data";
 import { Callout } from "@/components/docs/callout";
 import { CodeBlock } from "@/components/docs/code-block";
 import { DocSection } from "@/components/docs/doc-section";
@@ -13,8 +13,8 @@ import { site } from "@/lib/site";
 const checkTotal = previewGroups.reduce((sum, g) => sum + g.checks.length, 0);
 
 export const metadata: Metadata = {
-  title: "Docs: V1 tester guide",
-  description: `Run Hound V1 (${site.version}) tester guide: a Docker or Podman quick start with Kennel and sample apps, the local install, testing your own page, reading the report, the ${checkTotal} checks, safety and sending feedback.`,
+  title: "Docs: V1 guide",
+  description: `Run Hound V1 (${site.version}) guide: a Docker or Podman quick start with Kennel and sample apps, the local install from the public GitHub repository, testing your own page, optional AI with your own model, reading the report, the ${checkTotal} checks, safety and sending feedback.`,
 };
 
 const toc = [
@@ -25,6 +25,7 @@ const toc = [
   { id: "kennel", label: "Try it on Kennel" },
   { id: "your-app", label: "Test your own app" },
   { id: "problems", label: "Common problems" },
+  { id: "ai", label: "AI (optional)" },
   { id: "report", label: "Reading the report" },
   { id: "checks", label: `The ${checkTotal} checks` },
   { id: "safety", label: "Safety and test records" },
@@ -32,7 +33,6 @@ const toc = [
   { id: "feedback", label: "Sending feedback" },
 ];
 
-const accessMail = site.accessMail;
 
 const severities: { level: Severity; meaning: string }[] = [
   { level: "critical", meaning: "Data or money is at risk right now, for example a secret key shipped to every visitor." },
@@ -89,6 +89,18 @@ docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharat
 docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:${site.version} \\
   serve --host 127.0.0.1 --port 4310`;
 
+const aiCli = `cd app
+pnpm exec tsx src/cli.ts ai status                                    # the effective settings and what's missing
+pnpm exec tsx src/cli.ts run localhost:5310/book --ai --ai-provider ollama --ai-model qwen3:8b --plan-only
+pnpm exec tsx src/cli.ts ai test                                      # one small call to check the model answers`;
+
+const aiDocker = `# .env: Ollama on your machine, seen from the container
+RUNHOUND_AI=1
+RUNHOUND_AI_PROVIDER=ollama
+# Podman; with Docker use http://host.docker.internal:11434/v1
+RUNHOUND_AI_BASE_URL=http://host.containers.internal:11434/v1
+RUNHOUND_AI_MODEL=qwen3:8b`;
+
 const dockerDesktop = `docker compose run --rm run-hound run http://host.docker.internal:5173/signup --approve all`;
 
 const problems: { see: string; means: string }[] = [
@@ -128,7 +140,7 @@ export default function DocsPage() {
   return (
     <>
       <PageHeader
-        eyebrow={`DOCS · ${site.release} TESTER PREVIEW ${site.version}`}
+        eyebrow={`DOCS · ${site.release} PREVIEW ${site.version}`}
         title={
           <>
             Run {site.release} <span className="text-accent">on your machine.</span>
@@ -137,18 +149,16 @@ export default function DocsPage() {
         lede={`How to run Run Hound ${site.release} on your own machine: start it with the test apps in one command, try it on Kennel, our deliberately broken demo app, point it at a page of your own, and read a report where every finding comes with evidence.`}
       >
         <Callout
-          label="Invite-only preview"
-          title={`The repository is private while ${site.release} is in testing.`}
+          label="Open source"
+          title="The repository is public on GitHub."
           className="max-w-3xl"
         >
           <p>
-            To clone it, your GitHub account needs an invitation.{" "}
-            <a href={accessMail} className="text-accent underline underline-offset-4 hover:text-accent-strong">
-              Ask for access
+            Anyone can clone it, try it and{" "}
+            <a href={site.feedback} className="text-accent underline underline-offset-4 hover:text-accent-strong">
+              file an issue
             </a>
-            . If <code className="font-mono text-fg">git clone</code> asks for a username or says the repository
-            isn&apos;t found, accept the invitation GitHub emailed you first. The full guide is also in the
-            repository as{" "}
+            . The full guide is also in the repository as{" "}
             <a href={site.testingGuide} className="text-accent underline underline-offset-4 hover:text-accent-strong">
               TESTING.md
             </a>
@@ -176,20 +186,25 @@ export default function DocsPage() {
                   New since V0 (0.1.0), which tested only the main form: every form on the page is tested, and five
                   checks look at the page as a whole. See <a href="#checks">the {checkTotal} checks</a>.
                 </p>
+                <p>
+                  New in 0.3.0: <strong>optional AI with your own model</strong>. It reviews the plan, suggests extra
+                  flows and explains findings. It is off by default and never decides pass or fail. See{" "}
+                  <a href="#ai">AI (optional)</a>.
+                </p>
                 <p>It doesn&apos;t, yet:</p>
                 <ul>
                   <li>follow links to other pages or test a feature across pages (planned for V2);</li>
                   <li>log in: pages behind a login aren&apos;t supported, and a login form can only be partly tested;</li>
                   <li>test public websites: only your own machine and private network addresses;</li>
                   <li>
-                    plan with AI: AI planning (a model proposes scenarios from your app), AI explanations and bringing
-                    your own model are <strong>coming soon</strong>. In the preview the plan comes from what Run Hound
-                    finds on the page, and every pass or fail comes from a real check with evidence;
+                    use AI unless you turn it on: with AI off (the default) the plan comes from what Run Hound finds on
+                    the page and nothing is sent to any AI provider. With it on, every pass or fail still comes from a
+                    real check with evidence;
                   </li>
                   <li>delete the test records it creates (see <a href="#safety">Safety and test records</a>).</li>
                 </ul>
                 <p>
-                  What we most want to learn from testers: <strong>is every finding real, and did it miss a bug you
+                  What we most want to learn: <strong>is every finding real, and did it miss a bug you
                   know about?</strong> A wrong finding costs you time, so we treat each false positive as a bug in Run
                   Hound.
                 </p>
@@ -444,7 +459,91 @@ export default function DocsPage() {
               </dl>
             </DocSection>
 
-            <DocSection id="report" step="08" title="Reading the report">
+            <DocSection id="ai" step="08" title="AI (optional)">
+              <div className="prose-night">
+                <p>
+                  New in 0.3.0, and <strong>off until you turn it on</strong>. Bring your own model: Ollama, LM Studio,
+                  llama.cpp, vLLM, any OpenAI-compatible endpoint, or Amazon Bedrock. It takes on three jobs:
+                </p>
+                <ul>
+                  <li>
+                    <strong>Reviews the plan</strong>: recommends and ranks each built-in scenario with a one-line
+                    reason. It never ticks a destructive scenario, and adds, removes or reorders nothing.
+                  </li>
+                  <li>
+                    <strong>Suggests extra flows</strong>: up to 5, built only from the fields and buttons Run Hound
+                    found, each checked by deterministic assertions (the <code>ai-flow</code> check). They are unticked
+                    by default, and their findings are advisory.
+                  </li>
+                  <li>
+                    <strong>Explains findings</strong>: an &ldquo;AI explanation (advisory)&rdquo; and an &ldquo;Ask
+                    your AI&rdquo; prompt beside the built-in text.
+                  </li>
+                </ul>
+                <p>
+                  It never decides pass or fail, and if the model fails or times out you get the built-in plan with a
+                  warning. The easiest start is <a href="https://ollama.com">Ollama</a> on your machine (<code>ollama pull qwen3:8b</code>,
+                  or any model you like).
+                </p>
+                <h3>Web UI</h3>
+                <ol>
+                  <li>
+                    Open <strong>Settings → AI</strong>, turn it on, pick a provider, choose a model from the dropdown
+                    (it lists what the server has; <strong>Other…</strong> takes any id), press{" "}
+                    <strong>Test connection</strong>, then <strong>Save</strong>.
+                  </li>
+                  <li>
+                    Plan a page with <strong>Review with AI</strong> ticked. Planning takes longer (a 9B model on a
+                    laptop: about a minute). Each scenario shows the model&apos;s reason; <strong>Suggested by AI</strong>{" "}
+                    scenarios show their steps and are unticked: tick the ones that look useful.
+                  </li>
+                  <li>
+                    After the run, findings have an <strong>AI explanation</strong> panel below the built-in one.
+                  </li>
+                </ol>
+                <h3>Command line</h3>
+              </div>
+              <CodeBlock label="Command line">{aiCli}</CodeBlock>
+              <div className="prose-night">
+                <p>
+                  Settings come from the Settings page (saved to <code>~/.config/run-hound/ai.json</code>, mode 0600),
+                  then <code>RUNHOUND_AI_*</code> environment variables, then <code>--ai*</code> flags. The full list is
+                  in <code>docs/ai-spec.md</code> and <code>.env.example</code> in the repository.
+                </p>
+                <h3>Docker or Podman</h3>
+                <p>
+                  Ollama on your machine must listen on all interfaces (<code>OLLAMA_HOST=0.0.0.0 ollama serve</code>);
+                  compose passes the <code>RUNHOUND_AI_*</code> variables from <code>.env</code>, and the Settings page
+                  works too.
+                </p>
+              </div>
+              <CodeBlock label=".env">{aiDocker}</CodeBlock>
+              <div className="prose-night">
+                <h3>What is sent</h3>
+                <ul>
+                  <li>
+                    Only <strong>redacted page structure</strong>: field labels and types, button names, the page path
+                    and the scenario list. Never typed values, cookies, response bodies or screenshots.
+                  </li>
+                  <li>
+                    A local endpoint (localhost or a private address) needs nothing more. A remote one (OpenAI,
+                    OpenRouter, Bedrock, …) is refused until you consent for that host: the Settings checkbox,{" "}
+                    <code>--ai-allow-remote</code> or <code>RUNHOUND_AI_ALLOW_REMOTE=1</code>. Without consent nothing
+                    is sent, not even a model list request.
+                  </li>
+                  <li>
+                    API keys stay on the server and never appear in the UI or reports. Bedrock takes a Bedrock API key
+                    or AWS access keys (profiles and SSO aren&apos;t supported yet).
+                  </li>
+                </ul>
+                <p>
+                  Small local models work (tested with a 9B model on Ollama). Ollama is called through its native API
+                  with thinking turned off; with other servers, prefer a non-reasoning model or turn reasoning off.
+                </p>
+              </div>
+            </DocSection>
+
+            <DocSection id="report" step="09" title="Reading the report">
               <div className="prose-night">
                 <p>
                   Every run writes a folder: <code>app/runs/&lt;runId&gt;/</code> for the local install,{" "}
@@ -529,13 +628,18 @@ export default function DocsPage() {
               </div>
             </DocSection>
 
-            <DocSection id="checks" step="09" title={`The ${checkTotal} checks`}>
+            <DocSection id="checks" step="10" title={`The ${checkTotal} checks`}>
               <div className="prose-night">
                 <p>
                   The plan, the run, the progress and the report all follow the same three groups. Form checks are
                   planned once for each form on the page; the five checks new in {site.release} look at the page as a
                   whole. Scenarios that don&apos;t apply to your page (no form, no password field, no JSON save
                   request) are <strong>skipped with a plain reason</strong>, never silently dropped.
+                </p>
+                <p>
+                  With <a href="#ai">AI</a> on, one more check can run, in the Features group:{" "}
+                  <code>{aiFlowCheck.id}</code>. It isn&apos;t counted in the {checkTotal} because it runs only the flows
+                  your model suggests and you tick.
                 </p>
               </div>
               <div className="flex flex-col gap-8">
@@ -570,10 +674,28 @@ export default function DocsPage() {
                     </ul>
                   </section>
                 ))}
+                <section aria-labelledby="group-ai" className="flex flex-col gap-3">
+                  <h3 id="group-ai" className="flex items-baseline gap-3 font-display text-xl font-bold">
+                    Only when AI is on
+                    <span className="font-mono text-xs font-normal tracking-widest text-dim">1 CHECK</span>
+                  </h3>
+                  <ul className="flex flex-col divide-y divide-line-soft rounded-2xl border border-dashed border-line-strong bg-surface">
+                    <li className="flex flex-col gap-1.5 px-5 py-4">
+                      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+                        <span className="font-mono text-sm text-accent">{aiFlowCheck.id}</span>
+                        <span className="font-mono text-[11px] tracking-widest text-dim">
+                          TEST RECORDS: {aiFlowCheck.records.toUpperCase()}
+                        </span>
+                      </div>
+                      <p className="text-[15px] leading-relaxed text-muted">{aiFlowCheck.line}</p>
+                      <p className="text-sm leading-relaxed text-dim">Findings are always advisory.</p>
+                    </li>
+                  </ul>
+                </section>
               </div>
             </DocSection>
 
-            <DocSection id="safety" step="10" title="Safety and test records">
+            <DocSection id="safety" step="11" title="Safety and test records">
               <div className="prose-night">
                 <ul>
                   <li>
@@ -598,6 +720,10 @@ export default function DocsPage() {
                     secret shows it in the screenshots too.
                   </li>
                   <li>
+                    With AI on, only redacted page structure goes to the model you configure; a remote endpoint needs
+                    your consent first. See <a href="#ai">AI (optional)</a>.
+                  </li>
+                  <li>
                     Scenarios that could change or delete existing data (clicking a “Delete” button) are off unless you
                     pass <code>--allow-destructive</code> or tick the option in the UI.
                   </li>
@@ -616,7 +742,7 @@ export default function DocsPage() {
               </div>
             </DocSection>
 
-            <DocSection id="limitations" step="11" title="Known limitations">
+            <DocSection id="limitations" step="12" title="Known limitations">
               <div className="prose-night">
                 <ul>
                   <li>
@@ -631,7 +757,7 @@ export default function DocsPage() {
                   <li>
                     <strong>Unusual apps</strong> may still produce false findings. It has been tried on classic HTML
                     forms that post and redirect, fetch-based single-page apps, login forms and forms whose API is on
-                    another origin, but not on your stack. That&apos;s what this test round is for.
+                    another origin, but not on your stack. That&apos;s what your feedback is for.
                   </li>
                   <li>
                     <strong>Development overlays</strong> (Next.js dev tools, Vite&apos;s error overlay) are part of the
@@ -643,15 +769,20 @@ export default function DocsPage() {
                   <li>
                     <strong>Windows</strong> is only supported through WSL2 or Docker.
                   </li>
+                  <li>
+                    <strong>AI</strong>: output quality depends on the model; small models sometimes suggest flows that
+                    are rejected (they name a button the form doesn&apos;t have) or give generic reasons. Findings from
+                    AI-suggested flows are advisory: check them by hand.
+                  </li>
                 </ul>
               </div>
             </DocSection>
 
-            <DocSection id="feedback" step="12" title="Sending feedback">
+            <DocSection id="feedback" step="13" title="Sending feedback">
               <div className="prose-night">
                 <p>
-                  Open an issue with the <strong>tester feedback</strong> form on GitHub, or email the same details
-                  to the person who invited you. Please include:
+                  Open an issue with the <strong>Feedback</strong> form on GitHub, or email the same details to{" "}
+                  <a href={`mailto:${site.contactEmail}`}>{site.contactEmail}</a>. Please include:
                 </p>
                 <ol>
                   <li>
@@ -671,6 +802,10 @@ export default function DocsPage() {
                     <strong>Look through the screenshots first</strong>: they show whatever your page showed.
                   </li>
                   <li>
+                    <strong>If you used AI</strong>: the provider and model, and whether the reasons and suggested flows
+                    were useful or noise.
+                  </li>
+                  <li>
                     <strong>What was wrong</strong>: a false positive (which finding, and why), a missed bug (and how
                     to see it by hand), a crash (the command, the error text and the exit code), or something confusing.
                   </li>
@@ -682,8 +817,8 @@ export default function DocsPage() {
                   Send feedback on GitHub
                   <ArrowIcon />
                 </ButtonLink>
-                <ButtonLink href={accessMail} variant="secondary">
-                  Ask for access
+                <ButtonLink href={site.github} variant="secondary">
+                  View the repository
                 </ButtonLink>
               </div>
             </DocSection>

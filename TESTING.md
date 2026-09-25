@@ -1,6 +1,6 @@
-# Testing Run Hound V1 (0.3.0)
+# Trying Run Hound V1 (0.3.0)
 
-Thanks for trying Run Hound before anyone else does. Run Hound is AI-assisted UI testing for AI-built apps: AI plans and explains, real checks decide. This preview ships the real checks, and since 0.3.0 you can add your own model to review the plan, suggest extra flows and explain findings (optional, off by default). This guide covers what V1 does, how to run it on Kennel (the demo app) and then on your own app, how to read the report, and what to send back.
+Thanks for trying Run Hound. The repository is public and open source: anyone can clone it, try it and file issues. Run Hound is AI-assisted UI testing for AI-built apps: AI plans and explains, real checks decide. This preview ships the real checks, and since 0.3.0 you can add your own model to review the plan, suggest extra flows and explain findings (optional, off by default). This guide covers what V1 does, how to run it on Kennel (the demo app) and then on your own app, how to read the report, and what to send back.
 
 **Contents:** [Who this is for](#who-this-is-for) · [What V1 does](#what-v1-does-and-doesnt-do) · [Requirements](#requirements) · [Install](#install) · [Try it on Kennel first](#try-it-on-kennel-first-10-minutes) · [Test your own app](#test-your-own-app) · [Trying the AI features](#trying-the-ai-features) · [Reading the report](#reading-the-report) · [Known limitations](#known-limitations) · [Sending feedback](#sending-feedback)
 
@@ -92,8 +92,6 @@ When the same problem affects several elements (no visible focus on 6 controls),
 **Use the local install if you can.** It tests your app exactly as your browser sees it, with no networking set-up.
 
 ## Install
-
-If `git clone` asks for a username or says the repository isn't found, your GitHub account hasn't been given access yet: accept the invitation GitHub emailed you, or ask the person who invited you.
 
 ### Local install
 
@@ -294,7 +292,7 @@ To judge a finding, look at its evidence first, then try it by hand in your brow
 - **Limits per page**: up to 5 forms and 20 buttons outside them are tested; links are counted, not followed. Buttons that sign you out, delete, pay or cancel something are only clicked with destructive scenarios allowed.
 - **Dev servers**: header, cookie and CORS findings are advisory and source maps are skipped on a dev server (Vite, Next.js, webpack, Nuxt, Astro). For those checks, run Run Hound against a production build.
 - **Login forms** need a real account for anything past the first submit; expect those scenarios to be skipped or limited.
-- **Unusual apps** may still produce false findings. We've tested classic HTML forms that post and redirect, fetch-based single-page apps, login forms and forms whose API is on another origin, but not your stack. That's what this test round is for.
+- **Unusual apps** may still produce false findings. We've tested classic HTML forms that post and redirect, fetch-based single-page apps, login forms and forms whose API is on another origin, but not your stack. That's what your feedback is for.
 - **Development overlays** (Next.js dev tools, Vite's error overlay) are part of the page in development; if a finding points at one, tell us.
 - **Test records aren't deleted** (see above).
 - **Docker**: the image is large (about 2.7 GB); `localhost` in the container isn't your machine except with `--network host` on Linux; no visible browser window.
@@ -303,7 +301,7 @@ To judge a finding, look at its evidence first, then try it by hand in your brow
 
 ## Sending feedback
 
-Open an issue with the **tester feedback** form: <https://github.com/rahul-bharati/run-hound/issues/new/choose>. If you'd rather not use GitHub, email the same details to the person who invited you.
+Open an issue with the **Feedback** form: <https://github.com/rahul-bharati/run-hound/issues/new/choose>. If you'd rather not use GitHub, email the same details to contact@rahulbharati.dev.
 
 Please include:
 

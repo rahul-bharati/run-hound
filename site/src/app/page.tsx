@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { ButtonLink } from "@/components/button-link";
 import { Container, NewTag, Section } from "@/components/layout";
 import { links, newChecks, totalChecks } from "@/components/home/data";
-import { AiComingSoon } from "@/components/home/ai";
+import { AiSection } from "@/components/home/ai";
 import { Evidence } from "@/components/home/evidence";
 import { Groups } from "@/components/home/groups";
 import { Hero } from "@/components/home/hero";
@@ -17,7 +17,7 @@ import { Container as Box, FileSearch, MousePointerClick, ShieldCheck } from "lu
 
 export const metadata: Metadata = {
   title: { absolute: `${site.name}: Find the bugs your AI forgot to test` },
-  description: `AI-assisted UI testing for AI-built apps, open source, now in the V1 tester preview (AI planning coming soon). Point Run Hound at a page on your local app: it finds every form and control, plans up to ${totalChecks} checks across accessibility, features and security, runs them in a real browser after you approve, and reports each finding with annotated evidence and a Playwright test.`,
+  description: `AI-assisted UI testing for AI-built apps, open source on GitHub. Point Run Hound at a page on your local app: it finds every form and control, plans up to ${totalChecks} checks across accessibility, features and security (optionally reviewed by your own AI model), runs them in a real browser after you approve, and reports each finding with annotated evidence and a Playwright test.`,
 };
 
 const whatsNew = [
@@ -46,7 +46,7 @@ const whatsNew = [
 const principles = [
   {
     title: "Runs on your machine",
-    text: "It tests one page of an app running locally or on a private address, and reports stay on your machine. Nothing is sent to any AI provider.",
+    text: "It tests one page of an app running locally or on a private address, and reports stay on your machine. AI is off by default; turn it on and only redacted page structure goes to the model you choose.",
   },
   {
     title: "Asks before it tests",
@@ -54,7 +54,7 @@ const principles = [
   },
   {
     title: "No evidence, no finding",
-    text: "AI plans and explains; real checks decide. Pass or fail comes from Playwright assertions, axe-core and captured traffic in a real browser, never from a model's guess. AI planning is coming soon.",
+    text: "AI plans and explains; real checks decide. Pass or fail comes from Playwright assertions, axe-core and captured traffic in a real browser, never from a model's guess.",
   },
 ];
 
@@ -101,7 +101,7 @@ export default function Home() {
             From one form to <span className="text-accent">the whole page.</span>
           </>
         }
-        intro={`V0 tested the main form on a page. ${site.release} tests the page: every form, every control, and ${newChecks} new checks that look at the page as a whole. Still a tester preview, still local only.`}
+        intro={`V0 tested the main form on a page. ${site.release} tests the page: every form, every control, and ${newChecks} new checks that look at the page as a whole. Since 0.3.0, your own AI model can review the plan too. Still local only.`}
         className="border-t border-line-soft"
       >
         <ul className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -140,7 +140,7 @@ export default function Home() {
       <Section
         title={`${totalChecks} checks in three groups`}
         eyebrow="WHAT IT CHECKS"
-        intro={`What ${site.release} plans for a typical page, in this order: the form checks for each form, plus ${newChecks} page-wide checks marked new. Checks that have nothing to test on your page are skipped and listed as such in the report.`}
+        intro={`What ${site.release} plans for a typical page, in this order: the form checks for each form, plus ${newChecks} page-wide checks marked new. Checks that have nothing to test on your page are skipped and listed as such in the report. With AI on, suggested flows you tick run as one more, optional check.`}
         className="border-y border-line-soft bg-band"
       >
         <Groups />
@@ -164,16 +164,16 @@ export default function Home() {
 
       <Section
         id="ai"
-        eyebrow="COMING SOON · AI"
+        eyebrow={`AI · OPTIONAL · SINCE ${site.version}`}
         title={
           <>
             AI that plans and explains. <span className="text-accent">Real checks still decide.</span>
           </>
         }
-        intro="Run Hound is built for AI-assisted testing. These are the parts a model will take on next, all opt-in. They aren't in the preview yet."
+        intro="Bring your own model, local or cloud, and it takes on three jobs: reviewing the plan, suggesting extra flows and explaining findings. Off by default, and never the judge of pass or fail."
         className="border-t border-line-soft bg-band"
       >
-        <AiComingSoon />
+        <AiSection />
       </Section>
 
       <Section
@@ -211,8 +211,8 @@ export default function Home() {
             Your AI said it&apos;s done. <span className="block text-accent">Let&apos;s check.</span>
           </h2>
           <p className="max-w-xl text-pretty text-lg leading-relaxed text-muted">
-            {site.release} is a tester preview: one page, on your machine, with the test apps a single command away.
-            The tester guide walks you through it.
+            {site.release} is an open-source preview: one page, on your machine, with the test apps a single command
+            away. Clone the repository and the guide walks you through it.
           </p>
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
             <ButtonLink href={links.tryLocally}>
@@ -225,12 +225,12 @@ export default function Home() {
             </ButtonLink>
           </div>
           <p className="text-sm text-dim">
-            Invite-only preview:{" "}
+            Open source on GitHub:{" "}
             <a
-              href={links.requestAccess}
+              href={links.issues}
               className="text-muted underline decoration-line-strong underline-offset-4 hover:text-accent hover:decoration-accent"
             >
-              ask for access
+              file an issue
             </a>
             {" · "}
             <a

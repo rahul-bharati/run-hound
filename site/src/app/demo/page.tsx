@@ -206,11 +206,15 @@ export default function DemoPage() {
               </ButtonLink>
             </div>
             <p className="text-sm text-dim">
-              Invite-only preview:{" "}
-              <a href={site.accessMail} className="text-muted underline underline-offset-4 hover:text-accent">
-                ask for access
+              Open source: clone it from{" "}
+              <a href={site.github} className="text-muted underline underline-offset-4 hover:text-accent">
+                GitHub
               </a>
-              .
+              . Want to see what AI adds? Turn it on in Settings → AI (
+              <Link href="/docs#ai" className="text-muted underline underline-offset-4 hover:text-accent">
+                AI setup
+              </Link>
+              ).
             </p>
           </div>
         </div>

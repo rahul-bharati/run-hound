@@ -10,7 +10,7 @@ import { site } from "@/lib/site";
 export const metadata: Metadata = {
   title: "How it works",
   description:
-    "Run Hound finds every form and interactive control on your local page, plans form checks and page-wide checks in three groups, waits for your approval, runs them in a real browser with evidence at every step, and reports each defect in plain language.",
+    "Run Hound finds every form and interactive control on your local page, plans form checks and page-wide checks in three groups (optionally reviewed by your own AI model), waits for your approval, runs them in a real browser with evidence at every step, and reports each defect in plain language.",
 };
 
 // The step's screenshot column: 7/12 of the 1136 px container from xl, 7/12 of the viewport on lg, full width below.
@@ -41,8 +41,9 @@ const steps: { number: string; name: string; title: string; body: ReactNode; sho
         From what it found, it plans form checks for each form, plus page-wide checks such as security headers, cookie
         flags, CORS, public source maps and dead controls anywhere on the page, under three groups: Accessibility,
         Features and Security. Golden paths are what a real user does; danger paths are what breaks things, like
-        double clicks, server errors and keyboard-only use. In the preview the plan comes from what it found on the
-        page. AI planning, where a model proposes scenarios from your app, is coming soon.
+        double clicks, server errors and keyboard-only use. The plan comes from what it found on the page. If you turn
+        on AI, your own model reviews it, recommending and ranking each scenario with a reason, and suggests up to 5
+        extra flows built only from the fields and buttons it found; they stay unticked until you choose them.
       </>
     ),
     shot: <Screenshot screen={stepScreens.plan} sizes={shotSizes} />,
@@ -81,7 +82,7 @@ const steps: { number: string; name: string; title: string; body: ReactNode; sho
       <>
         Each finding comes with its group, severity, a plain-language explanation, evidence (annotated screenshots,
         GIFs, request and response cards) and an exported Playwright test. It also tells you what to ask your AI to
-        fix.
+        fix. With AI on, each finding also gets an AI explanation beside the built-in one, labelled advisory.
       </>
     ),
     shot: <Screenshot screen={stepScreens.report} sizes={shotSizes} />,
@@ -91,7 +92,7 @@ const steps: { number: string; name: string; title: string; body: ReactNode; sho
 const principles = [
   {
     title: "AI plans and explains. Real checks decide.",
-    body: "Pass or fail comes from Playwright assertions, axe-core and captured traffic in a real browser, never from a model guessing. AI planning and AI explanations are coming soon; when they arrive, a model will propose and explain, and a real check with evidence will still decide every result. Findings that rely on judgement, or on production values a dev server doesn't send, are marked advisory.",
+    body: "Pass or fail comes from Playwright assertions, axe-core and captured traffic in a real browser, never from a model guessing. With AI on (it is off by default), your own model reviews the plan, suggests flows and explains findings, but a real check with evidence still decides every result, and findings from AI-suggested flows are advisory. Findings that rely on judgement, or on production values a dev server doesn't send, are marked advisory.",
   },
   {
     title: "No evidence, no finding.",
@@ -103,7 +104,7 @@ const principles = [
   },
   {
     title: "Only owned targets, safe by default.",
-    body: "The preview tests localhost and private addresses only; public sites are refused. The browser is pinned to the approved address, destructive scenarios are opt-in, and reports redact secret-looking text.",
+    body: "The preview tests localhost and private addresses only; public sites are refused. The browser is pinned to the approved address, destructive scenarios are opt-in, and reports redact secret-looking text. With AI on, only redacted page structure is sent to your model, and a remote endpoint needs your consent first.",
   },
 ];
 
@@ -146,8 +147,8 @@ export default function HowItWorksPage() {
         lede="Run Hound finds every form and control on your page, drafts a test plan and waits for your approval. Then it runs the plan in a real browser and reports what broke, with proof."
       >
         <p className="max-w-3xl font-mono text-xs leading-relaxed tracking-widest text-dim">
-          {site.release} TESTER PREVIEW {site.version} · SCREENSHOTS FROM A REAL RUN ON KENNEL, OUR DELIBERATELY BROKEN
-          DEMO APP
+          {site.release} PREVIEW {site.version} · SCREENSHOTS FROM A REAL RUN ON KENNEL, OUR DELIBERATELY BROKEN DEMO
+          APP, WITH AI OFF
         </p>
       </PageHeader>
 

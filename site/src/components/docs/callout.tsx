@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-/** Highlighted note box, e.g. the invite-only notice on the docs. */
+/** Highlighted note box, e.g. the open-source notice on the docs. */
 export function Callout({
   label,
   title,

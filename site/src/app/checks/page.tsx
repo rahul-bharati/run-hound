@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { EyeOff, Info } from "lucide-react";
+import { EyeOff, Info, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { ArrowIcon, ButtonLink } from "@/components/button-link";
 import { Icon, groupIcons } from "@/components/icon";
 import { AdvisoryBadge, CheckCard, VersionBadge, isShipped } from "@/components/checks/check-card";
-import { categories, notVisible, previewGroups, versionMeaning, type Version } from "@/components/checks/data";
+import { aiFlowCheck, categories, notVisible, previewGroups, versionMeaning, type Version } from "@/components/checks/data";
 import { Container, Eyebrow, NewTag, PageHeader, Section } from "@/components/layout";
 import { site } from "@/lib/site";
 import { SeverityLabel } from "@/components/finding";
@@ -14,7 +14,7 @@ const newTotal = previewGroups.reduce((sum, g) => sum + g.checks.filter((c) => c
 
 export const metadata: Metadata = {
   title: "Checks",
-  description: `The ${previewTotal} checks in the Run Hound V1 tester preview (${site.version}), grouped as Accessibility, Features and Security, including ${newTotal} page-wide checks new in V1, and the full catalog of gaps it is planned to hunt for, with typical severity and roadmap version.`,
+  description: `The ${previewTotal} built-in checks in the Run Hound V1 preview (${site.version}), grouped as Accessibility, Features and Security, including ${newTotal} page-wide checks new in V1, plus the optional AI-suggested flows check, and the full catalog of gaps it is planned to hunt for, with typical severity and roadmap version.`,
 };
 
 const versions = Object.keys(versionMeaning) as Version[];
@@ -64,17 +64,17 @@ export default function ChecksPage() {
 
       <Section
         id="preview"
-        eyebrow={`${site.release} TESTER PREVIEW · ${site.version}`}
+        eyebrow={`${site.release} PREVIEW · ${site.version}`}
         className="border-t border-line-soft bg-band"
         title={
           <>
             In {site.release} today:{" "}
             <span className="text-accent">
-              {previewTotal} checks, {previewGroups.length} groups.
+              {previewTotal} built-in checks, {previewGroups.length} groups.
             </span>
           </>
         }
-        intro={`${site.release} tests one page of your local app. It finds every form and interactive control on the page, plans the form checks for each form plus ${newTotal} page-wide checks new in ${site.release}, and the plan, the run and the report all follow the same three groups. Every pass and fail comes from a real check in a real browser, with evidence.`}
+        intro={`${site.release} tests one page of your local app. It finds every form and interactive control on the page, plans the form checks for each form plus ${newTotal} page-wide checks new in ${site.release}, and the plan, the run and the report all follow the same three groups. With AI on, one optional check joins them: AI-suggested flows. Every pass and fail comes from a real check in a real browser, with evidence.`}
       >
         <div className="grid gap-5 lg:grid-cols-3">
           {previewGroups.map((g) => (
@@ -114,6 +114,26 @@ export default function ChecksPage() {
             </section>
           ))}
         </div>
+
+        <section
+          aria-labelledby="preview-ai-flow"
+          className="flex flex-col gap-3 rounded-2xl border border-dashed border-line-strong bg-surface p-6 sm:p-7"
+        >
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs tracking-widest text-dim">
+            <span className="text-accent">ONLY WHEN AI IS ON</span>
+            <span aria-hidden="true">·</span>
+            <span>{aiFlowCheck.group.toUpperCase()} · NEW IN {site.version}</span>
+          </p>
+          <h3 id="preview-ai-flow" className="flex items-center gap-3 font-display text-2xl font-bold tracking-tight">
+            <Icon icon={Sparkles} size={24} className="text-accent" />
+            {aiFlowCheck.name}
+          </h3>
+          <p className="max-w-3xl text-[15px] leading-relaxed text-muted">{aiFlowCheck.line}</p>
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-dim">
+            <span>{aiFlowCheck.id}</span>
+            <span className="text-muted">always advisory · not counted in the {previewTotal}</span>
+          </p>
+        </section>
 
         <div className="flex max-w-3xl gap-4 rounded-2xl border border-line bg-surface p-5 sm:p-6">
           <Icon icon={Info} size={20} className="mt-0.5 text-accent" />
@@ -226,7 +246,7 @@ export default function ChecksPage() {
         id="advisory"
         className="border-t border-line-soft"
         title="Advisory findings are labelled"
-        intro={`Some findings rely on judgement rather than a pass-or-fail check, such as a missing autocomplete attribute. In ${site.release}, header, cookie and CORS findings are also advisory when the target looks like a dev server. Planned checks like alt-text quality, generic link and button labels, and placeholder or demo data will be advisory too. Reports mark all of them, and advisory findings never fail a run.`}
+        intro={`Some findings rely on judgement rather than a pass-or-fail check, such as a missing autocomplete attribute. In ${site.release}, header, cookie and CORS findings are also advisory when the target looks like a dev server, and so is every finding from an AI-suggested flow and every AI explanation. Planned checks like alt-text quality, generic link and button labels, and placeholder or demo data will be advisory too. Reports mark all of them, and advisory findings never fail a run.`}
       >
         <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
           <AdvisoryBadge />
