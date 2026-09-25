@@ -105,7 +105,7 @@ Suggest up to 5 flows. Each flow has:
 - title: short, e.g. "Submit with a date before the minimum".
 - rationale: one sentence on why this matters on this page.
 - form: the "index" of one form in the payload.
-- steps: 1 to 8 steps. The last step must be an expect.
+- steps: 1 to 8 steps. The last step must be an expect, e.g. {"action":"expect","field":null,"value":null,"control":null,"key":null,"expect":"request-ok","text":null}.
 
 Every step has all of these properties: action, field, value, control, key, expect, text. Set the ones the action does not use to null.
 - fill: field = a field key of that form; value = the text to type (at most 200 characters).
@@ -208,6 +208,18 @@ export function flowIsDestructive(form: DiscoveredForm, flow: FlowStep[]): boole
   return flow.some((s) => s.action === "press" && s.key === "Enter") && destructiveEnterTarget(form) !== null;
 }
 
+/**
+ * Fixes the two slips small models make most, deterministically, before validation: a flow that doesn't end with a
+ * check gets {expect: "no-errors"} (when there is room for one more step), and a typed value over MAX_TEXT characters
+ * is cut to MAX_TEXT. Everything else is left for flowProblem to judge.
+ */
+export function repairFlow(steps: FlowStep[]): FlowStep[] {
+  const out = steps.map((s) => (s.action === "fill" && typeof s.value === "string" && s.value.length > MAX_TEXT ? { ...s, value: s.value.slice(0, MAX_TEXT) } : s));
+  const last = out[out.length - 1];
+  if (last && last.action !== "expect" && out.length < MAX_FLOW_STEPS) out.push({ action: "expect", expect: "no-errors", text: null });
+  return out;
+}
+
 /** "5 steps on the Book a sitter form; it passes when a save request reaches the app and succeeds." */
 export function flowDescription(label: string, flow: FlowStep[]): string {
   const checks = flow.flatMap((s) => (s.action === "expect" ? [expectationWords(s.expect, s.text)] : []));
@@ -216,7 +228,7 @@ export function flowDescription(label: string, flow: FlowStep[]): string {
 }
 
 /**
- * Turns valid suggestions into scenarios: checkId "ai-flow", id "ai-flow:<n>" (1-based, in answer order;
+ * Turns valid suggestions into scenarios (after repairFlow): checkId "ai-flow", id "ai-flow:<n>" (1-based, in answer order;
  * "@form-<k>" suffix is not used), title (trimmed, ≤ 80 chars), description = flowDescription (what the flow does
  * and when it passes; the rationale is shown separately from ai.rationale, so it is not repeated), kind "golden",
  * priority "medium", destructive = flowIsDestructive (a click on a destructive control, or Enter in a form whose submit
@@ -233,13 +245,14 @@ export function suggestionsToScenarios(plan: Plan, answer: SuggestAnswer): { sce
     if (scenarios.length >= MAX_SUGGESTIONS) break;
     const n = scenarios.length + 1;
     const title = oneLine(suggestion.title, MAX_TITLE) || `Suggested flow ${n}`;
-    const problem = flowProblem(plan, suggestion.form, suggestion.steps);
+    const steps = Array.isArray(suggestion.steps) ? repairFlow(suggestion.steps) : suggestion.steps;
+    const problem = flowProblem(plan, suggestion.form, steps);
     if (problem) {
       rejected.push(`"${title}": ${problem}`);
       continue;
     }
     const form = forms[suggestion.form]!;
-    const flow = structuredClone(suggestion.steps);
+    const flow = structuredClone(steps);
     const rationale = oneLine(suggestion.rationale, MAX_TEXT);
     const scopeLabel = formLabel(form, suggestion.form);
     scenarios.push({

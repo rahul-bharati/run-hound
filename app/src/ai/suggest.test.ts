@@ -187,6 +187,29 @@ describe("flowProblem", () => {
 });
 
 describe("suggestionsToScenarios", () => {
+  it("adds a 'no errors' check to a flow the model left without a final check (small models often do)", () => {
+    const flow: FlowStep[] = [{ action: "fill", field: "name", value: "Ada" }, { action: "press", key: "Enter" }];
+    const { scenarios, rejected } = suggestionsToScenarios(makePlan(), { suggestions: [suggestion("Book", 0, flow)] });
+    expect(rejected).toEqual([]);
+    expect(scenarios[0]!.flow).toEqual([...flow, { action: "expect", expect: "no-errors", text: null }]);
+    expect(scenarios[0]!.description).toContain("no page errors");
+  });
+
+  it("still rejects a flow with no check when it has no room left for one", () => {
+    const flow: FlowStep[] = Array.from({ length: 8 }, () => ({ action: "fill", field: "name", value: "Ada" }) as FlowStep);
+    const { scenarios, rejected } = suggestionsToScenarios(makePlan(), { suggestions: [suggestion("Long", 0, flow)] });
+    expect(scenarios).toEqual([]);
+    expect(rejected).toEqual([expect.stringContaining("Long")]);
+  });
+
+  it("shortens a typed value over 200 characters instead of dropping the flow", () => {
+    const flow: FlowStep[] = [{ action: "fill", field: "name", value: "x".repeat(500) }, expectOk];
+    const { scenarios, rejected } = suggestionsToScenarios(makePlan(), { suggestions: [suggestion("Long note", 0, flow)] });
+    expect(rejected).toEqual([]);
+    const step = scenarios[0]!.flow![0]!;
+    expect(step.action === "fill" && step.value.length).toBe(200);
+  });
+
   it("describes a flow by what it checks, never by repeating the rationale", () => {
     const flow: FlowStep[] = [
       { action: "fill", field: "name", value: "Ada" },
