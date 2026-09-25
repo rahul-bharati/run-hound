@@ -634,3 +634,72 @@ describe("saveAiConfig file permissions", () => {
     expect(await readdir(dir)).toEqual(["ai.json"]);
   });
 });
+
+describe("a saved key is bound to the origin it was saved for (Rule 7)", () => {
+  const file = () => join(dir, "ai.json");
+  const saved = async () => JSON.parse(await readFile(file(), "utf8")) as Record<string, unknown>;
+  const remoteA = { enabled: true, provider: "openai-compatible" as const, baseUrl: "https://api.a.example/v1", model: "m", allowRemote: true };
+
+  it("records apiKeyOrigin, the effective endpoint's origin, when a key is saved", async () => {
+    await saveAiConfig({ ...remoteA, apiKey: "sk-saved-key" }, { env, home: tmp });
+    expect(await saved()).toMatchObject({ apiKey: "sk-saved-key", apiKeyOrigin: "https://api.a.example" });
+    const r = await resolveAiConfig({ env, home: tmp });
+    expect(r.config.apiKey).toBe("sk-saved-key");
+    expect(aiStatus(r, env, tmp).hasKey).toBe(true);
+  });
+
+  it("does not apply the saved key when a flag or env moves the endpoint to another origin", async () => {
+    await saveAiConfig({ ...remoteA, apiKey: "sk-saved-key" }, { env, home: tmp });
+    for (const r of [
+      await resolveAiConfig({ env, flags: { baseUrl: "https://other.example/v1", allowRemote: true }, home: tmp }),
+      await resolveAiConfig({ env: { ...env, RUNHOUND_AI_BASE_URL: "https://other.example/v1", RUNHOUND_AI_ALLOW_REMOTE: "1" }, home: tmp }),
+    ]) {
+      expect(r.config.apiKey).toBeNull();
+      const status = aiStatus(r, env, tmp);
+      expect(status.hasKey).toBe(false);
+      expect(status.problem).toBe("The saved API key is for https://api.a.example; enter a key for https://other.example");
+    }
+  });
+
+  it("leaves env keys alone: RUNHOUND_AI_API_KEY follows the env endpoint", async () => {
+    await saveAiConfig({ ...remoteA, apiKey: "sk-saved-key" }, { env, home: tmp });
+    const r = await resolveAiConfig({ env: { ...env, RUNHOUND_AI_BASE_URL: "https://other.example/v1", RUNHOUND_AI_API_KEY: "sk-env-key", RUNHOUND_AI_ALLOW_REMOTE: "1" }, home: tmp });
+    expect(r.config.apiKey).toBe("sk-env-key");
+    expect(aiStatus(r, env, tmp).problem).toBeNull();
+  });
+
+  it("binds a legacy key (no apiKeyOrigin) to the file's own endpoint", async () => {
+    await writeSaved({ ...remoteA, apiKey: "sk-legacy-key" });
+    expect((await resolveAiConfig({ env, home: tmp })).config.apiKey).toBe("sk-legacy-key");
+    expect((await resolveAiConfig({ env, flags: { baseUrl: "https://other.example/v1" }, home: tmp })).config.apiKey).toBeNull();
+    // A legacy file with a key but no base URL is bound to its provider's default endpoint.
+    await writeSaved({ provider: "openai-compatible", apiKey: "sk-legacy-key" });
+    expect((await resolveAiConfig({ env, home: tmp })).config.apiKey).toBe("sk-legacy-key");
+    expect((await resolveAiConfig({ env: { ...env, RUNHOUND_AI_BASE_URL: "https://other.example/v1" }, home: tmp })).config.apiKey).toBeNull();
+  });
+
+  it("bedrock: a saved key is bound to its region's endpoint; AWS_BEARER_TOKEN_BEDROCK still applies elsewhere", async () => {
+    await saveAiConfig({ enabled: true, provider: "bedrock", region: "eu-central-1", model: "m", apiKey: "saved-bedrock-key" }, { env, home: tmp });
+    expect(await saved()).toMatchObject({ apiKeyOrigin: "https://bedrock-runtime.eu-central-1.amazonaws.com" });
+    expect((await resolveAiConfig({ env, home: tmp })).config.apiKey).toBe("saved-bedrock-key");
+    const moved = await resolveAiConfig({ env: { ...env, RUNHOUND_AI_REGION: "us-east-1" }, home: tmp });
+    expect(moved.config.apiKey).toBeNull();
+    const withToken = await resolveAiConfig({ env: { ...env, RUNHOUND_AI_REGION: "us-east-1", AWS_BEARER_TOKEN_BEDROCK: "aws-key" }, home: tmp });
+    expect(withToken.config.apiKey).toBe("aws-key");
+  });
+
+  it("bedrock: a region change saved from the Settings page keeps the key and moves its binding", async () => {
+    await saveAiConfig({ enabled: true, provider: "bedrock", region: "eu-central-1", model: "m", apiKey: "saved-bedrock-key" }, { env, home: tmp });
+    const r = await saveAiConfig({ region: "us-east-1" }, { env, home: tmp });
+    expect(r.config.apiKey).toBe("saved-bedrock-key");
+    expect(await saved()).toMatchObject({ apiKeyOrigin: "https://bedrock-runtime.us-east-1.amazonaws.com" });
+  });
+
+  it("an unrelated save while the endpoint is moved by env does not rebind the saved key", async () => {
+    await saveAiConfig({ ...remoteA, apiKey: "sk-saved-key" }, { env, home: tmp });
+    const moved = { ...env, RUNHOUND_AI_BASE_URL: "https://other.example/v1" };
+    await saveAiConfig({ model: "m2" }, { env: moved, home: tmp });
+    expect(await saved()).toMatchObject({ apiKey: "sk-saved-key", apiKeyOrigin: "https://api.a.example" });
+    expect((await resolveAiConfig({ env: moved, home: tmp })).config.apiKey).toBeNull();
+  });
+});

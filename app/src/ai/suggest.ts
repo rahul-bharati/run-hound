@@ -1,5 +1,6 @@
-import { CHECK_GROUPS, type FlowExpectation, type FlowKey, type FlowStep, type Plan, type Scenario } from "../core/types.js";
+import { CHECK_GROUPS, type DiscoveredForm, type FlowExpectation, type FlowKey, type FlowStep, type Plan, type Scenario } from "../core/types.js";
 import { isDestructiveControl } from "../checks/dead-control.js";
+import { destructiveEnterTarget } from "../checks/ai-flow.js";
 import { formLabel } from "../engine/plan.js";
 import type { JsonSchema, LlmClient } from "./types.js";
 import { describePage, planForms, type PagePayload } from "./payload.js";
@@ -197,9 +198,20 @@ export function flowProblem(plan: Plan, form: number, steps: FlowStep[]): string
 }
 
 /**
+ * True when a valid flow can activate a destructive control: a click on one (isDestructiveControl), or an Enter press,
+ * which submits the form from a field, when the form's submit control is destructive (or the form has no identifiable
+ * submit control and any of its controls is destructive; see destructiveEnterTarget in checks/ai-flow.ts).
+ */
+export function flowIsDestructive(form: DiscoveredForm, flow: FlowStep[]): boolean {
+  if (flow.some((s) => s.action === "click" && isDestructiveControl(form.controls[s.control]!))) return true;
+  return flow.some((s) => s.action === "press" && s.key === "Enter") && destructiveEnterTarget(form) !== null;
+}
+
+/**
  * Turns valid suggestions into scenarios: checkId "ai-flow", id "ai-flow:<n>" (1-based, in answer order;
  * "@form-<k>" suffix is not used), title (trimmed, ≤ 80 chars), description = rationale, kind "golden",
- * priority "medium", destructive = any click on a destructive control (isDestructiveControl), defaultSelected false,
+ * priority "medium", destructive = flowIsDestructive (a click on a destructive control, or Enter in a form whose submit
+ * control is destructive), defaultSelected false,
  * scope "form", formIndex, scopeLabel = formLabel (engine/plan.ts), flow = steps, ai = {rationale, recommended: true,
  * suggested: true}. The rationale is trimmed, whitespace collapsed and cut to 200 chars. Invalid suggestions are
  * dropped and described in `rejected` ("<title>": <problem>). At most MAX_SUGGESTIONS kept; later ones are ignored.
@@ -227,7 +239,7 @@ export function suggestionsToScenarios(plan: Plan, answer: SuggestAnswer): { sce
       description: rationale,
       kind: "golden",
       priority: "medium",
-      destructive: flow.some((s) => s.action === "click" && isDestructiveControl(form.controls[s.control]!)),
+      destructive: flowIsDestructive(form, flow),
       defaultSelected: false,
       scope: "form",
       formIndex: suggestion.form,

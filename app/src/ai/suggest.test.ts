@@ -15,7 +15,7 @@ import {
   type SuggestAnswer,
 } from "./suggest.js";
 import { AiError } from "./types.js";
-import { FakeClient, bookingForm, makePlan, newsletterForm, scenario, schemaProblems } from "./test-fixtures.js";
+import { FakeClient, bookingForm, control, discoveredPage, field, makePlan, newsletterForm, scenario, schemaProblems } from "./test-fixtures.js";
 
 const expectOk: FlowStep = { action: "expect", expect: "request-ok", text: null };
 
@@ -243,6 +243,40 @@ describe("suggestionsToScenarios", () => {
     });
     expect(scenarios[0]!.destructive).toBe(true);
     expect(scenarios[0]!.defaultSelected).toBe(false);
+  });
+
+  it("marks a flow destructive when Enter in a field submits a form whose submit control is destructive", () => {
+    // "Delete account" form: a confirm-email field and a destructive submit button. Enter submits it.
+    const deleteForm = newsletterForm({
+      name: "Delete your account",
+      fields: [field({ key: "confirm", accessibleName: "Confirm your email", label: "Confirm your email", type: "email" })],
+      controls: [control("Delete account", { isSubmit: true })],
+    });
+    const plan = makePlan({ page: discoveredPage({ forms: [bookingForm(), deleteForm] }) });
+    const enterFlow: FlowStep[] = [{ action: "fill", field: "confirm", value: "a@b.co" }, { action: "press", key: "Enter" }, expectOk];
+    const { scenarios } = suggestionsToScenarios(plan, { suggestions: [suggestion("Confirm by Enter", 1, enterFlow)] });
+    expect(scenarios[0]!.destructive).toBe(true);
+    expect(scenarios[0]!.defaultSelected).toBe(false);
+    // Escape never submits.
+    const escape = suggestionsToScenarios(plan, { suggestions: [suggestion("Escape", 1, [{ action: "fill", field: "confirm", value: "x" }, { action: "press", key: "Escape" }, expectOk])] });
+    expect(escape.scenarios[0]!.destructive).toBe(false);
+  });
+
+  it("marks an Enter flow destructive when the form has no identifiable submit control and any control is destructive", () => {
+    const noSubmit = newsletterForm({ controls: [control("Remove subscription")] });
+    const plan = makePlan({ page: discoveredPage({ forms: [bookingForm(), noSubmit] }) });
+    const { scenarios } = suggestionsToScenarios(plan, {
+      suggestions: [suggestion("Enter", 1, [{ action: "fill", field: "email", value: "a@b.co" }, { action: "press", key: "Enter" }, expectOk])],
+    });
+    expect(scenarios[0]!.destructive).toBe(true);
+  });
+
+  it("does not mark an Enter flow destructive when the submit control is safe (a destructive non-submit control nearby)", () => {
+    // bookingForm: "Delete account" is a plain button, "Book" is the submit control.
+    const { scenarios } = suggestionsToScenarios(makePlan(), {
+      suggestions: [suggestion("Enter", 0, [{ action: "fill", field: "name", value: "Ada" }, { action: "press", key: "Enter" }, expectOk])],
+    });
+    expect(scenarios[0]!.destructive).toBe(false);
   });
 
   it("trims titles and cuts them to 80 characters", () => {

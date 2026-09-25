@@ -147,6 +147,51 @@ describe("explainPrompt: what a remote model never sees", () => {
   });
 });
 
+describe("explainPrompt: AI-flow steps and quoted values", () => {
+  const flowFinding = () =>
+    makeFinding({
+      checkId: "ai-flow",
+      title: "AI-suggested flow failed: Save with a long name",
+      meaning: 'After 2 steps (Type "Zanzibar-Quokka-77" into Full name, click Save), the flow expected a save request reaches the app and succeeds, but the save answered 500.',
+      impact: 'Saves with "Zanzibar-Quokka-77" fail.',
+      fix: 'Ask your AI or developer: "Type Zanzibar-Quokka-77 into Full name and click Save."',
+      location: 'Full name field holding "Zanzibar-Quokka-77"',
+      evidence: [
+        {
+          kind: "frame",
+          label: "Page when the check failed",
+          facts: [
+            { label: "Step 1 (typed)", value: 'Type "Zanzibar-Quokka-77" into Full name' },
+            { label: "Step 2", value: "Click Save" },
+            { label: "Expected", value: "a save request reaches the app and succeeds" },
+            { label: "Observed", value: "the save request POST /api/save answered 500" },
+          ],
+        },
+      ],
+    });
+
+  it("never sends facts whose label starts with Step, local or remote", () => {
+    for (const remote of [true, false]) {
+      const { user } = explainPrompt(flowFinding(), { remote });
+      expect(user).not.toMatch(/- Step/);
+      expect(user).toContain("Observed: the save request POST /api/save answered 500");
+    }
+  });
+
+  it("strips double-quoted substrings from meaning, impact, fix and location for a remote model", () => {
+    const { user } = explainPrompt(flowFinding(), { remote: true });
+    expect(user).not.toContain("Zanzibar-Quokka-77");
+    expect(user).toContain("Full name");
+    expect(user).toContain("answered 500");
+  });
+
+  it("keeps quoted text for a local model, and keeps quotes longer than 200 characters remotely", () => {
+    expect(explainPrompt(flowFinding(), { remote: false }).user).toContain("Zanzibar-Quokka-77");
+    const long = `Ask your AI: "${"Make the Save button work again. ".repeat(8)}"`;
+    expect(explainPrompt(makeFinding({ fix: long }), { remote: true }).user).toContain("Make the Save button work again.");
+  });
+});
+
 describe("explainFindings", () => {
   it("explains each finding with one call, sets Finding.ai and Report.ai", async () => {
     const report = makeReport(findings(2));

@@ -49,6 +49,14 @@ export interface AiConfig {
    * createLlmClient refuses when it is set and differs from the endpoint's host.
    */
   allowRemoteHost?: string | null;
+  /**
+   * The origin (keyOriginFor) the key is bound to, when it came from the saved file: saved as `apiKeyOrigin` in ai.json
+   * (the effective endpoint's origin when the key was saved; a legacy file without it binds to its own endpoint). A
+   * saved key resolves to null when the effective endpoint has another origin. null or absent: a key from env
+   * (RUNHOUND_AI_API_KEY, AWS_BEARER_TOKEN_BEDROCK), which follows that invocation's endpoint. createLlmClient refuses
+   * when it is set and differs from the endpoint's origin.
+   */
+  apiKeyOrigin?: string | null;
   features: AiFeatures;
   /** Per request. Default 120 000 (small local models are slow). */
   timeoutMs: number;
@@ -84,7 +92,7 @@ export interface AiStatus {
 }
 
 /** A change from the Settings page or CLI. `apiKey`: undefined or "" = keep the saved key, null = remove it. */
-export type AiConfigPatch = Partial<Omit<AiConfig, "features" | "allowRemoteHost">> & { features?: Partial<AiFeatures> };
+export type AiConfigPatch = Partial<Omit<AiConfig, "features" | "allowRemoteHost" | "apiKeyOrigin">> & { features?: Partial<AiFeatures> };
 
 /** A JSON Schema in the portable subset: every property required, nullable not optional, additionalProperties false, no numeric or length limits. */
 export type JsonSchema = Record<string, unknown>;

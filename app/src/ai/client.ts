@@ -1,7 +1,7 @@
 import type { AiConfig, JsonRequest, LlmClient } from "./types.js";
 import { AiError } from "./types.js";
 import { converseJson } from "./bedrock.js";
-import { endpointHost, isRemote } from "./config.js";
+import { endpointHost, isRemote, keyOriginFor } from "./config.js";
 import { originOf } from "./http.js";
 import { ollamaChatJson } from "./ollama.js";
 import { chatJson, OUT_OF_SPACE, type ChatMessage } from "./openai-compatible.js";
@@ -17,7 +17,8 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 /**
  * Builds the client for a resolved config. Throws AiError "not-configured" when disabled or no model, and
  * "remote-not-allowed" (before any request) when isRemote(config) && !config.allowRemote, or when the consent names
- * another host (config.allowRemoteHost set and not endpointHost(config)).
+ * another host (config.allowRemoteHost set and not endpointHost(config)). Throws "not-configured" (before any request)
+ * when the key came from the saved file for another origin (config.apiKeyOrigin set and not keyOriginFor(config)).
  * generateJson: calls ollamaChatJson (ollama, native /api/chat), chatJson (openai-compatible) or converseJson
  * (bedrock); strips ``` fences; JSON.parse; request.validate. On a parse or validation error, one retry with the
  * model's answer as an assistant message and a user message "Your answer was not valid: <error>. Answer again with
@@ -31,6 +32,11 @@ export function createLlmClient(config: AiConfig, options: { env?: NodeJS.Proces
   const consentHost = config.allowRemoteHost ?? null;
   if (isRemote(config) && (!config.allowRemote || (consentHost !== null && consentHost !== endpointHost(config)))) {
     throw new AiError("remote-not-allowed", `Sending page structure to ${endpointHost(config)} needs your consent`);
+  }
+  // Defence in depth for Rule 7: resolveAiConfig already drops a saved key bound to another origin.
+  const keyOrigin = config.apiKeyOrigin ?? null;
+  if (config.apiKey && keyOrigin !== null && keyOrigin !== keyOriginFor(config)) {
+    throw new AiError("not-configured", `The saved API key is for ${keyOrigin}; enter a key for ${keyOriginFor(config)}`);
   }
   const env = options.env ?? process.env;
   const call = (messages: ChatMessage[], schema: { name: string; schema: Record<string, unknown> }, signal?: AbortSignal) =>

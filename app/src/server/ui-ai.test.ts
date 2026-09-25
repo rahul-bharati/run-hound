@@ -216,6 +216,60 @@ describe("Settings → AI card: the model dropdown", () => {
   });
 });
 
+describe("Settings → AI card: AWS profile for Bedrock", () => {
+  const bedrock = (extra: Partial<AiStatus> = {}) =>
+    status({ provider: "bedrock", baseUrl: "", model: "anthropic.claude-x-v1:0", region: "eu-west-1", remote: true, host: "bedrock-runtime.eu-west-1.amazonaws.com", allowRemote: true, ...extra });
+
+  it("shows an AWS profile field only for Bedrock, with the ~/.aws hint, prefilled and saved (empty → null)", async () => {
+    const o = await open("#/settings", { ai: bedrock({ awsProfile: "work-sso" }) });
+    const { page } = o;
+    const profile = page.getByLabel("AWS profile");
+    await profile.waitFor();
+    expect(await profile.inputValue()).toBe("work-sso");
+    expect(await profile.isDisabled()).toBe(false);
+    expect(await page.locator("#ai-card").innerText()).toContain(
+      "Uses ~/.aws on the machine running Run Hound: static keys, credential_process or SSO (run `aws sso login` first)",
+    );
+    await profile.fill("dev");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect.poll(() => o.calls.some((c) => c.method === "PUT")).toBe(true);
+    expect(o.calls.find((c) => c.method === "PUT")!.body).toMatchObject({ provider: "bedrock", awsProfile: "dev" });
+    await expect.poll(() => page.locator("#ai-saved").textContent()).toMatch(/^Saved at/);
+    await page.getByLabel("AWS profile").fill("");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect.poll(() => o.calls.filter((c) => c.method === "PUT").length).toBe(2);
+    expect(o.calls.filter((c) => c.method === "PUT")[1]!.body).toMatchObject({ awsProfile: null });
+    // Another provider hides the field and never sends it.
+    await page.getByLabel("Provider").selectOption({ index: 0 });
+    expect(await page.locator("#ai-aws-profile").isVisible()).toBe(false);
+    await page.close();
+  });
+
+  it("locks the field when the profile comes from the environment and never sends it", async () => {
+    const o = await open("#/settings", { ai: bedrock({ awsProfile: "env-profile", sources: { ...status().sources, awsProfile: "env" } }) });
+    const { page } = o;
+    const profile = page.getByLabel("AWS profile");
+    await profile.waitFor();
+    expect(await profile.isDisabled()).toBe(true);
+    expect(await profile.inputValue()).toBe("env-profile");
+    expect(await page.locator(".ai-aws-profile-field").innerText()).toContain("Set by environment");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect.poll(() => o.calls.some((c) => c.method === "PUT")).toBe(true);
+    expect(o.calls.find((c) => c.method === "PUT")!.body).not.toHaveProperty("awsProfile");
+    await page.close();
+  });
+
+  it("does not send awsProfile for a provider other than Bedrock", async () => {
+    const o = await open("#/settings", {});
+    await o.page.locator("#ai-enabled").waitFor();
+    expect(await o.page.locator("#ai-aws-profile").isVisible()).toBe(false);
+    await o.page.getByRole("button", { name: "Save" }).click();
+    await expect.poll(() => o.calls.some((c) => c.method === "PUT")).toBe(true);
+    expect(o.calls.find((c) => c.method === "PUT")!.body).not.toHaveProperty("awsProfile");
+    await o.page.close();
+  });
+});
+
 describe("Settings → AI card: key, locks, consent, save and test", () => {
   const remote = () =>
     status({

@@ -187,6 +187,19 @@ describe("PUT /api/ai", () => {
     expect(status.sources.model).toBe("env");
   });
 
+  it("saves and clears the Bedrock AWS profile, and refuses to change one set by RUNHOUND_AI_AWS_PROFILE", async () => {
+    let res = await send("PUT", "/api/ai", { provider: "bedrock", region: "us-east-1", awsProfile: "work-sso" });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as AiStatus).awsProfile).toBe("work-sso");
+    expect(((await (await get("/api/ai")).json()) as AiStatus).sources.awsProfile).toBe("file");
+    res = await send("PUT", "/api/ai", { awsProfile: null });
+    expect(((await res.json()) as AiStatus).sources.awsProfile).not.toBe("file");
+    process.env.RUNHOUND_AI_AWS_PROFILE = "env-profile";
+    res = await send("PUT", "/api/ai", { awsProfile: "other" });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain("RUNHOUND_AI_AWS_PROFILE");
+  });
+
   it("refuses an invalid patch", async () => {
     const res = await send("PUT", "/api/ai", { provider: "skynet" });
     expect(res.status).toBe(400);

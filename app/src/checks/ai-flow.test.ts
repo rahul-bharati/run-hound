@@ -9,6 +9,7 @@ import type { CheckResult, DiscoveredForm, FlowStep, Scenario } from "../core/ty
 import { createCheckContext } from "../engine/context.js";
 import { discoverPage } from "../engine/discover.js";
 import { check } from "./ai-flow.js";
+import { explainPrompt } from "../ai/explain.js";
 
 /**
  * ai-flow runs the steps of an AI-suggested scenario (Scenario.flow) against the discovered form and decides each
@@ -226,6 +227,32 @@ describe("ai-flow: request-ok", () => {
   });
 });
 
+describe("ai-flow: typed values stay out of the finding text (Rule 4)", () => {
+  it("labels typing steps 'Step N (typed)', keeps values out of meaning and fix, and a remote explain prompt carries none", async () => {
+    const s = await app({ status: 500 });
+    const { result } = await runFlow(`${s.url}/profile`, (f) => [
+      { action: "fill", field: "name", value: "Zanzibar Quokka" },
+      { action: "fill", field: "email", value: "quokka77@private-mail.example" },
+      { action: "click", control: controlIndex(f, /^\s*save\s*$/i) },
+      { action: "expect", expect: "request-ok", text: null },
+    ]);
+    expect(result.status).toBe("fail");
+    const f = result.findings[0]!;
+    const facts = f.evidence.flatMap((e) => e.facts ?? []);
+    // The full steps (with values) stay in the report's evidence, recognisably labelled.
+    expect(facts.find((x) => x.label === "Step 1 (typed)")?.value).toContain("Zanzibar Quokka");
+    expect(facts.find((x) => x.label === "Step 3")?.value).toMatch(/Save/);
+    for (const text of [f.meaning, f.fix, f.impact]) {
+      expect(text).not.toContain("Zanzibar");
+      expect(text).not.toContain("quokka77");
+    }
+    expect(f.meaning).toMatch(/Full name/);
+    const { user } = explainPrompt(f, { remote: true, runToken: "t3st" });
+    expect(user).not.toContain("Zanzibar");
+    expect(user).not.toContain("quokka77");
+  });
+});
+
 describe("ai-flow: other expectations", () => {
   it("text-visible passes when the text shows and fails when it does not", async () => {
     const s = await app();
@@ -378,6 +405,54 @@ describe("ai-flow: the keyboard can't reach a destructive control", () => {
       { action: "expect", expect: "field-kept", text: null },
     ]);
     expect(result.status, result.notes).toBe("pass");
+  });
+});
+
+/** A "Delete your account" form: typing the email to confirm and pressing Enter submits it, which deletes the account. */
+const DELETE_PAGE = `<!doctype html><html lang="en"><head><title>Account</title></head><body>
+<main>
+<form id="close" novalidate>
+  <h1>Delete your account</h1>
+  <label for="confirm">Type your email to confirm</label><input id="confirm" name="confirm" type="email">
+  <button type="submit" id="go">Delete account</button>
+  <p id="status" role="status"></p>
+</form>
+</main>
+<script>
+  document.getElementById("close").addEventListener("submit", function (e) {
+    e.preventDefault();
+    fetch("/api/delete", { method: "POST" }).then(function () { document.getElementById("status").textContent = "Account deleted"; });
+  });
+</script>
+</body></html>`;
+
+describe("ai-flow: Enter can't submit a destructive form", () => {
+  async function deleteApp() {
+    const s = await startFixtureServer({ pages: { "/account": DELETE_PAGE }, routes: { "POST /api/delete": (_req, res) => json(res, 200, { ok: true }) } });
+    servers.push(s);
+    return { ...s, deletes: () => s.requests.filter((r) => r.method === "POST" && r.url.startsWith("/api/delete")).length };
+  }
+  const enterFlow = (): FlowStep[] => [
+    { action: "fill", field: "confirm", value: "rex@example.com" },
+    { action: "press", key: "Enter" },
+    { action: "expect", expect: "text-absent", text: "Account deleted" },
+  ];
+
+  it("skips pressing Enter when the form's submit control is destructive, even if the plan did not mark the flow destructive", async () => {
+    const s = await deleteApp();
+    const { result } = await runFlow(`${s.url}/account`, enterFlow, { extra: { destructive: false } });
+    expect(result.status).toBe("skipped");
+    expect(result.notes).toMatch(/Enter/);
+    expect(result.notes).toMatch(/Delete account/);
+    expect(result.findings).toEqual([]);
+    expect(s.deletes()).toBe(0);
+  });
+
+  it("presses Enter there with allowDestructive", async () => {
+    const s = await deleteApp();
+    const { result } = await runFlow(`${s.url}/account`, enterFlow, { allowDestructive: true, extra: { destructive: true } });
+    expect(result.status).toBe("fail");
+    expect(s.deletes()).toBe(1);
   });
 });
 

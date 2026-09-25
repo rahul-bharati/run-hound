@@ -55,6 +55,11 @@ export interface ResolvedAiConfig {
   config: AiConfig;
   sources: AiStatus["sources"];
   file: string;
+  /**
+   * Set when the file holds a key bound to another origin than the effective endpoint's (a flag or env moved it): the
+   * key was not applied. `savedFor` is the key's origin, `endpoint` the current one (keyOriginFor).
+   */
+  staleKey?: { savedFor: string; endpoint: string };
 }
 
 type Field = keyof Required<AiStatus["sources"]>;
@@ -80,6 +85,7 @@ function fromFile(raw: unknown): Layer {
   if (typeof r.awsProfile === "string" && r.awsProfile !== "") out.awsProfile = r.awsProfile;
   if (typeof r.allowRemote === "boolean") out.allowRemote = r.allowRemote;
   if (typeof r.allowRemoteHost === "string" && r.allowRemoteHost !== "") out.allowRemoteHost = r.allowRemoteHost;
+  if (typeof r.apiKeyOrigin === "string" && r.apiKeyOrigin !== "") out.apiKeyOrigin = r.apiKeyOrigin;
   if (isTimeout(r.timeoutMs)) out.timeoutMs = r.timeoutMs;
   if (typeof r.features === "object" && r.features !== null) {
     const f = r.features as Record<string, unknown>;
@@ -178,11 +184,6 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
   }
 
   if (config.provider === "bedrock") {
-    if (config.apiKey === null && env.AWS_BEARER_TOKEN_BEDROCK) {
-      config.apiKey = env.AWS_BEARER_TOKEN_BEDROCK;
-      sources.apiKey = "env";
-      envNames.apiKey = "AWS_BEARER_TOKEN_BEDROCK";
-    }
     if (!config.awsProfile && env.AWS_PROFILE) {
       config.awsProfile = env.AWS_PROFILE;
       sources.awsProfile = "env";
@@ -201,6 +202,26 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
     }
   }
 
+  // A key saved from the Settings page is bound to the origin it was saved for (a legacy file without apiKeyOrigin:
+  // the file's own endpoint) and is not applied when a flag or env points this invocation elsewhere (Rule 7).
+  let staleKey: ResolvedAiConfig["staleKey"];
+  if (sources.apiKey === "file") {
+    const savedFor = fileLayer.apiKeyOrigin ?? legacyKeyOrigin(fileLayer, config.region);
+    const endpoint = keyOriginFor(config);
+    if (savedFor === endpoint) config.apiKeyOrigin = savedFor;
+    else {
+      config.apiKey = null;
+      sources.apiKey = "default";
+      staleKey = { savedFor, endpoint };
+    }
+  }
+
+  if (config.provider === "bedrock" && config.apiKey === null && env.AWS_BEARER_TOKEN_BEDROCK) {
+    config.apiKey = env.AWS_BEARER_TOKEN_BEDROCK;
+    sources.apiKey = "env";
+    envNames.apiKey = "AWS_BEARER_TOKEN_BEDROCK";
+  }
+
   // Consent saved from the Settings page names the host it was given for, and counts for that host only. Consent from
   // env or a flag applies to whatever endpoint this invocation uses.
   if (sources.allowRemote === "file") {
@@ -208,7 +229,27 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
     if (host !== null) config.allowRemoteHost = host;
     if (config.allowRemote && host !== endpointHost(config)) config.allowRemote = false;
   }
-  return { config, sources, file, envNames };
+  return { config, sources, file, envNames, ...(staleKey ? { staleKey } : {}) };
+}
+
+/**
+ * The origin a key is bound to and may be sent to: the base URL's origin, or for Bedrock without a base URL
+ * https://bedrock-runtime.<region>.amazonaws.com. An unparsable base URL is its own string.
+ */
+export function keyOriginFor(config: Pick<AiConfig, "provider" | "baseUrl" | "region">): string {
+  if (config.provider === "bedrock" && !config.baseUrl) return `https://bedrock-runtime.${config.region ?? "<region>"}.amazonaws.com`;
+  try {
+    return new URL(config.baseUrl).origin;
+  } catch {
+    return config.baseUrl;
+  }
+}
+
+/** Where a legacy saved key (no apiKeyOrigin) belongs: the file's own endpoint; Bedrock without a saved region: `region`. */
+function legacyKeyOrigin(file: Layer, region: string | null): string {
+  const provider = file.provider ?? DEFAULT_AI_CONFIG.provider;
+  const baseUrl = file.baseUrl ?? (file.provider ? DEFAULT_BASE_URLS[provider] : DEFAULT_AI_CONFIG.baseUrl);
+  return keyOriginFor({ provider, baseUrl, region: file.region ?? region });
 }
 
 /**
@@ -224,10 +265,14 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
  * Unknown provider names and non-numeric timeouts are ignored (the lower source stands).
  * Consent from the file counts only when the file's allowRemoteHost equals endpointHost of the resolved config (then
  * config.allowRemoteHost is that host); otherwise allowRemote resolves to false. Env/flag consent names no host.
+ * A key from the file applies only while keyOriginFor(resolved config) equals the file's apiKeyOrigin (a legacy file
+ * without one: keyOriginFor of the file's own provider/baseUrl/region); then config.apiKeyOrigin is that origin.
+ * Otherwise apiKey resolves to null (source "default"; for bedrock AWS_BEARER_TOKEN_BEDROCK may still apply) and
+ * `staleKey` says why. Env keys are never bound.
  */
 export async function resolveAiConfig(options: { env?: NodeJS.ProcessEnv; flags?: AiFlags; home?: string } = {}): Promise<ResolvedAiConfig> {
-  const { config, sources, file } = await resolve(options.env ?? process.env, options.flags ?? {}, options.home);
-  return { config, sources, file };
+  const { config, sources, file, staleKey } = await resolve(options.env ?? process.env, options.flags ?? {}, options.home);
+  return { config, sources, file, ...(staleKey ? { staleKey } : {}) };
 }
 
 /** Throws unless the value is empty or an http(s) URL; returns it without a trailing slash. */
@@ -292,7 +337,9 @@ export const KEY_REMOVED_NOTICE = "The saved API key was removed because the end
  * Consent: allowRemote true is saved with allowRemoteHost = endpointHost of the patched config; a patch that moves the
  * endpoint to another host without allowRemote: true clears the saved consent.
  * Key: a patch that changes the provider or the endpoint origin (keyOrigin) without a new apiKey removes the saved key,
- * and the result carries `notice` (KEY_REMOVED_NOTICE).
+ * and the result carries `notice` (KEY_REMOVED_NOTICE). A saved key is stored with apiKeyOrigin = keyOriginFor of the
+ * effective endpoint after the patch (a new key, or a kept key that applied before; a key that didn't apply keeps its
+ * binding).
  */
 export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS.ProcessEnv; home?: string } = {}): Promise<ResolvedAiConfig & { notice?: string }> {
   const env = options.env ?? process.env;
@@ -332,6 +379,10 @@ export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS
     delete next.apiKey;
     notice = KEY_REMOVED_NOTICE;
   }
+  // A new key is bound to where requests go now; a kept key that applied before follows a same-origin change (a
+  // Bedrock region); a key that did not apply (env or a flag moved the endpoint) keeps its binding.
+  if (typeof next.apiKey !== "string") delete next.apiKeyOrigin;
+  else if (typeof changes.apiKey === "string" || before.apiKeyOrigin) next.apiKeyOrigin = keyOriginFor(after);
   if (changes.allowRemote === true) next.allowRemoteHost = endpointHost(after);
   else if (changes.allowRemote === false) delete next.allowRemoteHost;
   else if (endpointHost(before) !== endpointHost(after)) {
@@ -376,7 +427,9 @@ export function endpointHost(config: Pick<AiConfig, "provider" | "baseUrl" | "re
  * The status for the UI and CLI. `problem`, first match wins: "AI is off" (disabled), "Choose a model",
  * "Choose a Bedrock region" (bedrock without region), "Bedrock needs an API key or AWS access keys" (bedrock with no
  * apiKey and nothing in the AWS chain: awsCredentialsAvailable, which checks env keys and the profile's files without
- * running credential_process or calling SSO), "Sending page structure to <host> needs your consent"
+ * running credential_process or calling SSO; when a saved key was not applied because the endpoint moved, this and a
+ * remote openai-compatible endpoint without a key say "The saved API key is for <origin>; enter a key for <origin>"
+ * instead), "Sending page structure to <host> needs your consent"
  * (remote && !allowRemote); else null. `home` (for ~/.aws) defaults to os.homedir().
  */
 export function aiStatus(resolved: ResolvedAiConfig, env: NodeJS.ProcessEnv = process.env, home?: string): AiStatus {
@@ -385,11 +438,14 @@ export function aiStatus(resolved: ResolvedAiConfig, env: NodeJS.ProcessEnv = pr
   const hasKey = Boolean(c.apiKey) || (c.provider === "bedrock" && awsKeys);
   const remote = isRemote(c);
   const host = endpointHost(c);
+  const stale = resolved.staleKey;
   let problem: string | null = null;
   if (!c.enabled) problem = "AI is off";
   else if (!c.model) problem = "Choose a model";
   else if (c.provider === "bedrock" && !c.region) problem = "Choose a Bedrock region";
-  else if (c.provider === "bedrock" && !hasKey) problem = "Bedrock needs an API key or AWS access keys";
+  else if (stale && ((c.provider === "openai-compatible" && remote && !c.apiKey) || (c.provider === "bedrock" && !hasKey))) {
+    problem = `The saved API key is for ${stale.savedFor}; enter a key for ${stale.endpoint}`;
+  } else if (c.provider === "bedrock" && !hasKey) problem = "Bedrock needs an API key or AWS access keys";
   else if (remote && !c.allowRemote) problem = `Sending page structure to ${host} needs your consent`;
   return {
     enabled: c.enabled,

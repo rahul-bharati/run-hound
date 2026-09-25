@@ -106,6 +106,22 @@ describe("createLlmClient", () => {
     expect(fake.requests).toHaveLength(0);
   });
 
+  it("refuses to send a saved key to an origin other than the one it was saved for, before any request", async () => {
+    const moved = ollama({ provider: "openai-compatible", apiKey: "sk-saved-key", apiKeyOrigin: "https://api.a.example" });
+    const error = thrown(() => createLlmClient(moved, { env: {} }));
+    expect(error.code).toBe("not-configured");
+    expect(error.message).toContain("https://api.a.example");
+    expect(error.message).not.toContain("sk-saved-key");
+    expect(fake.requests).toHaveLength(0);
+    // Bound to this origin (or not from the file: env/flag keys carry no origin) → used.
+    fake.reply({ ok: true });
+    await createLlmClient({ ...moved, apiKeyOrigin: new URL(fake.baseUrl).origin }, { env: {} }).generateJson(request());
+    expect(fake.calls[0]!.headers.authorization).toBe("Bearer sk-saved-key");
+    fake.reply({ ok: true });
+    await createLlmClient({ ...moved, apiKeyOrigin: null }, { env: {} }).generateJson(request());
+    expect(fake.calls[1]!.headers.authorization).toBe("Bearer sk-saved-key");
+  });
+
   it("names its provider and model", () => {
     const client = createLlmClient(ollama(), { env: {} });
     expect(client.provider).toBe("ollama");

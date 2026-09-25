@@ -1,10 +1,10 @@
 import type { Page } from "playwright";
-import type { Capture, Check, CheckContext, CheckResult, Fact, FlowExpectation, FlowStep, FormControl, FormField, Highlight, Scenario } from "../core/types.js";
+import type { Capture, Check, CheckContext, CheckResult, DiscoveredForm, Fact, FlowExpectation, FlowStep, FormControl, FormField, Highlight, Scenario } from "../core/types.js";
 import { isAcceptedStatus } from "../core/saves.js";
 import { redactSecrets } from "../engine/redact.js";
 import { isDestructiveControl } from "./dead-control.js";
 import { clip, controlLocator, endpointOf, errorResult, evidence, fieldLocator, fillLines, findingFactory, guarded, recordFlow, requestSummary, result, specSource, tryCapture } from "./lib/functional-finding.js";
-import { controlName, createRequests, fieldName, fillForm, isSameOrigin, settle, sleep, waitFor, waitForCreates, type FieldValue } from "./lib/functional-form.js";
+import { controlName, createRequests, fieldName, fillForm, isSameOrigin, settle, sleep, submitControl, waitFor, waitForCreates, type FieldValue } from "./lib/functional-form.js";
 
 const ID = "ai-flow" as const;
 
@@ -13,12 +13,17 @@ const APPEAR_MS = 3_000;
 /** Grace before deciding a "nothing bad happened" expectation, so late errors (a setTimeout throw) are counted. */
 const QUIET_MS = 400;
 
-/** A flow step resolved against the discovered form, ready to run. */
-type Resolved =
-  | { action: "fill" | "choose"; value: FieldValue; label: string }
-  | { action: "click"; control: FormControl; label: string }
-  | { action: "press"; key: string; label: string }
-  | { action: "expect"; expect: FlowExpectation; text: string | null; label: string };
+/**
+ * A flow step resolved against the discovered form, ready to run. `label` is the full step (a fill quotes the typed
+ * value); `plain` names only the field, control or expectation and is what the finding's meaning and fix use, so typed
+ * values never reach an explanation prompt (Rule 4). They differ only for fill steps.
+ */
+type Resolved = (
+  | { action: "fill" | "choose"; value: FieldValue }
+  | { action: "click"; control: FormControl }
+  | { action: "press"; key: string }
+  | { action: "expect"; expect: FlowExpectation; text: string | null }
+) & { label: string; plain: string };
 
 /** What was observed when an expectation was decided. */
 interface Verdict {
@@ -60,30 +65,44 @@ function resolve(flow: FlowStep[], fields: FormField[], controls: FormControl[])
         const field = fields.find((f) => f.key === step.field);
         if (!field) return `Step ${n} names a field "${step.field}" that this form doesn't have.`;
         if (step.action === "fill") {
-          steps.push({ action: "fill", value: { field, value: step.value, canary: false }, label: `Type "${clip(step.value, 40)}" into ${fieldName(field)}` });
+          steps.push({ action: "fill", value: { field, value: step.value, canary: false }, label: `Type "${clip(step.value, 40)}" into ${fieldName(field)}`, plain: `Type into ${fieldName(field)}` });
           break;
         }
         const wanted = step.option.trim().toLowerCase();
         const option = field.options?.find((o) => o.label === step.option) ?? field.options?.find((o) => o.label.trim().toLowerCase() === wanted);
         if (!option) return `Step ${n} chooses "${step.option}", which is not an option of ${fieldName(field)}.`;
-        steps.push({ action: "choose", value: { field, value: option.label, canary: false }, label: `Choose "${clip(option.label, 40)}" in ${fieldName(field)}` });
+        const choose = `Choose "${clip(option.label, 40)}" in ${fieldName(field)}`;
+        steps.push({ action: "choose", value: { field, value: option.label, canary: false }, label: choose, plain: choose });
         break;
       }
       case "click": {
         const control = Number.isInteger(step.control) ? controls[step.control] : undefined;
         if (!control) return `Step ${n} clicks control ${step.control}, but this form has ${controls.length} control${controls.length === 1 ? "" : "s"}.`;
-        steps.push({ action: "click", control, label: `Click ${controlName(control)}` });
+        steps.push({ action: "click", control, label: `Click ${controlName(control)}`, plain: `Click ${controlName(control)}` });
         break;
       }
       case "press":
-        steps.push({ action: "press", key: step.key, label: `Press ${step.key}` });
+        steps.push({ action: "press", key: step.key, label: `Press ${step.key}`, plain: `Press ${step.key}` });
         break;
       case "expect":
-        steps.push({ action: "expect", expect: step.expect, text: step.text, label: `Check: ${expectationText(step.expect, step.text)}` });
+        const check = `Check: ${expectationText(step.expect, step.text)}`;
+        steps.push({ action: "expect", expect: step.expect, text: step.text, label: check, plain: check });
         break;
     }
   }
   return steps;
+}
+
+/**
+ * The destructive control that Enter in a field of `form` would activate, or null. Enter in a field submits the form
+ * through its submit control, so it is that control when it is destructive (a "Delete account" form with a
+ * confirm-email field). When discovery found no submit control, the browser's default button is unknown, so any
+ * destructive control of the form counts. Used by suggest.ts to mark such flows destructive and here to skip them.
+ */
+export function destructiveEnterTarget(form: DiscoveredForm): FormControl | null {
+  const submit = submitControl(form);
+  if (submit) return isDestructiveControl(submit) ? submit : null;
+  return form.controls.find(isDestructiveControl) ?? null;
 }
 
 /** Keys a flow may never press: Tab moves focus to arbitrary controls and Space activates buttons (Rule 5). */
@@ -94,6 +113,8 @@ interface Focus {
   inFormField: boolean;
   /** Name of the focused control when it is destructive, else null. */
   destructive: string | null;
+  /** Name of the default (submit) button of the focused field's form when it is destructive, else null. */
+  submitsDestructive: string | null;
 }
 
 /**
@@ -101,12 +122,13 @@ interface Focus {
  * {fields, formSelector, risky}: selectors of the form's fields, the form's selector, and [selector, name] of every
  * destructive control discovered. Returns whether focus is on a text-entry field of the form, the name of a matching
  * discovered destructive control, and the focused element's own name when it is button-like (checked in Node with
- * isDestructiveControl, so an undiscovered "Delete account" button is caught too).
+ * isDestructiveControl, so an undiscovered "Delete account" button is caught too), and the name of the default button
+ * of the focused field's form (the first submit button among form.elements: what Enter in that field activates).
  */
 const FOCUS_SCRIPT = `(() => {
   const args = __ARGS__;
   const el = document.activeElement;
-  if (!el || el === document.body || el === document.documentElement) return { inFormField: false, risky: null, buttonName: null };
+  if (!el || el === document.body || el === document.documentElement) return { inFormField: false, risky: null, buttonName: null, defaultButton: null };
   const safe = (sel) => { try { return el.matches(sel); } catch { return false; } };
   const tag = el.tagName.toLowerCase();
   const type = (el.getAttribute("type") || "").toLowerCase();
@@ -117,8 +139,15 @@ const FOCUS_SCRIPT = `(() => {
   const hit = args.risky.find((r) => safe(r[0]));
   const role = el.getAttribute("role") || "";
   const buttonLike = tag === "button" || tag === "a" || tag === "summary" || (tag === "input" && buttonTypes.includes(type)) || ["button", "link", "menuitem", "tab", "option"].includes(role);
-  const buttonName = buttonLike ? [el.getAttribute("aria-label"), el.textContent, el.getAttribute("value"), el.getAttribute("title")].filter(Boolean).join(" ").replace(/\\s+/g, " ").trim() : null;
-  return { inFormField: textEntry && inForm, risky: hit ? hit[1] : null, buttonName };
+  const nameOf = (b) => [b.getAttribute("aria-label"), b.textContent, b.getAttribute("value"), b.getAttribute("title")].filter(Boolean).join(" ").replace(/\\s+/g, " ").trim();
+  const buttonName = buttonLike ? nameOf(el) : null;
+  let defaultButton = null;
+  try {
+    const owner = el.form;
+    const def = owner ? Array.from(owner.elements).find((b) => (b.tagName === "BUTTON" && b.type === "submit") || (b.tagName === "INPUT" && (b.type === "submit" || b.type === "image"))) : null;
+    defaultButton = def ? nameOf(def) : null;
+  } catch {}
+  return { inFormField: textEntry && inForm, risky: hit ? hit[1] : null, buttonName, defaultButton };
 })()`;
 
 /** Where focus is now. An unreadable page counts as focus on no field and no destructive control. */
@@ -127,12 +156,14 @@ async function focusOf(page: Page, ctx: CheckContext): Promise<Focus> {
   const risky = controls.filter(isDestructiveControl).map((c) => [c.selector, controlName(c)]);
   const args = { fields: ctx.form.fields.map((f) => f.selector), formSelector: ctx.form.selector, risky };
   const raw = (await page.evaluate(FOCUS_SCRIPT.replace("__ARGS__", JSON.stringify(args))).catch(() => null)) as
-    | { inFormField: boolean; risky: string | null; buttonName: string | null }
+    | { inFormField: boolean; risky: string | null; buttonName: string | null; defaultButton: string | null }
     | null;
-  if (!raw) return { inFormField: false, destructive: null };
-  const name = raw.buttonName ? clip(raw.buttonName, 60) : null;
-  const byName = name && isDestructiveControl({ accessibleName: name, text: name, role: "button", tag: "button", selector: "", isSubmit: false }) ? name : null;
-  return { inFormField: raw.inFormField, destructive: raw.risky ?? byName };
+  if (!raw) return { inFormField: false, destructive: null, submitsDestructive: null };
+  const destructiveName = (found: string | null) => {
+    const name = found ? clip(found, 60) : null;
+    return name && isDestructiveControl({ accessibleName: name, text: name, role: "button", tag: "button", selector: "", isSubmit: false }) ? name : null;
+  };
+  return { inFormField: raw.inFormField, destructive: raw.risky ?? destructiveName(raw.buttonName), submitsDestructive: destructiveName(raw.defaultButton) };
 }
 
 /** Visible elements whose text contains `text` (Playwright's getByText, case-insensitive substring). */
@@ -343,6 +374,16 @@ export const check: Check = {
             "skipped",
           );
         }
+        const submits = resolved.some((s) => s.action === "press" && s.key === "Enter") ? destructiveEnterTarget(ctx.form) : null;
+        if (submits) {
+          return errorResult(
+            ID,
+            scenario,
+            started,
+            `Skipped: this flow presses Enter in a field, which submits the form with ${controlName(submits)}, which may change or delete data. Allow destructive scenarios to run it.`,
+            "skipped",
+          );
+        }
         if (scenario.destructive) return errorResult(ID, scenario, started, "Skipped: this flow is marked destructive. Allow destructive scenarios to run it.", "skipped");
       }
 
@@ -353,11 +394,18 @@ export const check: Check = {
       // The engine only collects steps when it runs the check; kept here too so the result always carries them.
       const steps: NonNullable<CheckResult["steps"]> = [];
       const done: string[] = [];
+      /** done without typed values (Resolved.plain), for the finding's meaning and fix. */
+      const plainDone: string[] = [];
+      /** Whether each done step typed a value, so its evidence fact is labelled "Step N (typed)". */
+      const typedDone: boolean[] = [];
       const filled: FieldValue[] = [];
       const verified: string[] = [];
-      const record = async (label: string, highlights?: Highlight[]) => {
+      const record = async (step: Resolved, highlights?: Highlight[]) => {
+        const label = step.label;
         steps.push({ label: redactSecrets(label), url: redactSecrets(page.url()), at: new Date().toISOString() });
         done.push(label);
+        plainDone.push(step.plain);
+        typedDone.push(step.action === "fill");
         await recording.step(label, highlights ? { highlights } : {});
       };
 
@@ -380,7 +428,7 @@ export const check: Check = {
           case "choose": {
             await fillForm(page, [step.value]);
             if (step.action === "fill") filled.push(step.value);
-            await record(step.label, [{ selector: step.value.field.selector, label: clip(step.label, 50), tone: "info" }]);
+            await record(step, [{ selector: step.value.field.selector, label: clip(step.label, 50), tone: "info" }]);
             const moved = await focusGuard();
             if (moved) return stop(moved);
             continue;
@@ -388,7 +436,7 @@ export const check: Check = {
           case "click": {
             await page.locator(step.control.selector).first().click();
             await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
-            await record(step.label);
+            await record(step);
             const moved = await focusGuard();
             if (moved) return stop(moved);
             continue;
@@ -400,10 +448,13 @@ export const check: Check = {
               if (step.key !== "Enter" || !focus.inFormField || (focus.destructive && !ctx.allowDestructive)) {
                 return stop(`${step.label} was not done because focus is not on a field of this form, so the key could activate another control. Enter is pressed only in a form field.`);
               }
+              if (focus.submitsDestructive && !ctx.allowDestructive) {
+                return stop(`${step.label} was not done because Enter in this field submits the form with ${focus.submitsDestructive}, which may change or delete data. Allow destructive scenarios to run it.`);
+              }
             }
             await page.keyboard.press(step.key);
             await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
-            await record(step.label);
+            await record(step);
             const moved = await focusGuard();
             if (moved) return stop(moved);
             continue;
@@ -415,15 +466,16 @@ export const check: Check = {
         const verdict = await decide(ctx, page, capture, marks, startUrl, filled, step);
         if (verdict.ok) {
           verified.push(`${expectationText(step.expect, step.text)}: ${verdict.observed}`);
-          await record(step.label);
+          await record(step);
           continue;
         }
 
         // The first failing expectation ends the flow with one finding.
-        await record(step.label, verdict.highlights);
+        await record(step, verdict.highlights);
         const expected = expectationText(step.expect, step.text);
         const facts: Fact[] = [
-          ...done.map((label, i) => ({ label: `Step ${i + 1}`, value: label })),
+          // Full steps, typed values included, for the report; explain.ts never sends "Step…" facts.
+          ...done.map((label, i) => ({ label: `Step ${i + 1}${typedDone[i] ? " (typed)" : ""}`, value: label })),
           { label: "Expected", value: expected },
           { label: "Observed", value: verdict.observed },
         ];
@@ -438,9 +490,9 @@ export const check: Check = {
         const finding = make({
           title: `AI-suggested flow failed: ${scenario.title}`,
           severity: "medium",
-          meaning: `After ${done.length - 1} step${done.length === 2 ? "" : "s"} (${clip(done.slice(0, -1).join(", "), 300)}), the flow expected ${expected}, but ${verdict.observed}.`,
+          meaning: `After ${done.length - 1} step${done.length === 2 ? "" : "s"} (${clip(plainDone.slice(0, -1).join(", "), 300)}), the flow expected ${expected}, but ${verdict.observed}.`,
           impact: `${scenario.description} A person doing the same may not get the result they expect. This flow was suggested by an AI model; the check itself was decided by Run Hound from the page.`,
-          fix: `Ask your AI or developer: "Run these steps on ${ctx.targetUrl}: ${done.slice(0, -1).join("; ")}. Afterwards ${expected}, but ${verdict.observed}. Find out why and fix it."`,
+          fix: `Ask your AI or developer: "Run these steps on ${ctx.targetUrl}: ${plainDone.slice(0, -1).join("; ")}. Afterwards ${expected}, but ${verdict.observed}. Find out why and fix it."`,
           evidence: [
             ...gif,
             ...frame,

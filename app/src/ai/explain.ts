@@ -40,6 +40,10 @@ Rules:
 const ABSOLUTE_URL = /\bhttps?:\/\/[^\s"'<>`()\[\]{}]+/gi;
 /** A path followed by a query string or hash ("/api/save?token=x", "/book#step"): group 1 is the path. */
 const PATH_QUERY = /(\/[^\s"'<>`?#()]*)[?#][^\s"'<>`()]*/g;
+/** Facts labelled "Step…" list a flow's steps, typed values included (checks/ai-flow.ts); they are never sent. */
+const STEP_LABEL = /^\s*step\b/i;
+/** A double-quoted substring of at most 200 characters: in a remote prompt it may quote a typed value. */
+const QUOTED = /"[^"\n]{0,200}"/g;
 /** Fact labels whose value is something typed, sent or read back from a field. */
 const VALUE_LABEL = /value|typed|sent|now|entered|input|canary|test (email|phone)/i;
 /** A bare count ("2", "3 of 5") says nothing about what was typed, so "Requests sent: 2" is kept. */
@@ -65,6 +69,7 @@ function stripUrls(value: string): string {
 
 /** True when a fact carries a typed or sent value or one of the run's test values; such facts are never sent. */
 function carriesValue(fact: Fact, runToken: string): boolean {
+  if (STEP_LABEL.test(fact.label)) return true;
   if (VALUE_LABEL.test(fact.label) && !COUNT.test(fact.value)) return true;
   const key = runToken ? tokenKey(runToken) : "";
   const both = `${fact.label} ${fact.value}`;
@@ -83,16 +88,20 @@ export interface ExplainPromptOptions {
  * fix, and the facts of its evidence (label: value), each redacted and cut to 300 chars. Never paths, images,
  * request bodies, specs or evidence `data`.
  *
- * Facts that carry typed or sent values are always dropped (they add nothing to an explanation): a label matching
+ * Facts that carry typed or sent values are always dropped (they add nothing to an explanation): a label starting
+ * with "Step" (an AI flow's steps, which quote what was typed), a label matching
  * value/typed/sent/now/entered/input/canary/test email|phone (unless the value is a bare count, like "Requests sent:
  * 2"), or a label or value holding one of the run's test values (canaryValues shapes, or `runToken`). When `remote`,
- * every string also has each absolute http(s) URL replaced by its path and query strings and hashes removed; locally
- * URLs are kept.
+ * every string also has each absolute http(s) URL replaced by its path and query strings and hashes removed, and
+ * meaning, impact, fix and location have every double-quoted substring of at most 200 characters replaced by "…"
+ * (it may quote a typed value); locally URLs and quotes are kept.
  */
 export function explainPrompt(finding: Finding, options: ExplainPromptOptions = {}): { system: string; user: string } {
   const remote = options.remote ?? true;
   const runToken = options.runToken ?? "";
   const text = (value: string): string => safeText(remote ? stripUrls(value) : value, MAX_TEXT);
+  /** For finding prose that may quote a typed value (an AI flow's steps): remotely, short quoted parts become "…". */
+  const prose = (value: string): string => text(remote ? value.replace(QUOTED, '"…"') : value);
   const lines = [
     `Title: ${text(finding.title)}`,
     `Severity: ${finding.severity}`,
@@ -100,9 +109,9 @@ export function explainPrompt(finding: Finding, options: ExplainPromptOptions = 
     `Confidence: ${finding.confidence}`,
   ];
   if (finding.scope) lines.push(`Scope: ${text(finding.scope)}`);
-  if (finding.location) lines.push(`Location: ${text(finding.location)}`);
+  if (finding.location) lines.push(`Location: ${prose(finding.location)}`);
   if (finding.locations?.length) lines.push(`Locations: ${finding.locations.map(text).join("; ")}`);
-  lines.push(`Meaning: ${text(finding.meaning)}`, `Impact: ${text(finding.impact)}`, `Suggested fix: ${text(finding.fix)}`);
+  lines.push(`Meaning: ${prose(finding.meaning)}`, `Impact: ${prose(finding.impact)}`, `Suggested fix: ${prose(finding.fix)}`);
   const facts = finding.evidence.flatMap((e) => e.facts ?? []).filter((f) => !carriesValue(f, runToken));
   if (facts.length) lines.push("Evidence facts:", ...facts.map((f) => `- ${text(f.label)}: ${text(f.value)}`));
   return {

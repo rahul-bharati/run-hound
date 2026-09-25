@@ -774,6 +774,11 @@ export const CLIENT = String.raw`
     const region = h("input", { id: "ai-region", class: "input", type: "text", spellcheck: "false", autocomplete: "off", placeholder: "us-east-1", disabled: locked("region") });
     region.value = st.region || "";
     const regionRow = h("div", { class: "ai-field" }, h("label", { class: "field-label", for: "ai-region", text: "Region" }), region, lockNote("region"));
+    const awsProfile = h("input", { id: "ai-aws-profile", class: "input", type: "text", spellcheck: "false", autocomplete: "off", placeholder: "default", disabled: locked("awsProfile"), "aria-describedby": "ai-aws-profile-hint" });
+    awsProfile.value = st.awsProfile || "";
+    const awsProfileRow = h("div", { class: "ai-field ai-aws-profile-field" },
+      h("label", { class: "field-label", for: "ai-aws-profile", text: "AWS profile" }), awsProfile, lockNote("awsProfile"),
+      h("span", { class: "field-hint", id: "ai-aws-profile-hint", text: "Uses ~/.aws on the machine running Run Hound: static keys, credential_process or SSO (run \u0060aws sso login\u0060 first)" }));
     const features = st.features || { review: true, suggest: true, explain: true };
     const feat = (key, id, label, desc) => {
       const cb = h("input", { type: "checkbox", id, disabled: locked("features") });
@@ -810,6 +815,7 @@ export const CLIENT = String.raw`
       if (bed) { modelOther.removeAttribute("aria-label"); modelLabel.setAttribute("for", "ai-model-other"); }
       else { modelOther.setAttribute("aria-label", "Other model id"); modelLabel.setAttribute("for", "ai-model"); }
       regionRow.hidden = !bed;
+      awsProfileRow.hidden = !bed;
       baseLabel.textContent = bed ? "Endpoint override (optional)" : "Base URL";
       baseUrl.placeholder = bed ? "https://bedrock-runtime.<region>.amazonaws.com" : "http://127.0.0.1:11434/v1";
       if (bed) { modelsMsg.textContent = ""; modelsMsg.className = "field-hint"; }
@@ -916,6 +922,7 @@ export const CLIENT = String.raw`
         else if (keyInput.value) patch.apiKey = keyInput.value;
       }
       if (!locked("region") && isBedrock()) patch.region = region.value.trim() || null;
+      if (!locked("awsProfile") && isBedrock()) patch.awsProfile = awsProfile.value.trim() || null;
       if (!locked("features")) patch.features = { review: fReview.cb.checked, suggest: fSuggest.cb.checked, explain: fExplain.cb.checked };
       if (consent && !locked("allowRemote")) patch.allowRemote = consent.checked;
       save.disabled = true;
@@ -967,7 +974,8 @@ export const CLIENT = String.raw`
         h("div", { class: "ai-field" }, baseLabel, baseUrl, lockNote("baseUrl")),
         h("div", { class: "ai-field ai-model-field" }, modelLabel, modelRow, modelOther, lockNote("model"), modelsMsg),
         keyField,
-        regionRow),
+        regionRow,
+        awsProfileRow),
       h("fieldset", { class: "ai-features" }, h("legend", { class: "field-label", text: "What the model does" }), fReview.row, fSuggest.row, fExplain.row, lockNote("features")),
       consentSlot,
       h("div", { class: "ai-actions" }, save, test),

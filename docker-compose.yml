@@ -57,6 +57,17 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
       AWS_REGION: ${AWS_REGION:-}
+      # Bedrock with an AWS profile (optional): name it here and uncomment the ~/.aws mount under volumes plus the two
+      # AWS_*_FILE lines below. The files are then read from the mount whatever HOME the container user gets (the
+      # entrypoint sets HOME=/home/pwuser when it runs as pwuser, HOME=/tmp when it runs as the uid owning your runs
+      # folder, and rootless Podman runs as root with HOME=/root). Static keys in the profile always work this way.
+      # IAM Identity Center (SSO) tokens are read from $HOME/.aws/sso/cache, so SSO works only when HOME is
+      # /home/pwuser (run `aws sso login` on your machine first); credential_process needs its program inside the
+      # container, and the image has no AWS CLI.
+      AWS_PROFILE: ${AWS_PROFILE:-}
+      RUNHOUND_AI_AWS_PROFILE: ${RUNHOUND_AI_AWS_PROFILE:-}
+      # AWS_CONFIG_FILE: /home/pwuser/.aws/config
+      # AWS_SHARED_CREDENTIALS_FILE: /home/pwuser/.aws/credentials
     extra_hosts:
       # Docker Desktop defines host.docker.internal itself; this adds it on Linux Docker and Podman too.
       - "host.docker.internal:host-gateway"
@@ -64,6 +75,8 @@ services:
       - "127.0.0.1:${RUNHOUND_HOST_PORT:-4000}:4000"
     volumes:
       - ${RUNHOUND_RUNS_DIR:-./runs}:/repo/app/runs
+      # Optional, read-only: your AWS profiles for Bedrock (see AWS_PROFILE above).
+      # - ~/.aws:/home/pwuser/.aws:ro
     depends_on:
       - kennel
       - kennel-clean
