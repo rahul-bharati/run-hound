@@ -10,7 +10,7 @@ import { site } from "@/lib/site";
 export const metadata: Metadata = {
   title: "Demo",
   description:
-    "Real evidence from Run Hound 0.1.0 run against Kennel, a deliberately broken booking form: a double submit, a silent failure, missing focus, a secret key in the bundle and an email sent to a third party.",
+    "Real evidence from a Run Hound 0.2.0 (V1) run against Kennel, a deliberately broken booking page: a double submit, a silent failure, missing focus, a secret key in the bundle, an email sent to a third party, an API any website can read and missing security headers.",
 };
 
 const planted = [
@@ -24,6 +24,19 @@ const planted = [
       { name: "Validation", count: 1 },
       { name: "Accessibility", count: 9 },
       { name: "Leaks and secrets", count: 4 },
+    ],
+  },
+  {
+    version: "V1",
+    count: 5,
+    title: "Whole-page bugs",
+    body: "Defects outside the form and in how the server answers, the ones V1 is scored against. Clean Kennel sends proper headers and cookies, so the target is still zero confirmed findings.",
+    groups: [
+      { name: "Button outside the form", count: 1 },
+      { name: "Security headers", count: 1 },
+      { name: "Cookie flags", count: 1 },
+      { name: "CORS", count: 1 },
+      { name: "Public source maps", count: 1 },
     ],
   },
   {
@@ -53,7 +66,7 @@ export default function DemoPage() {
   return (
     <>
       <PageHeader
-        eyebrow="DEMO · REAL OUTPUT FROM V0 0.1.0"
+        eyebrow={`DEMO · REAL OUTPUT FROM ${site.release} ${site.version}`}
         title={
           <>
             Proof, <span className="text-accent">not adjectives.</span>
@@ -61,10 +74,9 @@ export default function DemoPage() {
         }
         lede={
           <>
-            Everything on this page was captured from a real run of Run Hound 0.1.0 (V0) against Kennel, our
-            deliberately broken pet-sitting booking form, with all 19 planted bugs switched on. The keys and email
-            addresses are fake test values. {site.release} ({site.version}) runs the same form checks, plus page-wide
-            checks.
+            Everything on this page was captured from a real run of Run Hound {site.version} ({site.release}) against
+            Kennel, our deliberately broken pet-sitting booking page, with all 24 planted bugs switched on. The keys
+            and email addresses are fake test values.
           </>
         }
       />
@@ -72,7 +84,7 @@ export default function DemoPage() {
       <Section
         id="features"
         title="One click, two bookings"
-        intro="The double-submit check double-clicks “Book” and counts the save requests that reach the server. Kennel accepted both, so the report shows the recording and the two requests, 0.2 ms apart, with two different record ids."
+        intro="The double-submit check double-clicks “Book” and counts the save requests that reach the server. Kennel accepted both, so the report shows the recording and the two requests, 0.4 ms apart, with two different record ids."
         className="border-t border-line-soft"
       >
         <div className="grid items-start gap-5 lg:grid-cols-2">
@@ -100,7 +112,7 @@ export default function DemoPage() {
             shot={evidence.silentFailureRecording}
             sizes="(min-width: 1280px) 660px, (min-width: 1024px) 58vw, (min-width: 640px) calc(100vw - 48px), calc(100vw - 32px)"
             label="SILENT-FAILURE · RECORDING"
-            caption="5.1 s after the failed save, the page still shows no error. The facts panel records the injected status and that all 9 values were kept."
+            caption="5 s after the failed save, the page still shows no error. The facts panel records the injected status and that all 9 values were kept."
           />
           <div className="flex flex-col gap-4">
             <Eyebrow>WHY IT MATTERS</Eyebrow>
@@ -146,7 +158,27 @@ export default function DemoPage() {
       </Section>
 
       <Section
+        id="whole-page"
+        title="New in V1: the page as a whole"
+        intro="V1 also looks past the form, at how the server answers and who may read it. These checks run once for the whole page."
+      >
+        <div className="grid items-start gap-5 lg:grid-cols-2">
+          <EvidenceFigure
+            shot={evidence.corsNullOrigin}
+            label="CORS · REQUEST CARD"
+            caption="The page's own reads, repeated from a sandboxed frame as any website could: Kennel's API lets each one be read with the visitor's cookies."
+          />
+          <EvidenceFigure
+            shot={evidence.missingHeaders}
+            label="SECURITY-HEADERS · HEADER CARD"
+            caption="The page's response headers, with the session cookie's value hidden, and the three protections it never asks the browser for."
+          />
+        </div>
+      </Section>
+
+      <Section
         id="try"
+        className="bg-band"
         title="Run the same demo yourself"
         intro="Kennel ships in the repository. The quickest way is one Docker or Podman command, which also starts the sample apps; the local install takes two terminals. Then switch Kennel to KENNEL_BUGS=none: a clean Kennel should give zero confirmed findings."
       >
@@ -185,7 +217,6 @@ export default function DemoPage() {
       </Section>
 
       <Section
-        className="bg-band"
         title="What Kennel plants"
         intro="Every bug sits behind its own toggle. Because we know exactly what's broken, we can measure what Run Hound finds, what it misses and what it makes up."
       >

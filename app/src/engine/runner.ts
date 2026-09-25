@@ -65,6 +65,8 @@ export type ProgressEvent =
   | { type: "step"; scenarioId: string; label: string; url: string; at: string }
   /** A page finished loading in the browser under test (main frame only). Feeds report.pagesVisited. */
   | { type: "page"; scenarioId: string; url: string; at: string }
+  /** The browser was launched: its real name and version, e.g. "Chromium 153.0.8010.12". Once per run. */
+  | { type: "browser"; name: string }
   /** Latest screencast frame of the page under test; only when RunOptions.live. Secrets can't be redacted from pixels. */
   | { type: "frame"; scenarioId: string; url: string; jpeg: Buffer; at: string };
 
@@ -357,6 +359,7 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
     engineStep(options, options.headed ? "Opening a browser window" : "Starting the browser", plan.target);
     const browser = await chromium.launch(launchOptions(target, options));
     browserName = `Chromium ${browser.version()}`;
+    options.onProgress?.({ type: "browser", name: browserName });
     try {
       const runGroups = CHECK_GROUPS.filter((g) => toRun.some((s) => groupOfScenario.get(s.id) === g.id));
       let current: CheckGroup | undefined;

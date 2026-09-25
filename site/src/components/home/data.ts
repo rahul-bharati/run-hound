@@ -35,7 +35,7 @@ const labels: Record<string, string> = {
   "verbose-errors": "Errors don't reveal internals",
   "security-headers": "Security headers are set",
   "cookie-flags": "Session cookies are HttpOnly, Secure and SameSite",
-  cors: "The API doesn't answer any origin",
+  cors: "Other websites can't read the app's data",
   "source-maps": "No public source maps",
 };
 

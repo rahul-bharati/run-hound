@@ -384,7 +384,9 @@ export function createApp(options: ServerOptions = {}): Hono {
       live: true,
       onProgress: (e) => {
         if (e.type === "scenario-end") state.completed += 1;
-        // The runner names the browser only in the report; by the first scenario it has launched Playwright's own build.
+        // The runner reports the browser it really launched; until then (and for runners that don't), the build the
+        // installed Playwright ships.
+        if (e.type === "browser") state.live.browser = e.name;
         if (e.type === "scenario-start" && state.live.browser === null) state.live.browser = bundledChromium();
         applyProgress(state.live, plan, e);
       },
