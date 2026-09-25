@@ -121,6 +121,39 @@ async function open(hash: string, stub: Partial<Stub>, width = 1280): Promise<Op
 const optionTexts = (page: Page) => page.locator("#ai-model option").allTextContents();
 const modelCalls = (o: Opened) => o.calls.filter((c) => c.path === "/api/ai/models");
 
+describe("no stray 'null' or 'undefined' text", () => {
+  // Optional pieces (the problem hint, the save notice, AI lines) are null when there is nothing to show; they must
+  // leave no trace. The DOM's own replaceChildren prints null as the text "null", which once reached the site's
+  // screenshots.
+  const stray = /\b(null|undefined)\b/i;
+
+  it("on the Settings page with a working model and after Test connection", async () => {
+    const o = await open("#/settings", { ai: status({ enabled: true, model: "ornith-1.5:9b", problem: null }) });
+    const { page } = o;
+    await expect.poll(() => optionTexts(page)).toContain("ornith-1.5:9b — 9.0B Q4_K_M");
+    await page.getByRole("button", { name: "Test connection" }).click();
+    await expect.poll(() => page.locator("#ai-test-result").textContent()).toMatch(/Connected/);
+    expect(await page.locator("#view").innerText()).not.toMatch(stray);
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect.poll(() => page.locator("#ai-saved").textContent()).toMatch(/Saved/);
+    expect(await page.locator("#view").innerText()).not.toMatch(stray);
+    expect(o.errors).toEqual([]);
+    await page.close();
+  });
+
+  it("on New Run with an AI-reviewed plan", async () => {
+    const o = await open("#/new", { ai: status({ enabled: true, model: "ornith-1.5:9b", problem: null }) });
+    const { page } = o;
+    await page.getByLabel("Page URL").fill("http://127.0.0.1:5173/signup");
+    await page.getByRole("button", { name: "Plan checks" }).click();
+    await page.locator("#plan-section").waitFor({ state: "visible" });
+    await expect.poll(() => page.locator("#view").innerText()).toMatch(/Suggested by AI/i);
+    expect(await page.locator("#view").innerText()).not.toMatch(stray);
+    expect(o.errors).toEqual([]);
+    await page.close();
+  });
+});
+
 describe("Settings → AI card: the model dropdown", () => {
   it("lists the server's models as 'id — details', disables unsuitable ones and keeps the saved one selected", async () => {
     const o = await open("#/settings", {});

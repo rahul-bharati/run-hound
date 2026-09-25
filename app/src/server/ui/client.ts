@@ -44,6 +44,12 @@ export const CLIENT = String.raw`
     if (Array.isArray(c)) { for (const x of c) append(el, x); return; }
     el.append(c instanceof Node ? c : String(c));
   }
+  // Replaces an element's children, skipping null/undefined/false like h() does (the DOM's own replaceChildren would
+  // print them as the text "null").
+  function fill(el) {
+    el.replaceChildren();
+    for (let i = 1; i < arguments.length; i++) append(el, arguments[i]);
+  }
   function icon(name) {
     const s = document.createElement("span");
     s.className = "ic";
@@ -248,7 +254,7 @@ export const CLIENT = String.raw`
     firstRender = false;
     setNav(r.nav);
     setMenu(false);
-    view.replaceChildren();
+    fill(view);
     if (r.name === "new") viewNew(r, my, initial);
     else if (r.name === "runs") viewRuns(my, initial);
     else if (r.name === "run") viewRun(r.id, my, initial);
@@ -319,7 +325,7 @@ export const CLIENT = String.raw`
       aiBox.checked = newState.aiReview !== false;
       aiBox.addEventListener("change", () => { newState.aiReview = aiBox.checked; });
       const does = st.features && st.features.review === false ? "suggest extra flows for" : st.features && st.features.suggest === false ? "review" : "review and suggest flows for";
-      aiRow.replaceChildren(aiBox, h("label", { for: "ai-review" }, "Review with AI",
+      fill(aiRow, aiBox, h("label", { for: "ai-review" }, "Review with AI",
         h("span", { class: "desc", text: "Asks " + aiName + " to " + does + " the plan. Only redacted page structure is sent (labels, field types, button names), never values." })));
       aiRow.hidden = false;
     }).catch(() => {});
@@ -399,7 +405,7 @@ export const CLIENT = String.raw`
         const name = f.name ? f.name.replace(/\s+/g, " ").trim() : "";
         return name ? (/\bform$/i.test(name) ? name : name + " form") : (f.search ? "Search form" : "Form " + (i + 1));
       };
-      summary.replaceChildren(
+      fill(summary, 
         forms.length === 1 && forms[0].name ? h("span", {}, "Found ", h("b", { text: "“" + forms[0].name + "”" })) : h("span", {}, "Found ", h("b", { text: forms.length ? plural(forms.length, "form") : "no form" })),
         " · " + plural(p.scenarios.length, "scenario"));
       const inv = $("page-inventory");
@@ -408,14 +414,14 @@ export const CLIENT = String.raw`
         chips.push(h("li", { class: "inv" + (outside ? "" : " quiet") }, h("span", { class: "inv-name", text: "Outside the forms" }), h("span", { class: "inv-meta", text: plural(outside, "control") + (p.page.links ? " · " + plural(p.page.links, "link") : "") })));
         chips.push(h("li", { class: "inv" }, h("span", { class: "inv-name", text: "Whole page" }), h("span", { class: "inv-meta", text: "headers, cookies, CORS, scripts, layout" })));
       }
-      inv.replaceChildren(...chips);
+      fill(inv, ...chips);
       inv.hidden = chips.length === 0;
       const multi = forms.length > 1;
       const V1 = new Set(CONFIG.v1Checks || []);
       const warn = $("plan-warnings");
       const warnings = (resp.warnings || []).slice();
       for (const w of (p.ai && p.ai.warnings) || []) if (!warnings.includes(w)) warnings.push(w);
-      warn.replaceChildren(...warnings.map((w) => h("p", { text: w })));
+      fill(warn, ...warnings.map((w) => h("p", { text: w })));
       warn.hidden = warnings.length === 0;
       let aiLine = $("plan-ai");
       if (!aiLine) {
@@ -427,10 +433,10 @@ export const CLIENT = String.raw`
         const bits = [p.ai.reviewed ? "Reviewed by " + who : p.ai.suggested ? plural(p.ai.suggested, "flow") + " suggested by " + who : "Not reviewed by " + who + " (the built-in plan is shown)"];
         if (p.ai.reviewed && p.ai.suggested) bits.push(plural(p.ai.suggested, "flow") + " suggested");
         if (p.ai.remote) bits.push("remote endpoint");
-        aiLine.replaceChildren(icon("sparkle"), h("span", { text: bits.join(" · ") + ". Advisory: the checks still decide pass or fail." }));
+        fill(aiLine, icon("sparkle"), h("span", { text: bits.join(" · ") + ". Advisory: the checks still decide pass or fail." }));
         aiLine.hidden = false;
       } else {
-        aiLine.replaceChildren();
+        fill(aiLine);
         aiLine.hidden = true;
       }
       const formAt = (s) => forms[s.formIndex || 0] || forms[0] || null;
@@ -439,7 +445,7 @@ export const CLIENT = String.raw`
       const byId = new Map(p.scenarios.map((s) => [s.id, s]));
       const groups = p.groups && p.groups.length ? p.groups : [{ id: "all", label: "Scenarios", scenarioIds: p.scenarios.map((s) => s.id) }];
       const box = $("scenarios");
-      box.replaceChildren();
+      fill(box);
       let n = 0;
       for (const g of groups) {
         const list = g.scenarioIds.map((id) => byId.get(id)).filter(Boolean);
@@ -576,15 +582,15 @@ export const CLIENT = String.raw`
         data = await api("/api/runs");
       } catch (err) {
         if (my !== gen) return;
-        list.replaceChildren(h("li", { class: "empty-state", text: "Could not load the runs: " + err.message }));
+        fill(list, h("li", { class: "empty-state", text: "Could not load the runs: " + err.message }));
         return;
       }
       if (my !== gen) return;
       const runs = data.runs || [];
       if (runs.length === 0) {
-        list.replaceChildren(h("li", { class: "empty-state" }, h("p", { text: "No runs yet." }), h("a", { class: "btn primary", href: "#/new" }, icon("play"), "Start a new run")));
+        fill(list, h("li", { class: "empty-state" }, h("p", { text: "No runs yet." }), h("a", { class: "btn primary", href: "#/new" }, icon("play"), "Start a new run")));
       } else {
-        list.replaceChildren(...runs.map(runRow));
+        fill(list, ...runs.map(runRow));
       }
       if (!runs.some((x) => x.status === "running")) return;
       await sleep(2000);
@@ -659,7 +665,7 @@ export const CLIENT = String.raw`
     api("/api/settings").then((s) => {
       if (my !== gen) return;
       const list = (xs, none) => (xs && xs.length ? h("ul", { class: "plain-list" }, ...xs.map((x) => h("li", {}, h("code", { class: "mono", text: x })))) : h("span", { class: "dim", text: none }));
-      info.replaceChildren(
+      fill(info, 
         h("dt", { text: "Version" }), h("dd", {}, h("code", { text: s.version })),
         h("dt", { text: "Runs folder" }), h("dd", {}, h("code", { text: s.runsDir })),
         h("dt", { text: "Allowed extra hosts" }), h("dd", {}, list(s.allowedHosts, "None. Only localhost and private network addresses (set RUNHOUND_ALLOWED_HOSTS to add hosts you own).")),
@@ -725,7 +731,7 @@ export const CLIENT = String.raw`
     else if (!models.some((m) => m.id === current)) opts.push(h("option", { value: current, text: current + (list && !list.error ? " (not found on server)" : "") }));
     for (const m of models) opts.push(h("option", { value: m.id, disabled: m.suitable === false && m.id !== current, "data-unsuitable": m.suitable === false ? "" : null, text: modelOptionText(m) }));
     opts.push(h("option", { value: OTHER_MODEL, text: "Other…" }));
-    select.replaceChildren(...opts);
+    fill(select, ...opts);
     select.value = current || "";
   }
 
@@ -737,7 +743,7 @@ export const CLIENT = String.raw`
       if (my === gen) drawAi(card, st, my, "", "");
     }).catch((err) => {
       if (my !== gen) return;
-      card.replaceChildren(card.firstChild, h("p", { class: "error", text: "Could not load the AI settings: " + err.message }));
+      fill(card, card.firstChild, h("p", { class: "error", text: "Could not load the AI settings: " + err.message }));
     });
     return card;
   }
@@ -856,14 +862,14 @@ export const CLIENT = String.raw`
       if (!remote || unknownHost) {
         consent = null;
         consentSlot.dataset.host = "";
-        consentSlot.replaceChildren();
+        fill(consentSlot);
         return;
       }
       if (consent && consentSlot.dataset.host === host) return; // same host: keep what the user ticked
       consent = h("input", { type: "checkbox", id: "ai-allow-remote", disabled: locked("allowRemote") });
       consent.checked = locked("allowRemote") ? st.allowRemote === true : host === consentedHost;
       consentSlot.dataset.host = host;
-      consentSlot.replaceChildren(h("div", { class: "option ai-consent" }, consent,
+      fill(consentSlot, h("div", { class: "option ai-consent" }, consent,
         h("label", { for: "ai-allow-remote" }, "Send redacted page structure (labels, field types, button names — never values, cookies or screenshots) to " + host,
           h("span", { class: "desc", text: "This endpoint is not on this machine or your network. Nothing is sent until you tick this and save." })),
         lockNote("allowRemote")));
@@ -964,7 +970,7 @@ export const CLIENT = String.raw`
     const keyField = h("div", { class: "ai-field" },
       h("label", { class: "field-label", for: "ai-key", text: "API key" }), keyInput, lockNote("apiKey"), removeBtn, keyNote,
       h("span", { class: "field-hint", text: "Stays on this machine; never shown again. Not needed for Ollama or LM Studio." }));
-    card.replaceChildren(
+    fill(card, 
       h("h2", { id: "ai-h", class: "card-title" }, icon("sparkle"), "AI"),
       h("p", { class: "muted ai-intro", text: "Optional. A model reviews the plan, suggests extra flows and explains findings in plain words. It never decides pass or fail: the checks do." }),
       st.problem ? h("p", { class: "warning ai-problem", id: "ai-problem", text: st.problem }) : null,
@@ -998,7 +1004,7 @@ export const CLIENT = String.raw`
       [st, list] = await Promise.all([api("/api/runs/" + enc(id)), api("/api/runs").catch(() => null)]);
     } catch (err) {
       if (my !== gen) return;
-      view.replaceChildren(h("div", { class: "page" },
+      fill(view, h("div", { class: "page" },
         h("header", { class: "page-head" }, h("h1", { text: err.status === 404 ? "Run not found" : "Could not load this run" }),
           h("p", { text: err.status === 404 ? "There is no run " + id + " on this machine. It may have been deleted from the runs folder." : err.message })),
         h("a", { class: "btn", href: "#/runs" }, icon("list"), "All runs")));
@@ -1015,7 +1021,7 @@ export const CLIENT = String.raw`
     setTitle("Running tests…");
     const base = "/api/runs/" + enc(id);
     const ui = buildRunning(id, meta);
-    view.replaceChildren(ui.root);
+    fill(view, ui.root);
     focusHeading(my, initial);
 
     // Elapsed time: each poll gives the server's elapsedMs; in between it counts on locally, once a second.
@@ -1221,7 +1227,7 @@ export const CLIENT = String.raw`
       if (status !== row.status) {
         row.status = status;
         row.li.setAttribute("data-status", status);
-        row.ringSlot.replaceChildren(ring(status));
+        fill(row.ringSlot, ring(status));
       }
       const own = byScenario.get(sid) || [];
       if (f) row.dur.textContent = formatDuration(f.durationMs);
@@ -1254,7 +1260,7 @@ export const CLIENT = String.raw`
 
   function renderSubsteps(row, own, running, finished) {
     if (own.length === 0) {
-      row.sub.replaceChildren(h("p", { class: "empty", text: running ? "Starting this scenario…" : finished && finished.status === "skipped" ? "Skipped before it took any steps." : "No steps recorded." }));
+      fill(row.sub, h("p", { class: "empty", text: running ? "Starting this scenario…" : finished && finished.status === "skipped" ? "Skipped before it took any steps." : "No steps recorded." }));
       return;
     }
     const list = h("ol", {});
@@ -1262,7 +1268,7 @@ export const CLIENT = String.raw`
       const isCurrent = running && i === own.length - 1;
       list.append(h("li", { class: isCurrent ? "current" : "" }, ring(isCurrent ? "running" : "pass", { silent: true }), h("span", { text: s.label })));
     });
-    row.sub.replaceChildren(list);
+    fill(row.sub, list);
     if (running) list.scrollTop = list.scrollHeight;
   }
 
@@ -1285,10 +1291,10 @@ export const CLIENT = String.raw`
     const box = ui.logScroll;
     const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 32;
     if (steps.length === 0) {
-      ui.log.replaceChildren(h("li", {}, h("span", { class: "empty", text: "Waiting for the first step…" })));
+      fill(ui.log, h("li", {}, h("span", { class: "empty", text: "Waiting for the first step…" })));
       return;
     }
-    ui.log.replaceChildren(...steps.map((s, i) => {
+    fill(ui.log, ...steps.map((s, i) => {
       const isCurrent = running && i === steps.length - 1;
       return h("li", { class: isCurrent ? "current" : "" },
         h("time", { datetime: s.at, text: hms(s.at) }),
@@ -1331,7 +1337,7 @@ export const CLIENT = String.raw`
 
   function showReport(id, st, my, initial, fromLive, focusWasInView) {
     const root = st.status === "error" || !st.report ? failedView(id, st) : reportView(id, st.report, st, my);
-    view.replaceChildren(root);
+    fill(view, root);
     if (fromLive) {
       // The running view is gone (often scrolled down to "Stop run"); the report starts at its header.
       window.scrollTo(0, 0);
@@ -1618,7 +1624,7 @@ export const CLIENT = String.raw`
         if (f.ai) parts.push(aiExplanationPanel(f.ai));
         if (f.spec) parts.push(specPanel(f.spec, base));
       }
-      detail.replaceChildren(...parts);
+      fill(detail, ...parts);
     };
     draw();
   }
@@ -1649,7 +1655,7 @@ export const CLIENT = String.raw`
         e.capturedAt ? "Captured: " + e.capturedAt : "",
         e.kind === "gif" && e.frames ? e.frames + " frames, " + formatDuration(e.durationMs || 0) : "",
       ].filter(Boolean).join(" · ");
-      main.replaceChildren(
+      fill(main, 
         h("a", { href, target: "_blank", rel: "noopener", title: "Open the full-size image" }, h("img", { src: href, alt: kind + ": " + e.label })),
         h("figcaption", {}, h("b", { text: kind + ": " + e.label }), meta ? h("span", { class: "meta", text: meta }) : null));
       buttons.forEach((b, i) => b.setAttribute("aria-pressed", String(i === cur)));
