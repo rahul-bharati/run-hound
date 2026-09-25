@@ -279,6 +279,8 @@ To judge a finding, look at its evidence first, then try it by hand in your brow
 ## Known limitations
 
 - **One page, no login.** Run Hound tests every form (up to 5) and the buttons outside them on the page you give it, but doesn't follow links. Pages that redirect to a login screen get the login page tested instead (check **Pages tested**). Cookies that are only set after signing in aren't checked yet.
+- **Limits per page**: up to 5 forms and 20 buttons outside them are tested; links are counted, not followed. Buttons that sign you out, delete, pay or cancel something are only clicked with destructive scenarios allowed.
+- **Dev servers**: header, cookie and CORS findings are advisory and source maps are skipped on a dev server (Vite, Next.js, webpack, Nuxt, Astro). For those checks, run Run Hound against a production build.
 - **Login forms** need a real account for anything past the first submit; expect those scenarios to be skipped or limited.
 - **Unusual apps** may still produce false findings. We've tested classic HTML forms that post and redirect, fetch-based single-page apps, login forms and forms whose API is on another origin, but not your stack. That's what this test round is for.
 - **Development overlays** (Next.js dev tools, Vite's error overlay) are part of the page in development; if a finding points at one, tell us.

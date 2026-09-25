@@ -126,6 +126,15 @@ export function headerProblems(headers: Record<string, string>, https: boolean):
   return problems;
 }
 
+/** "Header: value" for each problem; clickjacking is left out when the suggested CSP already has frame-ancestors. */
+function fixList(problems: HeaderProblem[]): string {
+  const cspMissing = problems.some((p) => p.header === "Content-Security-Policy" && p.problem === "missing");
+  return problems
+    .filter((p) => !(cspMissing && p.header.startsWith("Clickjacking")))
+    .map((p) => (p.header.startsWith("Clickjacking") ? p.suggested : `${p.header}: ${p.suggested}`))
+    .join("; ");
+}
+
 export const check: Check = {
   id: ID,
   title: "The page sends security headers",
@@ -183,7 +192,7 @@ export const check: Check = {
         locations: problems.map((p) => p.header),
         meaning: `The page's response is missing protections that browsers only apply when the server asks for them: ${problems.map((p) => `${p.header} ${p.problem}`).join("; ")}.`,
         impact: `Without them, ${problems.map((p) => p.risk).join("; and ")}.${dev ? ` ${DEV_SERVER_NOTE}` : ""}`,
-        fix: `Ask your AI or developer: "Send these response headers on every page (in the server, framework config or hosting config): ${problems.map((p) => `${p.header.split(" (")[0]}: ${p.suggested}`).join("; ")}. Check the app still loads its scripts, styles and API calls with the new Content-Security-Policy."`,
+        fix: `Ask your AI or developer: "Send these response headers on every page (in the server, framework config or hosting config): ${fixList(problems)}. Check the app still loads its scripts, styles and API calls with the new Content-Security-Policy."`,
         evidence: [card],
       });
       f.spec = playwrightSpec(ID, 1, "the page sends security headers", ctx.targetUrl, [
