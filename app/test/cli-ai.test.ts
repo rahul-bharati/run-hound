@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -138,6 +138,27 @@ describe("run-hound ai test", () => {
     expect(r.code).not.toBe(0);
     expect(`${r.stdout}${r.stderr}`).not.toBe("");
     expect(`${r.stdout}${r.stderr}`).not.toContain(SECRET);
+  });
+});
+
+describe("run-hound ai test with a saved key and a flag endpoint", () => {
+  it("sends no Authorization with the saved key to an endpoint the flag moved it to", async () => {
+    const other = await startFakeLlm({ models: [{ id: "fake-model:9b", capabilities: ["completion"] }] });
+    try {
+      other.reply({ ok: true });
+      const savedFor = new URL(fake.baseUrl).origin;
+      await writeFile(
+        join(configDir, "ai.json"),
+        JSON.stringify({ enabled: true, provider: "openai-compatible", baseUrl: fake.baseUrl, model: "fake-model:9b", apiKey: SECRET, apiKeyOrigin: savedFor }),
+      );
+      const r = await runCli(["ai", "test", "--ai-base-url", other.baseUrl, "--ai-allow-remote"]);
+      expect(`${r.stdout}${r.stderr}`).not.toContain(SECRET);
+      for (const call of [...other.calls, ...fake.calls]) expect(String(call.headers.authorization ?? "")).not.toContain(SECRET);
+      const status = await runCli(["ai", "status", "--ai-base-url", other.baseUrl]);
+      expect(status.stdout).toMatch(/Key: not set/);
+    } finally {
+      await other.close();
+    }
   });
 });
 
