@@ -11,7 +11,16 @@ import { KENNEL_ROOT } from "./kennel.js";
 export async function setup() {
   if (process.env.KENNEL_SKIP_BUILD === "1" && existsSync(join(KENNEL_ROOT, "dist", "index.html"))) return;
 
-  await build({ root: KENNEL_ROOT, logLevel: "warn", mode: "production" });
+  // Vite bakes `process.env.NODE_ENV || mode` into the bundle, and vitest sets NODE_ENV=test: without this the
+  // dist/ that later suites reuse (KENNEL_SKIP_BUILD=1) would be React's development build.
+  const nodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = "production";
+  try {
+    await build({ root: KENNEL_ROOT, logLevel: "warn", mode: "production" });
+  } finally {
+    if (nodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = nodeEnv;
+  }
 
   if (!existsSync(join(KENNEL_ROOT, "dist", "index.html"))) {
     throw new Error("vite build finished but dist/index.html is missing");
