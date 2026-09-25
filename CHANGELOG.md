@@ -8,28 +8,34 @@ Bring your own model. AI is off by default and never decides pass or fail. Contr
 
 ### The repository is public
 
-- Run Hound is now open source in a public repository: <https://github.com/rahul-bharati/run-hound>. There is no invitation or access request any more; anyone can clone it, try it and file issues. The README, TESTING.md, the issue forms and the website say so, and the preview is called the "V1 preview" in reports and the web UI.
+- Run Hound is now open source in a public repository: <https://github.com/rahul-bharati/run-hound>, under the [MIT license](LICENSE). There is no invitation or access request any more; anyone can clone it, try it and file issues. The README, TESTING.md, the issue forms and the website say so, and the preview is called the "V1 preview" in reports and the web UI.
+- **Docker images on GHCR**: a release workflow publishes `ghcr.io/rahul-bharati/run-hound`, `run-hound-kennel` and `run-hound-samples` (linux/amd64 and linux/arm64) when a version tag is pushed, with an optional Docker Hub mirror. The docs and the compose file use the GHCR names, with `docker compose build` as the fallback.
 
 ### Added
 
-- **Providers**: Ollama (native API, thinking off, larger context), any OpenAI-compatible endpoint (LM Studio, llama.cpp, vLLM, OpenAI, OpenRouter, Groq, Together, …) with JSON-schema structured output, and Amazon Bedrock (Converse, with a Bedrock API key or SigV4 from AWS access keys). No new dependencies.
+- **Providers**: Ollama (native API, thinking off, larger context), any OpenAI-compatible endpoint (LM Studio, llama.cpp, vLLM, OpenAI, OpenRouter, Groq, Together, …) with JSON-schema structured output, and Amazon Bedrock (Converse, with a Bedrock API key, AWS access keys, or an AWS profile: static keys, `credential_process` or IAM Identity Center/SSO after `aws sso login`). No new dependencies.
 - **Plan review**: the model recommends and ranks each built-in scenario and gives a one-line reason (`Scenario.ai`); destructive scenarios are never ticked by it, and nothing is added, removed or reordered.
 - **Suggested flows**: up to 5 flows of up to 8 steps that only name discovered fields and buttons, run by the new `ai-flow` check with deterministic expectations (a save succeeds, text is shown or gone, the URL changes, no errors, typed values kept). Unticked by default; a failed flow is one advisory finding with a GIF, a frame and a Playwright spec.
 - **Explanations**: after the run, each finding (up to 20) gets an "AI explanation (advisory)" and an "Ask your AI" prompt beside the built-in text (`Finding.ai`, `Report.ai`).
 - **Web UI**: Settings → AI (provider presets, a **model dropdown** filled from the server with Refresh and "Other…", write-only API key, feature toggles, remote consent naming the host, Test connection); "Review with AI" on New Run; AI chips, reasons and suggested steps in the plan; AI explanation panel in the report.
 - **API**: `GET/PUT /api/ai`, `POST /api/ai/test`, `GET /api/ai/models`; `POST /api/plan` takes `ai`.
 - **CLI**: `run --ai/--no-ai --ai-provider --ai-model --ai-base-url --ai-allow-remote`, `run-hound ai status`, `run-hound ai test`.
-- **Config**: `~/.config/run-hound/ai.json` (0600) or `RUNHOUND_CONFIG_DIR`, `RUNHOUND_AI_*` variables; compose passes them and keeps UI settings in `./runs/.config`.
+- **Config**: `~/.config/run-hound/ai.json` (0600, in a 0700 folder) or `RUNHOUND_CONFIG_DIR`, `RUNHOUND_AI_*` variables; compose passes them and keeps UI settings in `./runs/.config`.
+- **Reliability with small local models**: Ollama keeps the model loaded between planning and explanations; a timed-out explanation is retried once, and after two timeouts in a row the rest are skipped with one warning; planning with AI is bounded at 4 minutes and follows the browser request (closing the page stops it).
 
 ### Privacy
 
 - Only redacted page structure is sent (labels, field types, button names, the page path, scenario titles), never typed values, selectors, cookies, bodies or screenshots.
 - Remote endpoints (anything not on this machine or a private network, and Bedrock) need explicit consent; without it nothing is sent, not even a model list request.
-- API keys are never returned by the API, shown in the UI or written to reports.
+- API keys are never returned by the API, shown in the UI or written to reports. A saved key is bound to the endpoint it was saved for: changing the endpoint (in Settings, a flag or an environment variable) never sends it elsewhere, and saving a new endpoint without a new key removes it.
+- Consent for a remote endpoint is bound to its host; pointing Run Hound at another remote host asks again.
+- Suggested flows can't activate destructive controls without `--allow-destructive`: they may press only Enter (in a form field, and not when the form's submit button is destructive) and Escape, and stop if focus lands on a destructive control.
+- `/api/ai*` requires an `X-Run-Hound` header, so other websites can't drive the local server.
 
 ### Changed
 
 - With AI off, plans, runs and reports are the same as 0.2.0.
+- The web UI no longer prints "null" where an optional hint or notice is empty.
 
 ## 0.2.0 (V1 tester preview: single page)
 
