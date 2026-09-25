@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { ArrowIcon, ButtonLink } from "@/components/button-link";
+import { CommandCopy } from "@/components/command-copy";
 import { stepScreens } from "@/components/screens";
 import { Screenshot } from "@/components/screenshot";
 import { Card, Container, Eyebrow, PageHeader, Section } from "@/components/layout";
@@ -9,7 +10,7 @@ import { site } from "@/lib/site";
 export const metadata: Metadata = {
   title: "How it works",
   description:
-    "Run Hound finds the form on your local page, plans checks in three groups, waits for your approval, runs them in a real browser with evidence and timing at every step, and reports each defect in plain language.",
+    "Run Hound finds every form and interactive control on your local page, plans form checks and page-wide checks in three groups, waits for your approval, runs them in a real browser with evidence at every step, and reports each defect in plain language.",
 };
 
 // The step's screenshot column: 7/12 of the 1136 px container from xl, 7/12 of the viewport on lg, full width below.
@@ -23,9 +24,10 @@ const steps: { number: string; name: string; title: string; body: ReactNode; sho
     title: "It looks around like a user would",
     body: (
       <>
-        Run Hound opens your page in a headless Chromium with Playwright and finds the main form: its fields, labels,
-        buttons and the request it sends. It reads the accessibility tree and the DOM, the same structure screen
-        readers rely on.
+        Run Hound opens your page in a headless Chromium with Playwright and finds every form and interactive control
+        on it: fields, labels, buttons, the requests they send, and the controls outside any form. It reads the
+        accessibility tree and the DOM, the same structure screen readers rely on, and notes the page&apos;s response
+        headers, cookies and scripts.
       </>
     ),
     shot: <Screenshot screen={stepScreens.explore} sizes={shotSizes} />,
@@ -36,10 +38,11 @@ const steps: { number: string; name: string; title: string; body: ReactNode; sho
     title: "It drafts golden paths and danger paths",
     body: (
       <>
-        From what it found, it plans 13 to 15 scenarios under three groups: Accessibility, Features and Security. Golden
-        paths are what a real user does; danger paths are what breaks things, like double clicks, server errors and
-        keyboard-only use. In V0 the plan comes from what it found on the page. AI planning, where a model proposes
-        scenarios from your app, is coming soon.
+        From what it found, it plans form checks for each form, plus page-wide checks such as security headers, cookie
+        flags, CORS, public source maps and dead controls anywhere on the page, under three groups: Accessibility,
+        Features and Security. Golden paths are what a real user does; danger paths are what breaks things, like
+        double clicks, server errors and keyboard-only use. In the preview the plan comes from what it found on the
+        page. AI planning, where a model proposes scenarios from your app, is coming soon.
       </>
     ),
     shot: <Screenshot screen={stepScreens.plan} sizes={shotSizes} />,
@@ -64,8 +67,8 @@ const steps: { number: string; name: string; title: string; body: ReactNode; sho
     body: (
       <>
         The approved scenarios run group by group in a real browser. A live view shows the page under test, the
-        current scenario and its steps as they happen, the elapsed time and a timestamped log. Screenshots, console and network traffic are kept,
-        so every result traces back to what actually happened.
+        current scenario and its steps as they happen, the elapsed time and a timestamped log. Screenshots, console and
+        network traffic are kept, so every result traces back to what actually happened.
       </>
     ),
     shot: <Screenshot screen={stepScreens.run} sizes={shotSizes} />,
@@ -88,7 +91,7 @@ const steps: { number: string; name: string; title: string; body: ReactNode; sho
 const principles = [
   {
     title: "AI plans and explains. Real checks decide.",
-    body: "Pass or fail comes from Playwright assertions, axe-core and captured traffic in a real browser, never from a model guessing. AI planning and AI explanations are coming soon; when they arrive, a model will propose and explain, and a real check with evidence will still decide every result. Findings that rely on judgement are marked advisory.",
+    body: "Pass or fail comes from Playwright assertions, axe-core and captured traffic in a real browser, never from a model guessing. AI planning and AI explanations are coming soon; when they arrive, a model will propose and explain, and a real check with evidence will still decide every result. Findings that rely on judgement, or on production values a dev server doesn't send, are marked advisory.",
   },
   {
     title: "No evidence, no finding.",
@@ -100,7 +103,7 @@ const principles = [
   },
   {
     title: "Only owned targets, safe by default.",
-    body: "V0 tests localhost and private addresses only; public sites are refused. The browser is pinned to the approved address, destructive scenarios are opt-in, and reports redact secret-looking text.",
+    body: "The preview tests localhost and private addresses only; public sites are refused. The browser is pinned to the approved address, destructive scenarios are opt-in, and reports redact secret-looking text.",
   },
 ];
 
@@ -140,10 +143,11 @@ export default function HowItWorksPage() {
             It asks <span className="text-accent">before it tests.</span>
           </>
         }
-        lede="Run Hound finds the form on your page, drafts a test plan and waits for your approval. Then it runs the plan in a real browser and reports what broke, with proof."
+        lede="Run Hound finds every form and control on your page, drafts a test plan and waits for your approval. Then it runs the plan in a real browser and reports what broke, with proof."
       >
-        <p className="font-mono text-xs tracking-widest text-dim">
-          V0 TESTER PREVIEW {site.version} · REAL SCREENSHOTS FROM A RUN ON KENNEL, OUR DELIBERATELY BROKEN DEMO APP
+        <p className="max-w-3xl font-mono text-xs leading-relaxed tracking-widest text-dim">
+          {site.release} TESTER PREVIEW {site.version} · SCREENSHOTS FROM A REAL RUN ON KENNEL, OUR DELIBERATELY BROKEN
+          DEMO APP
         </p>
       </PageHeader>
 
@@ -164,7 +168,9 @@ export default function HowItWorksPage() {
                   <Eyebrow>
                     {step.number} · {step.name}
                   </Eyebrow>
-                  <h3 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">{step.title}</h3>
+                  <h3 className="text-balance font-display text-3xl font-bold leading-[1.1] tracking-tight sm:text-4xl">
+                    {step.title}
+                  </h3>
                   <p className="text-lg leading-relaxed text-muted">{step.body}</p>
                 </div>
                 <div className={`min-w-0 ${index % 2 === 1 ? "lg:order-1" : ""}`}>{step.shot}</div>
@@ -224,15 +230,18 @@ export default function HowItWorksPage() {
       </Section>
 
       <Section>
-        <div className="flex flex-col items-start gap-6 rounded-2xl border border-line bg-surface p-8 sm:p-12">
-          <h2 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">Try it on your own form</h2>
+        <div className="flex flex-col items-start gap-6 rounded-2xl border border-line bg-surface p-6 sm:p-12">
+          <h2 className="text-balance font-display text-3xl font-bold tracking-tight sm:text-[2.5rem]">
+            Try it on your own page
+          </h2>
           <p className="max-w-2xl text-lg leading-relaxed text-muted">
-            V0 runs on your machine with Node or Docker. Start with Kennel, our deliberately broken demo app, then point
-            it at your own form.
+            {site.release} runs on your machine with Node, Docker or Podman. One command starts it with Kennel, our
+            deliberately broken demo app, and a few sample apps; then point it at a page of your own.
           </p>
-          <div className="flex flex-col gap-3 sm:flex-row">
+          <CommandCopy command={site.dockerCommand} className="w-full max-w-2xl" />
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
             <ButtonLink href={site.testingGuide}>
-              Try V0 Locally
+              {site.cta}
               <ArrowIcon />
             </ButtonLink>
             <ButtonLink href="/docs" variant="secondary">

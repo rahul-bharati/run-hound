@@ -56,7 +56,7 @@ export function SiteHeader() {
           </nav>
 
           <ButtonLink href={site.testingGuide} className="!px-5 !py-2.5 text-[15px] max-sm:hidden">
-            Try V0 Locally
+            {site.cta}
           </ButtonLink>
 
           <details ref={menuRef} className="group relative lg:hidden">
@@ -92,7 +92,7 @@ export function SiteHeader() {
                 ))}
                 <li className="p-2 sm:hidden">
                   <ButtonLink href={site.testingGuide} className="w-full">
-                    Try V0 Locally
+                    {site.cta}
                     <ArrowIcon />
                   </ButtonLink>
                 </li>

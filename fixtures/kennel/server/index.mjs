@@ -19,6 +19,9 @@ const V0_BUGS = [
   "A01", "A02", "A03", "A04", "A05", "A06", "A07", "A08", "A09",
   "S01", "S02", "S03", "S04",
 ];
+// V1 (single page): a page-level control, response headers, cookie flags, CORS and source maps.
+const V1_BUGS = ["F07", "S05", "S06", "S07", "S08"];
+const ALL_BUGS = [...V0_BUGS, ...V1_BUGS];
 
 const PORT = Number(process.env.PORT ?? 3000);
 const ANALYTICS_PORT = Number(process.env.ANALYTICS_PORT ?? 3001);
@@ -30,11 +33,11 @@ const MAX_BODY = 1_000_000;
 export function parseBugs(raw = "none") {
   const value = raw.replace(/\s+/g, "").toUpperCase();
   if (value === "" || value === "NONE") return new Set();
-  if (value === "ALL") return new Set(V0_BUGS);
+  if (value === "ALL") return new Set(ALL_BUGS);
   const bugs = new Set();
   for (const id of value.split(",").filter(Boolean)) {
-    if (!V0_BUGS.includes(id)) {
-      console.error(`kennel: unknown bug id "${id}" in KENNEL_BUGS (known: ${V0_BUGS.join(", ")})`);
+    if (!ALL_BUGS.includes(id)) {
+      console.error(`kennel: unknown bug id "${id}" in KENNEL_BUGS (known: ${ALL_BUGS.join(", ")})`);
       process.exit(1);
     }
     bugs.add(id);
@@ -47,8 +50,61 @@ const on = (id) => bugs.has(id);
 
 // ---- helpers -----------------------------------------------------------------------------------
 
+/** Hostname the browser used to reach Kennel ("localhost", "127.0.0.1", "kennel" in compose). */
+function requestHost(req) {
+  try {
+    return new URL(`http://${req.headers.host ?? "localhost"}`).hostname;
+  } catch {
+    return "localhost";
+  }
+}
+
+/**
+ * Security headers of every Kennel response (clean mode). The CSP allows the mock analytics origin, which the page
+ * calls with fetch. S05 drops them all.
+ */
+function securityHeaders(req) {
+  if (on("S05")) return {};
+  const host = requestHost(req);
+  const analytics = `http://${host.includes(":") ? `[${host}]` : host}:${ANALYTICS_PORT}`;
+  return {
+    "content-security-policy": [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data:",
+      `connect-src 'self' ${analytics}`,
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "frame-ancestors 'self'",
+    ].join("; "),
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "strict-origin-when-cross-origin",
+  };
+}
+
+/**
+ * CORS on the API. Clean mode sends none (the frontend is same-origin). S07 echoes any Origin, "null" included,
+ * with credentials: the classic copy-paste CORS mistake.
+ */
+function corsHeaders(req) {
+  if (!on("S07") || !req.headers.origin) return {};
+  return { "access-control-allow-origin": req.headers.origin, "access-control-allow-credentials": "true", vary: "Origin" };
+}
+
+/** The session cookie set on the page. Clean: HttpOnly; SameSite=Lax. S06 leaves HttpOnly off. */
+function sessionCookie(req) {
+  if (/(?:^|;\s*)kennel_session=/.test(req.headers.cookie ?? "")) return {};
+  const flags = on("S06") ? "Path=/; SameSite=Lax" : "Path=/; HttpOnly; SameSite=Lax";
+  return { "set-cookie": `kennel_session=${randomUUID()}; ${flags}` };
+}
+
+/** Every response gets the security headers; API responses also get the CORS headers. res.req is the request. */
 function send(res, status, body, headers = {}) {
-  res.writeHead(status, { "cache-control": "no-store", "content-length": Buffer.byteLength(body), ...headers });
+  const req = res.req;
+  const extra = req ? { ...securityHeaders(req), ...(req.url?.startsWith("/api/") ? corsHeaders(req) : {}) } : {};
+  res.writeHead(status, { "cache-control": "no-store", "content-length": Buffer.byteLength(body), ...extra, ...headers });
   res.end(body);
 }
 
@@ -180,6 +236,7 @@ async function handleApi(req, res, url) {
   const { pathname } = url;
   const method = req.method ?? "GET";
 
+  if (method === "OPTIONS") return send(res, 204, "", on("S07") ? { "access-control-allow-methods": "GET, POST, DELETE", "access-control-allow-headers": "content-type" } : {});
   if (pathname === "/api/__config" && method === "GET") {
     const host = new URL(`http://${req.headers.host ?? "localhost"}`).hostname;
     return json(res, 200, { bugs: [...bugs].sort(), analyticsUrl: `http://${host}:${ANALYTICS_PORT}` });
@@ -241,7 +298,9 @@ async function serveStatic(res, pathname) {
     return send(res, 400, "Bad request", { "content-type": "text/plain; charset=utf-8" });
   }
   const file = normalize(join(DIST, decoded));
-  if (!file.startsWith(DIST + sep) || file.endsWith(`${sep}index.html`)) {
+  // The build writes source maps without a sourceMappingURL comment ("hidden"); only S08 serves them.
+  const hiddenMap = file.endsWith(".map") && !on("S08");
+  if (!file.startsWith(DIST + sep) || file.endsWith(`${sep}index.html`) || hiddenMap) {
     return send(res, 404, "Not found", { "content-type": "text/plain; charset=utf-8" });
   }
   try {
@@ -262,7 +321,7 @@ const app = createServer(async (req, res) => {
     if (req.method !== "GET" && req.method !== "HEAD") return send(res, 405, "Method not allowed", { allow: "GET, HEAD" });
     if (url.pathname === "/") return send(res, 302, "", { location: "/book" });
     if (url.pathname === "/book" || url.pathname === "/book/") {
-      return send(res, 200, indexHtml(), { "content-type": TYPES[".html"] });
+      return send(res, 200, indexHtml(), { "content-type": TYPES[".html"], ...sessionCookie(req) });
     }
     return await serveStatic(res, url.pathname);
   } catch (err) {

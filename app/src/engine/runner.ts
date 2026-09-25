@@ -5,8 +5,8 @@ import { join, resolve } from "node:path";
 import { chromium, type Browser, type LaunchOptions } from "playwright";
 import { groupOf } from "../core/format.js";
 import { CHECK_GROUPS, type Check, type CheckGroup, type CheckResult, type Plan, type Report, type Scenario } from "../core/types.js";
-import { createCheckContext } from "./context.js";
-import { discoverForm } from "./discover.js";
+import { BROWSER_LOCALE, createCheckContext } from "./context.js";
+import { discoverPage } from "./discover.js";
 import {
   cleanErrorMessage,
   containerLocalhostHint,
@@ -19,7 +19,7 @@ import {
   TargetUnreachableError,
 } from "./errors.js";
 import { guardContext, guardSummary } from "./guard.js";
-import { buildPlan } from "./plan.js";
+import { buildPlan, formOfScenario } from "./plan.js";
 import { redactSecrets } from "./redact.js";
 import { NOT_VISIBLE, redactReport, writeReport } from "./report.js";
 import { checkTarget, pinArgs, type SafetyOptions } from "./safety.js";
@@ -139,10 +139,10 @@ export async function discoverAndPlan(rawUrl: string, options: RunOptions = {}):
   const safety = safetyOptions(options);
   const target = await checkTarget(url, safety);
   const checks = await resolveChecks(options);
-  engineStep(options, "Opening the page to find the form", url);
+  engineStep(options, "Opening the page to find its forms and controls", url);
   const browser = await chromium.launch(launchOptions(target, options));
   try {
-    const context = await browser.newContext();
+    const context = await browser.newContext({ locale: BROWSER_LOCALE });
     const guard = await guardContext(context, safety);
     const page = await context.newPage();
     let status: number | null = null;
@@ -157,15 +157,21 @@ export async function discoverAndPlan(rawUrl: string, options: RunOptions = {}):
       throw hint ? new TargetUnreachableError(url, `${(explained as Error).message} ${hint}`) : explained;
     }
     if (guard.escaped.length > 0) throw new TargetNotAllowedError(url, guardSummary(guard)!);
-    engineStep(options, "Reading the form", page.url());
-    try {
-      const form = await discoverForm(page);
-      return buildPlan(url, form, checks);
-    } catch (err) {
-      if (!(err instanceof NoFormFoundError)) throw err;
+    engineStep(options, "Reading the page: forms, fields and controls", page.url());
+    const found = await discoverPage(page);
+    if (found.forms.length === 0) {
+      // A page without a form still gets the page-wide checks, unless it is an error page or a dev server refusing
+      // the host name: testing that page would only test the error.
       const text = String(await page.evaluate("document.body ? document.body.innerText.slice(0, 400) : ''").catch(() => ""));
-      throw new NoFormFoundError(url, explainNoForm({ requested: url, final: page.url(), status, text }));
+      const broken = (status !== null && status >= 400) || /Blocked request\. This host|Invalid Host header|Blocked cross-origin request/i.test(text);
+      if (broken) throw new NoFormFoundError(url, explainNoForm({ requested: url, final: page.url(), status, text }));
     }
+    const plan = buildPlan(url, found, checks);
+    // Nothing applies (only form checks are registered, or none apply): an empty plan would look like a clean pass.
+    if (found.forms.length === 0 && plan.scenarios.length === 0) {
+      throw new NoFormFoundError(url, "none of the page-wide checks apply to it either");
+    }
+    return plan;
   } finally {
     await browser.close();
   }
@@ -181,11 +187,14 @@ export function planWarnings(plan: Plan): string[] {
     const asked = new URL(plan.target);
     const found = new URL(plan.form.url);
     if (asked.origin !== found.origin || asked.pathname !== found.pathname) {
-      const login = /log-?in|sign-?in|auth/i.test(found.pathname) ? " It looks like a sign-in page: pages behind a login aren't supported in V0." : "";
-      warnings.push(`${plan.target} redirected to ${plan.form.url}, so the form on that page is the one being tested.${login}`);
+      const login = /log-?in|sign-?in|auth/i.test(found.pathname) ? " It looks like a sign-in page: pages behind a login aren't supported yet." : "";
+      warnings.push(`${plan.target} redirected to ${plan.form.url}, so that page is the one being tested.${login}`);
     }
   } catch {
     // An unparseable URL can't be compared; the safety gate has already judged it.
+  }
+  if (plan.page && plan.page.forms.length === 0) {
+    warnings.push("No form was found on this page, so only the page-wide checks are planned (buttons outside forms, headers, cookies, CORS, source maps, scripts and layout).");
   }
   return warnings;
 }
@@ -386,7 +395,8 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
     const withSteps = (result: CheckResult): CheckResult => (steps.length > 0 ? { ...result, steps: [...steps] } : result);
     const ctx = createCheckContext({
       browser,
-      form: plan.form,
+      form: formOfScenario(plan, scenario),
+      discoveredPage: plan.page,
       targetUrl: plan.target,
       artifactsDir,
       allowDestructive,

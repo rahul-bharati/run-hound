@@ -365,3 +365,12 @@ button {
   width: 36rem;
   max-width: none;
 }
+
+/* V1: the "Your bookings" heading with the page-level Refresh button beside it. */
+.bookings-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}

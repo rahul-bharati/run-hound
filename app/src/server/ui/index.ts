@@ -1,5 +1,5 @@
 import { MARK_DATA_URI } from "../../core/brand.js";
-import { CHECK_GROUPS } from "../../core/types.js";
+import { CHECK_GROUPS, V1_CHECK_IDS } from "../../core/types.js";
 import { CLIENT } from "./client.js";
 import { ICONS } from "./icons.js";
 import { STYLES } from "./styles.js";
@@ -62,6 +62,7 @@ export function renderUi(options: UiOptions): string {
     canShowBrowser: options.canShowBrowser,
     headedDesc,
     groups: CHECK_GROUPS.map((g) => ({ id: g.id, label: g.label, categories: g.categories })),
+    v1Checks: V1_CHECK_IDS,
     icons: ICONS,
   });
 
@@ -89,7 +90,7 @@ export function renderUi(options: UiOptions): string {
 <li><a href="#/settings"><span class="ic" aria-hidden="true">${ICONS.gear}</span><span>Settings</span></a></li>
 </ul>
 </nav>
-<footer class="side-foot"><span class="dot" aria-hidden="true"></span><div><b>Local · this machine</b><span>Run Hound ${version}</span><span>Tester preview</span></div></footer>
+<footer class="side-foot"><span class="dot" aria-hidden="true"></span><div><b>Local · this machine</b><span>Run Hound ${version}</span><span>V1 tester preview</span></div></footer>
 </aside>
 <main id="view" tabindex="-1"></main>
 </div>
@@ -99,7 +100,7 @@ export function renderUi(options: UiOptions): string {
 <div class="page">
 <header class="page-head">
 <h1>New run</h1>
-<p>Point Run Hound at a page with a form on an app running on this machine. It plans checks, you choose which to run, and it runs them in a real browser with evidence for every finding.</p>
+<p>Point Run Hound at a page of an app running on this machine. It finds every form and control on the page, plans checks for each form and for the page as a whole, you choose which to run, and it runs them in a real browser with evidence for every finding.</p>
 </header>
 <ol id="stepper" aria-label="New run steps">
 <li data-step="1"><span class="num" aria-hidden="true">1</span><span>Target</span></li>
@@ -121,6 +122,7 @@ export function renderUi(options: UiOptions): string {
 </section>
 <section class="card" id="plan-section" aria-labelledby="plan-h" hidden>
 <div class="plan-head"><h2 id="plan-h" tabindex="-1">Plan</h2><p id="plan-summary"></p></div>
+<ul id="page-inventory" class="inventory" aria-label="What Run Hound found on the page" hidden></ul>
 <div id="plan-warnings" class="warning" hidden></div>
 <form id="plan-form" novalidate>
 <div id="scenarios"></div>

@@ -18,7 +18,7 @@ const planted = [
     version: "V0",
     count: 19,
     title: "Booking form bugs",
-    body: "Defects in a single form on localhost, the ones V0 is scored against. In clean mode the target is zero confirmed findings.",
+    body: "Defects in a single form on localhost, the ones V0 was scored against. In clean mode the target is zero confirmed findings.",
     groups: [
       { name: "Broken features", count: 5 },
       { name: "Validation", count: 1 },
@@ -30,7 +30,7 @@ const planted = [
     version: "V2 · PLANNED",
     count: 7,
     title: "Two-account bugs",
-    body: "Access problems that only show up when two owned test accounts try to see each other's data. Not tested by V0.",
+    body: "Access problems that only show up when two owned test accounts try to see each other's data. Not tested by V0 or V1.",
     groups: [
       { name: "Data access", count: 4 },
       { name: "Auth", count: 2 },
@@ -45,6 +45,10 @@ KENNEL_BUGS=all PORT=5310 ANALYTICS_PORT=5311 pnpm kennel
 # terminal 2: the web UI, then open http://localhost:4310
 pnpm serve --port 4310`;
 
+const dockerCommands = `cp .env.example .env && docker compose up --build   # or: podman compose up --build
+
+# then open http://localhost:4000 and enter http://kennel:3000/book`;
+
 export default function DemoPage() {
   return (
     <>
@@ -57,9 +61,10 @@ export default function DemoPage() {
         }
         lede={
           <>
-            Everything on this page was captured from a real run of Run Hound {site.version} against Kennel, our
+            Everything on this page was captured from a real run of Run Hound 0.1.0 (V0) against Kennel, our
             deliberately broken pet-sitting booking form, with all 19 planted bugs switched on. The keys and email
-            addresses are fake test values.
+            addresses are fake test values. {site.release} ({site.version}) runs the same form checks, plus page-wide
+            checks.
           </>
         }
       />
@@ -68,7 +73,7 @@ export default function DemoPage() {
         id="features"
         title="One click, two bookings"
         intro="The double-submit check double-clicks “Book” and counts the save requests that reach the server. Kennel accepted both, so the report shows the recording and the two requests, 0.2 ms apart, with two different record ids."
-        className="pt-4 sm:pt-6"
+        className="border-t border-line-soft"
       >
         <div className="grid items-start gap-5 lg:grid-cols-2">
           <EvidenceFigure
@@ -143,22 +148,25 @@ export default function DemoPage() {
       <Section
         id="try"
         title="Run the same demo yourself"
-        intro="Kennel ships in the repository. With the local install, two terminals are enough. Then restart Kennel with KENNEL_BUGS=none: a clean Kennel should give zero confirmed findings."
+        intro="Kennel ships in the repository. The quickest way is one Docker or Podman command, which also starts the sample apps; the local install takes two terminals. Then switch Kennel to KENNEL_BUGS=none: a clean Kennel should give zero confirmed findings."
       >
-        <div className="grid items-start gap-8 lg:grid-cols-[1.3fr_1fr]">
-          <CodeBlock label="From the repository root">{kennelCommands}</CodeBlock>
+        <div className="grid items-start gap-8 lg:grid-cols-[1.3fr_1fr] lg:gap-12">
+          <div className="flex min-w-0 flex-col gap-5">
+            <CodeBlock label="Docker or Podman, from the repository root">{dockerCommands}</CodeBlock>
+            <CodeBlock label="Local install, from the repository root">{kennelCommands}</CodeBlock>
+          </div>
           <div className="flex flex-col gap-4">
             <p className="leading-relaxed text-muted">
-              Enter <code className="font-mono text-fg">http://localhost:5310/book</code>, approve the plan and watch
-              the live view. A run takes about a minute. Docker works too; the{" "}
-              <Link href="/docs#kennel" className="text-accent underline underline-offset-4 hover:text-accent-strong">
+              With the local install, enter <code className="font-mono text-fg">http://localhost:5310/book</code>.
+              Approve the plan and watch the live view. The{" "}
+              <Link href="/docs#quick-start" className="text-accent underline underline-offset-4 hover:text-accent-strong">
                 docs
               </Link>{" "}
-              have both paths.
+              have both paths step by step.
             </p>
             <div className="flex flex-col gap-3 sm:flex-row lg:flex-col xl:flex-row">
               <ButtonLink href={site.testingGuide}>
-                Try V0 Locally
+                {site.cta}
                 <ArrowIcon />
               </ButtonLink>
               <ButtonLink href="/docs#kennel" variant="secondary">
@@ -167,10 +175,7 @@ export default function DemoPage() {
             </div>
             <p className="text-sm text-dim">
               Invite-only preview:{" "}
-              <a
-                href={site.accessMail}
-                className="text-muted underline underline-offset-4 hover:text-accent"
-              >
+              <a href={site.accessMail} className="text-muted underline underline-offset-4 hover:text-accent">
                 ask for access
               </a>
               .

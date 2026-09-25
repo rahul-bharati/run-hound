@@ -6,7 +6,8 @@
 //           POST /api/rsvps    JSON { name, email, attending, guests, dietary }; 201 { rsvp } or 400 { errors }
 //           OPTIONS            CORS preflight, answered only for the page's own origin (loopback host, PORT)
 //
-// Data is in memory. Env: PORT (default 4104), API_PORT (default 4105; must differ), HOST (default: all interfaces).
+// Data is in memory. Env: PORT (default 4104), API_PORT (default 4105; must differ), HOST (default: all interfaces),
+// PAGE_HOSTS (extra host names the page may be opened with besides loopback, comma list; e.g. a compose service name).
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -28,6 +29,8 @@ if (PORT === API_PORT) {
 const LIMITS = { name: 80, email: 254, dietary: 500 };
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
+// Extra host names the page may be opened with (comma list), e.g. the compose service name "cross-origin-api".
+const PAGE_HOSTS = new Set((process.env.PAGE_HOSTS ?? "").split(",").map((h) => h.trim().toLowerCase()).filter(Boolean));
 
 /** @type {{id: string, name: string, email: string, attending: "yes" | "no", guests: number, dietary: string, createdAt: string}[]} */
 const rsvps = [];
@@ -92,7 +95,8 @@ function cors(req) {
   if (!origin) return {};
   try {
     const u = new URL(origin);
-    if (u.protocol === "http:" && LOOPBACK.has(u.host.replace(/:\d+$/, "")) && Number(u.port) === PORT) {
+    const host = u.host.replace(/:\d+$/, "").toLowerCase();
+    if (u.protocol === "http:" && (LOOPBACK.has(host) || PAGE_HOSTS.has(host)) && Number(u.port) === PORT) {
       return {
         "access-control-allow-origin": origin,
         "access-control-allow-methods": "GET, POST, OPTIONS",

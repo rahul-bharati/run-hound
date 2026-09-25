@@ -1,7 +1,7 @@
 # Kennel: the deliberately broken booking app Run Hound is tested against.
 # Build from the repository root (the pnpm workspace and lockfile live there):
-#   docker build -f fixtures/kennel/Dockerfile -t rahulrbharati/run-hound-kennel:0.1.0 .
-#   docker run --rm -p 3000:3000 -p 3001:3001 -e KENNEL_BUGS=none rahulrbharati/run-hound-kennel:0.1.0
+#   docker build -f fixtures/kennel/Dockerfile -t rahulrbharati/run-hound-kennel:0.2.0 .
+#   docker run --rm -p 3000:3000 -p 3001:3001 -e KENNEL_BUGS=none rahulrbharati/run-hound-kennel:0.2.0
 # Kennel is a local test target only: do not expose it to the internet.
 
 # ---- build: install the workspace deps for kennel and run `vite build` ----

@@ -147,7 +147,7 @@ describe("discoverAndPlan", () => {
     const plan = await discoverAndPlan(`${server.url}/settings`, { checks });
     const warnings = planWarnings(plan);
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toMatch(/\/settings redirected to .*\/login\?next=\/settings, so the form on that page is the one being tested\. It looks like a sign-in page/);
+    expect(warnings[0]).toMatch(/\/settings redirected to .*\/login\?next=\/settings, so that page is the one being tested\. It looks like a sign-in page/);
     expect(planWarnings(await discoverAndPlan(url(), { checks }))).toEqual([]);
   });
 

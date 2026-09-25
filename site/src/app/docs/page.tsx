@@ -1,34 +1,36 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowIcon, ButtonLink } from "@/components/button-link";
-import { v0Groups } from "@/components/checks/data";
+import { previewGroups } from "@/components/checks/data";
 import { Callout } from "@/components/docs/callout";
 import { CodeBlock } from "@/components/docs/code-block";
 import { DocSection } from "@/components/docs/doc-section";
 import { DocsToc } from "@/components/docs/toc";
 import { SeverityLabel, type Severity } from "@/components/finding";
-import { Container, PageHeader } from "@/components/layout";
+import { Container, NewTag, PageHeader } from "@/components/layout";
 import { site } from "@/lib/site";
 
+const checkTotal = previewGroups.reduce((sum, g) => sum + g.checks.length, 0);
+
 export const metadata: Metadata = {
-  title: "Docs: V0 tester guide",
-  description:
-    "Run Hound V0 (0.1.0) tester guide: requirements, local and Docker install, trying it on the Kennel demo app, testing your own app, reading the report, the 15 checks, safety and sending feedback.",
+  title: "Docs: V1 tester guide",
+  description: `Run Hound V1 (${site.version}) tester guide: a Docker or Podman quick start with Kennel and sample apps, the local install, testing your own page, reading the report, the ${checkTotal} checks, safety and sending feedback.`,
 };
 
 const toc = [
-  { id: "overview", label: "What V0 does" },
+  { id: "overview", label: "What V1 does" },
+  { id: "quick-start", label: "Quick start" },
   { id: "requirements", label: "Requirements" },
-  { id: "install", label: "Install" },
+  { id: "install", label: "Local install" },
   { id: "kennel", label: "Try it on Kennel" },
   { id: "your-app", label: "Test your own app" },
   { id: "problems", label: "Common problems" },
   { id: "report", label: "Reading the report" },
-  { id: "checks", label: "The 15 checks" },
+  { id: "checks", label: `The ${checkTotal} checks` },
   { id: "safety", label: "Safety and test records" },
   { id: "limitations", label: "Known limitations" },
   { id: "feedback", label: "Sending feedback" },
-] as const;
+];
 
 const accessMail = site.accessMail;
 
@@ -46,10 +48,21 @@ pnpm install
 pnpm --filter run-hound exec playwright install chromium
 pnpm --filter kennel build          # only needed for the Kennel demo`;
 
-const dockerInstall = `git clone https://github.com/rahul-bharati/run-hound.git
+const quickStart = `git clone https://github.com/rahul-bharati/run-hound.git
 cd run-hound
-mkdir -p runs                       # reports land here; create it so the files belong to you
-docker compose up --build           # or: podman-compose up --build`;
+cp .env.example .env && docker compose up --build    # or: podman compose up --build`;
+
+const testApps: { name: string; body: string }[] = [
+  {
+    name: "Kennel",
+    body: "Our deliberately broken pet-sitting booking app, with every planted bug on (KENNEL_BUGS in .env). Target: http://kennel:3000/book.",
+  },
+  { name: "Kennel (clean)", body: "The same app in clean mode: every check should pass. Target: http://kennel-clean:3000/book." },
+  { name: "classic-post", body: "A server-rendered sign-up form with no JavaScript that posts and redirects. Target: http://classic-post:4101/signup." },
+  { name: "spa-fetch", body: "A contact form that saves with fetch and lists what it saved. Target: http://spa-fetch:4102/." },
+  { name: "login", body: "An email and password sign-in form with a show-password toggle. Target: http://login:4103/." },
+  { name: "cross-origin-api", body: "An RSVP form whose API lives on another origin, allowed through CORS. Target: http://cross-origin-api:4104/." },
+];
 
 const kennelLocal = `# terminal 1: Kennel with every bug on (the analytics port must differ from the app's)
 KENNEL_BUGS=all PORT=5310 ANALYTICS_PORT=5311 pnpm kennel
@@ -68,11 +81,11 @@ pnpm exec tsx src/cli.ts run http://localhost:5173/signup --approve all`;
 
 const dockerLinux = `docker compose build run-hound      # once
 mkdir -p runs
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.1.0 \\
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:${site.version} \\
   run http://localhost:5173/signup --approve all
 
 # the web UI on the host network, bound to loopback only
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.1.0 \\
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:${site.version} \\
   serve --host 127.0.0.1 --port 4310`;
 
 const dockerDesktop = `docker compose run --rm run-hound run http://host.docker.internal:5173/signup --approve all`;
@@ -114,15 +127,19 @@ export default function DocsPage() {
   return (
     <>
       <PageHeader
-        eyebrow={`DOCS · V0 TESTER PREVIEW ${site.version}`}
+        eyebrow={`DOCS · ${site.release} TESTER PREVIEW ${site.version}`}
         title={
           <>
-            Run V0 <span className="text-accent">on your machine.</span>
+            Run {site.release} <span className="text-accent">on your machine.</span>
           </>
         }
-        lede="How to run Run Hound V0 on your own machine: install it, try it on Kennel, our deliberately broken demo app, point it at your own form, and read a report where every finding comes with evidence."
+        lede={`How to run Run Hound ${site.release} on your own machine: start it with the test apps in one command, try it on Kennel, our deliberately broken demo app, point it at a page of your own, and read a report where every finding comes with evidence.`}
       >
-        <Callout label="Invite-only preview" title="The repository is private while V0 is in testing." className="max-w-3xl">
+        <Callout
+          label="Invite-only preview"
+          title={`The repository is private while ${site.release} is in testing.`}
+          className="max-w-3xl"
+        >
           <p>
             To clone it, your GitHub account needs an invitation.{" "}
             <a href={accessMail} className="text-accent underline underline-offset-4 hover:text-accent-strong">
@@ -144,23 +161,29 @@ export default function DocsPage() {
           <DocsToc items={toc} />
 
           <div className="flex min-w-0 max-w-3xl flex-col gap-20">
-            <DocSection id="overview" step="01" title="What V0 does">
+            <DocSection id="overview" step="01" title={`What ${site.release} does`}>
               <div className="prose-night">
                 <p>
-                  Run Hound V0 opens one page of your local app in a headless Chromium, finds the main form on it,
-                  plans 13 to 15 test scenarios, lets you pick which ones to run, runs them, and writes a report with
-                  evidence (annotated screenshots, short GIFs, request and response cards) and a Playwright test for
-                  each finding.
+                  Run Hound {site.release} ({site.releaseName.toLowerCase()}, {site.version}) opens one page of your local
+                  app in a headless Chromium and finds <strong>every form and interactive control</strong> on it. It
+                  plans the form checks for each form, plus page-wide checks (security headers, cookie flags, CORS,
+                  public source maps and controls outside the forms), lets you pick which ones to run, runs them in a
+                  real browser, and writes a report with evidence (annotated screenshots, short GIFs, request and
+                  response cards) and a Playwright test for each finding.
+                </p>
+                <p>
+                  New since V0 (0.1.0), which tested only the main form: every form on the page is tested, and five
+                  checks look at the page as a whole. See <a href="#checks">the {checkTotal} checks</a>.
                 </p>
                 <p>It doesn&apos;t, yet:</p>
                 <ul>
-                  <li>test more than one form per page (it picks the main one) or follow links to other pages;</li>
+                  <li>follow links to other pages or test a feature across pages (planned for V2);</li>
                   <li>log in: pages behind a login aren&apos;t supported, and a login form can only be partly tested;</li>
                   <li>test public websites: only your own machine and private network addresses;</li>
                   <li>
-                    plan with AI: AI planning (a model proposes scenarios from your app) and bringing your own model
-                    are <strong>coming soon</strong>. In V0 the plan comes from what Run Hound finds on the page, and
-                    every pass or fail comes from a real check with evidence;
+                    plan with AI: AI planning (a model proposes scenarios from your app), AI explanations and bringing
+                    your own model are <strong>coming soon</strong>. In the preview the plan comes from what Run Hound
+                    finds on the page, and every pass or fail comes from a real check with evidence;
                   </li>
                   <li>delete the test records it creates (see <a href="#safety">Safety and test records</a>).</li>
                 </ul>
@@ -172,7 +195,43 @@ export default function DocsPage() {
               </div>
             </DocSection>
 
-            <DocSection id="requirements" step="02" title="Requirements">
+            <DocSection id="quick-start" step="02" title="Quick start with Docker or Podman">
+              <div className="prose-night">
+                <p>
+                  One command starts Run Hound and a set of local test apps, so you can try it before pointing it at
+                  anything of your own. You need git and Docker with Compose, Docker Desktop, or Podman.
+                </p>
+              </div>
+              <CodeBlock label="Docker or Podman">{quickStart}</CodeBlock>
+              <div className="prose-night">
+                <p>
+                  The first build downloads about 2 GB. When the log says{" "}
+                  <code>Run Hound UI: open http://localhost:4000</code>, open that address and enter{" "}
+                  <code>http://kennel:3000/book</code> (inside the containers Kennel is called <code>kennel</code>). The
+                  log also mentions <code>0.0.0.0:4000</code>: that address is inside the container; on your machine the
+                  ports are bound to <code>127.0.0.1</code> only. Ports taken? Change them in <code>.env</code>. Reports
+                  are written to <code>./runs</code> on your machine.
+                </p>
+                <p>These test apps start with it:</p>
+              </div>
+              <ul className="grid gap-3 sm:grid-cols-2">
+                {testApps.map((a) => (
+                  <li key={a.name} className="flex flex-col gap-1.5 rounded-xl border border-line bg-surface p-4">
+                    <span className="font-mono text-sm text-accent">{a.name}</span>
+                    <span className="text-[15px] leading-relaxed text-muted [overflow-wrap:anywhere]">{a.body}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="prose-night">
+                <p>
+                  Kennel should give findings for its planted bugs. The four sample apps are built correctly on
+                  purpose, so <strong>any confirmed finding on them is a false positive</strong>, and worth reporting.
+                  Enter these addresses in the Run Hound UI: inside the compose network each app is reached by its service name. Every app is also published on 127.0.0.1 (ports in <code>.env.example</code>).
+                </p>
+              </div>
+            </DocSection>
+
+            <DocSection id="requirements" step="03" title="Requirements">
               <div
                 role="region"
                 aria-labelledby="req-caption"
@@ -187,10 +246,11 @@ export default function DocsPage() {
                     <tr className="border-b border-line">
                       <td className="px-5 py-3.5" />
                       <th scope="col" className="px-5 py-3.5 font-semibold">
-                        Local install <span className="font-mono text-[11px] tracking-widest text-accent">RECOMMENDED</span>
+                        Local install
                       </th>
                       <th scope="col" className="px-5 py-3.5 font-semibold">
-                        Docker or Podman
+                        Docker or Podman{" "}
+                        <span className="font-mono text-[11px] tracking-widest text-accent">QUICKEST START</span>
                       </th>
                     </tr>
                   </thead>
@@ -224,18 +284,16 @@ export default function DocsPage() {
               </div>
               <div className="prose-night">
                 <p>
-                  <strong>Use the local install if you can.</strong> It tests your app exactly as your browser sees it,
-                  with no networking set-up. And bring an app: a web app running on your machine with a form in it
-                  (sign-up, contact, booking, checkout details, settings). You don&apos;t need to know Playwright or
+                  <strong>Docker or Podman is the quickest way to try it</strong>: one command, test apps included. To
+                  test your own app, <strong>the local install is simplest</strong>: it tests your app exactly as your
+                  browser sees it, with no networking set-up. And bring an app: a web app running on your machine with a form in it
+                  (sign-up, contact, booking, checkout details, settings), or any page with buttons and controls. You don&apos;t need to know Playwright or
                   accessibility rules; the report explains each finding in plain language.
                 </p>
               </div>
             </DocSection>
 
-            <DocSection id="install" step="03" title="Install">
-              <div className="prose-night">
-                <h3>Local install</h3>
-              </div>
+            <DocSection id="install" step="04" title="Local install">
               <CodeBlock label="Local install">{localInstall}</CodeBlock>
               <div className="prose-night">
                 <p>
@@ -244,21 +302,10 @@ export default function DocsPage() {
                   it works: <code>cd app &amp;&amp; pnpm exec tsx src/cli.ts --version</code> prints{" "}
                   <code>run-hound {site.version}</code>.
                 </p>
-                <h3>Docker or Podman</h3>
-              </div>
-              <CodeBlock label="Docker or Podman">{dockerInstall}</CodeBlock>
-              <div className="prose-night">
-                <p>
-                  The first build downloads about 2 GB. When you see <code>Run Hound UI: open http://localhost:4000</code>,
-                  open that address. The log also mentions <code>0.0.0.0:4000</code>: that address is inside the
-                  container; on your machine the port is bound to <code>127.0.0.1</code> only. Ports taken? Set{" "}
-                  <code>RUNHOUND_HOST_PORT</code>, <code>KENNEL_HOST_PORT</code> and{" "}
-                  <code>KENNEL_ANALYTICS_HOST_PORT</code> before <code>docker compose up --build</code>.
-                </p>
               </div>
             </DocSection>
 
-            <DocSection id="kennel" step="04" title="Try it on Kennel first">
+            <DocSection id="kennel" step="05" title="Try it on Kennel first">
               <div className="prose-night">
                 <p>
                   Kennel is a pet-sitting booking form with planted bugs you can switch on and off. Trying it first
@@ -276,18 +323,18 @@ export default function DocsPage() {
                   <li>
                     Read the plan, shown under <strong>Accessibility</strong>, <strong>Features</strong> and{" "}
                     <strong>Security</strong> headings, each with a “Select all” box. Each scenario says what it does
-                    and whether it creates test records. Keep them all ticked and press <strong>Run approved
-                    checks</strong>. Nothing runs before you do.
+                    and whether it creates test records. Keep them all ticked and press <strong>Start run</strong>.
+                    Nothing runs before you do.
                   </li>
                   <li>
-                    Watch the live view: the page under test, the current group and scenario (“Accessibility · 3 of
-                    15”), the elapsed time, the current step and every page loaded. A run takes about a minute; when it
-                    ends the UI says “Finished in …”.
+                    Watch the live view: the page under test, the current group and scenario, the elapsed time, the
+                    current step and a timestamped log. When the run ends the UI says “Finished in …”.
                   </li>
                   <li>
                     Open the report. You should see findings for most of Kennel&apos;s planted bugs: a button that does
                     nothing, a double submit, a secret key in the bundle, an email sent to the analytics service,
-                    missing focus outlines and more.
+                    missing focus outlines and more. If Kennel runs on a dev server, header, cookie and CORS findings
+                    there are marked advisory.
                   </li>
                   <li>
                     Restart Kennel with <code>KENNEL_BUGS=none</code> and run again.{" "}
@@ -301,23 +348,24 @@ export default function DocsPage() {
               <div className="prose-night">
                 <h3>Docker or Podman</h3>
                 <p>
-                  With <code>docker compose up</code> running, open <code>http://localhost:4000</code> and enter{" "}
-                  <code>http://kennel:3000/book</code> (inside the containers Kennel is called <code>kennel</code>), or
-                  run <code>docker compose run --rm run-hound run http://kennel:3000/book --approve all</code>. For a
-                  clean Kennel: <code>KENNEL_BUGS=none docker compose up</code>. In containers the target isn&apos;t
-                  localhost, so <code>client-only-validation</code> is skipped and the report says why.
+                  With the <a href="#quick-start">quick start</a> running, open <code>http://localhost:4000</code> and
+                  enter <code>http://kennel:3000/book</code>, or run{" "}
+                  <code>docker compose run --rm run-hound run http://kennel:3000/book --approve all</code>. For a clean
+                  Kennel, enter <code>http://kennel-clean:3000/book</code>: it runs next to the broken one. In containers the target isn&apos;t localhost, so{" "}
+                  <code>client-only-validation</code> is skipped and the report says why.
                 </p>
               </div>
             </DocSection>
 
-            <DocSection id="your-app" step="05" title="Test your own app">
+            <DocSection id="your-app" step="06" title="Test your own app">
               <div className="prose-night">
                 <ol>
                   <li>
                     Start your app the way you normally develop it, with a <strong>throwaway database</strong>.
                   </li>
                   <li>
-                    Find the exact URL of the page with the form, for example <code>http://localhost:5173/signup</code>.
+                    Find the exact URL of the page you want to test, for example{" "}
+                    <code>http://localhost:5173/signup</code>.
                     Use <code>localhost</code>, not <code>0.0.0.0</code>.
                   </li>
                   <li>Run Run Hound on it, then check each finding against your app.</li>
@@ -325,7 +373,7 @@ export default function DocsPage() {
                 <h3>Local install</h3>
                 <p>
                   Web UI: <code>pnpm serve --port 4310</code>, open <code>http://localhost:4310</code> and enter your
-                  form&apos;s URL. Or the command line:
+                  page&apos;s URL. Or the command line:
                 </p>
               </div>
               <CodeBlock label="Command line">{ownCli}</CodeBlock>
@@ -384,7 +432,7 @@ export default function DocsPage() {
               </div>
             </DocSection>
 
-            <DocSection id="problems" step="06" title="Common problems">
+            <DocSection id="problems" step="07" title="Common problems">
               <dl className="flex flex-col divide-y divide-line-soft rounded-2xl border border-line bg-surface">
                 {problems.map((p) => (
                   <div key={p.see} className="flex flex-col gap-1.5 px-5 py-4">
@@ -395,7 +443,7 @@ export default function DocsPage() {
               </dl>
             </DocSection>
 
-            <DocSection id="report" step="07" title="Reading the report">
+            <DocSection id="report" step="08" title="Reading the report">
               <div className="prose-night">
                 <p>
                   Every run writes a folder: <code>app/runs/&lt;runId&gt;/</code> for the local install,{" "}
@@ -447,7 +495,8 @@ export default function DocsPage() {
                   </li>
                   <li>
                     <strong>Advisory</strong>: relies on judgement, for example a missing <code>autocomplete</code>{" "}
-                    hint. Worth a look, not a failure.
+                    hint, or a header, cookie or CORS result on a dev server, which doesn&apos;t send the values your
+                    production build will. Worth a look, not a failure.
                   </li>
                 </ul>
                 <p>
@@ -459,7 +508,7 @@ export default function DocsPage() {
                 <ul>
                   <li>
                     <strong>Scenarios</strong>: every scenario under its group with its result, time and notes, the
-                    ones you didn&apos;t approve, and checks that had nothing to test on your form.
+                    ones you didn&apos;t approve, and checks that had nothing to test on your page.
                   </li>
                   <li>
                     <strong>Pages tested</strong>: every URL the run loaded. If your URL redirected to a login page, the
@@ -479,16 +528,17 @@ export default function DocsPage() {
               </div>
             </DocSection>
 
-            <DocSection id="checks" step="08" title="The 15 checks">
+            <DocSection id="checks" step="09" title={`The ${checkTotal} checks`}>
               <div className="prose-night">
                 <p>
-                  The plan, the run, the progress and the report all follow the same three groups. Scenarios that
-                  don&apos;t apply to your form (no password field, no JSON save request) are{" "}
-                  <strong>skipped with a plain reason</strong>, never silently dropped.
+                  The plan, the run, the progress and the report all follow the same three groups. Form checks are
+                  planned once for each form on the page; the five checks new in {site.release} look at the page as a
+                  whole. Scenarios that don&apos;t apply to your page (no form, no password field, no JSON save
+                  request) are <strong>skipped with a plain reason</strong>, never silently dropped.
                 </p>
               </div>
-              <div className="flex flex-col gap-6">
-                {v0Groups.map((g) => (
+              <div className="flex flex-col gap-8">
+                {previewGroups.map((g) => (
                   <section key={g.group} aria-labelledby={`group-${g.group}`} className="flex flex-col gap-3">
                     <h3 id={`group-${g.group}`} className="flex items-baseline gap-3 font-display text-xl font-bold">
                       {g.group}
@@ -499,13 +549,21 @@ export default function DocsPage() {
                     <ul className="flex flex-col divide-y divide-line-soft rounded-2xl border border-line bg-surface">
                       {g.checks.map((c) => (
                         <li key={c.id} className="flex flex-col gap-1.5 px-5 py-4">
-                          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                            <span className="font-mono text-sm text-accent">{c.id}</span>
+                          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+                            <span className="flex flex-wrap items-center gap-2.5">
+                              <span className="font-mono text-sm text-accent">{c.id}</span>
+                              {c.since === "V1" ? <NewTag /> : null}
+                            </span>
                             <span className="font-mono text-[11px] tracking-widest text-dim">
                               TEST RECORDS: {c.records.toUpperCase()}
                             </span>
                           </div>
                           <p className="text-[15px] leading-relaxed text-muted">{c.line}</p>
+                          {c.devServerAdvisory ? (
+                            <p className="text-sm leading-relaxed text-dim">
+                              Advisory when the target looks like a dev server.
+                            </p>
+                          ) : null}
                         </li>
                       ))}
                     </ul>
@@ -514,7 +572,7 @@ export default function DocsPage() {
               </div>
             </DocSection>
 
-            <DocSection id="safety" step="09" title="Safety and test records">
+            <DocSection id="safety" step="10" title="Safety and test records">
               <div className="prose-night">
                 <ul>
                   <li>
@@ -545,8 +603,8 @@ export default function DocsPage() {
                 </ul>
                 <h3>Test records it creates</h3>
                 <p>
-                  A full run sends the form successfully several times (about 7 or 8 save requests), so it can create
-                  that many records in your app. The values are obviously fake (emails at <code>example.test</code>, a
+                  A full run sends each form successfully several times (about 7 or 8 save requests per form), so it
+                  can create that many records in your app. The values are obviously fake (emails at <code>example.test</code>, a
                   run token in the text), and the report says how many save requests your app accepted.{" "}
                   <strong>Run Hound never deletes them. Point it at a development database you can throw away.</strong>
                 </p>
@@ -557,13 +615,17 @@ export default function DocsPage() {
               </div>
             </DocSection>
 
-            <DocSection id="limitations" step="10" title="Known limitations">
+            <DocSection id="limitations" step="11" title="Known limitations">
               <div className="prose-night">
                 <ul>
                   <li>
-                    <strong>One form, one page, no login.</strong> Pages that redirect to a login screen get the login
-                    form tested instead (check Pages tested). Login forms need a real account for anything past the
-                    first submit.
+                    <strong>One page, no login.</strong> Pages that redirect to a login screen get the login form
+                    tested instead (check Pages tested). Login forms need a real account for anything past the first
+                    submit.
+                  </li>
+                  <li>
+                    <strong>Dev servers don&apos;t send production headers.</strong> Header, cookie and CORS findings on
+                    a dev server are advisory. For confirmed results, test a production build served on your machine.
                   </li>
                   <li>
                     <strong>Unusual apps</strong> may still produce false findings. It has been tried on classic HTML
@@ -584,10 +646,10 @@ export default function DocsPage() {
               </div>
             </DocSection>
 
-            <DocSection id="feedback" step="11" title="Sending feedback">
+            <DocSection id="feedback" step="12" title="Sending feedback">
               <div className="prose-night">
                 <p>
-                  Open an issue with the <strong>V0 tester feedback</strong> form on GitHub, or email the same details
+                  Open an issue with the <strong>tester feedback</strong> form on GitHub, or email the same details
                   to the person who invited you. Please include:
                 </p>
                 <ol>

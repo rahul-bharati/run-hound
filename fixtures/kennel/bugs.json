@@ -1,5 +1,5 @@
 {
-  "$comment": "Ground truth for Kennel. Each V0 bug is enabled with KENNEL_BUGS=<ids> and must be caught by `detectedBy`. V2 bugs are listed for later and not built yet.",
+  "$comment": "Ground truth for Kennel. Each V0 and V1 bug is enabled with KENNEL_BUGS=<ids> and must be caught by `detectedBy`. V2 bugs are listed for later and not built yet.",
   "bugs": [
     { "id": "F01", "version": "V0", "category": "broken-feature", "severity": "high", "title": "\"Save draft\" button has no handler", "detectedBy": "dead-control" },
     { "id": "F02", "version": "V0", "category": "broken-feature", "severity": "high", "title": "Server errors leave the form spinning with no message", "detectedBy": "silent-failure" },
@@ -20,6 +20,12 @@
     { "id": "S02", "version": "V0", "category": "security", "severity": "critical", "title": "Supabase-style service_role key shipped in the JavaScript bundle", "detectedBy": "bundle-secrets" },
     { "id": "S03", "version": "V0", "category": "security", "severity": "high", "title": "Customer email sent to the mock analytics service in a query string", "detectedBy": "pii-leak" },
     { "id": "S04", "version": "V0", "category": "security", "severity": "medium", "title": "Server error shows a stack trace in the page", "detectedBy": "verbose-errors" },
+
+    { "id": "F07", "version": "V1", "category": "broken-feature", "severity": "high", "title": "\"Refresh\" button beside \"Your bookings\" (outside the form) has no handler", "detectedBy": "page-controls" },
+    { "id": "S05", "version": "V1", "category": "security", "severity": "medium", "title": "No security headers: no Content-Security-Policy, clickjacking protection or nosniff", "detectedBy": "security-headers" },
+    { "id": "S06", "version": "V1", "category": "security", "severity": "high", "title": "Session cookie is readable by JavaScript (no HttpOnly)", "detectedBy": "cookie-flags" },
+    { "id": "S07", "version": "V1", "category": "security", "severity": "high", "title": "API echoes any Origin (including null) with Access-Control-Allow-Credentials: true", "detectedBy": "cors" },
+    { "id": "S08", "version": "V1", "category": "security", "severity": "medium", "title": "Source maps with the original source code are public", "detectedBy": "source-maps" },
 
     { "id": "D01", "version": "V2", "category": "security", "severity": "critical", "title": "bookings table has RLS disabled", "detectedBy": null },
     { "id": "D02", "version": "V2", "category": "security", "severity": "critical", "title": "pets policy is USING (true)", "detectedBy": null },

@@ -243,7 +243,7 @@ describe("what was tested, in every format", () => {
     });
 
     it(`${name}: lists checks that had nothing to test on the form`, () => {
-      expect(render(partialReport())).toMatch(/nothing to test on this form[\s\S]*pii-leak/i);
+      expect(render(partialReport())).toMatch(/nothing to test on this page[\s\S]*pii-leak/i);
     });
   }
 });

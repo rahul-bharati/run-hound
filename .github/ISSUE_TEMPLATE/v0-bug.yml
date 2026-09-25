@@ -1,18 +1,18 @@
-name: V0 bug
+name: Run Hound bug
 description: Run Hound itself broke (install, start-up, a crash, a report that won't open, Docker trouble).
-title: "[V0 bug] "
+title: "[Bug] "
 labels: ["bug", "v0"]
 body:
   - type: markdown
     attributes:
       value: |
-        Use this form when Run Hound itself misbehaves. For a finding you think is wrong, or a bug it missed in your app, use **V0 tester feedback** instead.
+        Use this form when Run Hound itself misbehaves. For a finding you think is wrong, or a bug it missed in your app, use **Tester feedback** instead.
   - type: input
     id: version
     attributes:
       label: Run Hound version
       description: "`run-hound --version`, or `runHoundVersion` in report.json."
-      placeholder: run-hound 0.1.0
+      placeholder: run-hound 0.2.0
     validations:
       required: true
   - type: input

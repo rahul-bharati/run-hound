@@ -102,10 +102,18 @@ describe("run-hound run", () => {
     expect(res.code).toBe(2);
   });
 
-  it("exits 2 when the page has no form", async () => {
-    const res = await runCli(["run", `${site.url}/empty`, "--json", "--runs-dir", runsDir], 120_000);
+  it("plans only the page-wide checks, with a warning, when the page has no form (V1)", async () => {
+    const res = await runCli(["run", `${site.url}/empty`, "--plan-only"], 120_000);
+    expect(res.code, res.stderr).toBe(0);
+    expect(res.stderr).toMatch(/No form was found on this page, so only the page-wide checks are planned/);
+    expect(res.stdout).toMatch(/security-headers:response-headers/);
+    expect(res.stdout).not.toMatch(/double-submit/);
+  });
+
+  it("exits 2 when the page is an error page", async () => {
+    const res = await runCli(["run", `${site.url}/missing-page`, "--json", "--runs-dir", runsDir], 120_000);
     expect(res.code).toBe(2);
-    expect(`${res.stderr}${res.stdout}`).toMatch(/form/i);
+    expect(`${res.stderr}${res.stdout}`).toMatch(/404/);
   });
 
   it(

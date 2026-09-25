@@ -1,5 +1,5 @@
 import type { Page } from "playwright";
-import type { DiscoveredForm, FormControl, FormField } from "../core/types.js";
+import type { DiscoveredForm, DiscoveredPage, FormControl, FormField } from "../core/types.js";
 import { NoFormFoundError } from "./errors.js";
 
 /** What the in-page scan returns before accessible names are filled in from Playwright's aria snapshot. */
@@ -23,11 +23,14 @@ interface RawForm {
   controls: RawControl[];
 }
 
+/** What the in-page scan does: list the form scopes, describe one scope, or list the controls outside the scopes. */
+type ScanOptions = { mode: "list" } | { mode: "form"; scope: string | null } | { mode: "controls"; exclude: string[] };
+
 /**
  * Runs in the page. Kept as a plain string, not a function: tsx/esbuild's keepNames would wrap nested
- * functions in a `__name` helper that does not exist in the browser.
+ * functions in a `__name` helper that does not exist in the browser. `__OPTS__` is replaced with the ScanOptions.
  */
-const SCAN_SCRIPT = String.raw`(() => {
+const SCAN_SCRIPT = String.raw`((opts) => {
   const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
   const str = (s) => String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const FIELD_SKIP = new Set(["hidden", "submit", "button", "reset", "image"]);
@@ -134,25 +137,81 @@ const SCAN_SCRIPT = String.raw`(() => {
     return keys.size;
   };
 
-  // 1. Choose the form: the <form> with the most usable fields, else the tightest container with fields and a button.
-  let scope = null;
-  let best = 0;
-  for (const form of document.querySelectorAll("form")) {
-    const n = fieldCount(form);
-    if (n > best) { best = n; scope = form; }
-  }
-  if (!scope) {
+  /**
+   * The tightest container holding the most usable fields that are outside every <form>, with a button in it;
+   * null when there is none. With forms on the page, a container that holds a <form> is not a candidate.
+   */
+  const looseContainer = (formsExist) => {
     const counts = new Map();
     for (const el of document.querySelectorAll("input, select, textarea")) {
       if (!isField(el) || !usable(el) || el.closest("form")) continue;
       for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) counts.set(a, (counts.get(a) || 0) + 1);
     }
-    let depthBest = -1;
+    let found = null, most = 0, depthBest = -1;
     for (const [el, n] of counts) {
       if (!el.querySelector("button, input[type=submit], [role=button]")) continue;
+      if (formsExist && el.querySelector("form")) continue;
       let depth = 0;
       for (let a = el; a; a = a.parentElement) depth++;
-      if (n > best || (n === best && depth > depthBest)) { best = n; depthBest = depth; scope = el; }
+      if (n > most || (n === most && depth > depthBest)) { most = n; depthBest = depth; found = el; }
+    }
+    return found ? { el: found, n: most } : null;
+  };
+
+  // V1: every form scope on the page, most fields first (document order on a tie), at most 5.
+  if (opts.mode === "list") {
+    const found = Array.from(document.querySelectorAll("form")).map((el) => ({ el, n: fieldCount(el) })).filter((x) => x.n > 0);
+    const loose = looseContainer(found.length > 0);
+    if (loose) found.push(loose);
+    found.sort((a, b) => b.n - a.n);
+    return found.slice(0, 5).map((x) => selectorFor(x.el));
+  }
+
+  // V1: buttons and button-like controls outside every form scope. Links with a real href navigate by definition and
+  // are only counted; href="#" and javascript: links act as buttons and are kept.
+  if (opts.mode === "controls") {
+    const scopes = (opts.exclude || []).map((sel) => { try { return document.querySelector(sel); } catch { return null; } }).filter(Boolean);
+    const outside = (el) => !scopes.some((sc) => sc.contains(el));
+    const pseudoLink = (el) => {
+      const href = (el.getAttribute("href") || "").trim();
+      return href === "" || href === "#" || /^javascript:/i.test(href);
+    };
+    let links = 0;
+    const els = [];
+    for (const el of document.querySelectorAll("button, input[type=button], input[type=submit], input[type=reset], input[type=image], [role=button], [role=switch], [role=tab], summary, a[href]")) {
+      if (!outside(el) || !isRendered(el)) continue;
+      if (el.parentElement && el.parentElement.closest("button, a[href], [role=button]")) continue;
+      if (el.tagName === "A" && !el.matches("[role=button], [role=tab], [role=switch]") && !pseudoLink(el)) { links++; continue; }
+      if (el.disabled) continue;
+      els.push(el);
+    }
+    const controls = els.slice(0, 40).map((el) => ({
+      text: ownText(el) || (el.tagName === "INPUT" ? norm(el.value) : ""),
+      role: el.getAttribute("role") || implicitRole(el),
+      explicitRole: el.getAttribute("role"),
+      tag: el.tagName.toLowerCase(),
+      selector: selectorFor(el),
+      isSubmit: false,
+      fallbackName: nameFallback(el) || ownText(el) || (el.tagName === "INPUT" ? norm(el.value) : null) || null,
+    }));
+    return { controls, links };
+  }
+
+  // 1. Choose the form: the given scope; else the <form> with the most usable fields, else the tightest container
+  // with fields and a button.
+  let scope = null;
+  let best = 0;
+  if (opts.scope) {
+    try { scope = document.querySelector(opts.scope); } catch { scope = null; }
+    best = scope ? fieldCount(scope) : 0;
+  } else {
+    for (const form of document.querySelectorAll("form")) {
+      const n = fieldCount(form);
+      if (n > best) { best = n; scope = form; }
+    }
+    if (!scope) {
+      const loose = looseContainer(false);
+      if (loose) { scope = loose.el; best = loose.n; }
     }
   }
   if (!scope || best === 0) return null;
@@ -321,7 +380,11 @@ const SCAN_SCRIPT = String.raw`(() => {
   }));
 
   return { selector: selectorFor(scope), name: formName, fields, controls };
-})()`;
+})(__OPTS__)`;
+
+function scan(options: ScanOptions): string {
+  return SCAN_SCRIPT.replace("__OPTS__", JSON.stringify(options));
+}
 
 interface AriaNode {
   role?: string;
@@ -341,6 +404,31 @@ async function ariaOf(page: Page, selector: string): Promise<{ role: string; nam
   }
 }
 
+/** Fills in accessible names and roles from Playwright's aria snapshot for a scanned form. */
+async function finishForm(page: Page, raw: RawForm, index: number): Promise<DiscoveredForm> {
+  const fields: FormField[] = [];
+  for (const { fallbackName, nameSelector, ...field } of raw.fields) {
+    const aria = nameSelector ? await ariaOf(page, nameSelector) : null;
+    // Keep our role for radio groups (the fieldset is a "group") and custom pickers (always "generic" unless set).
+    const role = field.type === "radio" || field.type === "custom" ? field.role : (aria?.role ?? field.role);
+    fields.push({ ...field, role, accessibleName: aria ? aria.name : fallbackName });
+  }
+  return { url: page.url(), index, selector: raw.selector, name: raw.name, fields, controls: await finishControls(page, raw.controls) };
+}
+
+async function finishControls(page: Page, raw: RawControl[]): Promise<FormControl[]> {
+  const controls: FormControl[] = [];
+  for (const { fallbackName, explicitRole, ...control } of raw) {
+    const aria = await ariaOf(page, control.selector);
+    controls.push({
+      ...control,
+      role: aria?.role ?? explicitRole ?? control.role,
+      accessibleName: aria ? aria.name : fallbackName,
+    });
+  }
+  return controls;
+}
+
 /**
  * Finds the main form on the loaded page (the <form> with the most fields; falls back to a container
  * with inputs and a submit-like button) and describes it. Fields include native inputs, textareas,
@@ -353,26 +441,34 @@ async function ariaOf(page: Page, selector: string): Promise<{ role: string; nam
  * page, so custom pickers are recognised by cursor:pointer, an onclick attribute or an option-like role.
  */
 export async function discoverForm(page: Page): Promise<DiscoveredForm> {
-  const raw = (await page.evaluate(SCAN_SCRIPT)) as RawForm | null;
+  const raw = (await page.evaluate(scan({ mode: "form", scope: null }))) as RawForm | null;
   if (!raw) throw new NoFormFoundError(page.url());
+  const form = await finishForm(page, raw, 0);
+  delete form.index;
+  return form;
+}
 
-  const fields: FormField[] = [];
-  for (const { fallbackName, nameSelector, ...field } of raw.fields) {
-    const aria = nameSelector ? await ariaOf(page, nameSelector) : null;
-    // Keep our role for radio groups (the fieldset is a "group") and custom pickers (always "generic" unless set).
-    const role = field.type === "radio" || field.type === "custom" ? field.role : (aria?.role ?? field.role);
-    fields.push({ ...field, role, accessibleName: aria ? aria.name : fallbackName });
+/** A form with nothing in it: Plan.form (and CheckContext.form of page scenarios) on a page without any form. */
+export function emptyForm(url: string): DiscoveredForm {
+  return { url, index: 0, selector: "body", name: null, fields: [], controls: [] };
+}
+
+/**
+ * V1: describes everything testable on the loaded page: every form scope (each <form> with a usable field, plus the
+ * container of fields outside any form), main form first (most fields, as discoverForm picks it), at most 5; and the
+ * buttons and button-like controls outside them. Never throws for a page without a form: page-wide checks still apply.
+ */
+export async function discoverPage(page: Page): Promise<DiscoveredPage> {
+  const scopes = ((await page.evaluate(scan({ mode: "list" }))) as string[] | null) ?? [];
+  const forms: DiscoveredForm[] = [];
+  const used: string[] = [];
+  for (const scope of scopes) {
+    const raw = (await page.evaluate(scan({ mode: "form", scope }))) as RawForm | null;
+    if (!raw || raw.fields.length === 0) continue;
+    forms.push(await finishForm(page, raw, forms.length));
+    used.push(raw.selector);
   }
-
-  const controls: FormControl[] = [];
-  for (const { fallbackName, explicitRole, ...control } of raw.controls) {
-    const aria = await ariaOf(page, control.selector);
-    controls.push({
-      ...control,
-      role: aria?.role ?? explicitRole ?? control.role,
-      accessibleName: aria ? aria.name : fallbackName,
-    });
-  }
-
-  return { url: page.url(), selector: raw.selector, name: raw.name, fields, controls };
+  const outside = (await page.evaluate(scan({ mode: "controls", exclude: used }))) as { controls: RawControl[]; links: number };
+  const title = (await page.title().catch(() => "")).replace(/\s+/g, " ").trim();
+  return { url: page.url(), title: title || null, forms, controls: await finishControls(page, outside.controls), links: outside.links };
 }

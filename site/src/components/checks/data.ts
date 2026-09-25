@@ -1,6 +1,9 @@
 import type { Severity } from "@/components/finding";
 
-/** Roadmap stage a check is planned for. V0 = single form on localhost; V4 = live staging behind domain verification. */
+/**
+ * Roadmap stage a check is in or planned for. V0 = single form on localhost (shipped, 0.1.0); V1 = single page
+ * (current tester preview, 0.2.0); V4 = live staging behind domain verification.
+ */
 export type Version = "V0" | "V1" | "V2" | "V3" | "V4";
 
 export type Check = {
@@ -16,6 +19,11 @@ export type Check = {
   advisory?: boolean;
   /** Extra qualifier shown beside the version (e.g. "stretch"). */
   note?: string;
+  /**
+   * In the current preview. Every V0 check is; for V1 only the checks that shipped in 0.2.0 are, the rest of V1's
+   * list is still planned.
+   */
+  shipped?: boolean;
 };
 
 export type CheckCategory = {
@@ -27,8 +35,8 @@ export type CheckCategory = {
 };
 
 export const versionMeaning: Record<Version, string> = {
-  V0: "One form on localhost: in the tester preview",
-  V1: "One page",
+  V0: "One form on localhost: shipped",
+  V1: "One page: in the tester preview now, more to come",
   V2: "One feature, end to end",
   V3: "The whole app",
   V4: "Live staging, domain verified",
@@ -44,7 +52,7 @@ export const categories: CheckCategory[] = [
     checks: [
       {
         name: "Dead buttons and controls",
-        line: "A button or link that does nothing when you use it: no request, no change on screen, no navigation.",
+        line: "A button or control that does nothing when you use it: no request, no change on screen, no navigation. In the form since V0, and across the whole page since V1.",
         severity: "high",
         version: "V0",
         signal: "activation with no effect",
@@ -446,10 +454,11 @@ export const categories: CheckCategory[] = [
       },
       {
         name: "Permissive cross-origin access",
-        line: "Other websites are allowed to read signed-in responses from your app.",
+        line: "Your API answers any origin with credentials, or reflects whatever Origin it is sent, so other websites can read signed-in responses.",
         severity: "high",
-        version: "V4",
-        signal: "cross-origin response check",
+        version: "V1",
+        shipped: true,
+        signal: "made-up origin, CORS headers compared",
       },
       {
         name: "Open redirects",
@@ -491,14 +500,15 @@ export const categories: CheckCategory[] = [
         name: "Stack traces shown to users",
         line: "Error pages that reveal internal details about how your app is built.",
         severity: "medium",
-        version: "V1",
+        version: "V0",
         signal: "error response check",
       },
       {
         name: "Public source maps",
-        line: "Your original source code is downloadable from the live site.",
+        line: "Public .map files next to your scripts let anyone download your original source code.",
         severity: "medium",
         version: "V1",
+        shipped: true,
         signal: "source-map presence check",
       },
       {
@@ -540,17 +550,26 @@ export const categories: CheckCategory[] = [
       },
       {
         name: "Missing security headers",
-        line: "Standard browser protections your server never switched on.",
+        line: "Standard browser protections your server never switched on: a Content-Security-Policy, nosniff, clickjacking protection, a Referrer-Policy and, on https, HSTS.",
         severity: "medium",
         version: "V1",
+        shipped: true,
         signal: "response header check",
       },
       {
-        name: "Cookie flags and token storage",
-        line: "Session cookies missing protective flags, or login tokens kept where page scripts can read them.",
+        name: "Session cookie flags",
+        line: "Session-like cookies missing HttpOnly, Secure or SameSite, so scripts can read them or other sites can send them.",
         severity: "medium",
         version: "V1",
-        signal: "cookie and storage inspection",
+        shipped: true,
+        signal: "cookie inspection",
+      },
+      {
+        name: "Login tokens in page storage",
+        line: "Login tokens kept in localStorage or other places any script on the page can read.",
+        severity: "medium",
+        version: "V2",
+        signal: "storage inspection",
       },
       {
         name: "Runaway AI or API bills",
@@ -598,9 +617,9 @@ export const categories: CheckCategory[] = [
   },
 ];
 
-export type V0Group = "Accessibility" | "Features" | "Security";
+export type PreviewGroup = "Accessibility" | "Features" | "Security";
 
-export type V0Check = {
+export type PreviewCheck = {
   /** The check id as it appears in plans, reports and the CLI. */
   id: string;
   name: string;
@@ -608,13 +627,17 @@ export type V0Check = {
   line: string;
   /** Test records a run of this check can create in the app under test. */
   records: string;
+  /** Release that added the check. The 15 V0 checks carry "V0"; the five page-wide checks are new in V1. */
+  since: "V0" | "V1";
+  /** Findings are marked advisory when the target looks like a dev server, which doesn't send production values. */
+  devServerAdvisory?: boolean;
 };
 
 /**
- * The 15 checks in V0 0.1.0, in the three groups the plan, run and report follow.
- * Source of truth: TESTING.md ("The 15 checks").
+ * The 20 checks in the V1 tester preview (0.2.0), in the three groups the plan, run and report follow: V0's 15
+ * form checks plus five page-wide checks new in V1. Source of truth: TESTING.md and app/src/checks.
  */
-export const v0Groups: { group: V0Group; checks: V0Check[] }[] = [
+export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = [
   {
     group: "Accessibility",
     checks: [
@@ -623,36 +646,42 @@ export const v0Groups: { group: V0Group; checks: V0Check[] }[] = [
         name: "axe-core in every form state",
         line: "Runs the axe-core WCAG 2.2 AA rules on the form empty, after an empty submit, after a server error and after a successful send.",
         records: "2",
+        since: "V0",
       },
       {
         id: "keyboard-completion",
         name: "Keyboard-only completion",
         line: "Fills and sends the form with only the keyboard: Tab, arrows, Space, Enter and typing.",
         records: "1",
+        since: "V0",
       },
       {
         id: "focus-visible",
         name: "Visible focus",
         line: "Tabs through the page and checks every focused control shows a visible focus indicator.",
         records: "0",
+        since: "V0",
       },
       {
         id: "error-announcement",
         name: "Error announcement",
         line: "Sends the form empty and checks each required field is marked invalid with a message screen readers announce.",
         records: "0",
+        since: "V0",
       },
       {
         id: "credential-fields",
         name: "Credential fields",
         line: "Pastes into password fields (nothing is sent) and checks paste works and autocomplete hints are set.",
         records: "0",
+        since: "V0",
       },
       {
         id: "reflow-320",
         name: "Reflow at 320 px",
         line: "Opens the page 320 px wide (a small phone, or 400% zoom) and checks it doesn't scroll sideways.",
         records: "0",
+        since: "V0",
       },
     ],
   },
@@ -664,36 +693,49 @@ export const v0Groups: { group: V0Group; checks: V0Check[] }[] = [
         name: "Console and network errors",
         line: "Fills and sends the form with valid values and flags console errors and failed requests.",
         records: "1",
+        since: "V0",
       },
       {
         id: "dead-control",
         name: "Dead controls",
         line: "Clicks every button except submit and flags buttons that do nothing at all. Destructive-looking buttons are left out unless you allow them.",
         records: "0",
+        since: "V0",
       },
       {
         id: "silent-failure",
         name: "Silent failure",
         line: "Sends the form while pretending the server failed (the request never reaches your server) and checks an error is shown, announced and your input kept.",
         records: "0",
+        since: "V0",
       },
       {
         id: "persistence",
         name: "Persistence",
         line: "Sends unique values, reloads the page and checks they are still shown.",
         records: "1",
+        since: "V0",
       },
       {
         id: "double-submit",
         name: "Double submit",
         line: "Double-clicks submit and counts how many save requests reach the server.",
         records: "up to 2",
+        since: "V0",
       },
       {
         id: "client-only-validation",
         name: "Client-only validation",
         line: "Sends the captured save request straight to the server with one field invalid and checks the server rejects it. Localhost targets only.",
         records: "0",
+        since: "V0",
+      },
+      {
+        id: "page-controls",
+        name: "Page controls",
+        line: "Clicks the buttons and controls outside the forms, across the whole page, and flags the ones that do nothing at all. Destructive-looking controls are left out unless you allow them.",
+        records: "0",
+        since: "V1",
       },
     ],
   },
@@ -705,18 +747,52 @@ export const v0Groups: { group: V0Group; checks: V0Check[] }[] = [
         name: "Secret keys in the bundle",
         line: "Searches every script the page loads for secret keys. Publishable keys are fine.",
         records: "0",
+        since: "V0",
       },
       {
         id: "pii-leak",
         name: "Personal data leaks",
         line: "Sends a test email and phone number and checks no request to another site carries them, or their hashes.",
         records: "1",
+        since: "V0",
       },
       {
         id: "verbose-errors",
         name: "Verbose errors",
         line: "Sends far too much text and a broken request body and looks for stack traces, file paths or error dumps.",
         records: "up to 2",
+        since: "V0",
+      },
+      {
+        id: "security-headers",
+        name: "Security headers",
+        line: "Reads the page's response headers and checks for a Content-Security-Policy, X-Content-Type-Options, clickjacking protection (frame-ancestors or X-Frame-Options), a Referrer-Policy and, on https, HSTS.",
+        records: "0",
+        since: "V1",
+        devServerAdvisory: true,
+      },
+      {
+        id: "cookie-flags",
+        name: "Cookie flags",
+        line: "Looks at the cookies the app sets and flags session-like ones missing HttpOnly, Secure or SameSite.",
+        records: "0",
+        since: "V1",
+        devServerAdvisory: true,
+      },
+      {
+        id: "cors",
+        name: "CORS",
+        line: "Asks the page's API with a made-up origin and flags an API that answers any origin with credentials, or reflects whatever Origin it is sent.",
+        records: "0",
+        since: "V1",
+        devServerAdvisory: true,
+      },
+      {
+        id: "source-maps",
+        name: "Public source maps",
+        line: "Checks whether the page's scripts have public .map files that expose your original source code.",
+        records: "0",
+        since: "V1",
       },
     ],
   },

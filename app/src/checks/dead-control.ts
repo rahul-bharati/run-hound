@@ -197,11 +197,27 @@ export const check: Check = {
   },
 
   run(ctx, scenario) {
-    return guarded(ID, scenario, ctx, async (started) => {
-      const controls = ctx.form.controls.filter((c) => !c.isSubmit);
-      const values = canaryValues(ctx.form, ctx.runToken, "dead");
+    return clickEach(ctx, scenario, {
+      id: ID,
+      controls: ctx.form.controls.filter((c) => !c.isSubmit),
+      values: canaryValues(ctx.form, ctx.runToken, "dead"),
+    });
+  },
+};
+
+/**
+ * Clicks each control on a freshly loaded page (with `values` typed in first) and reports the ones that do nothing as
+ * one finding. Shared by dead-control (the controls in a form) and page-controls (the controls outside every form).
+ */
+export function clickEach(
+  ctx: CheckContext,
+  scenario: Scenario,
+  options: { id: "dead-control" | "page-controls"; controls: FormControl[]; values: FieldValue[] },
+) {
+  const { id, controls, values } = options;
+  return guarded(id, scenario, ctx, async (started) => {
       const { page, capture } = await ctx.openPage();
-      const make = findingFactory(ID, "broken-feature", scenario);
+      const make = findingFactory(id, "broken-feature", scenario);
       const findings = [];
       const notes: string[] = [];
       const dead: { control: FormControl; name: string; shots: Evidence[] }[] = [];
@@ -295,7 +311,6 @@ export const check: Check = {
           }),
         );
       }
-      return result(ID, scenario, started, findings, notes.join("; "));
+      return result(id, scenario, started, findings, notes.join("; "));
     });
-  },
-};
+}

@@ -36,7 +36,8 @@ function truncate(body: string): string {
  * The returned object is live: it keeps filling as the page runs. Response bodies are kept only for same-origin
  * text/JSON responses, and for writes (POST, PUT, ...) to another origin on this machine or the local network (an
  * API on another port), truncated to 64 KB.
- * "Same origin" means the origin of the page's latest top-level navigation.
+ * Response headers (all of them, set-cookie included) are kept for responses from the page's origin and other local
+ * origins. "Same origin" means the origin of the page's latest top-level navigation.
  */
 export function attachCapture(page: Page): Capture {
   const capture: Capture = { requests: [], console: [], pageErrors: [] };
@@ -67,6 +68,15 @@ export function attachCapture(page: Page): Capture {
 
     const contentType = response.headers()["content-type"] ?? "";
     const sameOrigin = pageOrigin !== null && originOf(entry.url) === pageOrigin;
+    // Headers of the app's own responses (this origin, or another origin on this machine or network) feed the
+    // header, cookie and CORS checks. allHeaders() includes set-cookie, which headers() leaves out.
+    if (sameOrigin || isLocalOrigin(entry.url, page.url())) {
+      try {
+        entry.responseHeaders = await response.allHeaders();
+      } catch {
+        // The page navigated or closed first; leave the headers out.
+      }
+    }
     // A write to another origin on this machine or network (the app's API on another port) is the form being saved:
     // its answer is kept like a same-origin one. Reads from other origins, and anything from the internet, are not.
     const ownApiWrite =

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { LegalTitle, MailLink } from "@/components/legal/legal";
+import { LegalDoc, LegalHeading, type LegalTocItem, MailLink, Summary } from "@/components/legal/legal";
 import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -9,27 +9,59 @@ export const metadata: Metadata = {
     "How the Run Hound website and the Run Hound software handle personal data: hosting logs, Cloudflare, Google Analytics only with your consent, tester feedback, and software that runs on your machine.",
 };
 
+const toc: LegalTocItem[] = [
+  { id: "who-we-are", label: "Who we are" },
+  { id: "website", label: "This website" },
+  { id: "testers", label: "Feedback from testers" },
+  { id: "software", label: "The Run Hound software" },
+  { id: "your-rights", label: "Your rights" },
+  { id: "children", label: "Children" },
+  { id: "changes", label: "Changes to this policy" },
+  { id: "contact", label: "Contact" },
+];
+
 export default function PrivacyPage() {
   return (
-    <>
-      <LegalTitle
-        title="Privacy policy"
-        lede={
-          <>
-            This policy covers this website, the feedback you send us as a tester, and the {site.name} software. The
-            short version: the site uses Google Analytics only if you accept it, the software runs on your machine and
-            does not send us data about the apps you test, and anything you send us as feedback is used only to
-            improve {site.name}.
-          </>
-        }
-      />
+    <LegalDoc
+      title="Privacy policy"
+      lede={
+        <>
+          This policy covers this website, the feedback you send us as a tester, and the {site.name} software. The
+          short version: the site uses Google Analytics only if you accept it, the software runs on your machine and
+          does not send us data about the apps you test, and anything you send us as feedback is used only to
+          improve {site.name}.
+        </>
+      }
+      toc={toc}
+    >
+      <Summary>
+        <ul>
+          <li>
+            <strong>The software runs on your machine.</strong> The apps you test, and the reports about them, stay
+            there. It has no telemetry.
+          </li>
+          <li>
+            <strong>No AI provider receives anything.</strong> The current preview ({site.release} {site.version})
+            sends nothing to any AI provider. AI features are coming soon and will be opt-in.
+          </li>
+          <li>
+            <strong>Analytics only with your consent.</strong> This site loads Google Analytics only if you accept it
+            in the banner.
+          </li>
+          <li>
+            <strong>Feedback is used only to improve {site.name}.</strong> We don&apos;t share it or add you to
+            mailing lists.
+          </li>
+        </ul>
+      </Summary>
 
       <p>
         {site.name} is in early development and is being tried by a small group of testers. This policy describes
-        how the website and the current preview work. We will update this page before anything changes.
+        how the website and the current preview ({site.release} {site.version}) work. We will update this page before
+        anything changes.
       </p>
 
-      <h2 id="who-we-are">Who we are</h2>
+      <LegalHeading id="who-we-are">Who we are</LegalHeading>
       <p>
         {site.name} is run by <strong>Rahul Bharati</strong>, an individual based in <strong>Mumbai, India</strong>,
         who decides how personal data connected with {site.name} is used (the &ldquo;data controller&rdquo;, or
@@ -37,13 +69,13 @@ export default function PrivacyPage() {
         us about privacy at <MailLink address={site.contactEmail} />.
       </p>
 
-      <h2 id="website">This website</h2>
+      <LegalHeading id="website">This website</LegalHeading>
       <p>
         Every page of this website is built ahead of time; a small server delivers the pages and resizes images to
         fit your screen. There is no account system, database or form, and it does not collect anything you type.
       </p>
 
-      <h3 id="hosting">Hosting and server logs</h3>
+      <LegalHeading id="hosting" level={3}>Hosting and server logs</LegalHeading>
       <p>
         The site runs on a server we rent from <strong>Hostinger</strong> in its <strong>Mumbai, India</strong> data
         centre. When you open a page, the server may log standard request details: your IP address, the page
@@ -52,7 +84,7 @@ export default function PrivacyPage() {
         <strong>no more than 30 days</strong>.
       </p>
 
-      <h3 id="cloudflare">Cloudflare</h3>
+      <LegalHeading id="cloudflare" level={3}>Cloudflare</LegalHeading>
       <p>
         Traffic to the site passes through <strong>Cloudflare</strong>, which protects it from attacks and delivers it
         quickly. To do that, Cloudflare processes your IP address and request details, and it may set a short-lived
@@ -61,7 +93,7 @@ export default function PrivacyPage() {
         its own privacy policy, and it may process it in data centres outside India.
       </p>
 
-      <h3 id="google-analytics">Google Analytics, only with your consent</h3>
+      <LegalHeading id="google-analytics" level={3}>Google Analytics, only with your consent</LegalHeading>
       <p>
         If you accept analytics in the banner, we load <strong>Google Analytics 4</strong> to understand which pages
         are read and how visitors find the site. It sets cookies in your browser and sends Google information such as
@@ -76,7 +108,7 @@ export default function PrivacyPage() {
         Analytics and removes its cookies.
       </p>
 
-      <h3 id="cookies">Cookies and similar storage</h3>
+      <LegalHeading id="cookies" level={3}>Cookies and similar storage</LegalHeading>
       <div className="overflow-x-auto" role="region" aria-label="Cookies used on this site" tabIndex={0}>
         <table>
           <thead>
@@ -129,13 +161,13 @@ export default function PrivacyPage() {
         </table>
       </div>
 
-      <h3 id="external-links">Links to other sites</h3>
+      <LegalHeading id="external-links" level={3}>Links to other sites</LegalHeading>
       <p>
         Some links go to other sites, such as our <a href={site.github}>GitHub repository</a>. Those sites have their
         own privacy policies, which apply once you leave this one.
       </p>
 
-      <h2 id="testers">Feedback from testers</h2>
+      <LegalHeading id="testers">Feedback from testers</LegalHeading>
       <p>
         If you try {site.name} and send us feedback, by email or through GitHub issues, we receive what you choose to
         send: your name or GitHub username, your email address if you email us, your message, and any files you
@@ -159,15 +191,25 @@ export default function PrivacyPage() {
         </li>
       </ul>
 
-      <h2 id="software">The {site.name} software</h2>
+      <LegalHeading id="software">The {site.name} software</LegalHeading>
       <p>
-        {site.name} runs on your own machine, for example as a Docker container you start yourself. It opens the app
-        you point it at in a browser on that machine and writes its reports there.
+        {site.name} runs on your own machine, installed from source or as Docker or Podman containers you start
+        yourself. It opens the page you point it at in a browser on that machine, runs the checks you approve against
+        that page, and writes its reports there. The optional container set-up also starts local test apps (Kennel,
+        our deliberately broken demo app, and a few sample apps) on your machine; they hold only made-up data.
       </p>
       <ul>
         <li>
           <strong>Your test data stays with you.</strong> {site.name} does not send us data about the app you test:
           no page content, screenshots, reports or findings. It has no telemetry.
+        </li>
+        <li>
+          <strong>What it reads from the app you test.</strong> To run its checks, {site.name} reads what a browser
+          can see of the page you point it at: the page and its scripts, the requests the page sends and the answers
+          it gets, response headers, the cookies the app sets and any public source-map files. Some checks send
+          requests of their own to that same app, for example with a made-up origin to see how its API answers. All
+          of this happens between your machine and the app you are testing, and what it records is kept in the reports
+          on your machine.
         </li>
         <li>
           <strong>AI features are coming soon, and opt-in.</strong> The current preview uses no AI model and
@@ -185,7 +227,7 @@ export default function PrivacyPage() {
         any personal data inside the app you test.
       </p>
 
-      <h2 id="your-rights">Your rights</h2>
+      <LegalHeading id="your-rights">Your rights</LegalHeading>
       <p>
         Depending on where you live, laws such as India&apos;s Digital Personal Data Protection Act, 2023, the EU and
         UK GDPR, or the California Consumer Privacy Act may give you rights over your personal data, including the
@@ -206,23 +248,23 @@ export default function PrivacyPage() {
         India.
       </p>
 
-      <h2 id="children">Children</h2>
+      <LegalHeading id="children">Children</LegalHeading>
       <p>
         This website and the software are made for developers and testers. They are not directed at children, and we
         do not knowingly collect children&apos;s personal data.
       </p>
 
-      <h2 id="changes">Changes to this policy</h2>
+      <LegalHeading id="changes">Changes to this policy</LegalHeading>
       <p>
         We will update this page when our practices change and revise the &ldquo;Last updated&rdquo; date above. For
         how {site.name} may and may not be used, see the <Link href="/acceptable-use">Acceptable Use Policy</Link>.
       </p>
 
-      <h2 id="contact">Contact</h2>
+      <LegalHeading id="contact">Contact</LegalHeading>
       <p>
         Questions about this policy: <MailLink address={site.contactEmail} />. Data controller:{" "}
         <strong>Rahul Bharati</strong>, <strong>Mumbai, India</strong>.
       </p>
-    </>
+    </LegalDoc>
   );
 }

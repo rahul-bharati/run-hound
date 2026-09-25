@@ -9,7 +9,7 @@ type Shot = {
   text: string;
 };
 
-/** Real V0 output from a run on Kennel with its planted bugs switched on (25 September 2026). */
+/** Real output (V0, 0.1.0) from a run on Kennel with its planted bugs switched on. */
 const gif: Shot = {
   shot: evidence.doubleSubmitRecording,
   kind: "GIF · ONE FRAME PER STEP",

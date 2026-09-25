@@ -12,7 +12,7 @@ const tabs: TourTab[] = [
     id: "plan",
     label: "Plan",
     title: "A plan you approve",
-    text: "Enter the address of a page on your machine. Run Hound finds the form (here Kennel's “Book a sitter”, 9 fields) and plans 15 scenarios in three groups, each saying what it does and which test records it creates. Nothing runs until you approve. In V0 the plan comes from what Run Hound finds on the page; AI planning is coming soon.",
+    text: "Enter the address of a page on your machine. Run Hound finds what's on it (here Kennel's “Book a sitter” form, 9 fields) and plans scenarios in three groups, each saying what it does and which test records it creates. Nothing runs until you approve. The plan comes from what Run Hound finds on the page; AI planning is coming soon.",
     image: <Screenshot screen={screens.plan} sizes={sizes} />,
   },
   {
@@ -26,7 +26,7 @@ const tabs: TourTab[] = [
     id: "report",
     label: "Report",
     title: "Every finding, with the evidence",
-    text: "Each finding has its severity, what it means, the recording or annotated frame, the reproduction steps and the key facts measured during the run. On Kennel, all 15 scenarios found something.",
+    text: "Each finding has its severity, what it means, the recording or annotated frame, the reproduction steps and the key facts measured during the run. In this run on Kennel, every one of the 15 form scenarios found something.",
     image: <Screenshot screen={screens.report} sizes={sizes} />,
   },
   {
@@ -44,7 +44,7 @@ export function SeeItRun() {
     <Section
       id="see-it-run"
       title="See it run"
-      intro="Plan, run, report: the local web UI that comes with V0, from one run on Kennel."
+      intro="Plan, run, report: the local web UI that comes with Run Hound, captured from one run of the 15 form checks on Kennel."
       className="border-t border-line-soft bg-band"
     >
       <Tour tabs={tabs} />

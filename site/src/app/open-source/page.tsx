@@ -25,11 +25,11 @@ const openCore: { core: string; later: string }[] = [
     later: "Team dashboard: run history, trends and regressions across runs",
   },
   {
-    core: "CLI, local web UI and Docker set-up; localhost, with domain verification planned",
+    core: "CLI, local web UI and Docker or Podman set-up; localhost, with domain verification planned",
     later: "CI / GitHub app: pull request comments and scheduled regression runs",
   },
   {
-    core: "The Kennel test fixture and its scoring",
+    core: "The Kennel test fixture, the sample apps and their scoring",
     later: "Compliance exports: WCAG and European Accessibility Act conformance reports",
   },
   {
@@ -42,17 +42,20 @@ const roadmap: RoadmapStage[] = [
   {
     version: "V0",
     name: "Single form",
-    status: "tester preview",
+    status: "shipped",
+    release: "0.1.0",
     summary:
-      "Point it at a form on localhost. It plans 13 to 15 golden- and danger-path scenarios in three groups (Accessibility, Features, Security), you approve them, it runs them and reports with evidence, timings and exported Playwright tests.",
-    adds: "0.1.0 is with invited testers now. AI planning and explanations are coming soon; every result already comes from a real check with evidence.",
+      "Point it at a form on localhost. It plans golden- and danger-path scenarios in three groups (Accessibility, Features, Security), you approve them, it runs them and reports with evidence, timings and exported Playwright tests.",
+    adds: "15 checks. Shipped to invited testers as 0.1.0.",
   },
   {
     version: "V1",
     name: "Single page",
-    status: "planned",
-    summary: "Point it at a page; it finds every interactive element and tests them.",
-    adds: "Adds response header, cookie flag, CORS and source-map checks, plus advisory checks such as alt-text quality.",
+    status: "tester preview",
+    release: "0.2.0",
+    summary:
+      "Point it at a page. It finds every form and interactive control on it, plans form checks for each form plus page-wide checks, you approve, and it runs them in a real browser. Local only.",
+    adds: "Adds security headers, cookie flags, CORS, public source maps and dead controls across the whole page: 20 checks. One Docker or Podman command starts it with Kennel and the sample apps. AI planning, AI explanations and bring-your-own-model are coming soon.",
   },
   {
     version: "V2",
@@ -65,7 +68,8 @@ const roadmap: RoadmapStage[] = [
     version: "V3",
     name: "Whole app",
     status: "planned",
-    summary: "Point it at the app. It discovers and prioritises features, then tests the paths that give the most value first.",
+    summary:
+      "Point it at the app. It discovers and prioritises features, then tests the paths that give the most value first.",
     adds: "Adds a dead-link crawl, cross-browser runs, Core Web Vitals, SEO and social previews.",
   },
   {
@@ -99,7 +103,8 @@ export default function OpenSourcePage() {
         lede="Finding the holes is the whole point, so no check will ever sit behind a paywall. The code opens up with the public release."
       >
         <p className="max-w-2xl text-[15px] leading-relaxed text-dim">
-          V0 {site.version} is a tester preview. The repository is invite-only while it is tested;{" "}
+          {site.release} ({site.releaseName.toLowerCase()}, {site.version}) is a tester preview. The repository is
+          invite-only while it is tested;{" "}
           <a href={site.accessMail} className={externalLink}>
             ask for access
           </a>
@@ -174,7 +179,7 @@ export default function OpenSourcePage() {
       <Section
         id="roadmap"
         title="Roadmap"
-        intro="Each stage widens what Run Hound can test, from one form to a whole app."
+        intro="Each stage widens what Run Hound can test, from one form to a whole app. V0 has shipped, V1 is with testers now, and V2 onward is planned."
       >
         <RoadmapList stages={roadmap} />
       </Section>

@@ -1,0 +1,16 @@
+{
+  "mode": "S06",
+  "mustFail": [
+    "cookie-flags"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "cookie-flags",
+      "severity": "high",
+      "titleIncludes": "kennel_session"
+    }
+  ],
+  "notes": "kennel_session is set without HttpOnly. It is still SameSite=Lax, and localhost is http, so HttpOnly is the only problem reported."
+}

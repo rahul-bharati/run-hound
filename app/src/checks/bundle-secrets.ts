@@ -182,6 +182,8 @@ export const check: Check = {
   id: "bundle-secrets",
   title: "No secret keys in the page's JavaScript",
   category: "security",
+  // One page, one set of scripts and one layout, however many forms it has.
+  scope: "page",
 
   plan(_form: DiscoveredForm): Scenario[] {
     return [

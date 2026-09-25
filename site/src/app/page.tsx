@@ -2,29 +2,54 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ButtonLink } from "@/components/button-link";
-import { Container, Section } from "@/components/layout";
-import { links, totalChecks } from "@/components/home/data";
+import { Container, NewTag, Section } from "@/components/layout";
+import { links, newChecks, totalChecks } from "@/components/home/data";
 import { Evidence } from "@/components/home/evidence";
 import { Groups } from "@/components/home/groups";
 import { Hero } from "@/components/home/hero";
 import { SeeItRun } from "@/components/home/see-it-run";
 import { ArrowIcon, GitHubIcon } from "@/components/button-link";
+import { CommandCopy } from "@/components/command-copy";
+import { Icon } from "@/components/icon";
 import { site } from "@/lib/site";
+import { Container as Box, FileSearch, MousePointerClick, ShieldCheck } from "lucide-react";
 
 export const metadata: Metadata = {
   title: { absolute: `${site.name}: Find the bugs your AI forgot to test` },
-  description:
-    "AI-assisted UI testing for AI-built apps, open source, now in V0 tester preview (AI planning coming soon). Point Run Hound at a form on your local app: it plans 15 checks across accessibility, features and security, runs them in a real browser after you approve, and reports each finding with annotated evidence and a Playwright test.",
+  description: `AI-assisted UI testing for AI-built apps, open source, now in the V1 tester preview (AI planning coming soon). Point Run Hound at a page on your local app: it finds every form and control, plans up to ${totalChecks} checks across accessibility, features and security, runs them in a real browser after you approve, and reports each finding with annotated evidence and a Playwright test.`,
 };
+
+const whatsNew = [
+  {
+    icon: FileSearch,
+    title: "The whole page, not one form",
+    text: "Run Hound finds every form and interactive control on the page, and plans the form checks for each form.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Page-wide security checks",
+    text: "Security headers, session cookie flags, CORS and public source maps. On a dev server, which doesn't send production headers, these findings are marked advisory.",
+  },
+  {
+    icon: MousePointerClick,
+    title: "Dead controls anywhere",
+    text: "Buttons and controls outside your forms are clicked too, and the ones that do nothing are reported with evidence.",
+  },
+  {
+    icon: Box,
+    title: "Test apps in one command",
+    text: "Docker or Podman starts Run Hound with Kennel, our deliberately broken demo app, and four sample apps, so you can try it straight away.",
+  },
+];
 
 const principles = [
   {
     title: "Runs on your machine",
-    text: "V0 tests one form on an app running locally or on a private address. Nothing is sent anywhere to decide a result.",
+    text: "It tests one page of an app running locally or on a private address, and reports stay on your machine. Nothing is sent to any AI provider.",
   },
   {
     title: "Asks before it tests",
-    text: "You see every planned scenario, and what it will create, before anything runs. Destructive scenarios are off by default.",
+    text: "You see every planned scenario, and the test records it may create, before anything runs. Destructive scenarios are off by default.",
   },
   {
     title: "No evidence, no finding",
@@ -67,6 +92,40 @@ export default function Home() {
     <>
       <Hero />
 
+      <Section
+        id="whats-new"
+        eyebrow={`NEW IN ${site.release} · ${site.version}`}
+        title={
+          <>
+            From one form to <span className="text-accent">the whole page.</span>
+          </>
+        }
+        intro={`V0 tested the main form on a page. ${site.release} tests the page: every form, every control, and ${newChecks} new checks that look at the page as a whole. Still a tester preview, still local only.`}
+        className="border-t border-line-soft"
+      >
+        <ul className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          {whatsNew.map((item) => (
+            <li key={item.title} className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-6">
+              <span className="grid size-11 place-items-center rounded-xl border border-line-strong text-accent">
+                <Icon icon={item.icon} size={20} />
+              </span>
+              <h3 className="font-display text-xl font-bold leading-snug tracking-tight">{item.title}</h3>
+              <p className="text-[15px] leading-relaxed text-muted">{item.text}</p>
+            </li>
+          ))}
+        </ul>
+        <div className="flex flex-col gap-3">
+          <p className="flex flex-wrap items-center gap-2 font-mono text-xs tracking-widest text-dim">
+            TRY IT WITH THE TEST APPS <NewTag />
+          </p>
+          <CommandCopy command={site.dockerCommand} className="w-full max-w-2xl" />
+          <p className="text-sm text-dim">
+            Or <code className="font-mono text-muted">podman compose up --build</code>. Then open{" "}
+            <code className="font-mono text-muted">http://localhost:4000</code>.
+          </p>
+        </div>
+      </Section>
+
       <SeeItRun />
 
       <Section
@@ -79,14 +138,15 @@ export default function Home() {
 
       <Section
         title={`${totalChecks} checks in three groups`}
-        intro="What V0 runs on a typical form, in this order. Checks that have nothing to test on your form are skipped and listed as such in the report."
+        eyebrow="WHAT IT CHECKS"
+        intro={`What ${site.release} plans for a typical page, in this order: the form checks for each form, plus ${newChecks} page-wide checks marked new. Checks that have nothing to test on your page are skipped and listed as such in the report.`}
         className="border-y border-line-soft bg-band"
       >
         <Groups />
         <ArrowLink href="/checks">See every check</ArrowLink>
       </Section>
 
-      <Section title="Built to be trusted">
+      <Section title="Built to be trusted" eyebrow="PRINCIPLES">
         <ul className="grid gap-5 md:grid-cols-3">
           {principles.map((p, i) => (
             <li key={p.title} className="flex flex-col gap-3 border-t border-line pt-6">
@@ -102,7 +162,8 @@ export default function Home() {
       </Section>
 
       <Section
-        title="Why now"
+        eyebrow="WHY NOW"
+        title="AI builds fast. It ships holes too."
         intro="AI can build an app from a one-line prompt. The research says the result often ships with holes."
         className="border-t border-line-soft"
       >
@@ -119,7 +180,10 @@ export default function Home() {
         </ul>
       </Section>
 
-      <section aria-labelledby="closing-heading" className="relative isolate overflow-hidden py-20 sm:py-28">
+      <section
+        aria-labelledby="closing-heading"
+        className="relative isolate overflow-hidden border-t border-line-soft py-20 sm:py-28"
+      >
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(50%_60%_at_50%_100%,rgba(94,230,163,0.10),transparent_70%)]"
@@ -131,13 +195,13 @@ export default function Home() {
           >
             Your AI said it&apos;s done. <span className="block text-accent">Let&apos;s check.</span>
           </h2>
-          <p className="max-w-xl text-lg leading-relaxed text-muted">
-            V0 is a tester preview: one form, on your machine, about ten minutes on the demo app. The tester guide
-            walks you through it.
+          <p className="max-w-xl text-pretty text-lg leading-relaxed text-muted">
+            {site.release} is a tester preview: one page, on your machine, with the test apps a single command away.
+            The tester guide walks you through it.
           </p>
-          <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
             <ButtonLink href={links.tryLocally}>
-              Try V0 Locally
+              {site.cta}
               <ArrowIcon size={18} />
             </ButtonLink>
             <ButtonLink href={links.github} variant="secondary">

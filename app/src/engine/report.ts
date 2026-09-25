@@ -105,7 +105,7 @@ function notApproved(report: Report): { id: string; checkId: string; title: stri
   return report.plan.scenarios.filter((s) => !approved.has(s.id)).map((s) => ({ id: s.id, checkId: s.checkId, title: s.title }));
 }
 
-/** V0 checks that proposed nothing for this form (e.g. no password field for credential-fields). */
+/** Checks that proposed nothing for this page (e.g. no password field for credential-fields, no buttons outside forms). */
 function notPlanned(report: Report): string[] {
   const planned = new Set(report.plan.scenarios.map((s) => s.checkId));
   return CHECK_IDS.filter((id) => !planned.has(id));
@@ -318,7 +318,7 @@ export function renderMarkdown(report: Report): string {
   if (skippedByUser.length) {
     lines.push("## Planned but not approved (not run)", "", ...skippedByUser.map((n) => `- ${oneLine(n.title)} · ${n.checkId} · ${n.id}`), "");
   }
-  section("Checks with nothing to test on this form", notPlanned(report));
+  section("Checks with nothing to test on this page", notPlanned(report));
 
   section("Passed checks", checksByStatus(report.results, "pass"));
   section("Checks that errored", reasons(report, "error"));
@@ -452,7 +452,7 @@ export function renderHtml(report: Report): string {
     : "";
   const unplanned = notPlanned(report);
   const unplannedHtml = unplanned.length
-    ? `<section aria-labelledby="not-planned"><h2 id="not-planned">Checks with nothing to test on this form</h2>${list(unplanned)}</section>`
+    ? `<section aria-labelledby="not-planned"><h2 id="not-planned">Checks with nothing to test on this page</h2>${list(unplanned)}</section>`
     : "";
 
   return `<!doctype html>
@@ -563,7 +563,7 @@ ${unapprovedHtml}${unplannedHtml}
 <section aria-labelledby="skipped"><h2 id="skipped">Skipped checks</h2>${list(reasons(report, "skipped"))}</section>
 <section aria-labelledby="not-visible"><h2 id="not-visible">What a browser can't see</h2>${list(report.notVisible)}</section>
 </main>
-<footer>Run Hound ${esc(report.runHoundVersion)} · V0 tester preview · rule-based checks in a real browser, on local and private addresses only</footer>
+<footer>Run Hound ${esc(report.runHoundVersion)} · V1 tester preview · real checks in a real browser, on local and private addresses only</footer>
 </body>
 </html>
 `;

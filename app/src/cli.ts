@@ -16,6 +16,7 @@ import { redactSecrets } from "./engine/redact.js";
 import { formatDuration } from "./core/format.js";
 import { findingCounts, finishedIn, testDataSentence } from "./engine/report.js";
 import { canShowBrowser, discoverAndPlan, NO_DISPLAY_MESSAGE, NothingToRunError, planWarnings, RUN_HOUND_VERSION, runPlan } from "./engine/runner.js";
+import { planSummary } from "./engine/plan.js";
 import { exitQuietlyOnClosedPipe } from "./engine/stdio.js";
 import { createApp } from "./server/app.js";
 
@@ -97,7 +98,7 @@ async function runCommand(args: string[]): Promise<number> {
   // reported as refused, and only then is --headed refused.
   const plan = await discoverAndPlan(url, { headed: headed && canShowBrowser() });
   if (headed && !canShowBrowser()) throw new Error(`--headed: ${NO_DISPLAY_MESSAGE}`);
-  log(`Found ${plan.form.name ? `"${plan.form.name}"` : "a form"} with ${count(plan.form.fields.length, "field")}; ${count(plan.scenarios.length, "scenario")} planned.`);
+  log(planSummary(plan));
   for (const warning of planWarnings(plan)) log(`Warning: ${warning}`);
 
   if (values["plan-only"]) {
@@ -110,7 +111,8 @@ async function runCommand(args: string[]): Promise<number> {
           const s = plan.scenarios.find((x) => x.id === id);
           if (!s) continue;
           const tags = [s.kind, s.destructive ? "destructive" : ""].filter(Boolean).join(", ");
-          process.stdout.write(`  ${s.defaultSelected ? "*" : " "} ${s.id}  ${redactSecrets(s.title)} (${tags})\n`);
+          const scope = s.scopeLabel ? ` [${redactSecrets(s.scopeLabel)}]` : "";
+          process.stdout.write(`  ${s.defaultSelected ? "*" : " "} ${s.id}  ${redactSecrets(s.title)} (${tags})${scope}\n`);
           // What the scenario does, including whether it creates test records in the app, before anyone approves it.
           process.stdout.write(`      ${redactSecrets(s.description)}\n`);
         }

@@ -45,6 +45,9 @@ jobs:
           pnpm --filter kennel exec tsc --noEmit
           pnpm --filter acceptance exec tsc --noEmit
 
+      - name: Validate the compose file
+        run: docker compose config --quiet
+
       - name: Build Kennel
         run: pnpm --filter kennel build
 

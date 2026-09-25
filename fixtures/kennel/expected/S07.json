@@ -1,0 +1,16 @@
+{
+  "mode": "S07",
+  "mustFail": [
+    "cors"
+  ],
+  "mustPass": "all-others",
+  "allowedSideEffects": [],
+  "expectedFindings": [
+    {
+      "checkId": "cors",
+      "severity": "high",
+      "titleIncludes": "with the visitor's cookies"
+    }
+  ],
+  "notes": "The API echoes the request's Origin with credentials. The probe's GETs to /api/__config, /api/availability and /api/bookings are readable from Origin: null; the page itself (GET /book) gets no CORS headers and stays unreadable. The frontend is same-origin and sends no Origin on its own GETs, so no other check sees a difference."
+}

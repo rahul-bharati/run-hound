@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
-  - name: V0 tester guide
+  - name: Tester guide
     url: https://github.com/rahul-bharati/run-hound/blob/main/TESTING.md
-    about: How to run V0, test your own app and read the report.
+    about: How to run the V1 preview, test your own app and read the report.
