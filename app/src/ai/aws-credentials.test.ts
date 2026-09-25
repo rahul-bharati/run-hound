@@ -11,6 +11,7 @@ import {
   clearAwsCredentialCache,
   parseAwsIni,
   resolveAwsCredentials,
+  splitCredentialProcess,
 } from "./aws-credentials.js";
 import { AiError } from "./types.js";
 
@@ -66,6 +67,59 @@ describe("parseAwsIni", () => {
       "profile dev": { aws_access_key_id: "AKID", s3: "", output: "json" },
       "sso-session corp": { sso_start_url: "https://corp.awsapps.com/start" },
     });
+  });
+});
+
+describe("splitCredentialProcess (botocore / Python shlex.split, posix=True)", () => {
+  const split = (command: string) => splitCredentialProcess(command, "p");
+
+  it("splits on whitespace and keeps single-quoted text literal", () => {
+    expect(split("helper --item 'My Item'")).toEqual(["helper", "--item", "My Item"]);
+    expect(split("  a \t b\n c  ")).toEqual(["a", "b", "c"]);
+    expect(split("x 'a\\b \"c\" $d'")).toEqual(["x", 'a\\b "c" $d']);
+  });
+
+  it("groups double-quoted text, where only \\\\ and \\\" are escapes (as shlex does)", () => {
+    expect(split('helper --item "My Item"')).toEqual(["helper", "--item", "My Item"]);
+    expect(split('"a \\"b\\" \\\\ c"')).toEqual(['a "b" \\ c']);
+    expect(split('"a\\$b\\`c\\nd"')).toEqual(["a\\$b\\`c\\nd"]);
+  });
+
+  it("concatenates adjacent quoted and unquoted parts", () => {
+    expect(split('"a b"c')).toEqual(["a bc"]);
+    expect(split("pre'mid dle'\"post fix\"end")).toEqual(["premid dlepost fixend"]);
+  });
+
+  it("treats a backslash outside quotes as escaping the next character", () => {
+    expect(split("a\\ b")).toEqual(["a b"]);
+    expect(split("a\\'b c\\\"d \\\\e")).toEqual(["a'b", 'c"d', "\\e"]);
+  });
+
+  it("handles a mixed real-world command", () => {
+    expect(split(`/usr/bin/op read "op://Vault/AWS Keys/json" --account 'my team' --flag=a\\ b ''`)).toEqual([
+      "/usr/bin/op",
+      "read",
+      "op://Vault/AWS Keys/json",
+      "--account",
+      "my team",
+      "--flag=a b",
+      "",
+    ]);
+  });
+
+  it("rejects an unterminated quote or trailing escape, naming the profile", () => {
+    for (const bad of ["helper 'oops", 'helper "oops', "helper oops\\"]) {
+      let error: unknown;
+      try {
+        splitCredentialProcess(bad, "work");
+      } catch (e) {
+        error = e;
+      }
+      expect(error).toBeInstanceOf(AiError);
+      expect((error as AiError).code).toBe("not-configured");
+      expect((error as AiError).message).toMatch(/"work"/);
+      expect((error as AiError).message).toMatch(/credential_process/);
+    }
   });
 });
 
@@ -169,6 +223,29 @@ describe("resolveAwsCredentials", () => {
       clearAwsCredentialCache();
       await processProfile({ Version: 1, AccessKeyId: "PROC", SecretAccessKey: "s" }, 3);
       expect((await caught(resolveAwsCredentials({ env: {}, home, profile: "proc" }))).code).toBe("auth");
+    });
+
+    it("includes the helper's stderr (redacted, at most 300 chars) when it exits non-zero", async () => {
+      const script = join(home, "fail.mjs");
+      await writeFile(script, `process.stderr.write("no session for ${KEY_ID} " + "z".repeat(400));\nprocess.exit(2);\n`);
+      await writeFile(aws("config"), `[profile x]\ncredential_process = '${process.execPath}' '${script}'\n`);
+      const error = await caught(resolveAwsCredentials({ env: {}, home, profile: "x" }));
+      expect(error.code).toBe("auth");
+      expect(error.message).toMatch(/^credential_process for profile "x" failed \(exit code 2\): no session for \[REDACTED:/);
+      expect(error.message).not.toContain(KEY_ID);
+      const stderrPart = error.message.slice(error.message.indexOf("): ") + 3);
+      expect(stderrPart.length).toBeLessThanOrEqual(300);
+    });
+
+    it("kills a helper that ignores SIGTERM and settles even when a grandchild holds stdout open", async () => {
+      const script = join(home, "hang.sh");
+      await writeFile(script, "trap '' TERM\nsleep 30\n");
+      await writeFile(aws("config"), `[profile hang]\ncredential_process = /bin/sh '${script}'\n`);
+      const started = Date.now();
+      const error = await caught(resolveAwsCredentials({ env: {}, home, profile: "hang", timeoutMs: 300 }));
+      expect(Date.now() - started).toBeLessThan(3000);
+      expect(error.code).toBe("timeout");
+      expect(error.message).toMatch(/"hang"/);
     });
   });
 

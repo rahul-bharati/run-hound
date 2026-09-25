@@ -1,8 +1,9 @@
-import { execFile } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { redactSecrets } from "../engine/redact.js";
 import { httpError, parseBody, send } from "./http.js";
 import type { AwsCredentials } from "./sigv4.js";
 import { AiError } from "./types.js";
@@ -16,7 +17,8 @@ import { AiError } from "./types.js";
  *    both files are merged; the credentials file wins. Within the profile, in order:
  *    - role_arn (assume role / source_profile chains): AiError "not-configured", not supported yet;
  *    - aws_access_key_id + aws_secret_access_key (+ aws_session_token);
- *    - credential_process: the command is run without a shell (double quotes group words) and must print the
+ *    - credential_process: the command is split like botocore's shlex.split (splitCredentialProcess), run without a
+ *      shell (killed with SIGKILL after timeoutMs; a non-zero exit reports its redacted stderr) and must print the
  *      Version 1 JSON {Version: 1, AccessKeyId, SecretAccessKey, SessionToken?, Expiration? (RFC 3339)};
  *    - IAM Identity Center: sso_session (→ [sso-session name] with sso_region, sso_start_url) or the legacy
  *      sso_start_url + sso_region, with sso_account_id and sso_role_name. The access token cached by `aws sso login`
@@ -203,17 +205,37 @@ async function fromSso(profile: Profile, sso: SsoSettings, home: string, options
   };
 }
 
-/** Splits a credential_process command into argv: whitespace separates, double quotes group (and are removed). */
-function splitCommand(command: string): string[] {
+/**
+ * Splits a credential_process command into argv the way botocore does on POSIX (Python shlex.split, posix=True):
+ * whitespace separates words; single quotes keep everything literal; inside double quotes a backslash escapes only
+ * `\\` and `"` (otherwise it stays, as in shlex); outside quotes a backslash escapes any next character; adjacent
+ * quoted and unquoted parts join into one word; `''` or `""` is an empty word. An unterminated quote or a trailing
+ * backslash → AiError "not-configured" naming the profile.
+ */
+export function splitCredentialProcess(command: string, profileName: string): string[] {
   const out: string[] = [];
   let current = "";
-  let quoted = false;
   let started = false;
-  for (const ch of command.trim()) {
-    if (ch === '"') {
-      quoted = !quoted;
+  let quote: "'" | '"' | null = null;
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i]!;
+    if (quote === "'") {
+      if (ch === "'") quote = null;
+      else current += ch;
+    } else if (quote === '"') {
+      if (ch === '"') quote = null;
+      else if (ch === "\\" && i + 1 < command.length && (command[i + 1] === "\\" || command[i + 1] === '"')) current += command[++i];
+      else current += ch;
+    } else if (ch === "'" || ch === '"') {
+      quote = ch;
       started = true;
-    } else if (/\s/.test(ch) && !quoted) {
+    } else if (ch === "\\") {
+      if (i + 1 >= command.length) {
+        throw new AiError("not-configured", `The credential_process of AWS profile "${profileName}" ends with a backslash that escapes nothing`);
+      }
+      current += command[++i];
+      started = true;
+    } else if (ch === " " || ch === "\t" || ch === "\r" || ch === "\n") {
       if (started) out.push(current);
       current = "";
       started = false;
@@ -222,25 +244,87 @@ function splitCommand(command: string): string[] {
       started = true;
     }
   }
+  if (quote) {
+    throw new AiError("not-configured", `The credential_process of AWS profile "${profileName}" has an unterminated ${quote === "'" ? "single" : "double"} quote`);
+  }
   if (started) out.push(current);
   return out;
 }
 
-function runProcess(command: string, timeoutMs: number, signal?: AbortSignal): Promise<{ code: number | null; stdout: string }> {
-  const [file, ...args] = splitCommand(command);
+const MAX_OUTPUT = 1024 * 1024;
+/** After the helper exits, how long to wait for its stdout/stderr to close (a grandchild may keep them open). */
+const EXIT_GRACE_MS = 200;
+
+type ProcessResult = { outcome: "exit"; code: number | null; stdout: string; stderr: string } | { outcome: "timeout" } | { outcome: "aborted" } | { outcome: "error"; message: string };
+
+/**
+ * Runs the helper without a shell. Always settles: on timeout (SIGKILL) or abort it resolves at once, and after the
+ * helper exits it waits at most EXIT_GRACE_MS for the pipes to close, so a grandchild holding stdout open can't hang it.
+ */
+function runProcess(file: string, args: string[], timeoutMs: number, signal?: AbortSignal): Promise<ProcessResult> {
   return new Promise((resolve) => {
-    if (!file) return resolve({ code: null, stdout: "" });
-    execFile(file, args, { timeout: timeoutMs, maxBuffer: 1024 * 1024, windowsHide: true, ...(signal ? { signal } : {}) }, (error, stdout) => {
-      if (error) resolve({ code: typeof error.code === "number" ? error.code : null, stdout: "" });
-      else resolve({ code: 0, stdout: String(stdout) });
+    if (signal?.aborted) return resolve({ outcome: "aborted" });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let child: ChildProcess;
+    const finish = (result: ProcessResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      resolve(result);
+    };
+    const kill = () => {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    };
+    const onAbort = () => {
+      kill();
+      finish({ outcome: "aborted" });
+    };
+    const timer = setTimeout(() => {
+      kill();
+      finish({ outcome: "timeout" });
+    }, timeoutMs);
+    try {
+      child = spawn(file, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, timeout: timeoutMs, killSignal: "SIGKILL" });
+    } catch (error) {
+      clearTimeout(timer);
+      return resolve({ outcome: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+    child.stdout!.setEncoding("utf8").on("data", (chunk: string) => {
+      if (stdout.length < MAX_OUTPUT) stdout += chunk;
+    });
+    child.stderr!.setEncoding("utf8").on("data", (chunk: string) => {
+      if (stderr.length < MAX_OUTPUT) stderr += chunk;
+    });
+    child.on("error", (error) => finish({ outcome: "error", message: error.message }));
+    child.on("close", (code) => finish({ outcome: "exit", code, stdout, stderr }));
+    child.on("exit", (code) => {
+      setTimeout(() => finish({ outcome: "exit", code, stdout, stderr }), EXIT_GRACE_MS).unref();
     });
   });
 }
 
 async function fromProcess(profile: Profile, options: AwsCredentialOptions): Promise<ResolvedAwsCredentials> {
   const what = `credential_process of AWS profile "${profile.name}"`;
-  const { code, stdout } = await runProcess(profile.settings.credential_process!, options.timeoutMs ?? 60_000, options.signal);
-  if (code !== 0) throw new AiError("auth", `The ${what} failed${code === null ? "" : ` (exit code ${code})`}`);
+  const [file, ...args] = splitCredentialProcess(profile.settings.credential_process!, profile.name);
+  if (!file) throw new AiError("not-configured", `The ${what} is empty`);
+  const timeoutMs = options.timeoutMs ?? 60_000;
+  const result = await runProcess(file, args, timeoutMs, options.signal);
+  if (result.outcome === "timeout") {
+    throw new AiError("timeout", `credential_process for profile "${profile.name}" did not finish within ${timeoutMs >= 1000 ? `${Math.round(timeoutMs / 1000)} s` : `${timeoutMs} ms`}`);
+  }
+  if (result.outcome === "aborted") throw new AiError("timeout", `credential_process for profile "${profile.name}" was cancelled`);
+  if (result.outcome === "error") throw new AiError("auth", `credential_process for profile "${profile.name}" could not be started: ${redactSecrets(result.message)}`);
+  if (result.code !== 0) {
+    const stderr = redactSecrets(result.stderr).trim().slice(0, 300).trim();
+    throw new AiError("auth", `credential_process for profile "${profile.name}" failed${result.code === null ? "" : ` (exit code ${result.code})`}${stderr ? `: ${stderr}` : ""}`);
+  }
+  const stdout = result.stdout;
   let out: Record<string, unknown>;
   try {
     out = JSON.parse(stdout);
