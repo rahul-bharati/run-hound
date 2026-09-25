@@ -100,9 +100,9 @@ docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ${site.image
   serve --host 127.0.0.1 --port 4310`;
 
 const aiCli = `cd app
-pnpm exec tsx src/cli.ts ai status                                    # the effective settings and what's missing
-pnpm exec tsx src/cli.ts run localhost:5310/book --ai --ai-provider ollama --ai-model qwen3:8b --plan-only
-pnpm exec tsx src/cli.ts ai test                                      # one small call to check the model answers`;
+pnpm exec tsx src/cli.ts ai status                                         # the effective settings and what's missing
+pnpm exec tsx src/cli.ts ai test --ai-provider ollama --ai-model qwen3:8b  # one small call to check the model answers
+pnpm exec tsx src/cli.ts run http://localhost:5310/book --ai --ai-provider ollama --ai-model qwen3:8b --plan-only`;
 
 // The docs column: max-w-3xl (768 px) from xl, the viewport minus the gutters and the 220 px contents column on lg.
 const docShotSizes =
@@ -132,7 +132,7 @@ const problems: { see: string; means: string }[] = [
   {
     see: "No form found on …",
     means:
-      "The page has no form, the URL is wrong, the page returned an error (a 404, a dev server's “Blocked request”), or it redirected to a login page. Open the URL in your browser and check.",
+      "The page answered with an error (a 404 from a wrong URL, or a dev server's “Blocked request”), so there is nothing to test. A page that simply has no form gets the page-wide checks instead. Open the URL in your browser and check.",
   },
   {
     see: "Refusing to test …",
@@ -209,14 +209,14 @@ export default function DocsPage() {
                 </p>
                 <p>
                   New since V0 (0.1.0), which tested only the main form: every form on the page is tested, and five
-                  checks look at the page as a whole. See <a href="#checks">the {checkTotal} checks</a>.
+                  new checks look at the page as a whole. See <a href="#checks">the {checkTotal} checks</a>.
                 </p>
                 <p>
                   New in 0.3.0: <strong>optional AI with your own model</strong>. It reviews the plan, suggests extra
                   flows and explains findings. It is off by default and never decides pass or fail. See{" "}
                   <a href="#ai">AI (optional)</a>.
                 </p>
-                <p>It doesn&apos;t, yet:</p>
+                <p>It doesn&apos;t:</p>
                 <ul>
                   <li>follow links to other pages or test a feature across pages (planned for V2);</li>
                   <li>log in: pages behind a login aren&apos;t supported, and a login form can only be partly tested;</li>
@@ -320,7 +320,7 @@ export default function DocsPage() {
                     <tr className="border-b border-line-soft">
                       <th scope="row" className="px-5 py-3.5 align-top font-medium text-fg">You need</th>
                       <td className="px-5 py-3.5 align-top">
-                        Docker 24+ with Compose, Docker Desktop, or Podman with podman-compose. No clone, no Node
+                        Docker 24+ with Compose, Docker Desktop, or Podman with podman-compose, and curl. No clone, no Node
                       </td>
                       <td className="px-5 py-3.5 align-top">
                         Node 22 or newer (24 recommended), pnpm (<code className="font-mono text-fg">corepack enable</code>), git
@@ -402,7 +402,7 @@ export default function DocsPage() {
                   <li>
                     Open the UI and enter Kennel&apos;s address: <code>http://localhost:4000</code> and{" "}
                     <code>http://kennel:3000/book</code> with Docker, <code>http://localhost:4310</code> and{" "}
-                    <code>http://localhost:5310/book</code> from source.
+                    <code>http://localhost:5310/book</code> from source. Then press <strong>Plan checks</strong>.
                   </li>
                   <li>
                     Read the plan, shown under <strong>Accessibility</strong>, <strong>Features</strong> and{" "}
@@ -412,12 +412,12 @@ export default function DocsPage() {
                   </li>
                   <li>
                     Watch the live view: the page under test, the current group and scenario, the elapsed time, the
-                    current step and a timestamped log. When the run ends the UI says “Finished in …”.{" "}
+                    current step and a timestamped log. When the run ends, the report replaces the live view.{" "}
                     <strong>Stop run</strong> stops it for real (the rest is marked skipped and a report is still
                     written), and <strong>Back to test plan</strong> plans the same page again.
                   </li>
                   <li>
-                    Open the report. You should see findings for most of Kennel&apos;s planted bugs: a button that does
+                    Read the report. You should see findings for most of Kennel&apos;s planted bugs: a button that does
                     nothing, a double submit, a secret key in the bundle, an email sent to the analytics service,
                     missing focus outlines and more. If Kennel runs on a dev server, header, cookie and CORS findings
                     there are marked advisory.
@@ -512,7 +512,8 @@ export default function DocsPage() {
                 <p>
                   Options: <code>--approve all|default|&lt;id,id&gt;</code> (default: the recommended scenarios),{" "}
                   <code>--plan-only</code>, <code>--allow-destructive</code>, <code>--headed</code> (a visible browser
-                  window), <code>--runs-dir &lt;dir&gt;</code>, <code>--json</code>. <code>help</code> lists them.
+                  window), <code>--runs-dir &lt;dir&gt;</code>, <code>--json</code>, and the <code>--ai</code> flags (see{" "}
+                  <a href="#ai">AI (optional)</a>). <code>help</code> lists them.
                 </p>
               </div>
             </DocSection>
@@ -558,8 +559,8 @@ export default function DocsPage() {
                 <ol>
                   <li>
                     Open <strong>Settings → AI</strong>, turn it on, pick a provider, choose a model from the dropdown
-                    (it lists what the server has; <strong>Other…</strong> takes any id), press{" "}
-                    <strong>Test connection</strong>, then <strong>Save</strong>.
+                    (it lists what the server has; <strong>Other…</strong> takes any id), press <strong>Save</strong>,
+                    then <strong>Test connection</strong> (it tests the saved settings).
                   </li>
                   <li>
                     Plan a page with <strong>Review with AI</strong> ticked. Planning takes longer (a 9B model on a
@@ -590,8 +591,8 @@ export default function DocsPage() {
               <div className="prose-night">
                 <p>
                   Settings come from the Settings page (saved to <code>~/.config/run-hound/ai.json</code>, mode 0600, or
-                  to <code>RUNHOUND_CONFIG_DIR</code> when it is set),
-                  then <code>RUNHOUND_AI_*</code> environment variables, then <code>--ai*</code> flags. The full list is
+                  to <code>RUNHOUND_CONFIG_DIR</code> when it is set). <code>RUNHOUND_AI_*</code> environment variables
+                  override the saved settings, and <code>--ai*</code> flags override both. The full list is
                   in <code>docs/ai-spec.md</code> and <code>.env.example</code> in the repository.
                 </p>
                 <h3>Docker or Podman</h3>
@@ -612,7 +613,8 @@ export default function DocsPage() {
                 <ul>
                   <li>
                     Only <strong>redacted page structure</strong>: the page title and path, field labels and types,
-                    option labels, button names and the scenario list. Never typed values, cookies, response bodies or screenshots.
+                    option labels, button names and the scenario list. Explanations also get each finding&apos;s text and
+                    facts, without test values. Never typed values, cookies, response bodies or screenshots.
                   </li>
                   <li>
                     A local endpoint (localhost or a private address) needs nothing more. A remote one (OpenAI,
@@ -725,8 +727,8 @@ export default function DocsPage() {
               <div className="prose-night">
                 <p>
                   The plan, the run, the progress and the report all follow the same three groups. Form checks are
-                  planned once for each form on the page; the five checks new in {site.release} look at the page as a
-                  whole. Scenarios that don&apos;t apply to your page (no form, no password field, no JSON save
+                  planned once for each form on the page; page-wide checks, including the five new in {site.release},
+                  are planned once for the whole page. Scenarios that don&apos;t apply to your page (no form, no password field, no JSON save
                   request) are <strong>skipped with a plain reason</strong>, never silently dropped.
                 </p>
                 <p>
@@ -839,7 +841,8 @@ export default function DocsPage() {
               <div className="prose-night">
                 <ul>
                   <li>
-                    <strong>One page, no login.</strong> Pages that redirect to a login screen get the login form
+                    <strong>One page, no login.</strong> Up to 5 forms and 20 buttons outside them are tested, and
+                    links aren&apos;t followed. Pages that redirect to a login screen get the login form
                     tested instead (check Pages tested). Login forms need a real account for anything past the first
                     submit.
                   </li>

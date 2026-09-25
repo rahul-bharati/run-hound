@@ -25,7 +25,7 @@ const steps: { number: string; name: string; title: string; body: ReactNode; sho
     body: (
       <>
         Run Hound opens your page in a headless Chromium with Playwright and finds every form and interactive control
-        on it: fields, labels, buttons, the requests they send, and the controls outside any form. It reads the
+        on it: fields, labels, buttons and the controls outside any form. It reads the
         accessibility tree and the DOM, the same structure screen readers rely on, and notes the page&apos;s response
         headers, cookies and scripts.
       </>
@@ -41,7 +41,7 @@ const steps: { number: string; name: string; title: string; body: ReactNode; sho
         From what it found, it plans form checks for each form, plus page-wide checks such as security headers, cookie
         flags, CORS, public source maps and dead controls anywhere on the page, under three groups: Accessibility,
         Features and Security. Golden paths are what a real user does; danger paths are what breaks things, like
-        double clicks, server errors and keyboard-only use. The plan comes from what it found on the page. If you turn
+        double clicks, server errors and invalid input. The plan comes from what it found on the page. If you turn
         on AI, your own model reviews it, recommending and ranking each scenario with a reason, and suggests up to 5
         extra flows built only from the fields and buttons it found; they stay unticked until you choose them.
       </>
@@ -134,7 +134,7 @@ const notVisible = [
   "Webhook signature verification on the server",
   "Dependency hygiene, such as hallucinated or look-alike packages in your lockfile",
   "Backend error monitoring",
-  "Legal compliance: Run Hound reports WCAG failures, it doesn't certify compliance",
+  "Legal compliance: Run Hound reports WCAG failures but doesn't certify compliance",
 ];
 
 export default function HowItWorksPage() {
@@ -187,7 +187,7 @@ export default function HowItWorksPage() {
       <Section
         className="bg-band"
         title="Design principles"
-        intro="The principles Run Hound is built around. They exist to keep findings trustworthy and scans safe."
+        intro="The principles Run Hound is built around. They exist to keep findings trustworthy and runs safe."
       >
         <ul className="grid gap-5 md:grid-cols-2">
           {principles.map((principle) => (

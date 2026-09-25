@@ -128,7 +128,7 @@ The exported specs need `@playwright/test` in the project that runs them (`npm i
 
 AI is off until you turn it on. A model **reviews the plan** (recommends and ranks each scenario with a one-line reason), **suggests up to 5 extra flows** (steps that only use the fields and buttons Run Hound found, checked by deterministic assertions; unticked by default, findings advisory) and **explains findings** in plain words. It never decides pass or fail, and if it fails or times out you get the built-in plan with a warning.
 
-**Web UI:** open **Settings → AI**, pick a provider (Ollama, LM Studio, another OpenAI-compatible endpoint, or Amazon Bedrock), choose a model from the dropdown (it lists what the server has; **Other…** takes any id), press **Test connection**, then **Save**. New Run then shows **Review with AI**.
+**Web UI:** open **Settings → AI**, pick a provider (Ollama, LM Studio, another OpenAI-compatible endpoint, or Amazon Bedrock), choose a model from the dropdown (it lists what the server has; **Other…** takes any id), press **Save**, then **Test connection** (it tests the saved settings). New Run then shows **Review with AI**.
 
 **Command line:**
 

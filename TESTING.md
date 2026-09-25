@@ -188,7 +188,7 @@ pnpm serve --port 4310
 ```
 
 1. Open <http://localhost:4310> (the **New Run** page), enter `http://localhost:5310/book` and press **Plan checks**.
-2. Read the plan, shown under Accessibility, Features and Security headings (each has a "Select all" box). Each scenario says what it does and whether it creates test records. Keep them all ticked and press **Start run (15 scenarios)**.
+2. Read the plan, shown under Accessibility, Features and Security headings (each has a "Select all" box). Each scenario says what it does and whether it creates test records. Keep them all ticked and press **Start run (20 scenarios)**.
 3. Watch the running view: the numbered scenarios with their status and time (the current one opens to show its steps), the elapsed time, the browser, a live preview of the page under test and the activity log. A run takes about a minute. **Stop run** ends it early; what ran is still reported.
 4. Read the report, which replaces the running view when the run ends. The first issue is selected: its evidence, reproduction steps, key facts, what to ask your AI and the generated Playwright test. **Open HTML report** opens the full `report.html`; **Re-run** runs the same scenarios again; every run stays listed under **Runs** (including past runs read back from the runs folder after a restart). **Settings** holds the defaults for "Allow destructive scenarios" and "Show the browser window" (saved in this browser) and shows the runs folder, allowed hosts and version. You should see findings for most of Kennel's planted bugs: a button that does nothing, a double-submit, a secret key in the bundle, an email sent to the analytics service, missing focus outlines and more.
 5. Stop Kennel, restart it with `KENNEL_BUGS=none` and press **Re-run** (or plan it again). **A clean Kennel should give zero confirmed findings.** If it doesn't, that's a bug worth reporting.
@@ -280,7 +280,7 @@ Options: `--approve all|default|<id,id>` (default: the recommended scenarios), `
 
 Optional, and new in 0.3.0. You need a model: the easiest is [Ollama](https://ollama.com) on your machine (`ollama pull qwen3:8b`, or any model you like), or LM Studio, or an OpenAI-compatible / Amazon Bedrock endpoint you have access to.
 
-1. In the web UI open **Settings → AI**, turn it on, choose **Ollama**, pick the model from the dropdown, press **Test connection**, then **Save**. (Command line: add `--ai --ai-provider ollama --ai-model <model>` to `run`; `ai status` shows what's set.)
+1. In the web UI open **Settings → AI**, turn it on, choose **Ollama**, pick the model from the dropdown, press **Save**, then **Test connection** (it tests the saved settings). (Command line: add `--ai --ai-provider ollama --ai-model <model>` to `run`; `ai status` shows what's set.)
 2. Plan a page with **Review with AI** ticked. Planning takes longer (a 9B model on a laptop: about a minute). Each scenario shows the model's reason; **Suggested by AI** scenarios show their steps and are unticked: tick the ones that look useful.
 3. After the run, findings have an **AI explanation** panel below the built-in one.
 
