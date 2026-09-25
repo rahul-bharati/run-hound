@@ -9,6 +9,9 @@
 #
 #   http://kennel:3000/book            Kennel with its planted bugs (KENNEL_BUGS, default: every bug)
 #   http://kennel-clean:3000/book      Kennel in clean mode: every check should pass
+#   http://fernway:4110/               Fernway, a Lovable-style SaaS app, clean (also /signup /login /onboarding
+#                                      /app /app/settings): any confirmed finding is a false positive
+#   http://fernway-bugs:4110/          Fernway with its planted bugs (FERNWAY_BUGS, default: all; W01-W10)
 #   http://classic-post:4101/signup    sample: server-rendered form, no JavaScript
 #   http://spa-fetch:4102/             sample: vanilla-JS contact form, same-origin JSON API
 #   http://login:4103/                 sample: sign-in form (401 on wrong credentials)
@@ -34,7 +37,7 @@ services:
     environment:
       # Named hosts the safety gate accepts besides localhost and private addresses: the test apps and the names
       # Docker and Podman give your machine. Nothing public is added. Override in .env to add your own.
-      RUNHOUND_ALLOWED_HOSTS: ${RUNHOUND_ALLOWED_HOSTS:-kennel,kennel-clean,classic-post,spa-fetch,login,cross-origin-api,multi-form,host.docker.internal,host.containers.internal}
+      RUNHOUND_ALLOWED_HOSTS: ${RUNHOUND_ALLOWED_HOSTS:-kennel,kennel-clean,fernway,fernway-bugs,classic-post,spa-fetch,login,cross-origin-api,multi-form,host.docker.internal,host.containers.internal}
       RUNHOUND_PUBLIC_URL: http://localhost:${RUNHOUND_HOST_PORT:-4000}
       # AI (optional, off by default; docs/ai-spec.md). Settings saved from the web UI go to ./runs/.config/ai.json
       # on your machine (inside the reports folder, so they belong to you and survive a rebuild).
@@ -76,6 +79,8 @@ services:
     depends_on:
       - kennel
       - kennel-clean
+      - fernway
+      - fernway-bugs
       - classic-post
       - spa-fetch
       - login
@@ -98,6 +103,22 @@ services:
     ports:
       - "127.0.0.1:${KENNEL_CLEAN_HOST_PORT:-3100}:3000"
       - "127.0.0.1:${KENNEL_CLEAN_ANALYTICS_HOST_PORT:-3101}:3001"
+
+  # ---- Fernway: a Lovable/Bolt-style SaaS app (Vite, React, Tailwind, Radix) --------------------------------------
+  fernway: &fernway
+    image: ghcr.io/rahul-bharati/run-hound-fernway:0.4.0
+    init: true
+    environment:
+      FERNWAY_BUGS: none
+    ports:
+      - "127.0.0.1:${FERNWAY_HOST_PORT:-4110}:4110"
+
+  fernway-bugs:
+    <<: *fernway # same image as fernway, with its planted bugs
+    environment:
+      FERNWAY_BUGS: ${FERNWAY_BUGS:-all}
+    ports:
+      - "127.0.0.1:${FERNWAY_BUGS_HOST_PORT:-4111}:4110"
 
   # ---- Sample apps: unfamiliar, well-built apps (fixtures/samples) ---------------------------------------------
   classic-post:

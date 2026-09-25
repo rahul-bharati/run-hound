@@ -8,6 +8,7 @@
     "update-golden": "UPDATE_GOLDEN=1 vitest run"
   },
   "dependencies": {
+    "fernway": "workspace:*",
     "kennel": "workspace:*",
     "run-hound": "workspace:*"
   },

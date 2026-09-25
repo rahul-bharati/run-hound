@@ -2,6 +2,7 @@
 #   ghcr.io/rahul-bharati/run-hound          Run Hound (web UI + CLI, Chromium included)
 #   ghcr.io/rahul-bharati/run-hound-kennel   Kennel, the deliberately broken demo app
 #   ghcr.io/rahul-bharati/run-hound-samples  the well-built sample apps (false-positive suite)
+#   ghcr.io/rahul-bharati/run-hound-fernway  Fernway, a Lovable-style SaaS test app (clean, or with planted bugs)
 # Tags: 0.3.0, 0.3 and latest (latest only for a pushed release tag, not a pre-release such as v0.4.0-rc.1 or a
 # manual run), for linux/amd64 and linux/arm64.
 #
@@ -70,6 +71,10 @@ jobs:
             file: fixtures/samples/Dockerfile
             title: Run Hound sample apps
             description: Well-built sample apps Run Hound should report no confirmed findings on.
+          - name: run-hound-fernway
+            file: fixtures/fernway/Dockerfile
+            title: Run Hound Fernway
+            description: Fernway, a Lovable-style SaaS test app with optional planted bugs.
     env:
       HAS_DOCKERHUB: ${{ vars.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
     steps:

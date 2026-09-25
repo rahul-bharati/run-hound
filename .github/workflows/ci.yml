@@ -1,5 +1,6 @@
-# Type-checks and runs every suite: Run Hound's unit and browser tests, Kennel's own tests, and the acceptance
-# suite (Run Hound against Kennel in clean mode and with every planted bug, plus the unfamiliar sample apps).
+# Type-checks and runs every suite: Run Hound's unit and browser tests, Kennel's and Fernway's own tests, and the
+# acceptance suite (Run Hound against Kennel and Fernway in clean mode and with every planted bug, plus the unfamiliar
+# sample apps).
 name: CI
 
 on:
@@ -20,8 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      # Kennel is built once below; the suites reuse its dist/ instead of rebuilding it.
+      # Kennel and Fernway are built once below; the suites reuse their dist/ instead of rebuilding it.
       KENNEL_SKIP_BUILD: "1"
+      FERNWAY_SKIP_BUILD: "1"
     steps:
       - uses: actions/checkout@v7
 
@@ -43,6 +45,7 @@ jobs:
         run: |
           pnpm --filter run-hound exec tsc --noEmit
           pnpm --filter kennel exec tsc --noEmit
+          pnpm --filter fernway exec tsc --noEmit
           pnpm --filter acceptance exec tsc --noEmit
 
       - name: Validate the compose files
@@ -51,11 +54,17 @@ jobs:
       - name: Build Kennel
         run: pnpm --filter kennel build
 
+      - name: Build Fernway
+        run: pnpm --filter fernway build
+
       - name: Run Hound tests (unit and browser)
         run: pnpm --filter run-hound test
 
       - name: Kennel tests (clean mode and every bug)
         run: pnpm --filter kennel test
 
-      - name: Acceptance (Run Hound against Kennel and the sample apps)
+      - name: Fernway tests (clean mode and every bug)
+        run: pnpm --filter fernway test
+
+      - name: Acceptance (Run Hound against Kennel, Fernway and the sample apps)
         run: pnpm test:acceptance
