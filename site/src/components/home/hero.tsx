@@ -88,8 +88,8 @@ export function Hero() {
                 className="text-muted underline decoration-line-strong underline-offset-4 hover:text-accent hover:decoration-accent"
               >
                 file an issue
-              </a>
-              .
+              </a>{" "}
+              if it gets something wrong.
             </p>
           </div>
 

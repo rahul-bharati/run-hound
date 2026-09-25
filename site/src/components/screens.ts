@@ -29,7 +29,7 @@ export const screens = {
   },
   liveRunKeyboard: {
     src: liveRunKeyboardImage,
-    alt: "Run Hound's live view, scenario 2 of 20: “Fill in and submit the form using only the keyboard” is expanded with its steps, Tab 4 to Tab 10: Book. The live browser shows the form filled from the keyboard, and the activity log lists each Tab stop with its time.",
+    alt: "Run Hound's live view, scenario 2 of 20: “Fill in and submit the form using only the keyboard” is expanded with its steps, Tab 4 to Tab 10: Book. The live browser shows the lower part of the form with the cursor in Confirm password, and the activity log lists each Tab stop with its time.",
   },
   plan: {
     src: planImage,
@@ -60,7 +60,7 @@ export const stepScreens = {
   },
   run: {
     src: stepRunImage,
-    alt: "The live view mid-run: 8 of 20, 33 seconds in, the finished accessibility scenarios marked with issues, and the live browser showing the form filled with test values.",
+    alt: "The live view mid-run: 8 of 20, 34 seconds in, the finished accessibility scenarios marked with issues, and the live browser showing the form filled with test values.",
   },
   report: {
     src: stepReportImage,
@@ -71,7 +71,7 @@ export const stepScreens = {
 export const aiScreens = {
   settings: {
     src: aiSettingsImage,
-    alt: "Run Hound's Settings → AI card: Use AI switched on, provider Ollama, base URL http://127.0.0.1:11434/v1, and the model ornith-1.5:9b (9.0B, Q4_K_M) picked from the dropdown, which says 1 model on this server. No API key is set. Review the plan, Suggest flows and Explain findings are ticked, and below the Save and Test connection buttons: “Connected: ornith-1.5:9b answered in 0.9 s.”",
+    alt: "Run Hound's Settings → AI card: Use AI switched on, provider Ollama, base URL http://127.0.0.1:11434/v1, and the model ornith-1.5:9b (9.0B, Q4_K_M) picked from the dropdown, which says 1 model on this server. No API key is set. Review the plan, Suggest flows and Explain findings are ticked, and below the Save and Test connection buttons: “Connected: ornith-1.5:9b answered in 0.5 s.”",
   },
   plan: {
     src: aiPlanImage,

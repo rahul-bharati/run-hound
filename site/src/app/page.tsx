@@ -34,12 +34,12 @@ const whatsNew = [
   {
     icon: FileSearch,
     title: "The whole page, not one form",
-    text: "Run Hound finds every form and interactive control on the page, and plans the form checks for each form.",
+    text: "Run Hound finds every form (up to 5) and interactive control on the page, and plans the form checks for each form.",
   },
   {
     icon: ShieldCheck,
     title: "Page-wide security checks",
-    text: "Security headers, session cookie flags, CORS and public source maps. On a dev server, which doesn't send production headers, these findings are marked advisory.",
+    text: "Security headers, session cookie flags, CORS and public source maps. On a dev server, which doesn't send production settings, these findings are marked advisory and the source-map check is skipped.",
   },
   {
     icon: MousePointerClick,
@@ -63,7 +63,7 @@ const tools = [
   {
     icon: Terminal,
     title: "A CLI for CI",
-    text: "run <url> --approve all runs the same checks from a terminal or a pipeline. It exits 0 with no confirmed findings, 1 with at least one and 2 on an error, and --json puts the report on stdout. Advisory findings never fail a run.",
+    text: "run-hound run <url> --approve all runs the same checks from a terminal or a pipeline. It exits 0 with no confirmed findings, 1 with at least one and 2 on an error, and --json puts the report on stdout. Advisory findings never fail a run.",
   },
   {
     icon: FileCode,
@@ -80,7 +80,7 @@ const tools = [
 const principles = [
   {
     title: "Runs on your machine",
-    text: "It tests one page of an app running locally or on a private address, and reports stay on your machine. AI is off by default; turn it on and only redacted page structure goes to the model you choose.",
+    text: "It tests one page of an app running locally or on a private address, and reports stay on your machine. AI is off by default; turn it on and only redacted page structure and finding text go to the model you choose.",
   },
   {
     title: "Asks before it tests",
@@ -135,7 +135,7 @@ export default function Home() {
             From one form to <span className="text-accent">the whole page.</span>
           </>
         }
-        intro={`V0 tested the main form on a page. ${site.release} tests the page: every form, every control, and ${newChecks} new checks that look at the page as a whole. Since 0.3.0, your own AI model can review the plan too. Still local only.`}
+        intro={`V0 tested the main form on a page. ${site.release} tests the page: every form, every control, and ${newChecks} new checks that look at the page as a whole. Since 0.3.0, your own AI model can also review the plan, suggest extra flows and explain findings. Still for local apps only.`}
         className="border-t border-line-soft"
       >
         <ul className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -177,7 +177,7 @@ export default function Home() {
       <Section
         title={`${totalChecks} checks in three groups`}
         eyebrow="WHAT IT CHECKS"
-        intro={`What ${site.release} plans for a typical page, in this order: the form checks for each form, plus ${newChecks} page-wide checks marked new. Checks that have nothing to test on your page are skipped and listed as such in the report. With AI on, suggested flows you tick run as one more, optional check.`}
+        intro={`What ${site.release} plans for a typical page, in run order: the form checks for each form and the page-wide checks, with the ${newChecks} checks new in ${site.release} marked. Checks that have nothing to test on your page are skipped and listed as such in the report. With AI on, suggested flows you tick run as one more, optional check.`}
         className="border-y border-line-soft bg-band"
       >
         <Groups />
@@ -278,7 +278,7 @@ export default function Home() {
           </h2>
           <p className="max-w-xl text-pretty text-lg leading-relaxed text-muted">
             {site.release} is open source under the MIT license: one page, on your machine, with the test apps a single
-            command away. Clone the repository and the guide walks you through it.
+            command away. The getting-started guide walks you through a first run; no clone needed.
           </p>
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
             <ButtonLink href={links.tryLocally}>

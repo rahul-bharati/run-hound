@@ -23,14 +23,14 @@ const tabs: TourTab[] = [
     id: "ai-plan",
     label: "Plan review",
     title: "A reason for every scenario",
-    text: "With Review with AI ticked, the model reads the redacted page structure and gives each built-in scenario a one-line reason for this page. The plan says which model reviewed it, and the checks are the same ones as without AI.",
+    text: "With Review with AI ticked, the model reads the redacted page structure and gives each built-in scenario a one-line reason for this page. The plan says which model reviewed it, and the built-in checks are the same as without AI.",
     image: <Screenshot screen={aiScreens.plan} sizes={wide} />,
   },
   {
     id: "ai-suggested",
     label: "Suggested flows",
     title: "Extra flows, unticked until you choose",
-    text: "Suggested by AI flows are built only from the fields and buttons Run Hound found, and you see every step before you run one. Each ends in a deterministic check, and what it finds is reported as advisory.",
+    text: "Flows tagged Suggested by AI are built only from the fields and buttons Run Hound found, and you see every step before you run one. Each ends in a deterministic check, and what it finds is reported as advisory.",
     image: <Screenshot screen={aiScreens.suggested} sizes={narrow} className="max-w-3xl" />,
   },
   {
@@ -60,7 +60,7 @@ const features: { icon: LucideIcon; title: string; text: string }[] = [
   {
     icon: MessageSquareText,
     title: "Explains findings",
-    text: "After the run, each finding gets a plain-words AI explanation and a prompt for the AI tool you build with, shown beside the built-in text and labelled advisory. The evidence, facts and verdict stay as the real check recorded them.",
+    text: "After the run, each finding (up to 20) gets a plain-words AI explanation and a prompt for the AI tool you build with, shown beside the built-in text and labelled advisory. The evidence, facts and verdict stay as the real check recorded them.",
   },
 ];
 
@@ -123,8 +123,9 @@ export function AiSection() {
           </p>
           <p className="leading-relaxed text-muted">
             AI is <strong className="text-fg">off by default</strong>. When it&apos;s on, only redacted page structure
-            goes to the model you configure: the page title and path, field labels and types, option labels, button names and the scenario list.
-            Never typed values, cookies, response bodies or screenshots.
+            goes to the model you configure: the page title and path, field labels and types, option labels, button names and the scenario list;
+            for explanations, the finding text and its evidence facts, without test values. Never typed values, cookies, response bodies or
+            screenshots.
           </p>
           <p className="leading-relaxed text-muted">
             A local model needs nothing more. A remote endpoint is refused until you consent for that host. API keys

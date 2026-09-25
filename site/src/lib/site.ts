@@ -11,7 +11,7 @@ export const site = {
   releaseName: "Single page",
   version,
   // Label for the main call to action, used in the header, heroes and page footers.
-  cta: "Try V1 Locally",
+  cta: "Try V1 locally",
   // `||`, not `??`: Docker passes an unset build arg as an empty string.
   url: process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
   github: "https://github.com/rahul-bharati/run-hound",
