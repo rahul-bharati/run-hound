@@ -2,6 +2,31 @@
 
 All notable changes to Run Hound. Versions follow [Semantic Versioning](https://semver.org/); while the version is 0.x, any release may change behaviour.
 
+## 0.3.0 (optional AI: plan review, suggested flows, explanations)
+
+Bring your own model. AI is off by default and never decides pass or fail. Contract: [docs/ai-spec.md](docs/ai-spec.md).
+
+### Added
+
+- **Providers**: Ollama (native API, thinking off, larger context), any OpenAI-compatible endpoint (LM Studio, llama.cpp, vLLM, OpenAI, OpenRouter, Groq, Together, …) with JSON-schema structured output, and Amazon Bedrock (Converse, with a Bedrock API key or SigV4 from AWS access keys). No new dependencies.
+- **Plan review**: the model recommends and ranks each built-in scenario and gives a one-line reason (`Scenario.ai`); destructive scenarios are never ticked by it, and nothing is added, removed or reordered.
+- **Suggested flows**: up to 5 flows of up to 8 steps that only name discovered fields and buttons, run by the new `ai-flow` check with deterministic expectations (a save succeeds, text is shown or gone, the URL changes, no errors, typed values kept). Unticked by default; a failed flow is one advisory finding with a GIF, a frame and a Playwright spec.
+- **Explanations**: after the run, each finding (up to 20) gets an "AI explanation (advisory)" and an "Ask your AI" prompt beside the built-in text (`Finding.ai`, `Report.ai`).
+- **Web UI**: Settings → AI (provider presets, a **model dropdown** filled from the server with Refresh and "Other…", write-only API key, feature toggles, remote consent naming the host, Test connection); "Review with AI" on New Run; AI chips, reasons and suggested steps in the plan; AI explanation panel in the report.
+- **API**: `GET/PUT /api/ai`, `POST /api/ai/test`, `GET /api/ai/models`; `POST /api/plan` takes `ai`.
+- **CLI**: `run --ai/--no-ai --ai-provider --ai-model --ai-base-url --ai-allow-remote`, `run-hound ai status`, `run-hound ai test`.
+- **Config**: `~/.config/run-hound/ai.json` (0600) or `RUNHOUND_CONFIG_DIR`, `RUNHOUND_AI_*` variables; compose passes them and keeps UI settings in `./runs/.config`.
+
+### Privacy
+
+- Only redacted page structure is sent (labels, field types, button names, the page path, scenario titles), never typed values, selectors, cookies, bodies or screenshots.
+- Remote endpoints (anything not on this machine or a private network, and Bedrock) need explicit consent; without it nothing is sent, not even a model list request.
+- API keys are never returned by the API, shown in the UI or written to reports.
+
+### Changed
+
+- With AI off, plans, runs and reports are the same as 0.2.0.
+
 ## 0.2.0 (V1 tester preview: single page)
 
 Run Hound now tests a whole page instead of one form. How to run it: [TESTING.md](TESTING.md); the build contract: [docs/v1-spec.md](docs/v1-spec.md).

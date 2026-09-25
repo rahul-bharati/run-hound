@@ -1,5 +1,5 @@
 name: Tester feedback
-description: Tell us how Run Hound 0.2.0 did on your app (a wrong finding, a bug it missed, a crash, or something confusing).
+description: Tell us how Run Hound 0.3.0 did on your app (a wrong finding, a bug it missed, a crash, or something confusing).
 title: "[Feedback] "
 labels: ["v0-feedback"]
 body:
@@ -27,7 +27,7 @@ body:
     attributes:
       label: Run Hound version
       description: The output of `run-hound --version` (`pnpm exec tsx src/cli.ts --version` in `app/`), or `runHoundVersion` in report.json.
-      placeholder: run-hound 0.2.0
+      placeholder: run-hound 0.3.0
     validations:
       required: true
   - type: input

@@ -2,9 +2,9 @@
 
 AI-assisted UI testing for AI-built apps: it hunts for the holes AI-generated apps ship with, and backs every verdict with a real check in a real browser and the evidence to prove it.
 
-**AI plans and explains; real checks decide.** AI planning, AI explanations and bring-your-own-model are **coming soon**. In the V1 preview, the plan comes from Run Hound's built-in checks and nothing is sent to any AI provider.
+**AI plans and explains; real checks decide.** Since 0.3.0 you can bring your own model (Ollama, LM Studio, llama.cpp, vLLM, any OpenAI-compatible endpoint, or Amazon Bedrock) to review the plan, suggest extra flows and explain findings. AI is **off by default**; without it the plan comes from Run Hound's built-in checks and nothing is sent to any AI provider. See [AI (optional)](#ai-optional).
 
-> **V1 tester preview (0.2.0): single page.** V1 tests a whole page of an app running on your own machine: every form on it, the buttons outside them, and page-wide checks for security headers, session cookies, CORS and public source maps. If you've been asked to try it, start with **[TESTING.md](TESTING.md)**: install, a 10-minute run on the Kennel demo, testing your own app (local or Docker), reading the report, and how to send feedback. Changes: [CHANGELOG.md](CHANGELOG.md).
+> **V1 tester preview (0.3.0): single page, optional AI.** V1 tests a whole page of an app running on your own machine: every form on it, the buttons outside them, and page-wide checks for security headers, session cookies, CORS and public source maps; 0.3.0 adds optional AI planning and explanations with your own model. If you've been asked to try it, start with **[TESTING.md](TESTING.md)**: install, a 10-minute run on the Kennel demo, testing your own app (local or Docker), reading the report, and how to send feedback. Changes: [CHANGELOG.md](CHANGELOG.md).
 >
 > **Quickest start:** `cp .env.example .env && mkdir -p runs && docker compose up --build` (or `podman compose up --build`) starts Run Hound on <http://localhost:4000> together with every test app: Kennel (broken and clean) and four well-built sample apps. See [Containers](#containers).
 
@@ -64,6 +64,27 @@ The report says how long the run took, has a per-group table (Accessibility, Fea
 
 The exported specs need `@playwright/test` in the project that runs them (`npm i -D @playwright/test`, plus `@axe-core/playwright` for the axe-states specs); run one with `npx playwright test <file>`. Runs create a few test records in the target app (each scenario's description says when); Run Hound doesn't delete them.
 
+### AI (optional)
+
+AI is off until you turn it on. A model **reviews the plan** (recommends and ranks each scenario with a one-line reason), **suggests up to 5 extra flows** (steps that only use the fields and buttons Run Hound found, checked by deterministic assertions; unticked by default, findings advisory) and **explains findings** in plain words. It never decides pass or fail, and if it fails or times out you get the built-in plan with a warning.
+
+**Web UI:** open **Settings → AI**, pick a provider (Ollama, LM Studio, another OpenAI-compatible endpoint, or Amazon Bedrock), choose a model from the dropdown (it lists what the server has; **Other…** takes any id), press **Test connection**, then **Save**. New Run then shows **Review with AI**.
+
+**Command line:**
+
+```sh
+cd app
+pnpm exec tsx src/cli.ts ai status                                    # the effective settings and what's missing
+pnpm exec tsx src/cli.ts run localhost:5310/book --ai --ai-provider ollama --ai-model qwen3:8b --plan-only
+pnpm exec tsx src/cli.ts ai test                                      # one small call to check the model answers
+```
+
+Settings come from the Settings page (saved to `~/.config/run-hound/ai.json`, mode 0600), then `RUNHOUND_AI_*` environment variables, then `--ai*` flags; the full list is in [docs/ai-spec.md](docs/ai-spec.md) and `.env.example`.
+
+**Privacy:** only redacted page structure is sent (field labels and types, button names, the page path, the scenario list), never typed values, cookies, response bodies or screenshots. A local endpoint (localhost or a private address) needs nothing more; a remote one (OpenAI, OpenRouter, Bedrock, …) is refused until you consent (the Settings checkbox, `--ai-allow-remote` or `RUNHOUND_AI_ALLOW_REMOTE=1`). API keys stay on the server and never appear in the UI or reports. Bedrock takes a Bedrock API key or AWS access keys (profiles and SSO aren't supported yet).
+
+**Models:** small local models work (tested with a 9B model on Ollama). Ollama is called through its native API with thinking turned off, so reasoning models answer without spending their output on thinking. With other servers, prefer a non-reasoning model or turn reasoning off.
+
 ### Containers
 
 Run Hound and every test app in containers (host ports bound to `127.0.0.1`; Podman works with `podman compose` or `podman-compose`):
@@ -95,9 +116,9 @@ To test an app running on your machine from a container:
 
 - **Linux**: share the host's network, so `localhost` is your machine and nothing in your app changes:
   ```sh
-  docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.2.0 run http://localhost:5173/signup --approve all
+  docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.3.0 run http://localhost:5173/signup --approve all
   ```
-  For the UI this way, bind it to loopback: `... rahulrbharati/run-hound:0.2.0 serve --host 127.0.0.1 --port 4310`.
+  For the UI this way, bind it to loopback: `... rahulrbharati/run-hound:0.3.0 serve --host 127.0.0.1 --port 4310`.
 - **Docker Desktop (Mac, Windows) or the compose UI**: enter `http://host.docker.internal:<port>/<page>`. In a container `localhost` is the container itself. Your dev server must listen on all interfaces (`vite --host`) and accept that host name (Vite `server.allowedHosts`, Next.js `allowedDevOrigins`); a frontend that calls its API on `localhost:<apiPort>` won't work this way. The compose file allows `host.docker.internal` and `host.containers.internal` through the safety gate with `RUNHOUND_ALLOWED_HOSTS`. Details in [TESTING.md](TESTING.md#test-your-own-app).
 
 ### Safety
@@ -149,10 +170,10 @@ Full catalog with severity and detectability: [docs/research.md §3](docs/resear
 ## How it works
 
 1. **Explore:** the agent drives a headless browser (Playwright) and reads the accessibility tree and DOM. In V1 it finds every form on the page you give it (up to 5) and the buttons outside them. Using vision on screenshots for layout and visual checks is planned.
-2. **Plan:** golden-path and danger-path test scenarios, grouped (Accessibility, Features, Security). In V1 the plan comes from the built-in checks that apply to each form and to the page; **AI planning** (a model proposes scenarios from your app) is **coming soon**.
+2. **Plan:** golden-path and danger-path test scenarios, grouped (Accessibility, Features, Security). The built-in checks that apply to each form and to the page propose the scenarios; with AI on, your model recommends and ranks them with a reason each and suggests up to 5 extra flows built only from the fields and buttons Run Hound found.
 3. **Approve:** the plan is shown in a local web UI (or with `--plan-only` on the command line), where you pick the scenarios to run. Editing scenarios and adding your own is planned.
 4. **Execute:** the approved scenarios run in a real browser while screenshots, console logs, network traffic and each step are captured.
-5. **Report:** every finding comes with its group, severity, a plain-language explanation, reproduction steps, evidence and an exported Playwright test. **AI explanations** are **coming soon**; V1's explanations are written for each check.
+5. **Report:** every finding comes with its group, severity, a plain-language explanation, reproduction steps, evidence and an exported Playwright test. With AI on, each finding also gets an **AI explanation** (labelled advisory) next to the built-in one.
 
 ### Design principles
 
@@ -190,12 +211,13 @@ Point it at a form on localhost. Run Hound plans at least 10 scenarios from its 
 - Destructive actions are off by default.
 - **Done when** Run Hound finds the V0 bugs planted in the [Kennel fixture](docs/fixtures.md) and reports nothing in its clean mode.
 
-### V1: Single page (current preview, 0.2.0)
+### V1: Single page (current preview, 0.3.0)
 
 Point it at a page and the agent finds every interactive element, then generates and runs test cases for them.
 
 - **Built:** every form on the page (form checks per form) and the buttons outside them (`page-controls`); page-wide `security-headers`, `cookie-flags`, `cors` and `source-maps` checks, advisory (or skipped, for source maps) on dev servers, since dev servers don't show production values. Kennel has a planted bug for each (F07, S05 to S08). Contract: [docs/v1-spec.md](docs/v1-spec.md).
-- Advisory checks that rely on model judgement, once bring-your-own-model ships (**planned**): alt-text quality, generic link text, placeholder/demo data.
+- **Built in 0.3.0:** bring-your-own-model plan review, AI-suggested flows (run by the deterministic `ai-flow` check, advisory) and AI explanations of findings. Contract: [docs/ai-spec.md](docs/ai-spec.md).
+- Advisory checks that rely on model judgement (**planned**): alt-text quality, generic link text, placeholder/demo data.
 
 ### V2: Single feature
 

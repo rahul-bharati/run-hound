@@ -12,7 +12,7 @@ body:
     attributes:
       label: Run Hound version
       description: "`run-hound --version`, or `runHoundVersion` in report.json."
-      placeholder: run-hound 0.2.0
+      placeholder: run-hound 0.3.0
     validations:
       required: true
   - type: input

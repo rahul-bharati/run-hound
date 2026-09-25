@@ -1,8 +1,8 @@
-# Testing Run Hound V1 (0.2.0)
+# Testing Run Hound V1 (0.3.0)
 
-Thanks for trying Run Hound before anyone else does. Run Hound is AI-assisted UI testing for AI-built apps: AI plans and explains, real checks decide. This preview ships the real checks; AI planning and AI explanations are coming soon. This guide covers what V1 does, how to run it on Kennel (the demo app) and then on your own app, how to read the report, and what to send back.
+Thanks for trying Run Hound before anyone else does. Run Hound is AI-assisted UI testing for AI-built apps: AI plans and explains, real checks decide. This preview ships the real checks, and since 0.3.0 you can add your own model to review the plan, suggest extra flows and explain findings (optional, off by default). This guide covers what V1 does, how to run it on Kennel (the demo app) and then on your own app, how to read the report, and what to send back.
 
-**Contents:** [Who this is for](#who-this-is-for) · [What V1 does](#what-v1-does-and-doesnt-do) · [Requirements](#requirements) · [Install](#install) · [Try it on Kennel first](#try-it-on-kennel-first-10-minutes) · [Test your own app](#test-your-own-app) · [Reading the report](#reading-the-report) · [Known limitations](#known-limitations) · [Sending feedback](#sending-feedback)
+**Contents:** [Who this is for](#who-this-is-for) · [What V1 does](#what-v1-does-and-doesnt-do) · [Requirements](#requirements) · [Install](#install) · [Try it on Kennel first](#try-it-on-kennel-first-10-minutes) · [Test your own app](#test-your-own-app) · [Trying the AI features](#trying-the-ai-features) · [Reading the report](#reading-the-report) · [Known limitations](#known-limitations) · [Sending feedback](#sending-feedback)
 
 ## Who this is for
 
@@ -21,7 +21,7 @@ What we most want to learn: **is every finding real, and did it miss a bug you k
 - follow links to other pages (one page per run; whole features across pages are V2);
 - log in: pages behind a login aren't supported, and a login form itself can only be partly tested (you'd need a real account);
 - test public websites: only your own machine and private network addresses (see [Safety rules](#safety-rules));
-- plan with AI yet: **AI planning and AI explanations are coming soon**. In V1 the plan comes from the built-in checks below, the explanations are written for each check, and nothing is sent to any AI provider. Every pass or fail comes from a real check in a real browser, and that won't change when AI arrives;
+- use AI unless you turn it on: with AI off (the default) the plan comes from the built-in checks below, the explanations are written for each check, and nothing is sent to any AI provider. With AI on (see [Trying the AI features](#trying-the-ai-features)) your model reviews the plan, suggests flows and explains findings, but every pass or fail still comes from a real check in a real browser;
 - delete the test records it creates (see [Test records](#test-records-it-creates)).
 
 ### The 20 checks
@@ -109,7 +109,7 @@ pnpm --filter kennel build          # only needed for the Kennel demo
 
 On Ubuntu or Debian, if Chromium complains about missing libraries, run `pnpm --filter run-hound exec playwright install --with-deps chromium` (it uses sudo). On other Linux distributions Playwright prints "BEWARE: your OS is not officially supported"; that is harmless as long as Chromium starts.
 
-Check it works: `cd app && pnpm exec tsx src/cli.ts --version` prints `run-hound 0.2.0`.
+Check it works: `cd app && pnpm exec tsx src/cli.ts --version` prints `run-hound 0.3.0`.
 
 ### Docker or Podman
 
@@ -209,7 +209,7 @@ On Linux the container can share your machine's network, so `localhost` means yo
 ```sh
 docker compose build run-hound      # once (or reuse the image from docker compose up --build)
 mkdir -p runs
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.2.0 \
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.3.0 \
   run http://localhost:5173/signup --approve all
 ```
 
@@ -218,7 +218,7 @@ The command prints `Report: /repo/app/runs/<runId>/report.html`; on your machine
 For the web UI on the host network, bind it to loopback so it isn't exposed to your network:
 
 ```sh
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.2.0 \
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" rahulrbharati/run-hound:0.3.0 \
   serve --host 127.0.0.1 --port 4310
 ```
 
@@ -256,6 +256,18 @@ Limits of this set-up: a frontend that calls its API at `http://localhost:<apiPo
 | `Error: executing /usr/bin/podman-compose run … exit status 1` | Podman's `docker compose` wrapper repeating Run Hound's exit code, not a crash: 1 means the run finished and found confirmed findings (the report was written), 2 an error (the message above it says which). |
 | "Looks like you launched a headed browser without having a XServer running" | You ticked **Show the browser window** in a container or on a machine without a display. Untick it. |
 
+## Trying the AI features
+
+Optional, and new in 0.3.0. You need a model: the easiest is [Ollama](https://ollama.com) on your machine (`ollama pull qwen3:8b`, or any model you like), or LM Studio, or an OpenAI-compatible / Amazon Bedrock endpoint you have access to.
+
+1. In the web UI open **Settings → AI**, turn it on, choose **Ollama**, pick the model from the dropdown, press **Test connection**, then **Save**. (Command line: add `--ai --ai-provider ollama --ai-model <model>` to `run`; `ai status` shows what's set.)
+2. Plan a page with **Review with AI** ticked. Planning takes longer (a 9B model on a laptop: about a minute). Each scenario shows the model's reason; **Suggested by AI** scenarios show their steps and are unticked: tick the ones that look useful.
+3. After the run, findings have an **AI explanation** panel below the built-in one.
+
+In Docker, Ollama on your machine is `http://host.containers.internal:11434/v1` (Podman) or `http://host.docker.internal:11434/v1` (Docker), and Ollama must listen on all interfaces (`OLLAMA_HOST=0.0.0.0 ollama serve`). A remote endpoint needs you to tick the consent box first; nothing is sent until then.
+
+What we'd like to hear: were the reasons and suggested flows useful or noise, did a suggested flow report something that isn't a bug, and which model you used.
+
 ## Reading the report
 
 Every run writes a folder: `app/runs/<runId>/` for the local install, `./runs/<runId>/` for Docker. In it:
@@ -287,6 +299,7 @@ To judge a finding, look at its evidence first, then try it by hand in your brow
 - **Test records aren't deleted** (see above).
 - **Docker**: the image is large (about 2.7 GB); `localhost` in the container isn't your machine except with `--network host` on Linux; no visible browser window.
 - **Windows** is only supported through WSL2 or Docker.
+- **AI**: output quality depends on the model; small models sometimes suggest flows that are rejected (they name a button the form doesn't have) or give generic reasons. Findings from AI-suggested flows are advisory: check them by hand.
 
 ## Sending feedback
 
