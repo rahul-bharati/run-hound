@@ -44,12 +44,17 @@ export const CHECK_IDS = [
   "cookie-flags",
   "cors",
   "source-maps",
+  // V2 (0.3.0): runs the flows an AI model suggested. It plans nothing itself; suggestions come from ai/suggest.ts.
+  "ai-flow",
 ] as const;
 
 /** Checks added in V1 (single page). Everything else in CHECK_IDS shipped in V0. */
 export const V1_CHECK_IDS: readonly CheckId[] = ["page-controls", "security-headers", "cookie-flags", "cors", "source-maps"];
 
 export type CheckId = (typeof CHECK_IDS)[number];
+
+/** Checks that only run scenarios an AI model suggested; never listed as "nothing to test on this page". */
+export const AI_CHECK_IDS: readonly CheckId[] = ["ai-flow"];
 
 /**
  * Response header a check sets when it answers a request itself (route.fulfill) instead of letting it reach the app,
@@ -248,6 +253,21 @@ export interface Finding {
   scope?: string;
   /** Playwright spec that reproduces the finding, as source text. */
   spec?: { filename: string; source: string };
+  /**
+   * An AI model's plain-language explanation (0.3.0), added after the run when AI explanations are on. Advisory text
+   * only: it never changes the verdict, severity or the built-in meaning/impact/fix. Absent when AI is off or failed.
+   */
+  ai?: FindingExplanation;
+}
+
+/** What an AI model wrote about one finding. */
+export interface FindingExplanation {
+  /** Two or three sentences for a non-technical reader. */
+  summary: string;
+  /** A prompt the user can paste into their coding AI to fix it. */
+  askYourAi: string;
+  /** "<provider>/<model>", e.g. "ollama/ornith-1.5:9b". */
+  model: string;
 }
 
 export type ResultStatus = "pass" | "fail" | "error" | "skipped";
@@ -283,7 +303,48 @@ export interface Scenario {
   formIndex?: number;
   /** Human label of what is tested, e.g. "Book a sitter form" or "Whole page". Set by the planner. */
   scopeLabel?: string;
+  /**
+   * What an AI plan review said about this scenario (0.3.0). `suggested` is true for scenarios the model proposed
+   * (checkId "ai-flow"); those are never defaultSelected. Absent when AI is off.
+   */
+  ai?: ScenarioAi;
+  /** The steps of an AI-suggested scenario (checkId "ai-flow" only), validated against the discovered form. */
+  flow?: FlowStep[];
 }
+
+export interface ScenarioAi {
+  /** One sentence on why this scenario matters on this page (at most 200 characters). */
+  rationale: string;
+  /** Whether the model recommends running it. Applied to defaultSelected, except destructive scenarios stay off. */
+  recommended: boolean;
+  /** True for a scenario the model proposed rather than a built-in check. */
+  suggested?: boolean;
+}
+
+/**
+ * One step of an AI-suggested flow. Steps name discovered things only: `field` is a FormField.key and `control` an
+ * index into the scenario's form controls (form scope), never a selector or script the model wrote.
+ */
+export type FlowStep =
+  | { action: "fill"; field: string; value: string }
+  | { action: "choose"; field: string; option: string }
+  | { action: "click"; control: number }
+  | { action: "press"; key: FlowKey }
+  | { action: "expect"; expect: FlowExpectation; text: string | null };
+
+/** Keys a flow may press. */
+export type FlowKey = "Enter" | "Tab" | "Escape" | "Space";
+
+/**
+ * Deterministic assertions a flow may end with (checked since the flow's first step):
+ * - "request-ok": at least one save request reached the app and got a 2xx/3xx answer, and none got 4xx/5xx.
+ * - "text-visible": `text` is visible on the page.
+ * - "text-absent": `text` is not visible on the page.
+ * - "url-changes": the page URL (path or query) changed.
+ * - "no-errors": no page errors, console errors or failed same-origin requests.
+ * - "field-kept": every field filled by the flow still holds its value (e.g. after a failed submit).
+ */
+export type FlowExpectation = "request-ok" | "text-visible" | "text-absent" | "url-changes" | "no-errors" | "field-kept";
 
 /** Network and console activity recorded for one page. */
 export interface Capture {
@@ -373,6 +434,25 @@ export interface Plan {
   scenarios: Scenario[];
   /** Every group that has at least one scenario, in CHECK_GROUPS order. Empty groups are left out. */
   groups: PlanGroup[];
+  /** Set when an AI model reviewed the plan or suggested scenarios (0.3.0). */
+  ai?: PlanAi;
+}
+
+/** Which model looked at a plan or report, and what went wrong. */
+export interface AiUsage {
+  provider: string;
+  model: string;
+  /** True when the endpoint is not on this machine or a private network (the user consented to sending). */
+  remote: boolean;
+  /** Plain-language problems, e.g. "The model's answer was not valid JSON; the built-in plan is shown." */
+  warnings: string[];
+}
+
+export interface PlanAi extends AiUsage {
+  reviewedAt: string;
+  /** Whether the review ran (and succeeded) and how many scenarios the model suggested and passed validation. */
+  reviewed: boolean;
+  suggested: number;
 }
 
 /** Results of one group in a report. */
@@ -424,4 +504,6 @@ export interface Report {
   stopped?: boolean;
   /** Browser the run used, e.g. "Chromium 153.0.8010.12". */
   browser?: string;
+  /** Set when AI explanations were requested (0.3.0): the model and how many findings it explained. */
+  ai?: AiUsage & { explained: number };
 }

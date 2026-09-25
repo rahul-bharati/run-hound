@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join, posix } from "node:path";
 import { BRAND, FONT_MONO, FONT_SANS, MARK_DATA_URI } from "../core/brand.js";
 import { formatDuration } from "../core/format.js";
-import { CHECK_GROUPS, CHECK_IDS, type CheckResult, type Evidence, type Finding, type Report, type ReportGroup, type Severity } from "../core/types.js";
+import { AI_CHECK_IDS, CHECK_GROUPS, CHECK_IDS, type CheckResult, type Evidence, type Finding, type Report, type ReportGroup, type Severity } from "../core/types.js";
 import { redactSecrets } from "./redact.js";
 
 /** Always listed in reports: things a browser can't see. */
@@ -108,7 +108,7 @@ function notApproved(report: Report): { id: string; checkId: string; title: stri
 /** Checks that proposed nothing for this page (e.g. no password field for credential-fields, no buttons outside forms). */
 function notPlanned(report: Report): string[] {
   const planned = new Set(report.plan.scenarios.map((s) => s.checkId));
-  return CHECK_IDS.filter((id) => !planned.has(id));
+  return CHECK_IDS.filter((id) => !planned.has(id) && !AI_CHECK_IDS.includes(id));
 }
 
 /** "checkId: note (scenario id)" for each errored or skipped result of a check, so the reason is in every format. */

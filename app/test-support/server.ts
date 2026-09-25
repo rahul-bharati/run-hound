@@ -38,6 +38,8 @@ export async function startFixtureServer(options: {
   root?: string;
   pages?: Record<string, string>;
   routes?: Record<string, RouteHandler>;
+  /** Called for requests no route, page or file matched, instead of the 404 (e.g. paths with ids in them). */
+  fallback?: RouteHandler;
 } = {}): Promise<FixtureServer> {
   const requests: RecordedRequest[] = [];
 
@@ -75,6 +77,7 @@ export async function startFixtureServer(options: {
       }
     }
 
+    if (options.fallback) return options.fallback(recorded, res);
     res.writeHead(404, { "content-type": "text/plain" });
     res.end("not found");
   });

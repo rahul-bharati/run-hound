@@ -1,0 +1,53 @@
+# AI spec: plan review, suggested flows and explanations (0.3.0)
+
+The build contract for Run Hound's optional AI layer. It extends [v1-spec.md](v1-spec.md); everything there still holds. The code contracts are `app/src/ai/types.ts`, the JSDoc of every `app/src/ai/*.ts` module, `app/src/checks/ai-flow.ts` and the AI fields in `app/src/core/types.ts`.
+
+## Rules
+
+1. **The model never decides pass or fail.** It recommends and ranks built-in scenarios, composes flows out of a fixed step vocabulary whose assertions are deterministic, and writes advisory text. Findings from AI-suggested flows are `advisory`; built-in verdicts, severities and texts are never changed.
+2. **Off by default.** `enabled: false` until the user turns it on (Settings page, `RUNHOUND_AI=1` or `run --ai`). With AI off, plans, runs and reports are byte-for-byte what 0.2.0 produced (apart from the version).
+3. **Local needs no consent; remote does.** An endpoint on loopback, a private network, `*.localhost`, `host.docker.internal` or `host.containers.internal` is local. Anything else, and Bedrock always, is remote and needs `allowRemote` (a consent box naming the host, `RUNHOUND_AI_ALLOW_REMOTE=1` or `--ai-allow-remote`). Without it nothing is sent, not even a model list request.
+4. **Only structure is sent, redacted.** The page payload (`describePage`) holds names, labels, types, roles, constraints, option labels, the URL path (plus origin only when local) and the scenario catalog. Never selectors, typed values, cookies, headers, response bodies, screenshots or evidence data. Every string goes through `redactSecrets`.
+5. **Page text is data.** Prompts say so, and prompt injection can do no more than produce advisory text or a flow the validator accepts (steps that only name discovered fields and controls; destructive controls still need `--allow-destructive`).
+6. **AI failure never blocks.** A failed review or suggestion call leaves the built-in plan with a warning in `Plan.ai.warnings` (shown in the UI and CLI); a failed explanation leaves the finding without one.
+7. **Keys stay on the server.** The saved key is never returned by the API, written to reports or logged; `AiStatus.hasKey` says whether one is set.
+
+## Configuration
+
+Resolved by `resolveAiConfig` from defaults < `<configDir>/ai.json` (written 0600 by the Settings page) < env < CLI flags. `configDir` is `$RUNHOUND_CONFIG_DIR`, else `$XDG_CONFIG_HOME/run-hound`, else `~/.config/run-hound`. Env and flag values show as locked on the Settings page.
+
+| Env | Flag | Meaning |
+|---|---|---|
+| `RUNHOUND_AI` | `--ai` / `--no-ai` | on/off |
+| `RUNHOUND_AI_PROVIDER` | `--ai-provider` | `ollama`, `openai-compatible`, `bedrock` |
+| `RUNHOUND_AI_BASE_URL` | `--ai-base-url` | e.g. `http://127.0.0.1:11434/v1` |
+| `RUNHOUND_AI_MODEL` | `--ai-model` | model id |
+| `RUNHOUND_AI_API_KEY` | | Bearer key or Bedrock API key (Bedrock also reads `AWS_BEARER_TOKEN_BEDROCK`) |
+| `RUNHOUND_AI_REGION` | | Bedrock region (else `AWS_REGION`, `AWS_DEFAULT_REGION`) |
+| `RUNHOUND_AI_ALLOW_REMOTE` | `--ai-allow-remote` | consent for a remote endpoint |
+| `RUNHOUND_AI_FEATURES` | | comma list of `review,suggest,explain` (default all) |
+| `RUNHOUND_AI_TIMEOUT_MS` | | per request, default 120000 |
+
+Bedrock auth: a Bedrock API key (Bearer), else SigV4 from `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_SESSION_TOKEN`. AWS profiles and SSO are not supported in 0.3.0.
+
+## Providers (no new dependencies)
+
+- **ollama / openai-compatible** (`ai/openai-compatible.ts`): Chat Completions with `response_format: json_schema` (strict), temperature 0; falls back to `json_object` with the schema in the prompt when a server rejects `json_schema`. Covers Ollama, LM Studio, llama.cpp, vLLM, OpenAI, OpenRouter, Groq, Together and other OpenAI-compatible endpoints.
+- **bedrock** (`ai/bedrock.ts`): Converse with one forced tool whose input schema is the answer schema.
+- **client** (`ai/client.ts`): parse, validate, one retry with the error fed back, then `AiError("bad-output")`.
+- Schemas use the portable subset: every property required, nullable instead of optional, `additionalProperties: false`, no numeric or length limits.
+
+## Features
+
+- **Review** (`ai/review.ts`): the model answers `{id, recommended, priority, rationale}` per scenario. Merge: `Scenario.ai = {rationale, recommended}`, `priority` updated, `defaultSelected = recommended && !destructive`. Unknown ids are ignored; nothing is added, removed or reordered.
+- **Suggest** (`ai/suggest.ts`, `checks/ai-flow.ts`): up to 5 flows of at most 8 `FlowStep`s ending in an `expect`. `flowProblem` rejects anything that names a field or control the form doesn't have. Kept flows become `ai-flow:<n>` scenarios in the Features group, after the built-in ones, **never ticked by default**, destructive when they click a destructive control. `ai-flow` runs the steps under the navigation guard and decides each `expect` deterministically; a failed expect is one advisory, medium finding with a GIF, a final frame and a Playwright spec.
+- **Explain** (`ai/explain.ts`): after the run and before the report is written, one call per finding (at most 20, sequential) → `Finding.ai = {summary, askYourAi, model}`, shown as "AI explanation (advisory)" beside the built-in "What to ask your AI". `Report.ai` records the model, how many were explained and warnings.
+
+## Surfaces
+
+- **Runner**: `discoverAndPlan(url, {ai})` reviews then suggests after `buildPlan`; `runPlan(plan, {ai})` explains before `writeReport`. Engine steps ("Asking ollama/ornith-1.5:9b to review the plan") appear in the live log.
+- **API**: `GET /api/ai` → `AiStatus`; `PUT /api/ai` (JSON, same-origin only) → saves an `AiConfigPatch`, returns `AiStatus`; `POST /api/ai/test` → `testConnection`; `GET /api/ai/models?provider=&baseUrl=` → `AiModelList` (saved key used server-side); `POST /api/plan {url, ai?: boolean}` (default: on when AI is enabled and usable); `GET /api/settings` adds `ai`.
+- **Web UI**: Settings → AI card (provider presets, base URL, model dropdown from `/api/ai/models` with Refresh and "Other…", key field that never shows the saved key, region for Bedrock, feature toggles, consent box naming the host, Test connection). New Run → "Review with AI" toggle, an "AI" chip and rationale under each reviewed scenario, "Suggested by AI" scenarios with their steps. Report → AI explanation panel.
+- **CLI**: the flags above on `run`; `run-hound ai status` and `run-hound ai test`. A remote endpoint without consent with `--ai` is exit 2 with the reason.
+- **Reports**: HTML and Markdown show rationales in the scenario list, the AI flows' steps, and each finding's AI explanation labelled advisory; the header names the model ("Planned with help from ollama/ornith-1.5:9b").
+- **Containers**: compose passes the `RUNHOUND_AI_*` and AWS variables and mounts a config volume; Ollama on the host is `http://host.containers.internal:11434/v1` (Podman) or `http://host.docker.internal:11434/v1` (Docker).
