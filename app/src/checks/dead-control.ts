@@ -247,8 +247,10 @@ export function clickEach(
           continue;
         }
         notes.push(`"${name}": no reaction`);
-        ctx.step(`"${name}" did nothing; recording the click as evidence`, page);
-        const shots = await recordDeadClick(ctx, page, capture, control, values).catch(() => []);
+        // The finding shows the first 6 recordings; recording more would only cost time.
+        const record = dead.length < 6;
+        if (record) ctx.step(`"${name}" did nothing; recording the click as evidence`, page);
+        const shots = record ? await recordDeadClick(ctx, page, capture, control, values).catch(() => []) : [];
         dead.push({ control, name, shots });
       }
 
