@@ -25,6 +25,7 @@ Run Hound now tests a whole page instead of one form. How to run it: [TESTING.md
 - `bundle-secrets`, `reflow-320` and `focus-visible` run once per page (they were already page-wide).
 - The live view's browser card shows the Chromium the run really launched (a new `browser` progress event), not only the build Playwright expects.
 - The marketing site shows V1: new screenshots and evidence from a 0.2.0 run on Kennel (captured with `app/scripts/capture-site-screens.ts`), with the CORS and security-header cards on the home and demo pages.
+- The home page has a "Coming soon: AI" section: AI planning, AI explanations and bring-your-own-model (all opt-in, none in the preview), and where a model will fit in a run. A model proposes and explains; real checks still decide.
 - A new sample app, `multi-form` (search, contact and newsletter forms on one page), joins the false-positive suite.
 - The browser's locale is set from the machine's locale, so pages that format dates work when `LANG` is unset (as in many containers), where Chromium otherwise reports the invalid `en-US@posix`.
 - Reports say "Checks with nothing to test on this page" and "V1 tester preview".

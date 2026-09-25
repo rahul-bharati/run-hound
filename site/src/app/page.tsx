@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { ButtonLink } from "@/components/button-link";
 import { Container, NewTag, Section } from "@/components/layout";
 import { links, newChecks, totalChecks } from "@/components/home/data";
+import { AiComingSoon } from "@/components/home/ai";
 import { Evidence } from "@/components/home/evidence";
 import { Groups } from "@/components/home/groups";
 import { Hero } from "@/components/home/hero";
@@ -159,6 +160,20 @@ export default function Home() {
           ))}
         </ul>
         <ArrowLink href="/how-it-works">How it works in detail</ArrowLink>
+      </Section>
+
+      <Section
+        id="ai"
+        eyebrow="COMING SOON · AI"
+        title={
+          <>
+            AI that plans and explains. <span className="text-accent">Real checks still decide.</span>
+          </>
+        }
+        intro="Run Hound is built for AI-assisted testing. These are the parts a model will take on next, all opt-in. They aren't in the preview yet."
+        className="border-t border-line-soft bg-band"
+      >
+        <AiComingSoon />
       </Section>
 
       <Section
