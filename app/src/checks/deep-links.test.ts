@@ -214,4 +214,28 @@ document.getElementById('docs-link').addEventListener('click', function (e) {
     expect(f.locations![0]).toContain("/docs");
     expect(f.locations![0]).toContain("200");
   });
+
+  it("follows in the app only the link it chose, never another link to the same path that acts", async () => {
+    const site = await serve({
+      "/": `<!doctype html><html><head><title>Invites app</title></head><body>
+<nav><a href="/docs?action=decline">Decline the invite</a> <a href="/docs" id="docs-link">Docs</a></nav>
+<main id="view"><h1>Home</h1><p>Welcome.</p></main>
+<script>
+document.getElementById('docs-link').addEventListener('click', function (e) {
+  e.preventDefault();
+  history.pushState({}, '', '/docs');
+  document.getElementById('view').innerHTML = '<h1>Docs</h1><p>Read me.</p>';
+  document.title = 'Docs';
+});
+</script></body></html>`,
+      "/docs": `<!doctype html><html><head><title>Page not found</title></head><body><h1>404: this page doesn't exist</h1></body></html>`,
+    });
+    const page = await discoverWith(`${site.url}/`, undefined, "Home");
+    site.requests.length = 0;
+    const { result } = await runOn({ targetUrl: `${site.url}/`, page });
+
+    expect(site.requests.filter((r) => r.url.includes("action=decline")), "the acting link was followed").toEqual([]);
+    expect(result.status).toBe("fail");
+    expect(result.findings[0]!.locations![0]).toContain("/docs");
+  });
 });

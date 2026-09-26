@@ -77,6 +77,15 @@ describe("saving a password", () => {
     expect(status.accounts.a.hasPassword).toBe(true);
   });
 
+  it("of a hand-written file (no passwordOrigin) is dropped, not moved, when a save moves the sign-in page", async () => {
+    await mkdir(dir, { recursive: true });
+    await writeFile(file(), JSON.stringify({ version: 1, accounts: { a: { loginUrl: LOGIN, username: USER, password: PASSWORD } } }));
+    const status = await saveAccounts({ accounts: { a: { loginUrl: LOGIN_OTHER_ORIGIN } } }, { env, home: tmp });
+    expect(status.accounts.a.hasPassword).toBe(false);
+    expect(await savedText()).not.toContain(PASSWORD);
+    expect((await resolveAccounts({ env, home: tmp })).config.accounts.a.password).toBeNull();
+  });
+
   it("of a hand-written file with no sign-in page is not sent to the env's", async () => {
     await mkdir(dir, { recursive: true });
     await writeFile(file(), JSON.stringify({ version: 1, accounts: { a: { username: USER, password: PASSWORD } } }));

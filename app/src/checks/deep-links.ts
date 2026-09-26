@@ -93,19 +93,24 @@ function chooseLinks(all: Link[], pageUrl: string): Link[] {
 async function inAppShowsNotFound(ctx: CheckContext, page: Page, link: Link): Promise<boolean> {
   await page.goto(ctx.targetUrl, { waitUntil: "load" }).catch(() => undefined);
   await settle(page);
+  // Only the very link chooseLinks vetted: same full URL (query included) and same text. Another link to the same
+  // path ("?action=decline", a "Sign out" link to "/") may act, and chooseLinks skipped it for that reason.
   const clicked = await page
-    .evaluate((path) => {
+    .evaluate(({ url, text }) => {
       const a = Array.from(document.querySelectorAll("a[href]")).find((el) => {
+        const anchor = el as HTMLAnchorElement;
+        if (anchor.hasAttribute("download") || anchor.target) return false;
         try {
-          return new URL((el as HTMLAnchorElement).href, location.href).pathname === path;
+          if (new URL(anchor.href, location.href).href !== url) return false;
         } catch {
           return false;
         }
+        return (anchor.innerText || anchor.textContent || "").replace(/\s+/g, " ").trim() === text;
       }) as HTMLElement | undefined;
       if (!a) return false;
       a.click();
       return true;
-    }, link.path)
+    }, { url: link.url, text: link.text })
     .catch(() => false);
   if (!clicked) return true; // Can't follow it in-app: don't flag on the soft-404 rule.
   await settle(page);

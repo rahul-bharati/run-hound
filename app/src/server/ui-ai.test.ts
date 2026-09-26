@@ -288,9 +288,11 @@ describe("Settings → AI card: AWS profile for Bedrock", () => {
     await page.locator("#ai-card").getByRole("button", { name: "Save" }).click();
     await expect.poll(() => o.calls.filter((c) => c.method === "PUT").length).toBe(2);
     expect(o.calls.filter((c) => c.method === "PUT")[1]!.body).toMatchObject({ awsProfile: null });
+    // Wait for the save's redraw (it draws the card as Bedrock again), or it can land after the switch below.
+    await expect.poll(() => page.locator("#ai-saved").textContent()).toMatch(/^Saved at/);
     // Another provider hides the field and never sends it.
     await page.getByLabel("Provider").selectOption({ index: 0 });
-    expect(await page.locator("#ai-aws-profile").isVisible()).toBe(false);
+    await expect.poll(() => page.locator("#ai-aws-profile").isVisible()).toBe(false);
     await page.close();
   });
 

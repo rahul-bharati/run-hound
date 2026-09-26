@@ -399,7 +399,8 @@ export async function saveAccounts(patch: AccountsPatch, options: { env?: NodeJS
       }
       if (!slot.password) continue;
       const wasOrigin = httpOrigin(before.config.accounts[id].loginUrl);
-      if (wasOrigin !== origin && boundOrigin(slot) !== origin) {
+      // Bound as read, not as patched: a hand-written slot falls back to its loginUrl, which the patch may have moved.
+      if (wasOrigin !== origin && boundOrigin(read.saved.accounts[id]) !== origin) {
         // A new sign-in origin without a new password: the saved one is not sent there.
         delete slot.password;
         delete slot.passwordOrigin;
