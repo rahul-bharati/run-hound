@@ -7,6 +7,7 @@
  */
 import { isLocalOrigin, isSameOrigin } from "../core/saves.js";
 import type { Capture, Check, CheckContext, Evidence, Finding, PlanEnv, Scenario, Severity } from "../core/types.js";
+import { isDestructiveControl } from "./dead-control.js";
 import { endpointOf, errorResult, guarded, result, tryCard } from "./lib/functional-finding.js";
 import { canaryValues, createRequests, fillForm, isSearchForm, settle, submitControl, submitForm, waitForCreates, type FieldValue } from "./lib/functional-form.js";
 
@@ -192,6 +193,8 @@ export const check: Check = {
   plan(form, _page, env?: PlanEnv): Scenario[] {
     if (!env?.signedIn) return [];
     if (isSearchForm(form) || form.fields.length === 0 || !submitControl(form)) return [];
+    // Its save is replayed as Account A: never a form whose submit deletes, cancels or signs out (as access-control).
+    if (isDestructiveControl(submitControl(form)!)) return [];
     return [
       {
         id: `${ID}:privilege-fields`,

@@ -205,7 +205,7 @@ export default function DemoPage() {
         id="try"
         className="bg-band"
         title="Run the same demo yourself"
-        intro="Kennel ships with Run Hound. The quickest way needs no clone: download one compose file and start it with Docker or Podman, which also starts Fernway and the sample apps; from source it takes two terminals. Then try the clean Kennel: it should give zero confirmed findings."
+        intro="Kennel ships with Run Hound. With Docker or Podman it needs no clone: download one compose file and start the test lab, which also starts Fernway and the sample apps; from source it takes two terminals. Then try the clean Kennel: it should give zero confirmed findings."
       >
         <div className="grid items-start gap-8 lg:grid-cols-[1.3fr_1fr] lg:gap-12">
           <div className="flex min-w-0 flex-col gap-5">

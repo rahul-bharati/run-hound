@@ -150,6 +150,11 @@ export interface FormField {
    * "*", "(required)", "required"). Schema-validated forms (react-hook-form + zod) usually have only the label.
    */
   requiredBy?: "attribute" | "label";
+  /**
+   * Signed-in runs (0.4.1): the field held the signed-in account's own email when the page was read (a profile form).
+   * Checks leave it as it is: typing a test address there and saving would change the email the account signs in with.
+   */
+  holdsAccountEmail?: boolean;
   /** Native constraints, when present. */
   constraints?: { min?: string; max?: string; minLength?: number; maxLength?: number; pattern?: string };
 }

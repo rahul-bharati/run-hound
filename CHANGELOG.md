@@ -2,6 +2,24 @@
 
 All notable changes to Run Hound. Versions follow [Semantic Versioning](https://semver.org/); while the version is 0.x, any release may change behaviour.
 
+## 0.4.1 (pull and run; fixes from the 0.4.0 review)
+
+Run Hound now starts with one `docker pull` and one `docker run`, and 0.4.1 fixes what a review of 0.4.0 found, most of it in signed-in runs.
+
+### Changed
+
+- **Pull and run is the main way to start**: `docker pull ghcr.io/rahul-bharati/run-hound`, then `docker run --rm --init -p 127.0.0.1:4000:4000 --add-host host.docker.internal:host-gateway -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound`. The image now sets `RUNHOUND_ALLOWED_HOSTS=host.docker.internal,host.containers.internal` (only ever the machine running the container) and `RUNHOUND_CONFIG_DIR=/repo/app/runs/.config` itself (`-e` still overrides either), and `serve` prints the address to open without `RUNHOUND_PUBLIC_URL`. README, TESTING and the website lead with it; the compose test lab is the way to try Run Hound on the demo apps. CI starts the image exactly as documented and checks the UI answers, the address is printed and both defaults hold.
+- The release workflow gives `packages: write` only to the job that pushes the images, and a manual run no longer moves `latest` (`flavor: latest=false`; only a pushed release tag sets it).
+- Fernway's image has its own `HEALTHCHECK`, and its example `docker run` publishes the port on `127.0.0.1` only.
+
+### Fixed
+
+- **Signed-in runs no longer change the test account's email.** The checks typed a test address into every email field, so saving a profile form changed the email the account signs in with. An email field holding the signed-in account's own email is now left as it is (`FormField.holdsAccountEmail`); the other fields still get test values.
+- **Sign-in keeps the password on its sign-in site**: it only types the password on the sign-in page's own origin (a sign-in page that redirects elsewhere fails with a plain message), and a request carrying the password to any other origin is stopped before it leaves the browser.
+- **Service workers are blocked** in every browser context Run Hound opens: requests a service worker makes itself bypass request interception, so a PWA could get past discovery's write block or the safety guard.
+- **mass-assignment** is no longer planned on a form whose submit deletes, cancels or signs out (as `access-control`): its save is replayed as Account A.
+- The settings folder (`ai.json`, `accounts.json`) is tightened to 0700 when it already existed with looser permissions.
+
 ## 0.4.0 (V2 preview: signed-in runs and access checks; works on AI-built UIs)
 
 The first slice of V2 (single feature). Run Hound can sign in as one of two test accounts you own and test the pages behind your sign-in, and three new checks ask whether another account or a signed-out visitor can read your data, whether the server stores fields the form never sends, and whether the app's pages load when opened directly. It also works on the apps AI app builders generate (Radix/shadcn widgets, forms in dialogs, schema validation, toasts), tested against Fernway, a new Lovable-style test app. Multi-page feature runs, write-side access checks, rate limits, CSRF, file upload, prompt injection and paywall trust are still planned. AI stays optional, off by default, and never decides pass or fail. Contract: [docs/v2-spec.md](docs/v2-spec.md); how to try it: [TESTING.md](TESTING.md).

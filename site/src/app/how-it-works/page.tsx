@@ -242,9 +242,9 @@ export default function HowItWorksPage() {
             Try it on your own page
           </h2>
           <p className="max-w-2xl text-lg leading-relaxed text-muted">
-            {site.name} runs on your machine with Node, Docker or Podman, and it&apos;s free and MIT licensed. One
-            command starts it with Kennel, our deliberately broken demo app, Fernway, an app built the way AI builders
-            build them, and a few sample apps; then point it at a page of your own.
+            {site.name} runs on your machine with Node, Docker or Podman, and it&apos;s free and MIT licensed. Pull the
+            image and run it, then point it at a page of your own. One compose file adds Kennel, our deliberately
+            broken demo app, Fernway, an app built the way AI builders build them, and a few sample apps.
           </p>
           <GetStarted />
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">

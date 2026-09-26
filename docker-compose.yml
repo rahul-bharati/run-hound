@@ -1,4 +1,4 @@
-# Run Hound (0.4.0) plus the apps it is tested against, all local, built from this clone. See TESTING.md.
+# Run Hound (0.4.1) plus the apps it is tested against, all local, built from this clone. See TESTING.md.
 #
 #   cp .env.example .env        # optional: every setting has a default; edit ports and options there
 #   mkdir -p runs               # reports land in ./runs; create it first so the files belong to you
@@ -25,7 +25,7 @@
 # must listen on all interfaces and accept that host name (TESTING.md has the settings for Vite and Next.js).
 # On Linux, `docker run --network host` (TESTING.md) is simpler: it tests http://localhost:<port> directly.
 #
-# The images built here get the published names and tags (ghcr.io/rahul-bharati/run-hound:0.4.0 and so on), because
+# The images built here get the published names and tags (ghcr.io/rahul-bharati/run-hound:0.4.1 and so on), because
 # the service definitions must stay identical to run-hound.compose.yml's (app/test/compose-files.test.ts checks that).
 # So after a local build, run-hound.compose.yml uses your build too until you run
 # `docker compose -f run-hound.compose.yml pull`, and never run `docker compose push` with this file.
@@ -34,7 +34,7 @@ x-sample: &sample
   build:
     context: .
     dockerfile: fixtures/samples/Dockerfile
-  image: ghcr.io/rahul-bharati/run-hound-samples:0.4.0
+  image: ghcr.io/rahul-bharati/run-hound-samples:0.4.1
   init: true
   # Healthy while the app answers on its PORT (any status below 500). The images have no curl, so Node's fetch probes.
   healthcheck: &app-healthcheck
@@ -49,7 +49,7 @@ services:
     build:
       context: .
       dockerfile: app/Dockerfile
-    image: ghcr.io/rahul-bharati/run-hound:0.4.0
+    image: ghcr.io/rahul-bharati/run-hound:0.4.1
     init: true
     environment:
       # Named hosts the safety gate accepts besides localhost and private addresses: the test apps and the names
@@ -130,7 +130,7 @@ services:
     build:
       context: .
       dockerfile: fixtures/kennel/Dockerfile
-    image: ghcr.io/rahul-bharati/run-hound-kennel:0.4.0
+    image: ghcr.io/rahul-bharati/run-hound-kennel:0.4.1
     init: true
     healthcheck: *app-healthcheck
     environment:
@@ -152,7 +152,7 @@ services:
     build:
       context: .
       dockerfile: fixtures/fernway/Dockerfile
-    image: ghcr.io/rahul-bharati/run-hound-fernway:0.4.0
+    image: ghcr.io/rahul-bharati/run-hound-fernway:0.4.1
     init: true
     healthcheck: *app-healthcheck
     environment:

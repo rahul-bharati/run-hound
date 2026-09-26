@@ -1,9 +1,9 @@
-# Builds and publishes the Docker images when a version tag is pushed (git tag v0.4.0 && git push origin v0.4.0):
+# Builds and publishes the Docker images when a version tag is pushed (git tag v0.4.1 && git push origin v0.4.1):
 #   ghcr.io/rahul-bharati/run-hound          Run Hound (web UI + CLI, Chromium's headless shell included)
 #   ghcr.io/rahul-bharati/run-hound-kennel   Kennel, the deliberately broken demo app
 #   ghcr.io/rahul-bharati/run-hound-samples  the well-built sample apps (false-positive suite)
 #   ghcr.io/rahul-bharati/run-hound-fernway  Fernway, a Lovable-style SaaS test app (clean, or with planted bugs)
-# Tags: 0.4.0, 0.4 and latest (latest only for a pushed release tag, not a pre-release such as v0.5.0-rc.1 or a
+# Tags: 0.4.1, 0.4 and latest (latest only for a pushed release tag, not a pre-release such as v0.5.0-rc.1 or a
 # manual run), for linux/amd64 and linux/arm64.
 #
 # Order: check-version (the tag matches app/package.json, the site, both compose files, the Dockerfile comments and
@@ -25,12 +25,12 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish, e.g. 0.4.0 (must match app/package.json and the compose files)"
+        description: "Version to publish, e.g. 0.4.1 (must match app/package.json and the compose files)"
         required: true
 
+# packages: write only for the job that pushes the images (image, below).
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: release-images-${{ github.ref }}
@@ -89,7 +89,7 @@ jobs:
             fi
           done
 
-          # Version numbers in the comments ("Run Hound 0.4.0", "ghcr.io/rahul-bharati/run-hound-kennel:0.4.0", ...)
+          # Version numbers in the comments ("Run Hound 0.4.1", "ghcr.io/rahul-bharati/run-hound-kennel:0.4.1", ...)
           # of the Dockerfiles, the compose files and .env.example must not contradict it either.
           for file in app/Dockerfile fixtures/*/Dockerfile docker-compose.yml run-hound.compose.yml .env.example; do
             while IFS=: read -r line ref; do
@@ -131,6 +131,9 @@ jobs:
   image:
     needs: [check-version, ci]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -193,6 +196,10 @@ jobs:
           images: |
             ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}
             ${{ env.HAS_DOCKERHUB == 'true' && format('docker.io/{0}/{1}', vars.DOCKERHUB_USERNAME, matrix.name) || '' }}
+          # latest=false: metadata-action would otherwise add latest to any non-pre-release semver tag, a manual run
+          # included; the raw entry below is the only one that sets it (a pushed release tag only).
+          flavor: |
+            latest=false
           tags: |
             type=semver,pattern={{version}},value=v${{ needs.check-version.outputs.version }}
             type=semver,pattern={{major}}.{{minor}},value=v${{ needs.check-version.outputs.version }}

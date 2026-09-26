@@ -41,8 +41,8 @@ const passing: Check = {
 };
 
 describe("version (tester release)", () => {
-  it("package.json says 0.4.0 (V2 preview: signed-in runs and access checks)", () => {
-    expect(PKG_VERSION).toBe("0.4.0");
+  it("package.json says 0.4.1 (V2 preview: signed-in runs and access checks)", () => {
+    expect(PKG_VERSION).toBe("0.4.1");
   });
 
   it.each([[["--version"]], [["run", "--version"]]])("`run-hound %s` prints exactly the package version and exits 0", async (args) => {

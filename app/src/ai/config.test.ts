@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -640,6 +640,13 @@ describe("saveAiConfig file permissions", () => {
   const file = () => join(dir, "ai.json");
 
   it("creates the config directory with mode 0700", async () => {
+    await saveAiConfig({ model: "m" }, { env, home: tmp });
+    expect((await stat(dir)).mode & 0o777).toBe(0o700);
+  });
+
+  it("tightens a config directory that already existed with looser permissions to 0700", async () => {
+    await mkdir(dir, { recursive: true, mode: 0o755 });
+    await chmod(dir, 0o755);
     await saveAiConfig({ model: "m" }, { env, home: tmp });
     expect((await stat(dir)).mode & 0o777).toBe(0o700);
   });

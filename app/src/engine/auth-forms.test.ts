@@ -7,6 +7,8 @@
  *   browser, with a plain message: the password never reaches the app's access log;
  * - a session kept in IndexedDB (Firebase Auth does) is part of the session: the storage state carries it, and the
  *   token is one of the values to redact.
+ * - the password is only typed on, and only sent to, the sign-in page's own origin: a sign-in page that redirects to
+ *   another origin, or a form that posts the password to one, fails with a plain message and nothing is sent there.
  */
 import type { Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -23,12 +25,24 @@ const TOKEN = "idb-token-7f3a9c21e4b84d0f";
 
 let browser: Browser;
 let server: FixtureServer;
+/** Another origin (another port on the same machine): where the password must never go. */
+let elsewhere: FixtureServer;
 
 const shell = (title: string, body: string) => `<!doctype html><html lang="en"><head><title>${title}</title></head><body><main>${body}</main></body></html>`;
 
 beforeAll(async () => {
   browser = await getBrowser();
   const sessions = new Set<string>();
+  elsewhere = await startFixtureServer({
+    pages: {
+      "/login": shell(
+        "Sign in",
+        `<h1>Sign in</h1><form id="f" aria-label="Sign in"><label for="e">Email</label><input id="e" type="email" autocomplete="username">
+<label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password"><button type="submit">Sign in</button></form>`,
+      ),
+    },
+    routes: { "POST /api/login": (_req, res) => json(res, 200, { ok: true }) },
+  });
   server = await startFixtureServer({
     pages: {
       // A sign-up form with one password field, then the sign-in form (as on many landing pages).
@@ -103,6 +117,28 @@ open.onsuccess = function () {
         res.writeHead(200, { "content-type": "application/json", "set-cookie": `sid=${sid}; Path=/; HttpOnly; SameSite=Lax` });
         res.end(JSON.stringify({ ok: true }));
       },
+      // The sign-in page moved to another origin.
+      "GET /moved-login": (_req, res) => {
+        res.writeHead(302, { location: `${elsewhere.url}/login` });
+        res.end();
+      },
+      // A sign-in page whose form posts the password to another origin (text/plain: a simple request, no preflight).
+      "GET /cross-login": (_req, res) => {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(
+          shell(
+            "Sign in",
+            `<h1>Sign in</h1><form id="f" aria-label="Sign in"><label for="e">Email</label><input id="e" type="email" autocomplete="username">
+<label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password"><button type="submit">Sign in</button></form>
+<script>
+document.getElementById("f").addEventListener("submit", function (e) {
+  e.preventDefault();
+  fetch("${elsewhere.url}/api/login", { method: "POST", headers: { "content-type": "text/plain" }, body: JSON.stringify({ email: document.getElementById("e").value, password: document.getElementById("pw").value }) });
+});
+</script>`,
+          ),
+        );
+      },
       "GET /session": (_req, res) => {
         res.writeHead(200, { "content-type": "text/html" });
         res.end(shell("Home", "<h1>Home</h1>"));
@@ -118,6 +154,7 @@ open.onsuccess = function () {
 afterAll(async () => {
   await closeBrowser();
   await server?.close();
+  await elsewhere?.close();
 });
 
 function account(path: string): TestAccount {
@@ -184,6 +221,30 @@ describe("signIn", () => {
     for (const r of server.requests) {
       expect(decodeURIComponent(r.url.replace(/\+/g, " ")), r.url).not.toContain(PASSWORD);
     }
+  });
+
+  it("never types the password on a sign-in page that moved to another origin", async () => {
+    elsewhere.requests.length = 0;
+    const err = await signIn(browser, account("/moved-login")).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(SignInError);
+    expect((err as Error).message).toMatch(/only typed on/);
+    expect((err as Error).message).not.toContain(PASSWORD);
+    expect(elsewhere.requests.filter((r) => r.method === "POST")).toEqual([]);
+  });
+
+  it("stops a form that posts the password to another origin, before it is sent", async () => {
+    elsewhere.requests.length = 0;
+    const err = await signIn(browser, account("/cross-login")).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(SignInError);
+    expect((err as Error).message).toMatch(/sends the password to/);
+    expect((err as Error).message).not.toContain(PASSWORD);
+    expect(elsewhere.requests.filter((r) => r.method === "POST")).toEqual([]);
   });
 
   it("keeps a session held in IndexedDB, and names its token for redaction", async () => {

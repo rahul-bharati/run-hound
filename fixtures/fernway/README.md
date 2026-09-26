@@ -72,9 +72,9 @@ interfaces) and `FERNWAY_BUGS`, and prints `fernway listening` once it accepts c
 With Docker or Podman, from the repository root:
 
 ```sh
-docker build -f fixtures/fernway/Dockerfile -t ghcr.io/rahul-bharati/run-hound-fernway:0.4.0 .
-docker run --rm -p 127.0.0.1:4110:4110 ghcr.io/rahul-bharati/run-hound-fernway:0.4.0                       # clean
-docker run --rm -p 127.0.0.1:4111:4110 -e FERNWAY_BUGS=all ghcr.io/rahul-bharati/run-hound-fernway:0.4.0   # bugs
+docker build -f fixtures/fernway/Dockerfile -t ghcr.io/rahul-bharati/run-hound-fernway:0.4.1 .
+docker run --rm -p 127.0.0.1:4110:4110 ghcr.io/rahul-bharati/run-hound-fernway:0.4.1                       # clean
+docker run --rm -p 127.0.0.1:4111:4110 -e FERNWAY_BUGS=all ghcr.io/rahul-bharati/run-hound-fernway:0.4.1   # bugs
 ```
 
 Both compose files at the repository root start it next to Run Hound as two services: `fernway` (clean,

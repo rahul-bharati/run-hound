@@ -16,8 +16,20 @@ CLI="/repo/node_modules/.bin/tsx src/cli.ts"
 
 case "${1:-}" in
   serve | run | ai | accounts | help | version | --help | -h | --version | -v)
-    if [ "$1" = serve ] && [ -n "${RUNHOUND_PUBLIC_URL:-}" ]; then
-      echo "Run Hound UI: open ${RUNHOUND_PUBLIC_URL} in your browser. (The 0.0.0.0 address below is inside the container; on your machine the port is bound to 127.0.0.1 only.)" >&2
+    if [ "$1" = serve ]; then
+      if [ -n "${RUNHOUND_PUBLIC_URL:-}" ]; then
+        echo "Run Hound UI: open ${RUNHOUND_PUBLIC_URL} in your browser. (The 0.0.0.0 address below is inside the container; on your machine the port is bound to 127.0.0.1 only.)" >&2
+      else
+        # Without RUNHOUND_PUBLIC_URL (a plain docker run): the port serve listens on, which -p usually publishes as is.
+        port=4000
+        prev=
+        for arg in "$@"; do
+          case "$arg" in --port=*) port=${arg#--port=} ;; esac
+          [ "$prev" = --port ] && port=$arg
+          prev=$arg
+        done
+        echo "Run Hound UI: open http://localhost:$port in your browser (or the host port you published with -p). The 0.0.0.0 address below is inside the container." >&2
+      fi
     fi
     # shellcheck disable=SC2086
     set -- $CLI "$@"

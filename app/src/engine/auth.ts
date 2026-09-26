@@ -333,7 +333,8 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
 
   let context: BrowserContext | undefined;
   try {
-    context = await browser.newContext({ locale: BROWSER_LOCALE });
+    // serviceWorkers: a service worker's own requests bypass context.route (the guard and the password blocks).
+    context = await browser.newContext({ locale: BROWSER_LOCALE, serviceWorkers: "block" });
     const guard = await guardContext(context, safety);
     // A form that sends the password in the address (a GET form) would put it in the app's access log and the
     // browser history: such a request is stopped before it leaves the browser, and signing in fails with the reason.
@@ -345,6 +346,28 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
         await route.abort("blockedbyclient").catch(() => undefined);
       },
     );
+    // The password is only ever sent to the sign-in page's own origin: a request to any other origin (a redirect to
+    // another allowed host, a form action pointing elsewhere) that carries it is stopped before it leaves the browser.
+    const loginOrigin = new URL(loginUrl).origin;
+    let passwordElsewhere: string | null = null;
+    await context.route(
+      (url) => url.origin !== loginOrigin,
+      async (route) => {
+        const body = route.request().postData() ?? "";
+        if (account.password && body.includes(account.password)) {
+          passwordElsewhere = new URL(route.request().url()).origin;
+          await route.abort("blockedbyclient").catch(() => undefined);
+          return;
+        }
+        await route.fallback();
+      },
+    );
+    const elsewhere = () => {
+      if (passwordElsewhere === null) return;
+      throw new SignInError(
+        `${label} could not sign in: the sign-in form on ${shownUrl} sends the password to ${redactSecrets(passwordElsewhere)}, not to ${redactSecrets(loginOrigin)} where it was saved for. Run Hound stopped it before it was sent.`,
+      );
+    };
     const inAddress = () => {
       if (!passwordInAddress) return;
       throw new SignInError(
@@ -379,7 +402,13 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
     const idField = identifierField(form);
     if (!idField) throw new SignInError(`The sign-in form on ${shownUrl} has a password field but no field for the username or email.`);
 
-    // 4. Fill in and submit.
+    // 4. Fill in and submit, only on the sign-in page's own origin (the password is bound to it).
+    const landedOn = new URL(page.url()).origin;
+    if (landedOn !== loginOrigin) {
+      throw new SignInError(
+        `${label} could not sign in: ${shownUrl} led to ${redactSecrets(landedOn)}, and the password is only typed on ${redactSecrets(loginOrigin)}, the sign-in page it was saved for.`,
+      );
+    }
     const passwordBox = page.locator(passwordField.selector).first();
     try {
       await page.locator(idField.selector).first().fill(account.username, { timeout: ACTION_TIMEOUT_MS });
@@ -419,7 +448,7 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
     let alertSince: number | null = null;
     let doneSince: number | null = null;
     while (Date.now() < deadline) {
-      if (passwordInAddress || page.isClosed()) break;
+      if (passwordInAddress || passwordElsewhere !== null || page.isClosed()) break;
       const left = !samePage(page.url(), before);
       const gone = left || !(await passwordBox.isVisible().catch(() => false));
       if (gone) {
@@ -435,6 +464,7 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
       await sleep(POLL_MS);
     }
     inAddress();
+    elsewhere();
     leftTarget();
     await page.waitForLoadState("load", { timeout: SUBMIT_WAIT_MS }).catch(() => undefined);
     await page.waitForLoadState("networkidle", { timeout: NETWORK_IDLE_MS }).catch(() => undefined);
