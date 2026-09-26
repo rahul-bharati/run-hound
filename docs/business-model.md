@@ -1,6 +1,6 @@
 # Business model
 
-Status: proposal. Nothing here is built yet. Monetization comes after the open-source core has real users.
+Status: the open core is shipped (0.4.0, MIT). Everything in the Paid column, and the license key below, is a proposal: nothing there is built. Monetization comes after the open-source core has real users.
 
 ## Principles
 
@@ -11,14 +11,14 @@ Status: proposal. Nothing here is built yet. Monetization comes after the open-s
 
 ## Open core vs paid
 
-| Core (open source) | Paid |
+| Core (open source) | Paid (proposal) |
 |---|---|
-| Agent loop and all checks (functional, a11y, security) | **Hosted inference:** runs without a GPU, Ollama or the user's own model API key |
-| Plan approval UI, reports, Playwright spec export | **Hosted runner:** test a deployed app (e.g. Lovable, Bolt) behind domain-ownership verification; aimed at vibe coders |
+| Plan, approve, run and report, with all checks (functional, a11y, security, access checks with test accounts) | **Hosted inference:** runs without a GPU, Ollama or the user's own model API key |
+| Web UI, HTML/Markdown/JSON reports, Playwright spec export | **Hosted runner:** test a deployed app (e.g. Lovable, Bolt) behind domain-ownership verification; aimed at vibe coders |
 | BYO LLM: Ollama, Bedrock, any OpenAI-compatible endpoint | **Team dashboard:** run history, trends, regressions across runs |
-| Docker image and CLI; localhost plus domain verification | **CI / GitHub app:** PR comments, scheduled regression runs |
-| Kennel fixture and scoring ([fixtures.md](fixtures.md)) | **Compliance exports:** WCAG / European Accessibility Act conformance reports |
-| JSON run format and replay | **Org features:** SSO, roles, audit log, priority support |
+| Docker image and CLI for localhost and private addresses; domain verification for live sites is planned (V4) | **CI / GitHub app:** PR comments, scheduled regression runs |
+| Kennel and Fernway fixtures and scoring ([fixtures.md](fixtures.md)) | **Compliance exports:** WCAG / European Accessibility Act conformance reports |
+| JSON run format (`report.json`); replay is planned | **Org features:** SSO, roles, audit log, priority support |
 
 The paid column is mostly **server-side**: it runs on our infrastructure, so it has value that can't be patched out of an open-source image.
 
@@ -31,8 +31,10 @@ The paid column is mostly **server-side**: it runs on our infrastructure, so it 
 
 ## API key in the Docker command
 
+A proposal: Run Hound does not read `RUNHOUND_KEY` today.
+
 ```bash
-docker run -e RUNHOUND_KEY=rh_live_... -p 3000:3000 ghcr.io/rahul-bharati/run-hound
+docker run -e RUNHOUND_KEY=rh_live_... -p 127.0.0.1:4000:4000 ghcr.io/rahul-bharati/run-hound:0.4.0
 ```
 
 This is an established pattern (Metabase, n8n, GitLab, Grafana Enterprise use license keys or tokens this way).

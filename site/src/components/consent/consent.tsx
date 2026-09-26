@@ -46,6 +46,22 @@ export function Consent() {
     return () => window.removeEventListener(CONSENT_EVENT, onConsent);
   }, []);
 
+  // Google's gtag set-up, run from this bundle rather than an inline <script>: the site's Content-Security-Policy
+  // allows only the inline scripts the build hashed (scripts/csp.mjs). gtag.js reads the queue once it loads.
+  useEffect(() => {
+    if (choice !== "granted" || !GA_ID) return;
+    const w = window as unknown as { dataLayer?: unknown[]; gtag?: (...args: unknown[]) => void };
+    if (w.gtag) return;
+    const dataLayer = (w.dataLayer = w.dataLayer || []);
+    // gtag.js expects each queued command as an arguments object, as in Google's snippet.
+    w.gtag = function gtag() {
+      // eslint-disable-next-line prefer-rest-params
+      dataLayer.push(arguments);
+    };
+    w.gtag("js", new Date());
+    w.gtag("config", GA_ID);
+  }, [choice]);
+
   const open = choice !== UNKNOWN && (choice === null || settingsOpen);
 
   if (!GA_ID) return null;
@@ -62,12 +78,7 @@ export function Consent() {
   return (
     <>
       {choice === "granted" ? (
-        <>
-          <Script src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`} strategy="afterInteractive" />
-          <Script id="ga4" strategy="afterInteractive">
-            {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_ID}');`}
-          </Script>
-        </>
+        <Script src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`} strategy="afterInteractive" />
       ) : null}
 
       {open ? (

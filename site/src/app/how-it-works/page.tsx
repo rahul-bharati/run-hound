@@ -1,17 +1,18 @@
-import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { ArrowIcon, ButtonLink } from "@/components/button-link";
 import { GetStarted } from "@/components/get-started";
 import { stepScreens } from "@/components/screens";
 import { Screenshot } from "@/components/screenshot";
 import { Card, Container, Eyebrow, PageHeader, Section } from "@/components/layout";
+import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
-export const metadata: Metadata = {
+export const metadata = pageMetadata({
+  path: "/how-it-works/",
   title: "How it works",
   description:
-    "Run Hound finds every form and interactive control on your local page, plans form checks and page-wide checks in three groups (optionally reviewed by your own AI model), waits for your approval, runs them in a real browser with a live view you can stop, and reports each defect in plain language with evidence and a Playwright test. Web UI or CLI with exit codes for CI.",
-};
+    "Run Hound explores your local page, plans checks you approve, runs them in a real browser and reports each defect with evidence and a Playwright test.",
+});
 
 // The step's screenshot column: 7/12 of the 1136 px container from xl, 7/12 of the viewport on lg, full width below.
 const shotSizes =
@@ -24,10 +25,12 @@ const steps: { number: string; name: string; title: string; body: ReactNode; sho
     title: "It looks around like a user would",
     body: (
       <>
-        Run Hound opens your page in a headless Chromium with Playwright and finds every form and interactive control
-        on it: fields, labels, buttons and the controls outside any form. It reads the
-        accessibility tree and the DOM, the same structure screen readers rely on, and notes the page&apos;s response
-        headers, cookies and scripts.
+        Run Hound opens your page in a headless Chromium with Playwright and finds the forms and controls on it:
+        fields and their labels, buttons, and the controls outside any form. That includes the custom selects,
+        switches and sliders of component libraries such as Radix and shadcn/ui, and forms that open in a dialog. It
+        reads the accessibility tree and the DOM, the same structure screen readers rely on, and notes the
+        page&apos;s response headers, cookies and scripts. With a test account, it signs in first and explores the
+        page as that user.
       </>
     ),
     shot: <Screenshot screen={stepScreens.explore} sizes={shotSizes} />,
@@ -39,8 +42,9 @@ const steps: { number: string; name: string; title: string; body: ReactNode; sho
     body: (
       <>
         From what it found, it plans form checks for each form, plus page-wide checks such as security headers, cookie
-        flags, CORS, public source maps and dead controls anywhere on the page, under three groups: Accessibility,
-        Features and Security. Golden paths are what a real user does; danger paths are what breaks things, like
+        flags, CORS, public source maps, dead controls anywhere on the page and links that break when opened directly,
+        under three groups: Accessibility, Features and Security. Signed in, it adds the access checks: can another
+        account, or a visitor who isn&apos;t signed in, read your data? Golden paths are what a real user does; danger paths are what breaks things, like
         double clicks, server errors and invalid input. The plan comes from what it found on the page. If you turn
         on AI, your own model reviews it, recommending and ranking each scenario with a reason, and suggests up to 5
         extra flows built only from the fields and buttons it found; they stay unticked until you choose them.
@@ -107,7 +111,7 @@ const principles = [
   },
   {
     title: "Only owned targets, safe by default.",
-    body: "Run Hound tests localhost and private addresses only (plus host names you list yourself); public sites are refused. The browser is pinned to the approved address, destructive scenarios are opt-in, and reports redact secret-looking text. With AI on, only redacted page structure is sent to your model, and a remote endpoint needs your consent first.",
+    body: "Run Hound tests localhost and private addresses only (plus host names you list yourself); public sites are refused. The browser is pinned to the approved address, destructive scenarios are opt-in, and reports redact secret-looking text. Test accounts are yours, and their passwords, sessions and usernames are kept out of everything a run writes. With AI on, only redacted page structure is sent to your model, and a remote endpoint needs your consent first.",
   },
 ];
 
@@ -147,11 +151,10 @@ export default function HowItWorksPage() {
             It asks <span className="text-accent">before it tests.</span>
           </>
         }
-        lede="Run Hound finds every form and control on your page, drafts a test plan and waits for your approval. Then it runs the plan in a real browser and reports what broke, with proof."
+        lede="Run Hound finds the forms and controls on your page, drafts a test plan and waits for your approval. Then it runs the plan in a real browser and reports what broke, with proof."
       >
         <p className="max-w-3xl font-mono text-xs leading-relaxed tracking-widest text-dim">
-          {site.release} {site.version} · SCREENSHOTS FROM A REAL RUN ON KENNEL, OUR DELIBERATELY BROKEN DEMO
-          APP, WITH AI OFF
+          SCREENSHOTS FROM A REAL RUN ON KENNEL, OUR DELIBERATELY BROKEN DEMO APP, WITH AI OFF
         </p>
       </PageHeader>
 
@@ -239,9 +242,9 @@ export default function HowItWorksPage() {
             Try it on your own page
           </h2>
           <p className="max-w-2xl text-lg leading-relaxed text-muted">
-            {site.release} runs on your machine with Node, Docker or Podman, and it&apos;s free and MIT licensed. One
-            command starts it with Kennel, our deliberately broken demo app, and a few sample apps; then point it at a
-            page of your own.
+            {site.name} runs on your machine with Node, Docker or Podman, and it&apos;s free and MIT licensed. One
+            command starts it with Kennel, our deliberately broken demo app, Fernway, an app built the way AI builders
+            build them, and a few sample apps; then point it at a page of your own.
           </p>
           <GetStarted />
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">

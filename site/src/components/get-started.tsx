@@ -28,8 +28,8 @@ export function GetStarted() {
         <div className="flex min-w-0 flex-col gap-3">
           <h3 className="font-display text-xl font-bold tracking-tight">Docker or Podman</h3>
           <p className="text-[15px] leading-relaxed text-muted">
-            No clone, no build: one file starts Run Hound with Kennel and the sample apps from the published images.
-            Open <code className={codeClass}>http://localhost:4000</code> and enter{" "}
+            No clone, no build: one file starts Run Hound with Kennel, Fernway and the sample apps from the published
+            images. Open <code className={codeClass}>http://localhost:4000</code> and enter{" "}
             <code className={codeClass}>http://kennel:3000/book</code>.
           </p>
           <CodeBlock label="Run Hound and the test apps, from an empty folder">{dockerInstall}</CodeBlock>
@@ -37,7 +37,7 @@ export function GetStarted() {
         <div className="flex min-w-0 flex-col gap-3">
           <h3 className="font-display text-xl font-bold tracking-tight">From source</h3>
           <p className="text-[15px] leading-relaxed text-muted">
-            Node 22 or newer, pnpm and git; the way to contribute. It tests your own app with no networking set-up:
+            Node 22.12 or newer, pnpm and git; the way to contribute. It tests your own app with no networking set-up:
             enter <code className={codeClass}>http://localhost:&lt;port&gt;/&lt;page&gt;</code>.
           </p>
           <CodeBlock label="Clone and install">{sourceInstall}</CodeBlock>
@@ -45,9 +45,15 @@ export function GetStarted() {
       </div>
       <p className="max-w-3xl text-sm leading-relaxed text-dim">
         The images (<code className={codeClass}>{site.image}</code>, with{" "}
-        <code className={codeClass}>run-hound-kennel</code> and <code className={codeClass}>run-hound-samples</code>)
-        appear on GitHub&apos;s registry with the v{site.version} release; until then, build them from a clone with{" "}
-        <code className={codeClass}>docker compose up --build</code>. MIT licensed, no sign-up, nothing to request.
+        {site.labImages.map((name, i) => (
+          <span key={name}>
+            {i === 0 ? "" : i === site.labImages.length - 1 ? " and " : ", "}
+            <code className={codeClass}>{name}</code>
+          </span>
+        ))}
+        ) are public on GitHub&apos;s container registry, for linux/amd64 and arm64: about 0.5 GB to download for all
+        four. The compose file comes from the {site.tag} release, so it always names the images of that release. MIT
+        licensed, no sign-up, nothing to request.
       </p>
     </div>
   );

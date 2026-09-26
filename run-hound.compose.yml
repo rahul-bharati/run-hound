@@ -1,6 +1,6 @@
 # Run Hound 0.4.0 and the apps it is tested against, from the published images: no clone, no build.
 #
-#   curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/main/run-hound.compose.yml
+#   curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.4.0/run-hound.compose.yml
 #   mkdir -p runs                                  # reports land in ./runs; create it first so the files belong to you
 #   docker compose -f run-hound.compose.yml up     # or: podman compose -f run-hound.compose.yml up
 #
@@ -11,7 +11,7 @@
 #   http://kennel-clean:3000/book      Kennel in clean mode: every check should pass
 #   http://fernway:4110/               Fernway, a Lovable-style SaaS app, clean (also /signup /login /onboarding
 #                                      /app /app/settings): any confirmed finding is a false positive
-#   http://fernway-bugs:4110/          Fernway with its planted bugs (FERNWAY_BUGS, default: all; W01-W10)
+#   http://fernway-bugs:4110/          Fernway with its planted bugs (FERNWAY_BUGS, default: all, W01-W10 and V01-V05)
 #   http://classic-post:4101/signup    sample: server-rendered form, no JavaScript
 #   http://spa-fetch:4102/             sample: vanilla-JS contact form, same-origin JSON API
 #   http://login:4103/                 sample: sign-in form (401 on wrong credentials)
@@ -20,7 +20,7 @@
 #
 # Your own app on this machine: enter http://host.docker.internal:<port>/<page> (TESTING.md has the dev-server
 # settings). Every setting below has a default; override them in a .env file next to this one (the variables are
-# listed in https://github.com/rahul-bharati/run-hound/blob/main/.env.example). All ports are bound to 127.0.0.1.
+# listed in https://github.com/rahul-bharati/run-hound/blob/v0.4.0/.env.example). All ports are bound to 127.0.0.1.
 #
 # Only want Run Hound itself? `docker compose -f run-hound.compose.yml up run-hound` still starts the test apps it
 # depends on; for Run Hound alone use the single `docker run` in the README.

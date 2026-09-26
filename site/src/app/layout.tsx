@@ -3,6 +3,7 @@ import { Bricolage_Grotesque, Geist, Geist_Mono } from "next/font/google";
 import { Consent } from "@/components/consent/consent";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
+import { socialImage } from "@/lib/metadata";
 import { site } from "@/lib/site";
 import "./globals.css";
 
@@ -22,6 +23,8 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// Each page adds its canonical URL and og:url (lib/metadata.ts); none is set here, because every page would inherit
+// it. The preview image (socialImage) is the same on every page.
 export const metadata: Metadata = {
   metadataBase: new URL(site.url),
   title: {
@@ -32,6 +35,12 @@ export const metadata: Metadata = {
   openGraph: {
     siteName: site.name,
     type: "website",
+    locale: "en_US",
+    images: [socialImage],
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: [socialImage],
   },
 };
 

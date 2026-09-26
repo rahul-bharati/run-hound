@@ -2,13 +2,19 @@
 # and converted to AVIF/WebP on request by next/image (sharp), then cached on disk.
 #
 # Coolify: Base Directory "/site", Build Pack "Dockerfile", Port 8080.
-# Build variables: NEXT_PUBLIC_SITE_URL (e.g. https://runhound.dev) and, optionally, NEXT_PUBLIC_GA_MEASUREMENT_ID.
-# Cloudflare sits in front and sets the security headers and compression; this container adds none of its own.
+# Build variables: NEXT_PUBLIC_SITE_URL (required, e.g. https://runhound.dev; the build stops without it) and,
+# optionally, NEXT_PUBLIC_GA_MEASUREMENT_ID.
+#
+# Security headers come from this container: a Content-Security-Policy per page that allows the page's own inline
+# scripts by hash (scripts/csp.mjs, run by pnpm build; no 'unsafe-inline' for scripts), X-Content-Type-Options,
+# X-Frame-Options and Referrer-Policy (next.config.ts), and no X-Powered-By. Cloudflare in front adds HSTS and
+# compression. Keep Cloudflare features that rewrite the page's scripts (Rocket Loader) off: the browser would block
+# scripts that no longer match their hashes.
 
 # ---- Build ----------------------------------------------------------------
 # Alpine (musl): sharp ships prebuilt linuxmusl binaries with libvips bundled, and musl avoids the glibc
 # memory-allocator issue the Next.js self-hosting guide warns about for image optimisation.
-FROM docker.io/library/node:24-alpine AS build
+FROM docker.io/library/node:24.21.0-alpine3.24 AS build
 WORKDIR /site
 
 # pnpm version comes from package.json "packageManager".
@@ -21,8 +27,14 @@ RUN pnpm install --frozen-lockfile
 
 COPY . .
 
-# Public URL of the site, used for canonical metadata, sitemap.xml and robots.txt. Inlined at build time.
+# Public URL of the site, used for canonical links, og:url, the preview image's address, sitemap.xml and robots.txt.
+# Inlined at build time. Required here: a deployed build without it would point all of those at localhost.
 ARG NEXT_PUBLIC_SITE_URL
+RUN if [ -z "$NEXT_PUBLIC_SITE_URL" ]; then \
+      echo "NEXT_PUBLIC_SITE_URL is not set: pass the site's public URL as a build argument, e.g." >&2; \
+      echo "  docker build --build-arg NEXT_PUBLIC_SITE_URL=https://example.com ." >&2; \
+      exit 1; \
+    fi
 ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
 # Google Analytics 4 measurement id ("G-..."). Optional: without it there is no analytics and no consent banner.
 ARG NEXT_PUBLIC_GA_MEASUREMENT_ID
@@ -31,7 +43,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
 # ---- Run ------------------------------------------------------------------
-FROM docker.io/library/node:24-alpine AS run
+FROM docker.io/library/node:24.21.0-alpine3.24 AS run
 WORKDIR /app
 
 ENV NODE_ENV=production \

@@ -1,6 +1,6 @@
 # Kennel runtime contract
 
-This complements `docs/v0-spec.md` (which wins on any conflict). The contract tests in `test/` enforce it.
+This complements `docs/v0-spec.md` and, for the V1 parts, `docs/v1-spec.md` (the specs win on any conflict). The contract tests in `test/` enforce it.
 Anything named here (texts, attribute values, field keys) is load-bearing: tests and Run Hound checks rely on it.
 
 ## Process
@@ -25,7 +25,7 @@ Anything named here (texts, attribute values, field keys) is load-bearing: tests
 
 | Method and path | Behaviour |
 |---|---|
-| `GET /api/__config` | `200 { "bugs": ["F01", ...], "analyticsUrl": "http://<request hostname>:<ANALYTICS_PORT>" }`. `bugs` is `[]` in clean mode and every V0 id for `all`, sorted. |
+| `GET /api/__config` | `200 { "bugs": ["F01", ...], "analyticsUrl": "http://<request hostname>:<ANALYTICS_PORT>" }`. `bugs` is `[]` in clean mode and every V0 and V1 id for `all`, sorted. |
 | `POST /api/__reset` | clears all bookings, `204` |
 | `GET /api/availability` | `200 { "available": true }` |
 | `GET /api/bookings` | `200` JSON array of bookings, oldest first |

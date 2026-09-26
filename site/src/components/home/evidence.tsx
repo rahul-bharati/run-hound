@@ -36,13 +36,13 @@ const stills: Shot[] = [
   },
   {
     shot: evidence.corsNullOrigin,
-    kind: "CARD · NEW IN V1 · WHOLE PAGE",
+    kind: "CARD · WHOLE PAGE",
     title: "Any website can read your API, with your cookies",
     text: "Run Hound repeats the page's own reads from a sandboxed frame, as any site can. Both API reads come back readable with the visitor's cookies; the page itself stays blocked.",
   },
   {
     shot: evidence.missingHeaders,
-    kind: "CARD · NEW IN V1 · WHOLE PAGE",
+    kind: "CARD · WHOLE PAGE",
     title: "Three protections the server never asks for",
     text: "No Content-Security-Policy, no clickjacking protection, no nosniff: read straight from the page's response, with cookie values hidden.",
   },
@@ -98,7 +98,7 @@ export function Evidence() {
         ))}
       </div>
       <p className="font-mono text-xs tracking-widest text-dim">
-        REAL V1 OUTPUT (0.2.0) · FROM A RUN ON OUR DELIBERATELY BROKEN DEMO APP, KENNEL
+        REAL OUTPUT · FROM A RUN ON OUR DELIBERATELY BROKEN DEMO APP, KENNEL
       </p>
     </div>
   );

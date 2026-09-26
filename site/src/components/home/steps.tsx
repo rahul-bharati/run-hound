@@ -3,7 +3,7 @@ import { Icon } from "@/components/icon";
 import { Container } from "@/components/layout";
 
 const steps = [
-  { name: "Plan", text: "Finds every form and control, plans the checks", icon: ClipboardList },
+  { name: "Plan", text: "Finds the forms and controls, plans the checks", icon: ClipboardList },
   { name: "Approve", text: "Review and select what to run", icon: CircleCheck },
   { name: "Run", text: "Real checks in a real browser", icon: Play, current: true },
   { name: "Report", text: "Annotated evidence and Playwright tests", icon: FileText },

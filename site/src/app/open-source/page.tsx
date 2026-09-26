@@ -1,15 +1,16 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { ButtonLink, GitHubIcon } from "@/components/button-link";
 import { Card, PageHeader, Section } from "@/components/layout";
 import { RoadmapList, type RoadmapStage } from "@/components/oss/roadmap-list";
+import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
-export const metadata: Metadata = {
+export const metadata = pageMetadata({
+  path: "/open-source/",
   title: "Open source",
   description:
-    "Run Hound is open source under the MIT license in a public GitHub repository, with every check in the core. See the roadmap, the Kennel test fixture, how to contribute and the privacy promise.",
-};
+    "Run Hound is open source under the MIT license, every check included. The roadmap, the test apps it is scored against, and how to contribute.",
+});
 
 const openCore: { core: string; later: string }[] = [
   {
@@ -29,11 +30,11 @@ const openCore: { core: string; later: string }[] = [
     later: "CI / GitHub app: pull request comments and scheduled regression runs",
   },
   {
-    core: "The Kennel test fixture, the sample apps and their scoring",
+    core: "The test apps (Kennel, Fernway and the sample apps) and their scoring",
     later: "Compliance exports: WCAG and European Accessibility Act conformance reports",
   },
   {
-    core: "JSON run format and replay",
+    core: "The JSON report format (report.json)",
     later: "Organisation features: SSO, roles, audit log, priority support",
   },
 ];
@@ -52,17 +53,18 @@ const roadmap: RoadmapStage[] = [
     version: "V1",
     name: "Single page",
     status: "current",
-    release: "0.2.0 · 0.3.0",
+    release: `0.2.0 – ${site.version}`,
     summary:
-      "Point it at a page. It finds every form and interactive control on it, plans form checks for each form plus page-wide checks, you approve, and it runs them in a real browser. Local only.",
-    adds: "0.2.0 adds security headers, cookie flags, CORS, public source maps and dead controls across the whole page: 20 checks, and one Docker or Podman command starts it with Kennel and the sample apps. 0.3.0 (current) adds optional AI with your own model: plan review, up to 5 suggested flows and explanations. Off by default, and never the judge of pass or fail.",
+      "Point it at a page. It finds the forms and controls on it, plans form checks for each form plus page-wide checks, you approve, and it runs them in a real browser. Local only.",
+    adds: `0.2.0 adds security headers, cookie flags, CORS, public source maps and dead controls across the whole page, and one Docker or Podman command starts it with the test apps. 0.3.0 adds optional AI with your own model: plan review, up to 5 suggested flows and explanations, off by default and never the judge of pass or fail. 0.4.0 finds and fills the custom widgets and dialog forms of AI-built apps.`,
   },
   {
     version: "V2",
     name: "Single feature",
-    status: "planned",
+    status: "preview",
+    release: site.version,
     summary: "Give it a feature such as signup or checkout and it tests that feature end to end across pages.",
-    adds: "Headline: access checks with two test accounts you own, to confirm one user cannot reach another user's data.",
+    adds: `A preview ships in 0.4.0: test accounts and signed-in runs, access checks (can another account, or a visitor who isn't signed in, read your data?), mass assignment and deep links. Still planned: testing a feature across pages, checking whether one account can change another's data, rate limits, CSRF, file uploads, prompt injection and paywall trust.`,
   },
   {
     version: "V3",
@@ -81,11 +83,12 @@ const roadmap: RoadmapStage[] = [
   },
 ];
 
+// What CI scores on every pull request (docs/fixtures.md "Scoring"); stability across repeated runs is planned.
 const kennelScoring = [
-  { name: "Recall", body: "Planted bugs found out of planted bugs enabled, tracked per bug." },
+  { name: "Recall", body: "With each planted bug switched on alone, the check that must catch it reports it." },
   { name: "False positives", body: "Findings in clean mode, where every bug is fixed properly. Target: zero." },
-  { name: "Stability", body: "The same run repeated five times gives the same findings." },
-  { name: "Evidence", body: "Every finding has a screenshot or request and response, and a replayable spec." },
+  { name: "Evidence", body: "Every finding has a screenshot, a GIF or a request card on disk, and no run leaks a secret." },
+  { name: "Stability (planned)", body: "Repeating the same run to check the findings stay the same, tracked per bug." },
 ];
 
 const externalLink = "text-accent underline underline-offset-4 hover:text-accent-strong";
@@ -103,7 +106,7 @@ export default function OpenSourcePage() {
         lede="Finding the holes is the whole point, so no check will ever sit behind a paywall. The code is public on GitHub: clone it, try it, file issues."
       >
         <p className="max-w-2xl text-[15px] leading-relaxed text-dim">
-          {site.release} ({site.releaseName.toLowerCase()}, {site.version}) is released under the MIT license. The{" "}
+          {site.name} {site.version} is released under the MIT license. The{" "}
           <a href={site.github} className={externalLink}>
             repository
           </a>{" "}
@@ -189,15 +192,15 @@ export default function OpenSourcePage() {
       <Section
         id="roadmap"
         title="Roadmap"
-        intro="Each stage widens what Run Hound can test, from one form to a whole app. V0 has shipped, V1 is current (0.3.0, with optional AI), and V2 onward is planned: whole features, the whole app and live staging."
+        intro={`Each stage widens what Run Hound can test, from one form to a whole app. V0 has shipped, V1 is current, and 0.4.0 adds a preview of V2: signed-in runs and access checks. The rest of V2, the whole app and live staging are planned.`}
       >
         <RoadmapList stages={roadmap} />
       </Section>
 
       <Section
         id="kennel"
-        title="Test fixture: Kennel"
-        intro="Run Hound is developed and scored against Kennel, a small, deliberately broken pet-sitting booking app that ships in the repository and runs on your machine. Every planted bug sits behind its own toggle, and a clean mode fixes them all properly."
+        title="Test apps: Kennel and Fernway"
+        intro="Run Hound is developed and scored against test apps that ship in the repository and run on your machine: Kennel, a small, deliberately broken pet-sitting booking app, and Fernway, a project-planning app built the way AI builders such as Lovable build them, with a dashboard behind a sign-in. Every planted bug sits behind its own toggle, and a clean mode fixes them all properly."
         className="bg-band"
       >
         <p className="max-w-3xl leading-relaxed text-muted">
@@ -216,10 +219,14 @@ export default function OpenSourcePage() {
         </ul>
         <p className="leading-relaxed text-muted">
           See every planted bug in{" "}
-          <a href={`${site.github}/blob/main/fixtures/kennel/bugs.json`} className={externalLink}>
+          <a href={site.kennelBugs} className={externalLink}>
             Kennel&apos;s bug list
+          </a>{" "}
+          and{" "}
+          <a href={site.fernwayBugs} className={externalLink}>
+            Fernway&apos;s
           </a>
-          .
+          . Five sample apps, built well on purpose, complete the set: any confirmed finding on them is a false positive.
         </p>
       </Section>
 
@@ -259,7 +266,7 @@ export default function OpenSourcePage() {
               <strong className="font-semibold text-fg">It runs locally.</strong> Run Hound runs on your machine,
               with Node or in Docker or Podman. AI is optional and off by default; turn it on and only redacted page
               structure and finding text go to the model you choose, local or cloud. Run Hound operates no AI service
-              of its own.
+              of its own. Test accounts stay on your machine too, and their passwords never appear in a report.
             </li>
             <li>
               <strong className="font-semibold text-fg">No telemetry about the app you test.</strong> Nothing about

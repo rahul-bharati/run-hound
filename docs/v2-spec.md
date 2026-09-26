@@ -1,8 +1,9 @@
 # V2 spec (0.4.0 preview): signed-in runs and access checks
 
-The build contract for the first V2 slice, shipped in 0.4.0. It extends [v0-spec.md](v0-spec.md) and
-[v1-spec.md](v1-spec.md), which still hold for everything not changed here (safety gate, navigation guard, evidence,
-groups, reports, tester-release rules). The acceptance suite enforces all three.
+Status: the first V2 slice, shipped in 0.4.0 as a preview (the web UI and the HTML report say "V2 preview"). This
+is its build contract. It extends [v0-spec.md](v0-spec.md) and [v1-spec.md](v1-spec.md), which still hold for
+everything not changed here (safety gate, navigation guard, evidence, groups, reports, tester-release rules), and
+[ai-spec.md](ai-spec.md) for the optional AI layer. The acceptance suite enforces all of them.
 
 V2 is "single feature end to end" (README roadmap). 0.4.0 ships its foundation and its headline:
 
@@ -56,18 +57,23 @@ access checks (B changing A's records), rate limits, CSRF, file upload, prompt i
   comes from (file, env, default), and `isolated`.
 - `run-hound accounts test [a|b]`: signs in (both when no slot is named) and prints the page it landed on, or the
   plain-language reason it failed. Exit 0 when every tested slot signed in, 2 otherwise.
-- `run-hound accounts set a|b --login-url <url> --username <name> [--label <text>] [--password-stdin]`: saves a slot;
-  the password is read from stdin (never a flag, so it stays out of shell history). `run-hound accounts clear a|b`.
+- `run-hound accounts set a|b [--login-url <url>] [--username <name>] [--label <text>] [--password-stdin]`: saves the
+  given fields of a slot (at least one; the others are kept). The login URL is checked against the safety gate before
+  the password is asked for; the password is read from stdin (never a flag, so it stays out of shell history).
+  `run-hound accounts clear a|b` removes a slot from `accounts.json`.
 - The Docker entrypoint accepts `accounts` like `ai`.
 
 ### API (all require the `X-Run-Hound` header, like `/api/ai`)
 
-- `GET /api/accounts` → `{ isolated, accounts: { a: { label, loginUrl, username, hasPassword, sources }, b: … } }`
-  (`sources` names file/env/default per field; no password field at all).
+- `GET /api/accounts` → `{ isolated, isolatedSource, file, accounts: { a: { id, label, loginUrl, username, hasPassword,
+  ready, sources, problem }, b: … } }` (`sources` names file/env/default per field; `ready` is true when the sign-in
+  page, username and password are all set; `problem` is a plain-language note or null; no password field at all).
 - `PUT /api/accounts` → patch (`{ isolated?, accounts?: { a?: { loginUrl?, username?, password?, label? } } }`;
   `password: ""` removes it; omitted fields are kept). Validates URLs through the safety gate. Returns the same shape
   as GET.
-- `POST /api/accounts/test` `{ id: "a" | "b" }` → `{ ok, landedOn?, message }`.
+- `POST /api/accounts/test` `{ id: "a" | "b" }` → `{ id, ok, landedOn?, message }`, signing in with a fresh browser (a
+  slot that isn't set up answers `ok: false` without contacting the app); `409` when two sign-in tests are already
+  running.
 - `POST /api/plan` takes `signInAs: "a" | "b" | null`. The plan records it (`Plan.account`); a run uses the account
   its plan was discovered with.
 
@@ -77,7 +83,10 @@ access checks (B changing A's records), rate limits, CSRF, file upload, prompt i
   Remove link), the "A and B must not see each other's data" checkbox, **Test sign-in** per card, and a short note on
   what the access checks do and that the accounts must be ones the user owns.
 - New Run → **Sign in as**: "Not signed in" (default), "Account A", "Account B" (an unconfigured slot is disabled with
-  "Set it up in Settings"). The plan header says "Signed in as Account A". Report and runs list show it too.
+  "Set it up in Settings"). The plan header says "Signed in as Account A". The running view, the report and the runs
+  list show it too. A signed-out plan's "Sign in as a test account…" hint carries a button that plans the page again
+  signed in (or a link to Settings when no account is set up).
+- The sidebar footer and the HTML report's footer say "V2 preview".
 
 ## Signing in (`app/src/engine/auth.ts`)
 
@@ -133,6 +142,7 @@ API 400), before any scenario runs.
 type AccountId = "a" | "b";
 interface AccountRef { id: AccountId; label: string }          // never a username or password
 Plan.account?: AccountRef                                       // who discovered the page
+Plan.signInHint?: boolean                                       // signed out, and the access checks would apply
 Report.accounts?: { signedInAs: AccountRef | null; other: AccountRef | null } // who ran, and B when used
 interface PlanEnv { signedIn: boolean; otherAccount: boolean }  // what the run can do
 Check.plan(form, page?, env?: PlanEnv): Scenario[]              // env absent = signed out, no other account
@@ -239,7 +249,7 @@ Both are read-only (GET replays only; never a path that acts, such as `/logout` 
 ## Fernway V2 (fixtures/fernway)
 
 Fernway gains real accounts and the V2 planted bugs. It supersedes the Supabase-backed Kennel V2 described in
-[fixtures.md](fixtures.md), which stays planned for later.
+[fixtures.md](fixtures.md#planned-kennel-on-supabase-v2), which stays planned for later (as a Supabase variant).
 
 - Accounts: `alex@fernway.test` / `correct-horse-battery` (Alex Rivera, workspace "Rivera Studio", role `member`, plan
   `free`) and `sam@fernway.test` / `staple-lemon-orbit` (Sam Okafor, "Okafor & Co"). Each has its own seeded projects,
@@ -267,7 +277,9 @@ runs exercise the same flows. `FERNWAY_BUGS=all` includes V01–V05.
 - `fernway.acceptance.test.ts`, signed in as Alex (A) with Sam as B, clean mode: `/app` and `/app/settings` have zero
   confirmed findings with every scenario approved (including `mass-assignment`), and `access-control` passes both
   scenarios; signed out, `/` `/signup` `/login` `/onboarding` stay clean.
-- Each of V01–V05 alone: the named check reports a confirmed finding on the named page, and nothing else changes.
-- Every existing suite (Kennel, goldens, samples) is unchanged: signed-out runs behave exactly as in 0.3.0.
+- Each of V01–V05 alone: only the named check's scenarios run on the named page (signed in as Alex), and the named
+  scenario reports a confirmed finding while the check's other scenarios stay clean.
+- Every existing suite (Kennel's golden files, the samples) passes unchanged, signed out. On Kennel the V2 checks plan
+  nothing (no account, and no links to other pages).
 - No report, log line, evidence file or spec from any of these runs contains either password (a test greps the run
   folders).

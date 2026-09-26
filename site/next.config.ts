@@ -1,39 +1,24 @@
 import type { NextConfig } from "next";
+import { PHASE_PRODUCTION_BUILD } from "next/constants";
 
 // The site is its own pnpm project inside the Run Hound repo. Pin the root here so the standalone build is laid
 // out the same locally and in Docker (.next/standalone/server.js), not nested under the repo root's lockfile.
 const root = __dirname;
 
-const isDev = process.env.NODE_ENV === "development";
-
-// Security headers on every page (Run Hound's own security-headers check runs against this site). No nonces: every
-// page stays prerendered, so inline scripts need 'unsafe-inline' (Next's documented "Without Nonces" set-up). Google
-// Analytics only loads after consent (components/consent); Cloudflare Web Analytics is injected at the edge.
-const csp = [
-  "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://www.googletagmanager.com https://static.cloudflareinsights.com`,
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' blob: data: https://www.googletagmanager.com https://*.google-analytics.com",
-  "font-src 'self'",
-  "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com https://cloudflareinsights.com",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-].join("; ");
+// Security headers (Run Hound's own security-headers check runs against this site). The Content-Security-Policy is
+// set per page after the build by scripts/csp.mjs (pnpm build runs it): it allows each page's own inline scripts by
+// hash instead of 'unsafe-inline', and frame-ancestors 'none'. The headers below go on every response. HSTS comes from
+// Cloudflare in front of the site. No X-Powered-By (poweredByHeader below).
+const securityHeaders = [
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+];
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
   async headers() {
-    return [
-      {
-        source: "/(.*)",
-        headers: [
-          { key: "Content-Security-Policy", value: csp },
-          { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-        ],
-      },
-    ];
+    return [{ source: "/(.*)", headers: securityHeaders }];
   },
   // A small Node server (.next/standalone/server.js) that serves the prerendered pages and optimises images on
   // request. Every page is still prerendered at build time; see the Dockerfile for how it runs.
@@ -58,4 +43,17 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default function config(phase: string): NextConfig {
+  // The public URL is inlined into canonical links, og:url, sitemap.xml and robots.txt at build time (lib/site.ts).
+  // A build without it is fine for trying the site locally and for CI, but not for a deploy: say so loudly. The
+  // Dockerfile refuses to build without it.
+  if (phase === PHASE_PRODUCTION_BUILD && !process.env.NEXT_PUBLIC_SITE_URL) {
+    const line = "!".repeat(100);
+    console.warn(
+      `\n${line}\n! NEXT_PUBLIC_SITE_URL is not set: canonical links, og:url, sitemap.xml and robots.txt will point at\n` +
+        `! http://localhost:3000. Fine for a local build or CI; never deploy this build. Set it, e.g.\n` +
+        `! NEXT_PUBLIC_SITE_URL=https://example.com pnpm build\n${line}\n`,
+    );
+  }
+  return nextConfig;
+}

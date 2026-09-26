@@ -97,8 +97,8 @@ export function Card({ children, className = "" }: { children: ReactNode; classN
   return <div className={`rounded-2xl border border-line bg-surface p-6 sm:p-7 ${className}`}>{children}</div>;
 }
 
-/** Small mono tag for things that shipped in the current release ("New in V1"). */
-export function NewTag({ children = "New in V1", className = "" }: { children?: ReactNode; className?: string }) {
+/** Small mono tag for things that shipped recently ("New", "V2 preview"). */
+export function NewTag({ children = "New", className = "" }: { children?: ReactNode; className?: string }) {
   return (
     <span
       className={`inline-flex shrink-0 items-center rounded-full border border-accent/50 bg-accent/10 px-2 py-0.5 font-mono text-[10px] font-medium uppercase tracking-widest text-accent ${className}`}

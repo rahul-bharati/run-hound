@@ -126,7 +126,10 @@ The V2 bugs, caught with Run Hound signed in as Alex (A) with Sam as B:
 | V04 | `/app/settings` | `PUT /api/users/:id/profile` stores any key it is sent, including `role` and `plan` | `mass-assignment` |
 | V05 | `/app` | Opening `/app/settings` or `/onboarding` directly answers `404` (no SPA fallback for those paths) | `deep-links` |
 
-A bug id never changes the clean-mode behaviour of anything else.
+A bug id never changes the clean-mode behaviour of anything else. Bugs can get in each other's way, though: with
+`all`, V05 makes a direct load of `/app/settings` and `/onboarding` answer `404`, so Run Hound refuses to plan those
+pages. Test them with V05 off, for example `FERNWAY_BUGS=V01,V02,V03,V04` for V01 and V04 on `/app/settings`
+(add `W04` for its Bio bug); the acceptance suite turns on one bug at a time.
 
 ## Tests
 

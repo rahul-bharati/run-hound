@@ -43,7 +43,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
-      - name: The tag matches app/package.json, the compose files and the Dockerfile comments
+      - name: The tag matches app/package.json, the site, the compose files and the Dockerfile comments
         id: version
         env:
           INPUT_VERSION: ${{ inputs.version }}
@@ -53,6 +53,13 @@ jobs:
           fail=0
           if [ "$tag" != "$pkg" ]; then
             echo "::error file=app/package.json::Version $tag does not match app/package.json ($pkg)"
+            fail=1
+          fi
+
+          # The site shows this version and builds its image tags and tag-pinned download links from it.
+          site=$(sed -nE 's/^const version = "([^"]+)";.*/\1/p' site/src/lib/site.ts)
+          if [ "$site" != "$tag" ]; then
+            echo "::error file=site/src/lib/site.ts::The site's version (${site:-not found}) does not match the release version $tag"
             fail=1
           fi
 

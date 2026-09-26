@@ -1,18 +1,19 @@
 name: Run Hound bug
-description: Run Hound itself broke (install, start-up, a crash, a report that won't open, Docker trouble).
+description: Run Hound itself broke (install, start-up, a crash, sign-in, a report that won't open, Docker trouble).
 title: "[Bug] "
-labels: ["bug", "v0"]
+labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
         Use this form when Run Hound itself misbehaves. For a finding you think is wrong, or a bug it missed in your app, use **Feedback** instead.
+        **Never paste a password or an API key.** Run Hound keeps them out of its reports and logs; keep them out of the issue too.
   - type: input
     id: version
     attributes:
       label: Run Hound version
-      description: "`run-hound --version`, or `runHoundVersion` in report.json."
-      placeholder: run-hound 0.3.0
+      description: "`docker run --rm ghcr.io/rahul-bharati/run-hound:0.4.0 --version`, `pnpm exec tsx src/cli.ts --version` in `app/` from source, or `runHoundVersion` in report.json."
+      placeholder: run-hound 0.4.0
     validations:
       required: true
   - type: input
@@ -29,8 +30,11 @@ body:
       options:
         - Install (pnpm install, playwright install)
         - Starting the web UI or the command line
-        - Planning (finding the form)
+        - Planning (finding the forms and controls)
         - During a run
+        - "Test accounts or signing in (0.4.0, V2 preview: Settings → Test accounts, accounts set/test, --as)"
+        - "Access checks (0.4.0, V2 preview: access-control, mass-assignment, deep-links)"
+        - "AI (Settings → AI, ai status/test, --ai)"
         - Writing or opening the report
         - Docker or Podman
         - Something else
@@ -40,7 +44,7 @@ body:
     id: steps
     attributes:
       label: Steps to reproduce
-      description: The exact commands you ran and the URL shape you entered (e.g. `http://localhost:5173/signup`).
+      description: The exact commands you ran and the URL shape you entered (e.g. `http://localhost:5173/signup`). Leave passwords out.
       render: shell
     validations:
       required: true
@@ -56,4 +60,4 @@ body:
     id: extra
     attributes:
       label: Anything else
-      description: Attach report.md or a zipped run folder if a run got that far. Check screenshots first; they are not redacted.
+      description: Attach report.md or one zipped run folder (`runs/<runId>`) if a run got that far. Never the whole `runs/` folder (`runs/.config` holds saved API keys and passwords). Check screenshots first; they are not redacted.

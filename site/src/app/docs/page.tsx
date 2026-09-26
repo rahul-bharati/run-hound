@@ -1,4 +1,3 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowIcon, ButtonLink } from "@/components/button-link";
 import { aiFlowCheck, previewGroups } from "@/components/checks/data";
@@ -10,22 +9,26 @@ import { SeverityLabel, type Severity } from "@/components/finding";
 import { Container, NewTag, PageHeader } from "@/components/layout";
 import { aiScreens } from "@/components/screens";
 import { Screenshot } from "@/components/screenshot";
+import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
 const checkTotal = previewGroups.reduce((sum, g) => sum + g.checks.length, 0);
 
-export const metadata: Metadata = {
-  title: "Docs: V1 guide",
-  description: `Run Hound V1 (${site.version}) guide: a Docker or Podman quick start with Kennel and sample apps, single-container and host-network runs, the install from source, testing your own page, optional AI with your own model, reading the report, the ${checkTotal} checks, safety and sending feedback.`,
-};
+export const metadata = pageMetadata({
+  path: "/docs/",
+  title: "Docs",
+  description: `Run Hound ${site.version} guide: the Docker quick start, your own app, test accounts and signed-in runs, optional AI, the report and every check.`,
+});
 
 const toc = [
-  { id: "overview", label: "What V1 does" },
+  { id: "overview", label: "What it does" },
   { id: "quick-start", label: "Quick start" },
   { id: "requirements", label: "Requirements" },
   { id: "install", label: "From source" },
   { id: "kennel", label: "Try it on Kennel" },
   { id: "your-app", label: "Test your own app" },
+  { id: "accounts", label: "Test accounts" },
+  { id: "ai-built", label: "Apps from AI builders" },
   { id: "problems", label: "Common problems" },
   { id: "ai", label: "AI (optional)" },
   { id: "report", label: "Reading the report" },
@@ -54,13 +57,17 @@ const quickStart = `curl -fsSLO ${site.composeFileUrl}
 mkdir -p runs                       # reports land here; create it yourself so the files belong to you
 docker compose -f run-hound.compose.yml up   # or: podman compose -f run-hound.compose.yml up`;
 
-const envFile = `# optional: host ports, KENNEL_BUGS, allowed hosts, AI settings (every one has a default)
-curl -fsSL https://raw.githubusercontent.com/rahul-bharati/run-hound/main/.env.example -o .env`;
+const envFile = `# optional: host ports, KENNEL_BUGS, FERNWAY_BUGS, allowed hosts, AI, test accounts (every one has a default)
+curl -fsSL ${site.envFileUrl} -o .env`;
+
+const labCommands = `docker compose -f run-hound.compose.yml ps     # each service and its health
+# stop: Ctrl+C, then
+docker compose -f run-hound.compose.yml down`;
 
 const singleContainer = `mkdir -p runs
 docker run --rm --init -p 127.0.0.1:4000:4000 \\
   --add-host host.docker.internal:host-gateway -e RUNHOUND_ALLOWED_HOSTS=host.docker.internal \\
-  -e RUNHOUND_CONFIG_DIR=/repo/app/runs/.config \\
+  -e RUNHOUND_PUBLIC_URL=http://localhost:4000 -e RUNHOUND_CONFIG_DIR=/repo/app/runs/.config \\
   -v "$PWD/runs:/repo/app/runs" ${site.image}`;
 
 const testApps: { name: string; body: string }[] = [
@@ -69,6 +76,14 @@ const testApps: { name: string; body: string }[] = [
     body: "Our deliberately broken pet-sitting booking app, with every planted bug on (KENNEL_BUGS in .env). Target: http://kennel:3000/book.",
   },
   { name: "Kennel (clean)", body: "The same app in clean mode: every check should pass. Target: http://kennel-clean:3000/book." },
+  {
+    name: "Fernway",
+    body: "A project-planning app built the way AI builders build them (Vite, React, Tailwind, Radix, sonner), in clean mode. Target: http://fernway:4110/, and /signup, /login, /onboarding, /app, /app/settings.",
+  },
+  {
+    name: "Fernway (bugs)",
+    body: "The same app with its planted bugs on (FERNWAY_BUGS in .env). /app and /app/settings need a signed-in run. Target: http://fernway-bugs:4110/.",
+  },
   { name: "classic-post", body: "A server-rendered sign-up form with no JavaScript that posts and redirects. Target: http://classic-post:4101/signup." },
   { name: "spa-fetch", body: "A contact form that saves with fetch and lists what it saved. Target: http://spa-fetch:4102/." },
   { name: "login", body: "An email and password sign-in form with a show-password toggle. Target: http://login:4103/." },
@@ -121,6 +136,25 @@ RUNHOUND_AI_PROVIDER=ollama
 RUNHOUND_AI_BASE_URL=http://host.docker.internal:11434/v1
 RUNHOUND_AI_MODEL=qwen3:8b`;
 
+// Test accounts from source (in app/); in a container the same commands follow the image name or
+// `docker compose -f run-hound.compose.yml run --rm run-hound`.
+const accountsCli = `cd app
+pnpm exec tsx src/cli.ts accounts set a --login-url http://localhost:5173/login --username a@example.test --password-stdin
+pnpm exec tsx src/cli.ts accounts set b --login-url http://localhost:5173/login --username b@example.test --password-stdin
+pnpm exec tsx src/cli.ts accounts status        # both accounts, where each value comes from; never a password
+pnpm exec tsx src/cli.ts accounts test          # signs in as A and B: exit 0 when both work, 2 otherwise
+pnpm exec tsx src/cli.ts run http://localhost:5173/dashboard --as a --plan-only
+pnpm exec tsx src/cli.ts run http://localhost:5173/dashboard --as a --approve all
+pnpm exec tsx src/cli.ts accounts clear b       # removes account B`;
+
+const accountsEnv = `# .env next to the compose file: each value overrides the saved one; an empty one doesn't
+RUNHOUND_ACCOUNT_A_LOGIN_URL=http://host.docker.internal:5173/login
+RUNHOUND_ACCOUNT_A_USERNAME=a@example.test
+RUNHOUND_ACCOUNT_A_PASSWORD=
+RUNHOUND_ACCOUNT_A_LABEL=Alice
+# the same four with _B_ for account B, and:
+RUNHOUND_ACCOUNTS_ISOLATED=true   # A and B must not see each other's data`;
+
 const dockerDesktop = `# in the folder with run-hound.compose.yml (quick start)
 docker compose -f run-hound.compose.yml run --rm run-hound run http://host.docker.internal:5173/signup --approve all`;
 
@@ -138,18 +172,41 @@ const problems: { see: string; means: string }[] = [
     see: "Refusing to test …",
     means: "The host isn't local or private. Use localhost; list your own internal host names in RUNHOUND_ALLOWED_HOSTS.",
   },
-  { see: "EADDRINUSE", means: "The port is taken. Pick another (--port, PORT, RUNHOUND_HOST_PORT)." },
+  {
+    see: "EADDRINUSE, or “… is already in use”",
+    means: "The port is taken. Pick another (--port, PORT, RUNHOUND_HOST_PORT).",
+  },
   {
     see: "manifest unknown, or denied, pulling ghcr.io/rahul-bharati/run-hound…",
-    means: "The images aren't published yet: they appear with the v0.3.0 release. Until then, clone the repository and run docker compose up --build.",
+    means: `The images are public, so no login is needed. manifest unknown: a typo in the image name or tag (${site.image}, and run-hound-kennel, run-hound-samples and run-hound-fernway with the same tag), or a machine that isn't linux/amd64 or arm64. denied: an old GitHub login on this machine; run docker logout ghcr.io and pull again.`,
+  },
+  {
+    see: "Invoke-WebRequest : A parameter cannot be found that matches parameter name 'fsSLO'",
+    means: "In Windows PowerShell, curl is another command. Type curl.exe instead of curl.",
   },
   {
     see: "EACCES … mkdir '/repo/app/runs/…'",
     means: "The container can't write to your reports folder. Create it first (mkdir -p runs); on Podman avoid --user.",
   },
   {
-    see: "“Looks like you launched a headed browser without having a XServer running”",
-    means: "You ticked “Show the browser window” in a container or on a machine without a display. Untick it.",
+    see: "A service shows (health: starting) or (unhealthy) in docker compose ps",
+    means: "Every service has a health check. Starting is normal for the first seconds. Unhealthy means it stopped answering: docker compose -f run-hound.compose.yml logs <service> says why.",
+  },
+  {
+    see: "--headed: There is no display on the machine running Run Hound…",
+    means: "A visible browser window needs a display, which a container doesn't have. Run without --headed; the web UI greys the option out there, and its live view works either way. For a window, install from source on a machine with a display.",
+  },
+  {
+    see: "No sign-in form (a form with a password field) was found on …",
+    means: "The test account's sign-in page URL doesn't show a sign-in form: check it in your browser. Sign-in with Google or another provider, magic links, codes and captchas aren't supported.",
+  },
+  {
+    see: "Signed in as Account A, but … still shows the sign-in page",
+    means: "The sign-in didn't hold. Check the account with Test sign-in (Settings → Test accounts) or accounts test. When the sign-in page and the page you test use different host names (localhost and 127.0.0.1), use the same one for both: a browser keeps their cookies apart.",
+  },
+  {
+    see: "Nothing was tested: …",
+    means: "Every approved scenario errored or was skipped, often because the app stopped answering after the plan. The report says why for each one; the command line exits 2.",
   },
 ];
 
@@ -165,13 +222,13 @@ export default function DocsPage() {
   return (
     <>
       <PageHeader
-        eyebrow={`DOCS · ${site.release} · ${site.version}`}
+        eyebrow={`DOCS · ${site.version}`}
         title={
           <>
-            Run {site.release} <span className="text-accent">on your machine.</span>
+            Run it <span className="text-accent">on your machine.</span>
           </>
         }
-        lede={`How to run Run Hound ${site.release} on your own machine: start it with the test apps in one command, try it on Kennel, our deliberately broken demo app, point it at a page of your own, and read a report where every finding comes with evidence.`}
+        lede="How to run Run Hound on your own machine: start it with the test apps in one command, try it on Kennel, our deliberately broken demo app, point it at a page of your own, sign in with test accounts, and read a report where every finding comes with evidence."
       >
         <Callout
           label="Open source"
@@ -197,29 +254,40 @@ export default function DocsPage() {
           <DocsToc items={toc} />
 
           <div className="flex min-w-0 max-w-3xl flex-col gap-20">
-            <DocSection id="overview" step="01" title={`What ${site.release} does`}>
+            <DocSection id="overview" step="01" title="What it does">
               <div className="prose-night">
                 <p>
-                  Run Hound {site.release} ({site.releaseName.toLowerCase()}, {site.version}) opens one page of your local
-                  app in a headless Chromium and finds <strong>every form and interactive control</strong> on it. It
-                  plans the form checks for each form, plus page-wide checks (security headers, cookie flags, CORS,
-                  public source maps and controls outside the forms), lets you pick which ones to run, runs them in a
-                  real browser, and writes a report with evidence (annotated screenshots, short GIFs, request and
-                  response cards) and a Playwright test for each finding.
+                  Run Hound {site.version} ({site.release}, {site.releaseName.toLowerCase()}, with a {site.preview})
+                  opens one page of your local app in a headless Chromium and finds the <strong>forms and controls</strong>{" "}
+                  on it, including the custom widgets and dialog forms of apps from AI builders. It plans the form checks
+                  for each form, plus page-wide checks (security headers, cookie flags, CORS, public source maps, controls
+                  outside the forms and links that break when opened directly), lets you pick which ones to run, runs
+                  them in a real browser, and writes a report with evidence (annotated screenshots, short GIFs, request
+                  and response cards) and a Playwright test for each finding.
                 </p>
                 <p>
-                  New since V0 (0.1.0), which tested only the main form: every form on the page is tested, and five
-                  new checks look at the page as a whole. See <a href="#checks">the {checkTotal} checks</a>.
+                  New in 0.4.0, as a preview of V2: <strong>test accounts and signed-in runs</strong>. Run Hound
+                  signs in with an account you own before it tests, so pages behind a login get every check, and the
+                  access checks ask whether another account, or a visitor who isn&apos;t signed in, can read your data.
+                  See <a href="#accounts">Test accounts</a>. Also new: discovery that handles the widgets, dialogs and
+                  form libraries of apps built with Lovable, Bolt and v0 (see{" "}
+                  <a href="#ai-built">Apps from AI builders</a>), and a Docker image about a quarter of its old size.
                 </p>
                 <p>
-                  New in 0.3.0: <strong>optional AI with your own model</strong>. It reviews the plan, suggests extra
+                  Since 0.3.0: <strong>optional AI with your own model</strong>. It reviews the plan, suggests extra
                   flows and explains findings. It is off by default and never decides pass or fail. See{" "}
                   <a href="#ai">AI (optional)</a>.
                 </p>
                 <p>It doesn&apos;t:</p>
                 <ul>
-                  <li>follow links to other pages or test a feature across pages (planned for V2);</li>
-                  <li>log in: pages behind a login aren&apos;t supported, and a login form can only be partly tested;</li>
+                  <li>
+                    test a feature across pages: it opens the page&apos;s own links only to check they load (the rest
+                    of V2 is planned);
+                  </li>
+                  <li>
+                    sign in with Google or another provider, a magic link, a code or a captcha: only the app&apos;s own
+                    sign-in form with a username and password;
+                  </li>
                   <li>test public websites: only your own machine and private network addresses;</li>
                   <li>
                     use AI unless you turn it on: with AI off (the default) the plan comes from what Run Hound finds on
@@ -247,7 +315,9 @@ export default function DocsPage() {
               <CodeBlock label="Docker or Podman, from an empty folder">{quickStart}</CodeBlock>
               <div className="prose-night">
                 <p>
-                  The first start downloads about 2 GB of images. When the log says{" "}
+                  The first start downloads about 0.5 GB of images: Run Hound&apos;s is about 260 MB (715 MB on disk,
+                  Node and Chromium&apos;s headless shell), and each test app adds a little. In Windows PowerShell,
+                  type <code>curl.exe</code> instead of <code>curl</code>. When the log says{" "}
                   <code>Run Hound UI: open http://localhost:4000</code>, open that address and enter{" "}
                   <code>http://kennel:3000/book</code> (inside the containers Kennel is called <code>kennel</code>). The
                   log also mentions <code>0.0.0.0:4000</code>: that address is inside the container; on your machine the
@@ -259,11 +329,24 @@ export default function DocsPage() {
               <CodeBlock label="Optional settings">{envFile}</CodeBlock>
               <div className="prose-night">
                 <p>
-                  The images (<code>{site.image}</code>, with <code>run-hound-kennel</code> and{" "}
-                  <code>run-hound-samples</code>, for linux/amd64 and arm64) appear on GitHub&apos;s container registry
-                  with the v{site.version} release. Until then, clone the repository and run{" "}
-                  <code>docker compose up --build</code>: its <code>docker-compose.yml</code> builds the same services
-                  from source (see <a href="#install">From source</a>).
+                  Every service has a health check, so <code>ps</code> shows when each one is ready. To stop the lab,
+                  press Ctrl+C, then remove its containers:
+                </p>
+              </div>
+              <CodeBlock label="Check and stop the lab">{labCommands}</CodeBlock>
+              <div className="prose-night">
+                <p>
+                  The images (<code>{site.image}</code>, with{" "}
+                  {site.labImages.map((name, i) => (
+                    <span key={name}>
+                      {i === 0 ? "" : i === site.labImages.length - 1 ? " and " : ", "}
+                      <code>{name}</code>
+                    </span>
+                  ))}
+                  , for linux/amd64 and arm64) are public on GitHub&apos;s container registry. The compose file comes
+                  from the {site.tag} release and names that release&apos;s images, so the lab stays the same until you
+                  choose to update: download the compose file of the new release and start it again, and the new
+                  images are pulled.
                 </p>
                 <p>These test apps start with it:</p>
               </div>
@@ -277,17 +360,21 @@ export default function DocsPage() {
               </ul>
               <div className="prose-night">
                 <p>
-                  Kennel should give findings for its planted bugs. The five sample apps are built correctly on
-                  purpose, so <strong>any confirmed finding on them is a false positive</strong>, and worth reporting.
-                  Enter these addresses in the Run Hound UI: inside the compose network each app is reached by its service name. Every app is also published on 127.0.0.1 (ports in <code>.env.example</code>).
+                  Kennel and Fernway with their bugs on should give findings for the planted bugs. Clean Kennel, clean
+                  Fernway and the five sample apps are built correctly on purpose, so{" "}
+                  <strong>any confirmed finding on them is a false positive</strong>, and worth reporting. Enter these
+                  addresses in the Run Hound UI: inside the compose network each app is reached by its service name.
+                  Every app is also published on 127.0.0.1 (ports in <code>.env.example</code>). Fernway&apos;s signed-in
+                  pages need its two accounts as test accounts: see <a href="#accounts">Test accounts</a>.
                 </p>
                 <h3>Only Run Hound, without the test apps</h3>
                 <p>
                   One container, the web UI on <code>http://localhost:4000</code>. The <code>--add-host</code> and{" "}
                   <code>RUNHOUND_ALLOWED_HOSTS</code> flags let it reach apps on your machine as{" "}
-                  <code>host.docker.internal</code> (Docker Desktop defines the name itself; this adds it on Linux),
-                  and <code>RUNHOUND_CONFIG_DIR</code> keeps the AI settings you save in <code>./runs/.config</code>.
-                  Podman works the same (<code>podman run …</code>).
+                  <code>host.docker.internal</code> (Docker Desktop defines the name itself; this adds it on Linux),{" "}
+                  <code>RUNHOUND_PUBLIC_URL</code> makes the log print the address to open, and{" "}
+                  <code>RUNHOUND_CONFIG_DIR</code> keeps the AI settings and test accounts you save in{" "}
+                  <code>./runs/.config</code>. Podman works the same (<code>podman run …</code>).
                 </p>
               </div>
               <CodeBlock label="Single container">{singleContainer}</CodeBlock>
@@ -323,12 +410,15 @@ export default function DocsPage() {
                         Docker 24+ with Compose, Docker Desktop, or Podman with podman-compose, and curl. No clone, no Node
                       </td>
                       <td className="px-5 py-3.5 align-top">
-                        Node 22 or newer (24 recommended), pnpm (<code className="font-mono text-fg">corepack enable</code>), git
+                        Node 22.12 or newer (24 recommended), pnpm (<code className="font-mono text-fg">corepack enable</code>), git
                       </td>
                     </tr>
                     <tr className="border-b border-line-soft">
                       <th scope="row" className="px-5 py-3.5 align-top font-medium text-fg">Disk</th>
-                      <td className="px-5 py-3.5 align-top">About 2.7 GB (built on Microsoft&apos;s Playwright image)</td>
+                      <td className="px-5 py-3.5 align-top">
+                        About 1 GB with the test apps (about 0.5 GB to download); Run Hound&apos;s image alone is about
+                        715 MB
+                      </td>
                       <td className="px-5 py-3.5 align-top">About 1 GB (dependencies and Chromium)</td>
                     </tr>
                     <tr className="border-b border-line-soft">
@@ -336,12 +426,19 @@ export default function DocsPage() {
                       <td className="px-5 py-3.5 align-top">Linux, macOS, Windows (amd64 and arm64)</td>
                       <td className="px-5 py-3.5 align-top">Linux and macOS. Windows: use WSL2</td>
                     </tr>
-                    <tr>
+                    <tr className="border-b border-line-soft">
                       <th scope="row" className="px-5 py-3.5 align-top font-medium text-fg">Your own app</th>
                       <td className="px-5 py-3.5 align-top">
                         Linux: host network, same as local. Mac and Windows: a few dev-server settings
                       </td>
                       <td className="px-5 py-3.5 align-top">Just enter http://localhost:&lt;port&gt;/&lt;page&gt;</td>
+                    </tr>
+                    <tr>
+                      <th scope="row" className="px-5 py-3.5 align-top font-medium text-fg">Visible browser window</th>
+                      <td className="px-5 py-3.5 align-top">No: a container has no display (the live view works)</td>
+                      <td className="px-5 py-3.5 align-top">
+                        Yes, on a machine with a display (<code className="font-mono text-fg">--headed</code>)
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -512,13 +609,204 @@ export default function DocsPage() {
                 <p>
                   Options: <code>--approve all|default|&lt;id,id&gt;</code> (default: the recommended scenarios),{" "}
                   <code>--plan-only</code>, <code>--allow-destructive</code>, <code>--headed</code> (a visible browser
-                  window), <code>--runs-dir &lt;dir&gt;</code>, <code>--json</code>, and the <code>--ai</code> flags (see{" "}
-                  <a href="#ai">AI (optional)</a>). <code>help</code> lists them.
+                  window, from source on a machine with a display), <code>--runs-dir &lt;dir&gt;</code>,{" "}
+                  <code>--json</code>, <code>--as a|b</code> (sign in first, see <a href="#accounts">Test accounts</a>)
+                  and the <code>--ai</code> flags (see <a href="#ai">AI (optional)</a>). <code>help</code> lists them.
+                </p>
+                <p>
+                  Page behind a login? Set up a <a href="#accounts">test account</a> and plan it signed in.
                 </p>
               </div>
             </DocSection>
 
-            <DocSection id="problems" step="07" title="Common problems">
+            <DocSection id="accounts" step="07" title="Test accounts and signed-in runs">
+              <div className="prose-night">
+                <p>
+                  New in 0.4.0, as a {site.preview}. Give Run Hound two accounts you own on your app, A and B,
+                  and it signs in before it tests: every check then runs signed in, so pages behind a login get tested
+                  too, and the plan adds the access checks. Use accounts made for testing, on a development database,
+                  never a real customer&apos;s. Sign-in uses the app&apos;s own form with a username (usually an email)
+                  and a password; sign-in with Google or another provider, magic links, codes and captchas aren&apos;t
+                  supported.
+                </p>
+                <h3>In the web UI</h3>
+                <ol>
+                  <li>
+                    Open <strong>Settings → Test accounts</strong>. For each account, fill in a label (how plans and
+                    reports name it), the sign-in page URL, the username and the password, then press{" "}
+                    <strong>Save</strong> and <strong>Test sign-in</strong>. A saved password is never shown again.
+                  </li>
+                  <li>
+                    Keep <strong>A and B must not see each other&apos;s data</strong> ticked when they are different
+                    users, not teammates in one workspace. The check that account B can&apos;t read account A&apos;s
+                    data runs only then.
+                  </li>
+                  <li>
+                    In <strong>New Run</strong>, pick <strong>Sign in as → Account A</strong> and plan the page. The plan
+                    says &ldquo;Signed in as Account A&rdquo;, and so do the live view, the report and the Runs page.
+                    Signed out, a plan with a form shows a hint that plans the page again signed in.
+                  </li>
+                </ol>
+                <h3>From the command line</h3>
+                <p>
+                  <code>--password-stdin</code> reads the password from what you type or pipe in, never from a flag, so
+                  it stays out of your shell history. The sign-in page must pass the same safety check as any target.
+                </p>
+              </div>
+              <CodeBlock label="Test accounts from the command line, from source">{accountsCli}</CodeBlock>
+              <div className="prose-night">
+                <p>
+                  In a container the same commands follow the image name, or{" "}
+                  <code>docker compose -f run-hound.compose.yml run --rm run-hound</code> in the quick start folder: the
+                  image takes <code>accounts</code> like <code>run</code>.
+                </p>
+                <h3>With environment variables</h3>
+                <p>
+                  Each <code>RUNHOUND_ACCOUNT_*</code> variable overrides that one saved value; the compose file passes
+                  them through from a <code>.env</code> next to it. The full list is in{" "}
+                  <a href={site.envExample}>.env.example</a>.
+                </p>
+              </div>
+              <CodeBlock label="Test accounts in .env">{accountsEnv}</CodeBlock>
+              <div className="prose-night">
+                <p>
+                  Saved accounts go to <code>accounts.json</code> next to the AI settings: in{" "}
+                  <code>~/.config/run-hound</code> from source, or <code>./runs/.config</code> with the quick start, in
+                  a file only your user can read. That folder holds your passwords and any AI key:{" "}
+                  <strong>share a single <code>runs/&lt;runId&gt;</code> folder, never the whole runs folder.</strong>
+                </p>
+                <h3>What a signed-in run does</h3>
+                <ul>
+                  <li>
+                    It signs in fresh, in its own browser, at the start of each plan and each run. A failed sign-in
+                    stops before any scenario runs and says why (the command line exits 2).
+                  </li>
+                  <li>
+                    It never clicks Log out or Sign out, even with <code>--allow-destructive</code>, and never submits a
+                    form that sets a password (sign-up, change password): either would end or change the test account.
+                  </li>
+                  <li>Test records it creates belong to account A, and the report says so.</li>
+                </ul>
+                <h3>The access checks</h3>
+                <ul>
+                  <li>
+                    <code>access-control</code> (Security, signed in): as account A it saves a test record, then replays
+                    the requests that returned A&apos;s data as account B and as a visitor who isn&apos;t signed in.
+                    Either one getting A&apos;s data back is a critical finding. It replays only A&apos;s own GET
+                    requests, never one that acts.
+                  </li>
+                  <li>
+                    <code>mass-assignment</code> (Security, signed in, unticked by default): it replays account A&apos;s
+                    save with fields the form never sends, such as <code>role: &quot;admin&quot;</code> or{" "}
+                    <code>plan: &quot;pro&quot;</code>, and reads the record again. It changes account A, then puts back
+                    what it changed and says what it couldn&apos;t.
+                  </li>
+                  <li>
+                    <code>deep-links</code> (Features, signed in or not): it opens up to 10 of the page&apos;s own links
+                    directly, as a reload or a shared link would, and never one that signs out, deletes or accepts an
+                    invitation.
+                  </li>
+                </ul>
+                <h3>Secrets stay out of what it writes</h3>
+                <ul>
+                  <li>
+                    Passwords are write-only: the web UI and its API never return a saved one, and a saved password is
+                    only sent to the sign-in site it was saved for. Change the sign-in page to another site and the
+                    saved password is removed.
+                  </li>
+                  <li>
+                    Passwords, session cookies and tokens are hidden in reports, evidence, Playwright tests, logs,
+                    progress and AI prompts, and so are the accounts&apos; usernames: reports name accounts by label.
+                    The access-control test you export reads the accounts from <code>RUNHOUND_ACCOUNT_*</code>{" "}
+                    variables; it never holds a password.
+                  </li>
+                  <li>
+                    Screenshots are taken with the account&apos;s name and session values dotted out. The live view in
+                    the web UI isn&apos;t masked; it stays on your machine.
+                  </li>
+                  <li>
+                    A very common password (&ldquo;password&rdquo;, &ldquo;123456&rdquo;) gets a warning in the
+                    account&apos;s status: hiding it everywhere would give it away.
+                  </li>
+                </ul>
+                <h3>Try it on Fernway</h3>
+                <p>
+                  In the quick start, set up Fernway&apos;s two accounts as A and B with the sign-in page{" "}
+                  <code>http://fernway-bugs:4110/login</code> (their emails and passwords are in{" "}
+                  <a href={site.fernwayGuide}>Fernway&apos;s README</a>), then plan{" "}
+                  <code>http://fernway-bugs:4110/app</code> signed in as Account A, with every scenario ticked. The
+                  planted access bugs show up as access-control and deep-links findings. With every bug on,{" "}
+                  <code>/app/settings</code> answers 404 when opened directly (the bug deep-links reports), so Run Hound
+                  can&apos;t plan it: to see mass-assignment catch Fernway&apos;s bug there, set{" "}
+                  <code>FERNWAY_BUGS=V01,V02,V03,V04</code> in <code>.env</code>, run{" "}
+                  <code>docker compose -f run-hound.compose.yml up -d fernway-bugs</code> and plan{" "}
+                  <code>http://fernway-bugs:4110/app/settings</code>. On clean Fernway, <code>http://fernway:4110</code>{" "}
+                  with its own sign-in page (enter the passwords again: they only go to the site they were saved for),
+                  the same runs should give no confirmed findings. The{" "}
+                  <a href={`${site.testingGuide}#try-it-on-fernway-first`}>getting-started guide</a> walks through it.
+                </p>
+              </div>
+            </DocSection>
+
+            <DocSection id="ai-built" step="08" title="Apps from AI builders">
+              <div className="prose-night">
+                <p>
+                  Apps built with Lovable, Bolt, v0 and similar tools rarely use plain HTML form fields: their selects
+                  are buttons, their forms open in dialogs, and their errors arrive as toasts. Since 0.4.0,
+                  discovery handles them, and Fernway, a test app built the same way, keeps it honest.
+                </p>
+                <h3>What discovery finds</h3>
+                <ul>
+                  <li>
+                    Native inputs, selects, text areas, checkboxes and radio buttons, inside a <code>&lt;form&gt;</code>{" "}
+                    or not, and the buttons and controls outside the forms.
+                  </li>
+                  <li>
+                    Custom widgets from Radix and shadcn/ui, Headless UI, cmdk and MUI: selects, comboboxes, checkboxes,
+                    switches, radio groups and sliders. They are set the way a person sets them, in the checks and in
+                    the exported Playwright tests.
+                  </li>
+                  <li>
+                    Forms in dialogs and sheets. It tries up to 3 controls that look like they open one (&ldquo;Add
+                    member&rdquo;, or <code>aria-haspopup=&quot;dialog&quot;</code>), never a link to another page or a
+                    control that looks destructive, and blocks every write while it looks: every request except GET,
+                    HEAD and OPTIONS, and every WebSocket message. The form&apos;s scenarios open the dialog first.
+                  </li>
+                  <li>
+                    Required fields marked only in their label (&ldquo;Email *&rdquo;, &ldquo;(required)&rdquo;), as
+                    forms built with react-hook-form and zod often are, and fields the page itself refuses when left
+                    empty.
+                  </li>
+                  <li>
+                    Toasts such as sonner&apos;s count as announced messages, and a toast is never taken for a saved
+                    record. Ids that frameworks number on every load (React <code>useId</code>, <code>radix-…</code>)
+                    are never used as selectors.
+                  </li>
+                </ul>
+                <h3>What it doesn&apos;t cover yet</h3>
+                <ul>
+                  <li>
+                    Multi-step forms: only the first step is tested. When submitting it shows the next step without
+                    saving, the checks that need a saved record skip with a &ldquo;multi-step form&rdquo; note.
+                  </li>
+                  <li>
+                    A form that opens some other way (from a menu item, a command palette, a second dialog or on hover),
+                    or behind more than 3 likely controls, isn&apos;t found. Per page, up to 5 forms are tested and up to
+                    40 controls outside them are found, of which 20 are clicked.
+                  </li>
+                  <li>
+                    Widgets from other libraries, or custom ones without the usual ARIA roles, may not be recognised
+                    as fields.
+                  </li>
+                  <li>
+                    Anything inside a canvas, a closed shadow root or a frame from another site (an embedded payment
+                    form, for example) can&apos;t be seen.
+                  </li>
+                </ul>
+              </div>
+            </DocSection>
+
+            <DocSection id="problems" step="09" title="Common problems">
               <dl className="flex flex-col divide-y divide-line-soft rounded-2xl border border-line bg-surface">
                 {problems.map((p) => (
                   <div key={p.see} className="flex flex-col gap-1.5 px-5 py-4">
@@ -529,10 +817,10 @@ export default function DocsPage() {
               </dl>
             </DocSection>
 
-            <DocSection id="ai" step="08" title="AI (optional)">
+            <DocSection id="ai" step="10" title="AI (optional)">
               <div className="prose-night">
                 <p>
-                  New in 0.3.0, and <strong>off until you turn it on</strong>. Bring your own model: Ollama, LM Studio,
+                  Since 0.3.0, and <strong>off until you turn it on</strong>. Bring your own model: Ollama, LM Studio,
                   llama.cpp, vLLM, any OpenAI-compatible endpoint, or Amazon Bedrock. It takes on three jobs:
                 </p>
                 <ul>
@@ -558,9 +846,11 @@ export default function DocsPage() {
                 <h3>Web UI</h3>
                 <ol>
                   <li>
-                    Open <strong>Settings → AI</strong>, turn it on, pick a provider, choose a model from the dropdown
-                    (it lists what the server has; <strong>Other…</strong> takes any id), press <strong>Save</strong>,
-                    then <strong>Test connection</strong> (it tests the saved settings).
+                    Open <strong>Settings → AI</strong>, turn on <strong>Use AI</strong> and pick a provider. In a
+                    container, change the base URL to <code>http://host.docker.internal:11434/v1</code> for Ollama on
+                    your machine (Podman: <code>host.containers.internal</code>; see Docker or Podman below). Choose a
+                    model from the dropdown (it lists what the server has; <strong>Other…</strong> takes any id), press{" "}
+                    <strong>Save</strong>, then <strong>Test connection</strong> (it tests the saved settings).
                   </li>
                   <li>
                     Plan a page with <strong>Review with AI</strong> ticked. Planning takes longer (a 9B model on a
@@ -587,13 +877,13 @@ export default function DocsPage() {
                   <code>docker run --rm --network host {site.image} ai status</code>.
                 </p>
               </div>
-              <CodeBlock label="Command line, from source">{aiCli}</CodeBlock>
+              <CodeBlock label="AI from the command line, from source">{aiCli}</CodeBlock>
               <div className="prose-night">
                 <p>
                   Settings come from the Settings page (saved to <code>~/.config/run-hound/ai.json</code>, mode 0600, or
                   to <code>RUNHOUND_CONFIG_DIR</code> when it is set). <code>RUNHOUND_AI_*</code> environment variables
-                  override the saved settings, and <code>--ai*</code> flags override both. The full list is
-                  in <code>docs/ai-spec.md</code> and <code>.env.example</code> in the repository.
+                  override the saved settings, and <code>--ai*</code> flags override both. The full list is in{" "}
+                  <a href={site.aiSpec}>docs/ai-spec.md</a> and <a href={site.envExample}>.env.example</a>.
                 </p>
                 <h3>Docker or Podman</h3>
                 <p>
@@ -604,7 +894,9 @@ export default function DocsPage() {
                   container reaches your machine: with <code>--network host</code> on Linux it is{" "}
                   <code>http://127.0.0.1:11434/v1</code>; otherwise it is <code>host.docker.internal</code> (Docker) or{" "}
                   <code>host.containers.internal</code> (Podman), and Ollama must listen on all interfaces (
-                  <code>OLLAMA_HOST=0.0.0.0 ollama serve</code>).
+                  <code>OLLAMA_HOST=0.0.0.0 ollama serve</code>). A key you save there sits in{" "}
+                  <code>./runs/.config/ai.json</code>, so share a single <code>runs/&lt;runId&gt;</code> folder, never
+                  the whole runs folder.
                 </p>
               </div>
               <CodeBlock label=".env">{aiDocker}</CodeBlock>
@@ -612,8 +904,9 @@ export default function DocsPage() {
                 <h3>What is sent</h3>
                 <ul>
                   <li>
-                    Only <strong>redacted page structure</strong>: the page title and path, field labels and types,
-                    option labels, button names and the scenario list. Explanations also get each finding&apos;s text and
+                    Only <strong>redacted page structure</strong>: the page title and path (a local model also gets the
+                    redacted address with its query), field labels and types, option labels, button names and the
+                    scenario list. On a signed-in run, the test accounts&apos; usernames and secrets are hidden too. Explanations also get each finding&apos;s text and
                     facts, without test values. Never typed values, cookies, response bodies or screenshots.
                   </li>
                   <li>
@@ -632,12 +925,15 @@ export default function DocsPage() {
                 </ul>
                 <p>
                   Small local models work (tested with a 9B model on Ollama). Ollama is called through its native API
-                  with thinking turned off; with other servers, prefer a non-reasoning model or turn reasoning off.
+                  with thinking turned off; with other servers, prefer a non-reasoning model or turn reasoning off. Each
+                  request may take 2 minutes; an explanation that times out is tried once more, and after two timeouts
+                  in a row the rest are skipped with a warning. For a slow model, raise{" "}
+                  <code>RUNHOUND_AI_TIMEOUT_MS</code>.
                 </p>
               </div>
             </DocSection>
 
-            <DocSection id="report" step="09" title="Reading the report">
+            <DocSection id="report" step="11" title="Reading the report">
               <div className="prose-night">
                 <p>
                   Every run writes a folder: <code>./runs/&lt;runId&gt;/</code> for Docker,{" "}
@@ -696,8 +992,10 @@ export default function DocsPage() {
                 <p>
                   The command line exits with <strong>0</strong> when there are no confirmed findings (advisory ones
                   don&apos;t fail the run), <strong>1</strong> when there is at least one confirmed finding, and{" "}
-                  <strong>2</strong> on an error: a refused or unreachable target, an error page (such as a 404), or a
-                  bad option. That makes it a CI step as it is; <code>--json</code> puts the report on stdout.
+                  <strong>2</strong> on an error: a refused or unreachable target, an error page (such as a 404), a
+                  bad option, <code>--ai</code> when the model can&apos;t be used, <code>--as</code> with an account
+                  that isn&apos;t set up or can&apos;t sign in, or a run in which nothing was tested. That makes it a CI
+                  step as it is; <code>--json</code> puts the report on stdout.
                 </p>
                 <h3>Also in the report</h3>
                 <ul>
@@ -707,7 +1005,7 @@ export default function DocsPage() {
                   </li>
                   <li>
                     <strong>Pages tested</strong>: every URL the run loaded. If your URL redirected to a login page, the
-                    run tested that page instead.
+                    run tested that page instead: plan it signed in with a <a href="#accounts">test account</a>.
                   </li>
                   <li>
                     <strong>What a browser can&apos;t see</strong>: backups, webhook signatures and other things no
@@ -723,13 +1021,15 @@ export default function DocsPage() {
               </div>
             </DocSection>
 
-            <DocSection id="checks" step="10" title={`The ${checkTotal} checks`}>
+            <DocSection id="checks" step="12" title={`The ${checkTotal} checks`}>
               <div className="prose-night">
                 <p>
                   The plan, the run, the progress and the report all follow the same three groups. Form checks are
-                  planned once for each form on the page; page-wide checks, including the five new in {site.release},
-                  are planned once for the whole page. Scenarios that don&apos;t apply to your page (no form, no password field, no JSON save
-                  request) are <strong>skipped with a plain reason</strong>, never silently dropped.
+                  planned once for each form on the page; page-wide checks are planned once for the whole page. The
+                  checks tagged {site.preview} arrived in 0.4.0; access-control and mass-assignment are planned
+                  only on a <a href="#accounts">signed-in run</a>. Scenarios that don&apos;t apply to your page (no
+                  form, no password field, no JSON save request) are <strong>skipped with a plain reason</strong>, never
+                  silently dropped.
                 </p>
                 <p>
                   With <a href="#ai">AI</a> on, one more check can run, in the Features group:{" "}
@@ -752,7 +1052,7 @@ export default function DocsPage() {
                           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
                             <span className="flex flex-wrap items-center gap-2.5">
                               <span className="font-mono text-sm text-accent">{c.id}</span>
-                              {c.since === "V1" ? <NewTag /> : null}
+                              {c.since === "V2" ? <NewTag>{site.preview}</NewTag> : null}
                             </span>
                             <span className="font-mono text-[11px] tracking-widest text-dim">
                               TEST RECORDS: {c.records.toUpperCase()}
@@ -762,6 +1062,11 @@ export default function DocsPage() {
                           {c.devServerAdvisory ? (
                             <p className="text-sm leading-relaxed text-dim">
                               Advisory when the target looks like a dev server.
+                            </p>
+                          ) : null}
+                          {c.signedIn ? (
+                            <p className="text-sm leading-relaxed text-dim">
+                              Signed-in runs only{c.offByDefault ? "; unticked until you tick it" : ""}.
                             </p>
                           ) : null}
                         </li>
@@ -790,7 +1095,7 @@ export default function DocsPage() {
               </div>
             </DocSection>
 
-            <DocSection id="safety" step="11" title="Safety and test records">
+            <DocSection id="safety" step="13" title="Safety and test records">
               <div className="prose-night">
                 <ul>
                   <li>
@@ -807,8 +1112,15 @@ export default function DocsPage() {
                     somewhere else.
                   </li>
                   <li>
-                    The web UI answers only on loopback addresses. Don&apos;t expose it to your network: anyone who can
-                    reach it can start runs.
+                    The web UI answers only to loopback names and addresses, the host of{" "}
+                    <code>RUNHOUND_PUBLIC_URL</code> and the address given to <code>serve --host</code>; add others with{" "}
+                    <code>RUNHOUND_SERVER_HOSTS</code>. Don&apos;t expose it to your network: anyone who can reach it can
+                    start runs.
+                  </li>
+                  <li>
+                    Test accounts must be yours, on an app you may test, and their sign-in page must pass the same
+                    local-only check as a target. Their passwords, sessions and usernames are hidden in everything a run
+                    writes (see <a href="#accounts">Test accounts</a>).
                   </li>
                   <li>
                     Reports redact secret-looking text, but screenshots can&apos;t be redacted. A page that shows a
@@ -820,14 +1132,21 @@ export default function DocsPage() {
                   </li>
                   <li>
                     Scenarios that could change or delete existing data (clicking a “Delete” button) are off unless you
-                    pass <code>--allow-destructive</code> or tick the option in the UI.
+                    pass <code>--allow-destructive</code> or tick the option in the UI. A signed-in run never signs out
+                    and never submits a form that sets a password, even then.
+                  </li>
+                  <li>
+                    <code>mass-assignment</code> changes account A&apos;s data on purpose, so it is unticked until you tick
+                    it. It puts back what it changed and says in the report what it couldn&apos;t (a field that
+                    wasn&apos;t there before can&apos;t be removed).
                   </li>
                 </ul>
                 <h3>Test records it creates</h3>
                 <p>
                   A full run sends each form successfully several times (about 7 or 8 save requests per form), so it
                   can create that many records in your app. The values are obviously fake (emails at <code>example.test</code>, a
-                  run token in the text), and the report says how many save requests your app accepted.{" "}
+                  run token in the text), and the report says how many save requests your app accepted, and on a
+                  signed-in run which account they belong to.{" "}
                   <strong>Run Hound never deletes them. Point it at a development database you can throw away.</strong>
                 </p>
                 <p>
@@ -837,14 +1156,24 @@ export default function DocsPage() {
               </div>
             </DocSection>
 
-            <DocSection id="limitations" step="12" title="Known limitations">
+            <DocSection id="limitations" step="14" title="Known limitations">
               <div className="prose-night">
                 <ul>
                   <li>
-                    <strong>One page, no login.</strong> Up to 5 forms and 20 buttons outside them are tested, and
-                    links aren&apos;t followed. Pages that redirect to a login screen get the login form
-                    tested instead (check Pages tested). Login forms need a real account for anything past the first
-                    submit.
+                    <strong>One page at a time.</strong> Up to 5 forms are tested and up to 20 controls outside them
+                    clicked; links are opened only to check they load. A page behind a login needs a{" "}
+                    <a href="#accounts">test account</a>; signed out, a page that redirects to a login screen gets the
+                    login form tested instead (check Pages tested).
+                  </li>
+                  <li>
+                    <strong>Sign-in</strong> works with the app&apos;s own form and a password only: not with Google or
+                    another provider, magic links, one-time codes or captchas. The access checks read data; whether one
+                    account can change another&apos;s is planned.
+                  </li>
+                  <li>
+                    <strong>Apps from AI builders</strong>: multi-step forms are tested on their first step only, and a
+                    form that opens some other way than a likely button isn&apos;t found. See{" "}
+                    <a href="#ai-built">Apps from AI builders</a>.
                   </li>
                   <li>
                     <strong>Dev servers don&apos;t send production headers.</strong> Header, cookie and CORS findings on
@@ -852,15 +1181,17 @@ export default function DocsPage() {
                   </li>
                   <li>
                     <strong>Unusual apps</strong> may still produce false findings. It has been tried on classic HTML
-                    forms that post and redirect, fetch-based single-page apps, login forms and forms whose API is on
-                    another origin, but not on your stack. That&apos;s what your feedback is for.
+                    forms that post and redirect, fetch-based single-page apps, login forms, forms whose API is on
+                    another origin and an app built the way AI builders build them (Fernway), but not on your stack.
+                    That&apos;s what your feedback is for.
                   </li>
                   <li>
                     <strong>Development overlays</strong> (Next.js dev tools, Vite&apos;s error overlay) are part of the
                     page in development; if a finding points at one, tell us.
                   </li>
                   <li>
-                    <strong>Docker</strong>: the image is large (about 2.7 GB), and there is no visible browser window.
+                    <strong>Docker</strong>: no visible browser window (<code>--headed</code> needs the install from
+                    source on a machine with a display); the web UI&apos;s live view works.
                   </li>
                   <li>
                     <strong>Windows</strong> is only supported through WSL2 or Docker.
@@ -874,7 +1205,7 @@ export default function DocsPage() {
               </div>
             </DocSection>
 
-            <DocSection id="feedback" step="13" title="Sending feedback">
+            <DocSection id="feedback" step="15" title="Sending feedback">
               <div className="prose-night">
                 <p>
                   Open an issue with the <strong>Feedback</strong> form on GitHub, or email the same details to{" "}
@@ -887,15 +1218,16 @@ export default function DocsPage() {
                     or <code>runHoundVersion</code> in <code>report.json</code>.
                   </li>
                   <li>
-                    <strong>Your OS and how you ran it</strong>: Docker (compose or single container) or from source, web UI or command line, Node
-                    version.
+                    <strong>Your OS and how you ran it</strong>: Docker (compose or single container) or from source, web
+                    UI or command line, signed in or not, Node version.
                   </li>
                   <li>
                     <strong>What you tested</strong>: the framework, the dev server and what the form does (not the URL,
                     if it&apos;s private).
                   </li>
                   <li>
-                    <strong>The report</strong>: <code>report.md</code>, or the run folder zipped.{" "}
+                    <strong>The report</strong>: <code>report.md</code>, or the run folder zipped (one{" "}
+                    <code>runs/&lt;runId&gt;</code> folder, never the whole runs folder, which holds your settings).{" "}
                     <strong>Look through the screenshots first</strong>: they show whatever your page showed.
                   </li>
                   <li>

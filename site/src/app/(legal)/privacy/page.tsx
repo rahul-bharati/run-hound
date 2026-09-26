@@ -1,13 +1,14 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { LegalDoc, LegalHeading, type LegalTocItem, MailLink, Summary } from "@/components/legal/legal";
+import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
-export const metadata: Metadata = {
+export const metadata = pageMetadata({
+  path: "/privacy/",
   title: "Privacy",
   description:
-    "How the Run Hound website and the Run Hound software handle personal data: hosting logs, Cloudflare, Google Analytics only with your consent, tester feedback, and software that runs on your machine.",
-};
+    "How the Run Hound website and software handle personal data: hosting logs, Cloudflare, analytics only with consent, feedback, and software on your machine.",
+});
 
 const toc: LegalTocItem[] = [
   { id: "who-we-are", label: "Who we are" },
@@ -41,8 +42,8 @@ export default function PrivacyPage() {
             there. It has no telemetry.
           </li>
           <li>
-            <strong>AI is optional and off by default.</strong> With AI off, the current preview ({site.release}{" "}
-            {site.version}) sends nothing to any AI provider. If you turn it on, only redacted page structure and
+            <strong>AI is optional and off by default.</strong> With AI off, the current preview ({site.version})
+            sends nothing to any AI provider. If you turn it on, only redacted page structure and
             finding text are sent, and only to the AI provider you configure; {site.name} itself operates no AI
             service.
           </li>
@@ -59,7 +60,7 @@ export default function PrivacyPage() {
 
       <p>
         {site.name} is in early development and is available as a public open-source preview. This policy describes
-        how the website and the current preview ({site.release} {site.version}) work. We will update this page before
+        how the website and the current preview ({site.version}) work. We will update this page before
         anything changes.
       </p>
 
@@ -215,10 +216,18 @@ export default function PrivacyPage() {
           on your machine.
         </li>
         <li>
+          <strong>Test accounts are optional, and stay on your machine.</strong> To test pages behind a sign-in, you can
+          give {site.name} up to two test accounts on the app you test. It saves them on your machine, in a settings
+          file only your user can read, and sends a saved password only to the sign-in site it was saved for. It hides
+          passwords, session cookies and tokens, and the accounts&apos; usernames, in its reports, logs and anything it
+          sends to an AI provider, and dots them out on the page before it takes a screenshot. They never reach us.
+        </li>
+        <li>
           <strong>AI features are optional, and off by default.</strong> With AI off, the software uses no AI model and
           sends nothing to any AI provider. If you turn them on, it sends redacted page structure (the page title and
-          path (a local model gets the redacted address with its query), field labels and types, option labels, button names and the list of planned checks; for explanations, the finding text and
-          its evidence facts without test values) only to the AI provider you configure, which handles it under its
+          path, or for a local model the redacted address with its query; field labels and types, option labels,
+          button names and the list of planned checks; for explanations, the finding text and its evidence facts
+          without test values) only to the AI provider you configure, which handles it under its
           own terms. It never sends typed values, cookies, response bodies or screenshots. A local model keeps this on
           your machine or private network; a remote provider receives nothing until you consent for its host.{" "}
           {site.name} itself operates no AI service and receives none of this data.

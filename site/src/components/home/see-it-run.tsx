@@ -12,7 +12,7 @@ const tabs: TourTab[] = [
     id: "plan",
     label: "Plan",
     title: "A plan you approve",
-    text: "Enter the address of a page on your machine. Run Hound finds everything on it (here Kennel's “Book a sitter” form with 9 fields, a button outside the form, and the page itself) and plans 20 scenarios in three groups, each saying what it tests and which test records it creates. Nothing runs until you approve. The plan comes from what Run Hound finds on the page; turn on AI and your own model reviews it and suggests extra flows, which stay unticked until you choose them.",
+    text: "Enter the address of a page on your machine. Run Hound finds the forms and controls on it (here Kennel's “Book a sitter” form with 9 fields, a button outside the form, and the page itself) and plans 20 scenarios in three groups, each saying what it tests and which test records it creates. Nothing runs until you approve. The plan comes from what Run Hound finds on the page; turn on AI and your own model reviews it and suggests extra flows, which stay unticked until you choose them.",
     image: <Screenshot screen={screens.plan} sizes={sizes} />,
   },
   {
@@ -44,7 +44,7 @@ export function SeeItRun() {
     <Section
       id="see-it-run"
       title="See it run"
-      intro="Plan, run, report: the local web UI that comes with Run Hound, captured from one run of all 20 checks on Kennel with every planted bug on."
+      intro="Plan, run, report: the local web UI that comes with Run Hound, captured from one run on Kennel with every planted bug on."
       className="border-t border-line-soft bg-band"
     >
       <Tour tabs={tabs} />

@@ -11,7 +11,7 @@
 #   http://kennel-clean:3000/book      Kennel in clean mode: every check should pass
 #   http://fernway:4110/               Fernway, a Lovable-style SaaS app, clean (also /signup /login /onboarding
 #                                      /app /app/settings): any confirmed finding is a false positive
-#   http://fernway-bugs:4110/          Fernway with its planted bugs (FERNWAY_BUGS, default: all; W01-W10)
+#   http://fernway-bugs:4110/          Fernway with its planted bugs (FERNWAY_BUGS, default: all, W01-W10 and V01-V05)
 #   http://classic-post:4101/signup    sample: server-rendered form, no JavaScript
 #   http://spa-fetch:4102/             sample: vanilla-JS contact form, same-origin JSON API
 #   http://login:4103/                 sample: sign-in form (401 on wrong credentials)

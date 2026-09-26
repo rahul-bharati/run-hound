@@ -52,7 +52,7 @@ export function Hero() {
               ·
             </span>
             <span className="text-muted">
-              {site.release} · {site.releaseName.toUpperCase()} · {site.version}
+              {site.release} · {site.releaseName.toUpperCase()} · {site.preview.toUpperCase()} · {site.version}
             </span>
           </p>
 
@@ -64,10 +64,11 @@ export function Hero() {
           </h1>
 
           <p className="max-w-2xl text-pretty text-lg leading-relaxed text-muted sm:text-xl">
-            AI-assisted UI testing for AI-built apps. Point Run Hound at a page on your local app: it finds every form
-            and control, plans the checks, and after you approve, runs them in a real browser and reports what broke,
-            with annotated evidence and a Playwright test for each finding. Optionally, your own AI model reviews the
-            plan, suggests extra flows and explains findings.
+            AI-assisted UI testing for AI-built apps. Point Run Hound at a page on your local app: it finds the forms
+            and controls on it, custom widgets and dialog forms included, plans the checks, and after you approve, runs
+            them in a real browser and reports what broke, with annotated evidence and a Playwright test for each
+            finding. It can sign in with test accounts you own, and your own AI model can review the plan and explain
+            findings.
           </p>
 
           <div className="flex w-full flex-col items-center gap-3">

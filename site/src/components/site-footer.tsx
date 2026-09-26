@@ -23,7 +23,7 @@ export function SiteFooter() {
           </Link>
           <p className="max-w-xs text-sm leading-relaxed text-dim">
             AI-assisted UI testing for AI-built apps, open source under the MIT license. Runs on your machine.{" "}
-            {site.release} {site.version}, with optional AI; the repository is public.
+            {site.version}: {site.release} with a {site.preview} and optional AI; the repository is public.
           </p>
           <p className="text-sm text-dim">
             Found a bug?{" "}
@@ -83,7 +83,7 @@ export function SiteFooter() {
           <span>{site.name}</span>
           <span aria-hidden="true">·</span>
           <span>
-            {site.release} ({site.releaseName}) {site.version}
+            {site.version} · {site.release} ({site.releaseName}) · {site.preview}
           </span>
           <span aria-hidden="true">·</span>
           <a href={site.licenseUrl} className="underline underline-offset-4 hover:text-accent">

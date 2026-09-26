@@ -1,9 +1,8 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { ButtonLink } from "@/components/button-link";
-import { Container, NewTag, Section } from "@/components/layout";
-import { links, newChecks, totalChecks } from "@/components/home/data";
+import { Container, Section } from "@/components/layout";
+import { links, previewChecks, totalChecks } from "@/components/home/data";
 import { AiSection } from "@/components/home/ai";
 import { Evidence } from "@/components/home/evidence";
 import { Groups } from "@/components/home/groups";
@@ -13,47 +12,87 @@ import { ArrowIcon, GitHubIcon } from "@/components/button-link";
 import { CommandCopy } from "@/components/command-copy";
 import { GetStarted } from "@/components/get-started";
 import { Icon } from "@/components/icon";
+import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 import {
+  AppWindow,
   Container as Box,
+  DatabaseZap,
   FileCode,
-  FileSearch,
+  KeyRound,
   LayoutDashboard,
+  Link2Off,
   Lock,
-  MousePointerClick,
-  ShieldCheck,
+  SlidersHorizontal,
   Terminal,
+  TextCursorInput,
+  UsersRound,
+  type LucideIcon,
 } from "lucide-react";
 
-export const metadata: Metadata = {
-  title: { absolute: `${site.name}: Find the bugs your AI forgot to test` },
-  description: `AI-assisted UI testing for AI-built apps, open source (MIT) on GitHub. Point Run Hound at a page on your local app: it finds every form and control, plans ${totalChecks} built-in checks across accessibility, features and security (optionally reviewed by your own AI model), runs them in a real browser after you approve, and reports each finding with annotated evidence and a Playwright test. Web UI, CLI for CI, Docker or Podman.`,
-};
+export const metadata = pageMetadata({
+  path: "/",
+  title: `${site.name}: Find the bugs your AI forgot to test`,
+  absoluteTitle: true,
+  description:
+    "Open-source, AI-assisted UI testing for AI-built apps: real checks in a real browser, with evidence and a Playwright test. Runs on your machine.",
+});
 
-const whatsNew = [
+/** The V2 preview's checks (0.4.0, docs/v2-spec.md), as the questions they answer. */
+const accessChecks: { icon: LucideIcon; id: string; title: string; text: string }[] = [
   {
-    icon: FileSearch,
-    title: "The whole page, not one form",
-    text: "Run Hound finds every form (up to 5) and interactive control on the page, and plans the form checks for each form.",
+    icon: UsersRound,
+    id: "access-control",
+    title: "Can someone else read your data?",
+    text: "Signed in as Account A, Run Hound saves a test record, then asks for the same data as Account B and as a visitor who isn't signed in. Either one getting it back is a critical finding, with the requests that prove it.",
   },
   {
-    icon: ShieldCheck,
-    title: "Page-wide security checks",
-    text: "Security headers, session cookie flags, CORS and public source maps. On a dev server, which doesn't send production settings, these findings are marked advisory and the source-map check is skipped.",
+    icon: DatabaseZap,
+    id: "mass-assignment",
+    title: "Does the server trust extra fields?",
+    text: "It replays Account A's save with fields the form never sends, such as role: admin or plan: pro, and reads the record back. Unticked until you tick it: it changes Account A, then puts back what it changed.",
   },
   {
-    icon: MousePointerClick,
-    title: "Dead controls anywhere",
-    text: "Buttons and controls outside your forms are clicked too, and the ones that do nothing are reported with evidence.",
-  },
-  {
-    icon: Box,
-    title: "Test apps in one command",
-    text: "Docker or Podman starts Run Hound with Kennel, our deliberately broken demo app, and five sample apps, so you can try it straight away.",
+    icon: Link2Off,
+    id: "deep-links",
+    title: "Do your pages survive a reload?",
+    text: "It opens the page's own links directly, as a reload or a shared link would, and reports the ones that answer with an error or a not-found page. Signed in or not.",
   },
 ];
 
-/** The ways you drive a run, and the guard rails around it (README "Running V1 locally", "Safety"). */
+/** What keeps the test accounts' secrets out of everything a signed-in run writes (docs/v2-spec.md "Test accounts"). */
+const accountSecrets = [
+  "Passwords are write-only: the web UI never shows a saved one, the CLI reads it from what you type or pipe (never a flag), and a saved password is only sent to the sign-in page it was saved for.",
+  "Passwords, session cookies and tokens are hidden in reports, evidence, Playwright tests, logs, progress and AI prompts, and so are usernames: reports name the accounts by label.",
+  "Screenshots are taken with the account's name and session values dotted out.",
+  "The accounts are saved on your machine only, in a settings file only you can read.",
+];
+
+/** How discovery handles apps from AI builders (0.4.0); the limits are in the docs ("Apps from AI builders"). */
+const aiBuilt: { icon: LucideIcon; title: string; text: string }[] = [
+  {
+    icon: SlidersHorizontal,
+    title: "Custom widgets",
+    text: "Selects, comboboxes, checkboxes, switches, radio groups and sliders from Radix and shadcn/ui, Headless UI, cmdk and MUI are found as fields and set the way a person sets them, in the checks and in the Playwright tests you export.",
+  },
+  {
+    icon: AppWindow,
+    title: "Forms in dialogs and sheets",
+    text: "Run Hound tries up to 3 controls that look like they open a dialog, such as “Add member”, with every write blocked while it looks, and tests the form that appears. Its scenarios open the dialog first.",
+  },
+  {
+    icon: TextCursorInput,
+    title: "Today's form stacks",
+    text: "react-hook-form with zod, fields marked required only in their label (“Email *”), sonner toasts, and ids that change on every load (React useId, radix-…) are handled, so they don't turn into false findings.",
+  },
+  {
+    icon: Box,
+    title: "Fernway, built the same way",
+    text: "A test app like the ones AI builders generate: Vite, React 19, Tailwind, Radix, sonner and react-hook-form, with sign-up, an onboarding wizard and a dashboard behind a login. Clean, any confirmed finding is a false positive; with its bugs on, each is caught by one check.",
+  },
+];
+
+/** The ways you drive a run, and the guard rails around it (README "Running it locally", "Safety"). */
 const tools = [
   {
     icon: LayoutDashboard,
@@ -128,18 +167,71 @@ export default function Home() {
       <Hero />
 
       <Section
-        id="whats-new"
-        eyebrow={`NEW IN ${site.release} · ${site.version}`}
+        id="signed-in"
+        eyebrow={`NEW IN 0.4.0 · ${site.preview.toUpperCase()}`}
         title={
           <>
-            From one form to <span className="text-accent">the whole page.</span>
+            Signed-in runs <span className="text-accent">and access checks.</span>
           </>
         }
-        intro={`V0 tested the main form on a page. ${site.release} tests the page: every form, every control, and ${newChecks} new checks that look at the page as a whole. Since 0.3.0, your own AI model can also review the plan, suggest extra flows and explain findings. Still for local apps only.`}
+        intro="Add two test accounts you own on your app, A and B. Run Hound signs in before it tests, so pages behind a login get every check, and three new checks look for what AI-built backends often get wrong. It is the first part of V2, released as a preview."
         className="border-t border-line-soft"
       >
+        <ul className="grid gap-5 md:grid-cols-3">
+          {accessChecks.map((item) => (
+            <li key={item.id} className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-6 sm:p-7">
+              <span className="grid size-11 place-items-center rounded-xl border border-line-strong text-accent">
+                <Icon icon={item.icon} size={20} />
+              </span>
+              <h3 className="font-display text-xl font-bold leading-snug tracking-tight">{item.title}</h3>
+              <p className="text-[15px] leading-relaxed text-muted">{item.text}</p>
+              <p className="mt-auto font-mono text-xs text-dim">{item.id}</p>
+            </li>
+          ))}
+        </ul>
+        <div className="grid gap-8 rounded-2xl border border-line bg-bg-deep p-6 sm:p-8 lg:grid-cols-[1.4fr_1fr] lg:gap-12">
+          <div className="flex flex-col gap-4">
+            <p className="flex items-center gap-2 font-mono text-xs tracking-widest text-dim">
+              <Icon icon={KeyRound} size={16} className="text-accent" />
+              YOUR TEST ACCOUNTS STAY SECRET
+            </p>
+            <ul className="flex list-disc flex-col gap-2.5 pl-5 leading-relaxed text-muted marker:text-dim">
+              {accountSecrets.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="flex flex-col gap-4 text-[15px] leading-relaxed text-muted">
+            <p>
+              Set them up in <strong className="text-fg">Settings → Test accounts</strong>, with{" "}
+              <code className="font-mono text-fg">run-hound accounts set</code>, or with{" "}
+              <code className="font-mono text-fg">RUNHOUND_ACCOUNT_A_*</code> variables, then pick{" "}
+              <strong className="text-fg">Sign in as</strong> in a new run, or pass{" "}
+              <code className="font-mono text-fg">--as a</code>. Use accounts you own, made for testing, never a real
+              customer&apos;s.
+            </p>
+            <p>
+              Still planned for V2: testing a feature across pages, checking whether one account can change another&apos;s
+              data, rate limits, CSRF, file uploads, prompt injection and paywall trust.
+            </p>
+            <ArrowLink href="/docs#accounts">Signed-in runs in the docs</ArrowLink>
+          </div>
+        </div>
+      </Section>
+
+      <Section
+        id="ai-built-apps"
+        eyebrow="AI-BUILT APPS · NEW IN 0.4.0"
+        title={
+          <>
+            Works on apps built with <span className="text-accent">Lovable, Bolt and v0.</span>
+          </>
+        }
+        intro="Apps from AI builders rarely use plain HTML form fields: their selects are buttons, their forms open in dialogs and their errors arrive as toasts. Run Hound finds and fills them the way a person would, and a test app built the same way keeps it honest."
+        className="border-t border-line-soft bg-band"
+      >
         <ul className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {whatsNew.map((item) => (
+          {aiBuilt.map((item) => (
             <li key={item.title} className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-6">
               <span className="grid size-11 place-items-center rounded-xl border border-line-strong text-accent">
                 <Icon icon={item.icon} size={20} />
@@ -149,14 +241,23 @@ export default function Home() {
             </li>
           ))}
         </ul>
+        <p className="max-w-3xl text-[15px] leading-relaxed text-muted">
+          Limits: a multi-step form is tested on its first step only, and a form that opens some other way (from a menu,
+          for example) isn&apos;t found.{" "}
+          <Link href="/docs#ai-built" className="text-accent underline underline-offset-4 hover:text-accent-strong">
+            What discovery covers, and what it doesn&apos;t
+          </Link>
+          .
+        </p>
         <div className="flex flex-col gap-3">
-          <p className="flex flex-wrap items-center gap-2 font-mono text-xs tracking-widest text-dim">
-            TRY IT WITH THE TEST APPS, FROM AN EMPTY FOLDER <NewTag />
+          <p className="font-mono text-xs tracking-widest text-dim">
+            TRY IT WITH THE TEST APPS (KENNEL, FERNWAY AND FIVE SAMPLE APPS), FROM AN EMPTY FOLDER
           </p>
           <CommandCopy command={site.dockerCommand} className="w-full max-w-2xl" />
           <p className="text-sm text-dim">
             No clone needed. Podman: <code className="font-mono text-muted">podman compose -f run-hound.compose.yml up</code>. Then open{" "}
-            <code className="font-mono text-muted">http://localhost:4000</code>.{" "}
+            <code className="font-mono text-muted">http://localhost:4000</code> and enter{" "}
+            <code className="font-mono text-muted">http://fernway-bugs:4110/</code>.{" "}
             <a href="#start" className="text-muted underline underline-offset-4 hover:text-accent">
               Both ways to start, step by step
             </a>
@@ -177,7 +278,7 @@ export default function Home() {
       <Section
         title={`${totalChecks} checks in three groups`}
         eyebrow="WHAT IT CHECKS"
-        intro={`What ${site.release} plans for a typical page, in run order: the form checks for each form and the page-wide checks, with the ${newChecks} checks new in ${site.release} marked. Checks that have nothing to test on your page are skipped and listed as such in the report. With AI on, suggested flows you tick run as one more, optional check.`}
+        intro={`What the plan holds for a page, in run order: the form checks for each form and the page-wide checks. The ${previewChecks} checks of the V2 preview are tagged; two of them run only signed in. Checks that have nothing to test on your page are skipped and listed as such in the report. With AI on, suggested flows you tick run as one more, optional check.`}
         className="border-y border-line-soft bg-band"
       >
         <Groups />
@@ -220,7 +321,7 @@ export default function Home() {
 
       <Section
         id="ai"
-        eyebrow={`AI · OPTIONAL · SINCE ${site.version}`}
+        eyebrow="AI · OPTIONAL · SINCE 0.3.0"
         title={
           <>
             AI that plans and explains. <span className="text-accent">Real checks still decide.</span>
@@ -277,8 +378,9 @@ export default function Home() {
             Your AI said it&apos;s done. <span className="block text-accent">Let&apos;s check.</span>
           </h2>
           <p className="max-w-xl text-pretty text-lg leading-relaxed text-muted">
-            {site.release} is open source under the MIT license: one page, on your machine, with the test apps a single
-            command away. The getting-started guide walks you through a first run; no clone needed.
+            {site.name} is open source under the MIT license: one page at a time, on your machine, signed in if you like,
+            with the test apps a single command away. The getting-started guide walks you through a first run; no clone
+            needed.
           </p>
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
             <ButtonLink href={links.tryLocally}>
