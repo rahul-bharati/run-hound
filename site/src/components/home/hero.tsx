@@ -1,6 +1,7 @@
 import { CodeXml, Monitor, ShieldCheck, Sparkles } from "lucide-react";
 import Image from "next/image";
 import { ArrowIcon, ButtonLink, GitHubIcon } from "@/components/button-link";
+import { CommandCopy } from "@/components/command-copy";
 import { Icon } from "@/components/icon";
 import { site } from "@/lib/site";
 import { Container } from "@/components/layout";
@@ -82,6 +83,18 @@ export function Hero() {
                 View on GitHub
               </ButtonLink>
             </div>
+            <CommandCopy command={site.dockerCommand} className="mt-2 w-full max-w-3xl text-left" />
+            <p className="text-sm text-dim">
+              Then open <code className="font-mono text-muted">http://localhost:4000</code>. Docker or Podman, no clone
+              needed.{" "}
+              <a
+                href="#start"
+                className="text-muted underline decoration-line-strong underline-offset-4 hover:text-accent hover:decoration-accent"
+              >
+                Other ways to start
+              </a>
+              .
+            </p>
             <p className="text-sm text-dim">
               Free and open source: try it without cloning anything, and{" "}
               <a

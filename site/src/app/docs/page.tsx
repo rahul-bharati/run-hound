@@ -17,7 +17,7 @@ const checkTotal = previewGroups.reduce((sum, g) => sum + g.checks.length, 0);
 export const metadata = pageMetadata({
   path: "/docs/",
   title: "Docs",
-  description: `Run Hound ${site.version} guide: the Docker quick start, your own app, test accounts and signed-in runs, optional AI, the report and every check.`,
+  description: `Run Hound ${site.version} guide: the Docker quick start, the demo apps, your own app, test accounts and signed-in runs, optional AI, the report and every check.`,
 });
 
 const toc = [
@@ -53,7 +53,7 @@ pnpm install
 pnpm --filter run-hound exec playwright install chromium
 pnpm --filter kennel build          # only needed for the Kennel demo`;
 
-const quickStart = `curl -fsSLO ${site.composeFileUrl}
+const labStart = `curl -fsSLO ${site.composeFileUrl}
 mkdir -p runs                       # reports land here; create it yourself so the files belong to you
 docker compose -f run-hound.compose.yml up   # or: podman compose -f run-hound.compose.yml up`;
 
@@ -63,12 +63,6 @@ curl -fsSL ${site.envFileUrl} -o .env`;
 const labCommands = `docker compose -f run-hound.compose.yml ps     # each service and its health
 # stop: Ctrl+C, then
 docker compose -f run-hound.compose.yml down`;
-
-const singleContainer = `mkdir -p runs
-docker run --rm --init -p 127.0.0.1:4000:4000 \\
-  --add-host host.docker.internal:host-gateway -e RUNHOUND_ALLOWED_HOSTS=host.docker.internal \\
-  -e RUNHOUND_PUBLIC_URL=http://localhost:4000 -e RUNHOUND_CONFIG_DIR=/repo/app/runs/.config \\
-  -v "$PWD/runs:/repo/app/runs" ${site.image}`;
 
 const testApps: { name: string; body: string }[] = [
   {
@@ -107,11 +101,11 @@ pnpm exec tsx src/cli.ts run http://localhost:5173/signup --plan-only
 pnpm exec tsx src/cli.ts run http://localhost:5173/signup --approve all`;
 
 const dockerLinux = `mkdir -p runs
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ${site.image} \\
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ${site.imageName} \\
   run http://localhost:5173/signup --approve all
 
 # the web UI on the host network, bound to loopback only
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ${site.image} \\
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ${site.imageName} \\
   serve --host 127.0.0.1 --port 4310`;
 
 const aiCli = `cd app
@@ -187,13 +181,16 @@ RUNHOUND_ACCOUNT_A_LABEL=Alice
 # the same four with _B_ for account B, and:
 RUNHOUND_ACCOUNTS_ISOLATED=true   # A and B must not see each other's data`;
 
-const dockerDesktop = `# in the folder with run-hound.compose.yml (quick start)
+const dockerDesktop = `docker run --rm --init --add-host host.docker.internal:host-gateway -v "$PWD/runs:/repo/app/runs" \\
+  ${site.imageName} run http://host.docker.internal:5173/signup --approve all
+
+# the same in the test lab, in the folder with run-hound.compose.yml
 docker compose -f run-hound.compose.yml run --rm run-hound run http://host.docker.internal:5173/signup --approve all`;
 
 const problems: { see: string; means: string }[] = [
   {
     see: "Nothing is answering at http://localhost:<port>",
-    means: "Your app isn't running on that port, or Run Hound is in a container (see Docker Desktop above).",
+    means: "Your app isn't running on that port, or Run Hound is in a container (see Docker or Podman above).",
   },
   {
     see: "No form found on …",
@@ -339,22 +336,45 @@ export default function DocsPage() {
             <DocSection id="quick-start" step="02" title="Quick start with Docker or Podman">
               <div className="prose-night">
                 <p>
-                  One compose file starts Run Hound and a set of local test apps from the published images, so you can
-                  try it before pointing it at anything of your own. No clone and no build: you need Docker with Compose,
-                  Docker Desktop, or Podman, and an empty folder.
+                  Pull the image and run it. No clone and no build: you need Docker, Docker Desktop or Podman, and a
+                  folder for the reports.
                 </p>
               </div>
-              <CodeBlock label="Docker or Podman, from an empty folder">{quickStart}</CodeBlock>
+              <CodeBlock label="Docker or Podman, from any folder">{site.runCommands}</CodeBlock>
               <div className="prose-night">
                 <p>
-                  The first start downloads about 0.5 GB of images: Run Hound&apos;s is about 260 MB (715 MB on disk,
-                  Node and Chromium&apos;s headless shell), and each test app adds a little. In Windows PowerShell,
-                  type <code>curl.exe</code> instead of <code>curl</code>. When the log says{" "}
-                  <code>Run Hound UI: open http://localhost:4000</code>, open that address and enter{" "}
-                  <code>http://kennel:3000/book</code> (inside the containers Kennel is called <code>kennel</code>). The
-                  log also mentions <code>0.0.0.0:4000</code>: that address is inside the container; on your machine the
-                  ports are bound to <code>127.0.0.1</code> only. Reports are written to <code>./runs</code> on your
-                  machine. Ports taken, or want to change a setting? Every setting has a default; put your changes in a{" "}
+                  The image is about 260 MB to download (715 MB on disk: Node and Chromium&apos;s headless shell). The
+                  log prints the address to open, <code>http://localhost:4000</code>. It also mentions{" "}
+                  <code>0.0.0.0:4000</code>: that address is inside the container; on your machine the port is bound to{" "}
+                  <code>127.0.0.1</code> only. Enter a page of an app on your machine as{" "}
+                  <code>http://host.docker.internal:&lt;port&gt;/&lt;page&gt;</code>: Docker Desktop defines that name
+                  itself, and <code>--add-host</code> adds it on Linux. Your dev server must accept that host name (see{" "}
+                  <a href="#your-app">Test your own app</a>). Reports are written to <code>./runs</code>, and the AI
+                  settings and test accounts you save in the UI to <code>./runs/.config</code>.
+                </p>
+                <p>
+                  The image has these settings built in:{" "}
+                  <code>RUNHOUND_ALLOWED_HOSTS=host.docker.internal,host.containers.internal</code> and{" "}
+                  <code>RUNHOUND_CONFIG_DIR=/repo/app/runs/.config</code>. You can still override either with{" "}
+                  <code>-e</code>. Podman works the same (<code>podman pull …</code>, <code>podman run …</code>;{" "}
+                  <code>host.containers.internal</code> also works there). In Windows PowerShell, write the{" "}
+                  <code>docker run</code> on one line, use <code>mkdir runs</code>, and type <code>curl.exe</code>{" "}
+                  instead of <code>curl</code> for the downloads below. To update, <code>docker pull</code> again.
+                </p>
+                <h3>Try it on the demo apps: the test lab</h3>
+                <p>
+                  One compose file starts Run Hound and a set of local test apps from the published images, so you can
+                  try it before pointing it at anything of your own. You also need Compose (or podman-compose) and an
+                  empty folder.
+                </p>
+              </div>
+              <CodeBlock label="The test lab, from an empty folder">{labStart}</CodeBlock>
+              <div className="prose-night">
+                <p>
+                  The first start downloads about 0.5 GB of images: Run Hound&apos;s, and a little for each test app.
+                  When the log prints <code>open http://localhost:4000</code>, open that address and enter{" "}
+                  <code>http://kennel:3000/book</code> (inside the containers Kennel is called <code>kennel</code>). Its
+                  ports are bound to <code>127.0.0.1</code> only, and reports go to <code>./runs</code>. Ports taken, or want to change a setting? Every setting has a default; put your changes in a{" "}
                   <code>.env</code> file next to the compose file, starting from the documented example:
                 </p>
               </div>
@@ -399,17 +419,7 @@ export default function DocsPage() {
                   Every app is also published on 127.0.0.1 (ports in <code>.env.example</code>). Fernway&apos;s signed-in
                   pages need its two accounts as test accounts: see <a href="#accounts">Test accounts</a>.
                 </p>
-                <h3>Only Run Hound, without the test apps</h3>
-                <p>
-                  One container, the web UI on <code>http://localhost:4000</code>. The <code>--add-host</code> and{" "}
-                  <code>RUNHOUND_ALLOWED_HOSTS</code> flags let it reach apps on your machine as{" "}
-                  <code>host.docker.internal</code> (Docker Desktop defines the name itself; this adds it on Linux),{" "}
-                  <code>RUNHOUND_PUBLIC_URL</code> makes the log print the address to open, and{" "}
-                  <code>RUNHOUND_CONFIG_DIR</code> keeps the AI settings and test accounts you save in{" "}
-                  <code>./runs/.config</code>. Podman works the same (<code>podman run …</code>).
-                </p>
               </div>
-              <CodeBlock label="Single container">{singleContainer}</CodeBlock>
             </DocSection>
 
             <DocSection id="requirements" step="03" title="Requirements">
@@ -439,7 +449,7 @@ export default function DocsPage() {
                     <tr className="border-b border-line-soft">
                       <th scope="row" className="px-5 py-3.5 align-top font-medium text-fg">You need</th>
                       <td className="px-5 py-3.5 align-top">
-                        Docker 24+ with Compose, Docker Desktop, or Podman with podman-compose, and curl. No clone, no Node
+                        Docker 24+, Docker Desktop or Podman. For the test lab, also Compose (or podman-compose) and curl. No clone, no Node
                       </td>
                       <td className="px-5 py-3.5 align-top">
                         Node 22.12 or newer (24 recommended), pnpm (<code className="font-mono text-fg">corepack enable</code>), git
@@ -448,8 +458,8 @@ export default function DocsPage() {
                     <tr className="border-b border-line-soft">
                       <th scope="row" className="px-5 py-3.5 align-top font-medium text-fg">Disk</th>
                       <td className="px-5 py-3.5 align-top">
-                        About 1 GB with the test apps (about 0.5 GB to download); Run Hound&apos;s image alone is about
-                        715 MB
+                        Run Hound&apos;s image: about 715 MB (260 MB to download). With the test apps: about 1 GB
+                        (about 0.5 GB to download)
                       </td>
                       <td className="px-5 py-3.5 align-top">About 1 GB (dependencies and Chromium)</td>
                     </tr>
@@ -461,7 +471,8 @@ export default function DocsPage() {
                     <tr className="border-b border-line-soft">
                       <th scope="row" className="px-5 py-3.5 align-top font-medium text-fg">Your own app</th>
                       <td className="px-5 py-3.5 align-top">
-                        Linux: host network, same as local. Mac and Windows: a few dev-server settings
+                        Enter http://host.docker.internal:&lt;port&gt;/&lt;page&gt;, with a few dev-server settings.
+                        Linux: or the host network, same as local
                       </td>
                       <td className="px-5 py-3.5 align-top">Just enter http://localhost:&lt;port&gt;/&lt;page&gt;</td>
                     </tr>
@@ -477,8 +488,8 @@ export default function DocsPage() {
               </div>
               <div className="prose-night">
                 <p>
-                  <strong>Docker or Podman is the quickest way to try it</strong>: one file, test apps included, nothing
-                  to clone. On Linux it tests your own app just as simply, through the host network. On a Mac or
+                  <strong>Docker or Podman is the quickest way to try it</strong>: pull one image and run it, nothing
+                  to clone; one compose file adds the test apps. On Linux it tests your own app just as simply, through the host network. On a Mac or
                   Windows, <strong>the install from source</strong> tests your app exactly as your browser sees it, with
                   no networking set-up. And bring an app: a web app running on your machine with a form in it
                   (sign-up, contact, booking, checkout details, settings), or any page with buttons and controls. You don&apos;t need to know Playwright or
@@ -501,7 +512,7 @@ export default function DocsPage() {
                   <code>pnpm --filter run-hound exec playwright install --with-deps chromium</code> (it uses sudo). Check
                   it works: <code>cd app &amp;&amp; pnpm exec tsx src/cli.ts --version</code> prints{" "}
                   <code>run-hound {site.version}</code>. In the clone, <code>docker compose up --build</code> builds and
-                  starts the same containers as the quick start from your working tree (<code>docker-compose.yml</code>).
+                  starts the same containers as the test lab from your working tree (<code>docker-compose.yml</code>).
                 </p>
               </div>
             </DocSection>
@@ -514,7 +525,7 @@ export default function DocsPage() {
                 </p>
                 <h3>Docker or Podman</h3>
                 <p>
-                  Start the <a href="#quick-start">quick start</a>: Kennel is already running next to Run Hound. Open{" "}
+                  Start the <a href="#quick-start">test lab</a>: Kennel is already running next to Run Hound. Open{" "}
                   <code>http://localhost:4000</code> and enter <code>http://kennel:3000/book</code> (steps below), or
                   run it from the command line in the same folder:{" "}
                   <code>docker compose -f run-hound.compose.yml run --rm run-hound run http://kennel:3000/book --approve all</code>.
@@ -582,22 +593,10 @@ export default function DocsPage() {
                   </li>
                   <li>Run Run Hound on it, then check each finding against your app.</li>
                 </ol>
-                <h3>Docker on Linux (host network)</h3>
+                <h3>Docker or Podman (any OS)</h3>
                 <p>
-                  On Linux the container can share your machine&apos;s network, so <code>localhost</code> means your
-                  machine and nothing in your app needs to change. Podman works the same (<code>podman run …</code>).
-                  Nothing to clone: this works from any folder.
-                </p>
-              </div>
-              <CodeBlock label="Docker, host network">{dockerLinux}</CodeBlock>
-              <div className="prose-night">
-                <p>
-                  The command prints <code>Report: /repo/app/runs/&lt;runId&gt;/report.html</code>; on your machine
-                  that&apos;s <code>./runs/&lt;runId&gt;/report.html</code>.
-                </p>
-                <h3>Docker Desktop (Mac, Windows) or the compose UI</h3>
-                <p>
-                  Here <code>localhost</code> inside the container is the container itself, not your machine. Use{" "}
+                  The set-up of the <a href="#quick-start">quick start</a> and the test lab. Inside the container{" "}
+                  <code>localhost</code> is the container itself, not your machine. Use{" "}
                   <code>host.docker.internal</code> instead (<code>host.containers.internal</code> also works on
                   Podman), and make your dev server accept it:
                 </p>
@@ -617,18 +616,33 @@ export default function DocsPage() {
                   </li>
                   <li>
                     Enter <code>http://host.docker.internal:5173/signup</code> in the UI at{" "}
-                    <code>http://localhost:4000</code> (the quick start, or the{" "}
-                    <a href="#quick-start">single container</a>), or run:
+                    <code>http://localhost:4000</code> (the <a href="#quick-start">quick start</a> or the test lab), or
+                    run it once from the command line. It prints{" "}
+                    <code>Report: /repo/app/runs/&lt;runId&gt;/report.html</code>; on your machine that&apos;s{" "}
+                    <code>./runs/&lt;runId&gt;/report.html</code>.
                   </li>
                 </ol>
               </div>
-              <CodeBlock label="Docker Desktop">{dockerDesktop}</CodeBlock>
+              <CodeBlock label="Docker or Podman, one run">{dockerDesktop}</CodeBlock>
               <div className="prose-night">
                 <p>
                   Limits of this set-up: a frontend that calls its API at <code>http://localhost:&lt;apiPort&gt;</code>{" "}
                   will call the container instead and fail (use the host network or the install from source);{" "}
                   <code>client-only-validation</code> is skipped for non-localhost targets; and “Show the browser
                   window” doesn&apos;t work in a container.
+                </p>
+                <h3>Docker on Linux (host network)</h3>
+                <p>
+                  On Linux the container can share your machine&apos;s network instead, so <code>localhost</code> means your
+                  machine and nothing in your app needs to change. Podman works the same (<code>podman run …</code>).
+                  Nothing to clone: this works from any folder.
+                </p>
+              </div>
+              <CodeBlock label="Docker, host network">{dockerLinux}</CodeBlock>
+              <div className="prose-night">
+                <p>
+                  The command prints <code>Report: /repo/app/runs/&lt;runId&gt;/report.html</code>; on your machine
+                  that&apos;s <code>./runs/&lt;runId&gt;/report.html</code>.
                 </p>
                 <h3>From source</h3>
                 <p>
@@ -692,7 +706,7 @@ export default function DocsPage() {
               <div className="prose-night">
                 <p>
                   In a container the same commands follow the image name, or{" "}
-                  <code>docker compose -f run-hound.compose.yml run --rm run-hound</code> in the quick start folder: the
+                  <code>docker compose -f run-hound.compose.yml run --rm run-hound</code> in the test lab folder: the
                   image takes <code>accounts</code> like <code>run</code>.
                 </p>
                 <h3>With environment variables</h3>
@@ -769,7 +783,7 @@ export default function DocsPage() {
                 </ul>
                 <h3>Try it on Fernway</h3>
                 <p>
-                  In the quick start, set up Fernway&apos;s two accounts as A and B with the sign-in page{" "}
+                  In the test lab, set up Fernway&apos;s two accounts as A and B with the sign-in page{" "}
                   <code>http://fernway-bugs:4110/login</code> (their emails and passwords are in{" "}
                   <a href={site.fernwayGuide}>Fernway&apos;s README</a>), then plan{" "}
                   <code>http://fernway-bugs:4110/app</code> signed in as Account A, with every scenario ticked. The
@@ -906,7 +920,7 @@ export default function DocsPage() {
                 <h3>Command line</h3>
                 <p>
                   From source, in <code>app/</code>. In a container the same commands follow the image name, for example{" "}
-                  <code>docker run --rm --network host {site.image} ai status</code>.
+                  <code>docker run --rm --network host {site.imageName} ai status</code>.
                 </p>
               </div>
               <CodeBlock label="AI from the command line, from source">{aiCli}</CodeBlock>
@@ -919,10 +933,10 @@ export default function DocsPage() {
                 </p>
                 <h3>Docker or Podman</h3>
                 <p>
-                  The easiest way is the Settings page: with the quick start, what you save there is kept in{" "}
-                  <code>./runs/.config</code> on your machine (for a plain <code>docker run</code>, add{" "}
-                  <code>-e RUNHOUND_CONFIG_DIR=/repo/app/runs/.config</code>). Or put the <code>RUNHOUND_AI_*</code>{" "}
-                  variables in the <code>.env</code> next to the compose file. The Ollama address depends on how the
+                  The easiest way is the Settings page: in a container, what you save there is kept in{" "}
+                  <code>./runs/.config</code> on your machine (the image sets <code>RUNHOUND_CONFIG_DIR</code> to
+                  that folder). Or pass the <code>RUNHOUND_AI_*</code> variables to <code>docker run</code> with{" "}
+                  <code>-e</code>, or put them in the <code>.env</code> next to the compose file. The Ollama address depends on how the
                   container reaches your machine: with <code>--network host</code> on Linux it is{" "}
                   <code>http://127.0.0.1:11434/v1</code>; otherwise it is <code>host.docker.internal</code> (Docker) or{" "}
                   <code>host.containers.internal</code> (Podman), and Ollama must listen on all interfaces (

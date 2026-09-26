@@ -168,6 +168,44 @@ jobs:
             exit 1
           fi
 
+      - name: "Smoke test: the documented plain docker run works with no -e flags"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # README's main way to run Run Hound. The image's own defaults must let it reach the machine running it
+          # (host.docker.internal) and keep saved settings in the mounted runs folder.
+          mkdir -p plain-runs
+          docker run -d --name plain --init -p 127.0.0.1:4500:4000 --add-host host.docker.internal:host-gateway \
+            -v "$PWD/plain-runs:/repo/app/runs" "ghcr.io/rahul-bharati/run-hound:$VERSION"
+          for _ in $(seq 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4500/ || true)
+            [ "$code" = 200 ] && break
+            sleep 1
+          done
+          docker logs plain 2>&1 | head -5
+          if [ "$code" != 200 ]; then
+            echo "::error::The UI of a plain docker run answered ${code:-nothing}, expected 200"
+            exit 1
+          fi
+          if ! docker logs plain 2>&1 | grep -q 'open http://localhost:4000'; then
+            echo "::error::A plain docker run should print the address to open (http://localhost:4000)"
+            exit 1
+          fi
+          settings=$(curl -s -H 'X-Run-Hound: 1' http://127.0.0.1:4500/api/settings)
+          echo "$settings" | jq '{allowedHosts, file: .ai.file}'
+          if ! echo "$settings" | jq -e '.allowedHosts | index("host.docker.internal")' > /dev/null; then
+            echo "::error::A plain docker run should allow host.docker.internal by default"
+            exit 1
+          fi
+          if [ "$(echo "$settings" | jq -r .ai.file)" != /repo/app/runs/.config/ai.json ]; then
+            echo "::error::A plain docker run should keep saved settings in the mounted runs folder (runs/.config)"
+            exit 1
+          fi
+
+      - name: Stop the plain docker run
+        if: always()
+        run: docker rm -f plain > /dev/null 2>&1 || true
+
       - name: Start the test lab (run-hound.compose.yml with the images built above)
         run: |
           mkdir -p runs

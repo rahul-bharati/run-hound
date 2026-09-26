@@ -256,13 +256,13 @@ export default function Home() {
           <p className="font-mono text-xs tracking-widest text-dim">
             TRY IT WITH THE TEST APPS (KENNEL, FERNWAY AND FIVE SAMPLE APPS), FROM AN EMPTY FOLDER
           </p>
-          <CommandCopy command={site.dockerCommand} className="w-full max-w-2xl" />
+          <CommandCopy command={site.labCommand} className="w-full max-w-2xl" />
           <p className="text-sm text-dim">
             No clone needed. Podman: <code className="font-mono text-muted">podman compose -f run-hound.compose.yml up</code>. Then open{" "}
             <code className="font-mono text-muted">http://localhost:4000</code> and enter{" "}
             <code className="font-mono text-muted">http://fernway-bugs:4110/</code>.{" "}
             <a href="#start" className="text-muted underline underline-offset-4 hover:text-accent">
-              Both ways to start, step by step
+              Every way to start, step by step
             </a>
           </p>
         </div>
@@ -358,8 +358,8 @@ export default function Home() {
       <Section
         id="start"
         eyebrow="START NOW · FREE AND OPEN SOURCE"
-        title="Download one file and run it. Nothing to sign up for."
-        intro="The repository is public and MIT licensed. Start with Docker or Podman (no clone), or build it from source; the getting-started guide walks through a first run on Kennel, then your own app."
+        title="Pull one image and run it. Nothing to sign up for."
+        intro="The repository is public and MIT licensed. Pull and run the image with Docker or Podman (no clone), try it on the demo apps with one compose file, or build it from source; the getting-started guide walks through a first run on Kennel, then your own app."
         className="border-t border-line-soft bg-band"
       >
         <GetStarted />

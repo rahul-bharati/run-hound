@@ -1,16 +1,15 @@
 # Run Hound: local UI + API on port 4000, with Playwright's Chromium (715 MB unpacked, about 260 MB to download).
-# Published as ghcr.io/rahul-bharati/run-hound:0.4.0 (linux/amd64, linux/arm64), so running it needs no clone; the
+# Published as ghcr.io/rahul-bharati/run-hound:0.4.1 (linux/amd64, linux/arm64), so running it needs no clone; the
 # commands below work from any folder. To build it yourself, from the repository root (the pnpm workspace and
 # lockfile live there):
 #   docker build -f app/Dockerfile -t localhost/run-hound:dev .
-# Web UI (open http://localhost:4000; the --add-host and allowed-hosts flags let it reach your machine as
-# host.docker.internal on Linux too; AI settings saved in the UI go to ./runs/.config):
+# Web UI (open http://localhost:4000; apps on your machine are http://host.docker.internal:<port>, which --add-host
+# defines on Linux; Docker Desktop defines it itself; settings saved in the UI go to ./runs/.config):
 #   mkdir -p runs
 #   docker run --rm --init -p 127.0.0.1:4000:4000 --add-host host.docker.internal:host-gateway \
-#     -e RUNHOUND_ALLOWED_HOSTS=host.docker.internal -e RUNHOUND_PUBLIC_URL=http://localhost:4000 \
-#     -e RUNHOUND_CONFIG_DIR=/repo/app/runs/.config -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.4.0
+#     -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.4.1
 # Command line against an app on your machine (Linux; the container shares the host's network):
-#   docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.4.0 \
+#   docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.4.1 \
 #     run http://localhost:5173/signup --approve all
 # Run Hound only tests localhost, private addresses and hosts listed in RUNHOUND_ALLOWED_HOSTS
 # (e.g. -e RUNHOUND_ALLOWED_HOSTS=kennel when the target is another compose service). See TESTING.md; the whole test
@@ -28,6 +27,12 @@ FROM docker.io/library/node:24.21.0-bookworm-slim
 ENV NODE_ENV=production \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+# Defaults for a plain `docker run` (the compose files set their own; -e overrides either):
+# - the names Docker and Podman give the machine running the container, so an app there is reachable as
+#   http://host.docker.internal:<port>. They only ever point at that machine; nothing public is added.
+# - settings saved in the UI (AI, test accounts) go to the reports folder, so a mounted ./runs keeps them.
+ENV RUNHOUND_ALLOWED_HOSTS=host.docker.internal,host.containers.internal \
+    RUNHOUND_CONFIG_DIR=/repo/app/runs/.config
 WORKDIR /repo
 
 # pnpm comes from the root package.json "packageManager" field via corepack (install time only). The image installs

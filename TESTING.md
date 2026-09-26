@@ -1,4 +1,4 @@
-# Trying Run Hound 0.4.0 (V2 preview)
+# Trying Run Hound 0.4.1 (V2 preview)
 
 Thanks for trying Run Hound. The repository is public and open source: anyone can try it (no clone needed with Docker), read the code and file issues. Run Hound is AI-assisted UI testing for AI-built apps: AI plans and explains, real checks decide. This preview ships the real checks; 0.4.0 adds signed-in runs with two test accounts and the first access checks, and handles the widgets and dialogs AI app builders generate. Since 0.3.0 you can add your own model to review the plan, suggest extra flows and explain findings (optional, off by default). This guide covers what Run Hound does, how to run it on Kennel (the demo app) and then on your own app, signed-in runs, how to read the report, and what to send back.
 
@@ -94,29 +94,48 @@ When the same problem affects several elements (no visible focus on 6 controls),
 
 | | Docker or Podman (quickest, no clone) | From source |
 |---|---|---|
-| You need | Docker 24+ with Compose, Docker Desktop, or Podman with podman-compose, and curl. No git, no Node | Node 22.12 or newer (24 recommended), pnpm (via `corepack enable`, or any pnpm: it switches itself to 12.3.4), git |
-| Download and disk | About 0.5 GB to download and about 1 GB on disk for the whole test lab. Run Hound's own image is about 260 MB to download and 715 MB on disk | About 1 GB (dependencies and Chromium) |
+| You need | Docker 24+ or Docker Desktop, or Podman. For the test lab, also Compose (or podman-compose) and curl. No git, no Node | Node 22.12 or newer (24 recommended), pnpm (via `corepack enable`, or any pnpm: it switches itself to 12.3.4), git |
+| Download and disk | Run Hound's image: about 260 MB to download and 715 MB on disk. The whole test lab: about 0.5 GB to download and about 1 GB on disk | About 1 GB (dependencies and Chromium) |
 | Works on | Linux, macOS, Windows (amd64 and arm64) | Linux and macOS. Windows: use WSL2 |
-| Testing your own app | Linux: `--network host`, same as local. Mac/Windows: extra dev-server settings ([below](#docker-desktop-mac-windows-or-the-compose-ui)) | Just enter `http://localhost:<port>/<page>` |
+| Testing your own app | Enter `http://host.docker.internal:<port>/<page>`, with a few dev-server settings ([below](#docker-or-podman-any-os)). Linux: or `--network host`, same as local | Just enter `http://localhost:<port>/<page>` |
 | Watching the browser in a window | No: a container has no display | Yes, on a desktop (`--headed`, or **Show the browser window**) |
 
-**Docker or Podman is the quickest start**: one downloaded file, nothing to clone or build, the test apps included. On Linux it tests your own app as simply as a local install (host network). On a Mac or Windows, **the install from source** tests your app exactly as your browser sees it, with no networking set-up.
+**Docker or Podman is the quickest start**: pull one image and run it, nothing to clone or build. The test lab adds the demo apps with one more file. On Linux it tests your own app as simply as a local install (host network). On a Mac or Windows, **the install from source** tests your app exactly as your browser sees it, with no networking set-up.
 
 ## Install
 
 ### Docker or Podman (no clone)
 
-In an empty folder:
+Pull the image and run it, from any folder:
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.4.0/run-hound.compose.yml
+docker pull ghcr.io/rahul-bharati/run-hound
+mkdir -p runs                    # reports land here; create it yourself so the files belong to you
+docker run --rm --init -p 127.0.0.1:4000:4000 --add-host host.docker.internal:host-gateway \
+  -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound
+```
+
+The log prints the address to open: <http://localhost:4000>. It also shows `listening on http://0.0.0.0:4000` and a warning about serving beyond localhost: that address is inside the container, and on your machine the port is bound to `127.0.0.1` only. In the UI, enter a page of an app on your machine as `http://host.docker.internal:<port>/<page>` (Docker Desktop defines that name itself; `--add-host` adds it on Linux). Your dev server must accept that host name: see [Test your own app](#docker-or-podman-any-os). Reports land in `./runs`, and the AI settings and test accounts you save in the UI in `./runs/.config`.
+
+The image has these settings built in: `RUNHOUND_ALLOWED_HOSTS=host.docker.internal,host.containers.internal` and `RUNHOUND_CONFIG_DIR=/repo/app/runs/.config`. You can still override either with `-e`, for example `-e RUNHOUND_ALLOWED_HOSTS=host.docker.internal,myapp.internal`.
+
+**Podman:** the same commands with `podman` (`podman pull …`, `podman run …`); `host.containers.internal` also works there.
+
+**Windows PowerShell:** write each `docker run` on one line, since PowerShell doesn't continue lines with `\`, and use `mkdir runs` instead of `mkdir -p runs`. For the downloads in the test lab below, use `curl.exe` instead of `curl` (in Windows PowerShell 5.1, `curl` is an alias for `Invoke-WebRequest`, which rejects these options).
+
+The images are public on GitHub's registry and need no login: `ghcr.io/rahul-bharati/run-hound:0.4.1`, `run-hound-kennel`, `run-hound-samples` and `run-hound-fernway` (also tagged `0.4` and `latest`; linux/amd64 and arm64). The commands here use `latest`; `docker pull` again to update.
+
+Check it works: `docker run --rm ghcr.io/rahul-bharati/run-hound --version` prints `run-hound 0.4.1`.
+
+### Try it on the demo apps: the test lab
+
+One compose file starts Run Hound with every test app. In an empty folder:
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.4.1/run-hound.compose.yml
 mkdir -p runs                                  # reports land here; create it yourself so the files belong to you
 docker compose -f run-hound.compose.yml up     # or: podman compose -f run-hound.compose.yml up (podman-compose works too)
 ```
-
-**Windows PowerShell:** use `curl.exe` instead of `curl` (in Windows PowerShell 5.1, `curl` is an alias for `Invoke-WebRequest`, which rejects these options) and `mkdir runs` instead of `mkdir -p runs`. Write a multi-line `docker run` on one line, since PowerShell doesn't continue lines with `\`.
-
-The images are public on GitHub's registry and need no login: `ghcr.io/rahul-bharati/run-hound:0.4.0`, `run-hound-kennel`, `run-hound-samples` and `run-hound-fernway` (also tagged `0.4` and `latest`; linux/amd64 and arm64).
 
 This starts Run Hound and every test app, each on its own port bound to `127.0.0.1`:
 
@@ -135,7 +154,7 @@ This starts Run Hound and every test app, each on its own port bound to `127.0.0
 
 The sample apps and clean Fernway are well built on purpose: **any confirmed finding on them is a false positive**, please report it. Fernway's accounts and bugs are listed in [fixtures/fernway/README.md](fixtures/fernway/README.md).
 
-The first start downloads about 0.5 GB of images (about 1 GB once unpacked). When you see `Run Hound UI: open http://localhost:4000`, open that address. The log also shows `listening on http://0.0.0.0:4000` and a warning about serving beyond localhost: that address is inside the container, and on your machine the port is bound to `127.0.0.1` only.
+The first start downloads about 0.5 GB of images (about 1 GB once unpacked). When the log prints `open http://localhost:4000`, open that address.
 
 **Look after the lab:**
 
@@ -146,24 +165,10 @@ The first start downloads about 0.5 GB of images (about 1 GB once unpacked). Whe
 **Settings.** Every setting (host ports, `KENNEL_BUGS`, `FERNWAY_BUGS`, the runs folder, `RUNHOUND_ALLOWED_HOSTS`, AI, test accounts) has a default. To change one, put it in a `.env` file next to the compose file; the documented example is [`.env.example`](.env.example):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.4.0/.env.example -o .env   # then edit it
+curl -fsSL https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.4.1/.env.example -o .env   # then edit it
 ```
 
 Ports taken? Set them in `.env` (for example `RUNHOUND_HOST_PORT=4400`), or on the command line: `RUNHOUND_HOST_PORT=4400 KENNEL_HOST_PORT=5310 docker compose -f run-hound.compose.yml up`.
-
-**Only Run Hound, without the test apps**, in a single container (the web UI on <http://localhost:4000>):
-
-```sh
-mkdir -p runs
-docker run --rm --init -p 127.0.0.1:4000:4000 \
-  --add-host host.docker.internal:host-gateway -e RUNHOUND_ALLOWED_HOSTS=host.docker.internal \
-  -e RUNHOUND_PUBLIC_URL=http://localhost:4000 -e RUNHOUND_CONFIG_DIR=/repo/app/runs/.config \
-  -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.4.0
-```
-
-The `--add-host` and `RUNHOUND_ALLOWED_HOSTS` flags let it reach apps on your machine as `host.docker.internal` (Docker Desktop defines that name itself; the flag adds it on Linux). `RUNHOUND_PUBLIC_URL` makes the log print the address to open. `RUNHOUND_CONFIG_DIR` keeps the AI settings and test accounts you save in `./runs/.config`; without it they are lost with the container. Podman works the same (`podman run ...`).
-
-Check it works: `docker run --rm ghcr.io/rahul-bharati/run-hound:0.4.0 --version` prints `run-hound 0.4.0`.
 
 ### From source
 
@@ -181,7 +186,7 @@ pnpm --filter fernway build         # only needed for the Fernway app
 
 On Ubuntu or Debian, if Chromium complains about missing libraries, run `pnpm --filter run-hound exec playwright install --with-deps chromium` (it uses sudo). On other Linux distributions Playwright prints "BEWARE: your OS is not officially supported"; that is harmless as long as Chromium starts.
 
-Check it works: `cd app && pnpm exec tsx src/cli.ts --version` prints `run-hound 0.4.0`. In the clone, `docker compose up --build` builds and starts the same containers as above from your working tree.
+Check it works: `cd app && pnpm exec tsx src/cli.ts --version` prints `run-hound 0.4.1`. In the clone, `docker compose up --build` builds and starts the same containers as above from your working tree.
 
 ## Try it on Kennel first (10 minutes)
 
@@ -189,7 +194,7 @@ Kennel is a pet-sitting booking form with planted bugs you can switch on and off
 
 ### Docker or Podman
 
-With the test lab running (`docker compose -f run-hound.compose.yml up`, see [Install](#docker-or-podman-no-clone)), open <http://localhost:4000> and enter `http://kennel:3000/book` (inside the containers Kennel is called `kennel`), then follow steps 2 to 4 below. Or from the command line, in the same folder:
+With the test lab running (`docker compose -f run-hound.compose.yml up`, see [the test lab](#try-it-on-the-demo-apps-the-test-lab)), open <http://localhost:4000> and enter `http://kennel:3000/book` (inside the containers Kennel is called `kennel`), then follow steps 2 to 4 below. Or from the command line, in the same folder:
 
 ```sh
 docker compose -f run-hound.compose.yml run --rm run-hound run http://kennel:3000/book --approve all
@@ -230,28 +235,9 @@ echo $?                                                                 # 1: con
 2. Find the exact URL of the page you want tested, for example `http://localhost:5173/signup`. Use `localhost`, not `0.0.0.0`. For a page behind your sign-in, set up test accounts first ([Signed-in runs](#signed-in-runs-and-access-checks-v2-preview)).
 3. Run Run Hound on it (below), then check each finding against your app.
 
-### Docker on Linux (host network)
+### Docker or Podman (any OS)
 
-On Linux the container can share your machine's network, so `localhost` means your machine and nothing in your app needs to change:
-
-```sh
-mkdir -p runs
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.4.0 \
-  run http://localhost:5173/signup --approve all
-```
-
-The command prints `Report: /repo/app/runs/<runId>/report.html`; on your machine that's `./runs/<runId>/report.html`. Podman works the same (`podman run ...`).
-
-For the web UI on the host network, bind it to loopback so it isn't exposed to your network (add `-e RUNHOUND_CONFIG_DIR=/repo/app/runs/.config` to keep the test accounts and AI settings you save there):
-
-```sh
-docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.4.0 \
-  serve --host 127.0.0.1 --port 4310
-```
-
-### Docker Desktop (Mac, Windows) or the compose UI
-
-Here `localhost` inside the container is the container itself, not your machine. If you enter `http://localhost:5173` you get "Nothing is answering at http://localhost:5173": your app is running, just not where the container looks. Use `host.docker.internal` instead (`host.containers.internal` also works on Podman), and make your dev server accept it:
+This is the set-up of the pull-and-run container and the test lab. Inside the container `localhost` is the container itself, not your machine. If you enter `http://localhost:5173` you get "Nothing is answering at http://localhost:5173": your app is running, just not where the container looks. Use `host.docker.internal` instead (`host.containers.internal` also works on Podman), and make your dev server accept it:
 
 1. **Listen on all interfaces**, not just localhost:
    - Vite: `vite --host` (or `server.host: true`)
@@ -261,15 +247,37 @@ Here `localhost` inside the container is the container itself, not your machine.
    - Vite: `server: { allowedHosts: ["host.docker.internal"] }` in `vite.config`. Without it Vite answers "Blocked request. This host is not allowed" and Run Hound reports "No form found".
    - Next.js: `allowedDevOrigins: ["host.docker.internal"]` in `next.config`. Without it the page never becomes interactive and you get false findings.
    - Django: add it to `ALLOWED_HOSTS`; Rails: `config.hosts << "host.docker.internal"`.
-3. Enter `http://host.docker.internal:5173/signup` in the UI at <http://localhost:4000> (the test lab or the single container from [Install](#docker-or-podman-no-clone)), or run, in the folder with `run-hound.compose.yml`:
+3. Enter `http://host.docker.internal:5173/signup` in the UI at <http://localhost:4000> (the container from [Install](#docker-or-podman-no-clone), or the test lab), or run it once from the command line:
 
    ```sh
-   docker compose -f run-hound.compose.yml run --rm run-hound run http://host.docker.internal:5173/signup --approve all
+   docker run --rm --init --add-host host.docker.internal:host-gateway -v "$PWD/runs:/repo/app/runs" \
+     ghcr.io/rahul-bharati/run-hound run http://host.docker.internal:5173/signup --approve all
    ```
 
-The compose file already allows `host.docker.internal` and `host.containers.internal` through the safety check and adds `host.docker.internal` on Linux too; the single-container command does the same with `--add-host` and `RUNHOUND_ALLOWED_HOSTS`. A test account's sign-in page then uses the same host name as the page (`http://host.docker.internal:5173/login`).
+   The command prints `Report: /repo/app/runs/<runId>/report.html`; on your machine that's `./runs/<runId>/report.html`. With the test lab, the same run is `docker compose -f run-hound.compose.yml run --rm run-hound run http://host.docker.internal:5173/signup --approve all`, in the folder with `run-hound.compose.yml`.
+
+The image already allows `host.docker.internal` and `host.containers.internal` through the safety check; `--add-host host.docker.internal:host-gateway` (and the compose file) adds `host.docker.internal` on Linux, where Docker doesn't define it. A test account's sign-in page then uses the same host name as the page (`http://host.docker.internal:5173/login`).
 
 Limits of this set-up: a frontend that calls its API at `http://localhost:<apiPort>` will call the container instead and fail (use the host-network set-up or the install from source); `client-only-validation` is skipped for non-localhost targets; there is no visible browser window in a container (the live preview works).
+
+### Docker on Linux (host network)
+
+On Linux the container can share your machine's network instead, so `localhost` means your machine and nothing in your app needs to change:
+
+```sh
+mkdir -p runs
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound \
+  run http://localhost:5173/signup --approve all
+```
+
+The command prints `Report: /repo/app/runs/<runId>/report.html`; on your machine that's `./runs/<runId>/report.html`. Podman works the same (`podman run ...`).
+
+For the web UI on the host network, bind it to loopback so it isn't exposed to your network (open <http://localhost:4310>):
+
+```sh
+docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound \
+  serve --host 127.0.0.1 --port 4310
+```
 
 ### From source
 
@@ -294,7 +302,7 @@ Options: `--approve all|default|<id,id>` (default: the recommended scenarios; `a
 | A plan for your sign-in page when you entered another page | The page sent you to sign in, so the sign-in page was tested (check **Pages tested** in the report). Set up a test account and plan the page signed in ([Signed-in runs](#signed-in-runs-and-access-checks-v2-preview)). |
 | `Refusing to test …` | The host isn't local or private. Use `localhost`; list your own internal host names in `RUNHOUND_ALLOWED_HOSTS`. |
 | `EADDRINUSE` | The port is taken. Pick another (`--port`, `PORT`, `RUNHOUND_HOST_PORT`). |
-| `manifest unknown` or `denied` pulling `ghcr.io/rahul-bharati/run-hound…` | `manifest unknown`: the tag doesn't exist; check it (`0.4.0`, `0.4` or `latest`) and that the compose file came from a release tag. `denied`: usually an old `docker login ghcr.io`; run `docker logout ghcr.io` and try again (the images need no login). `no matching manifest`: your platform isn't linux/amd64 or linux/arm64, the only ones published. To build the images yourself instead: `docker compose up --build` in a clone. |
+| `manifest unknown` or `denied` pulling `ghcr.io/rahul-bharati/run-hound…` | `manifest unknown`: the tag doesn't exist; check it (`0.4.1`, `0.4` or `latest`) and that the compose file came from a release tag. `denied`: usually an old `docker login ghcr.io`; run `docker logout ghcr.io` and try again (the images need no login). `no matching manifest`: your platform isn't linux/amd64 or linux/arm64, the only ones published. To build the images yourself instead: `docker compose up --build` in a clone. |
 | `Invoke-WebRequest : A parameter cannot be found that matches parameter name 'fsSLO'` | Windows PowerShell's `curl` isn't curl. Use `curl.exe`. |
 | `EACCES … mkdir '/repo/app/runs/…'` | The container can't write to your reports folder. Create it yourself first (`mkdir -p runs`); on Podman avoid `--user`. |
 | `Error: executing /usr/bin/podman-compose run … exit status 1` | Podman's `docker compose` wrapper repeating Run Hound's exit code, not a crash: 1 means the run finished and found confirmed findings (the report was written), 2 an error or a run that tested nothing because every scenario errored or was skipped (the message above it says which). |
@@ -371,7 +379,7 @@ While signed in, Run Hound never clicks a sign-out control (it would end the run
 
 Optional, and new in 0.3.0. You need a model: the easiest is [Ollama](https://ollama.com) on your machine (`ollama pull qwen3:8b`, or any model you like), or LM Studio, or an OpenAI-compatible / Amazon Bedrock endpoint you have access to.
 
-1. In the web UI open **Settings → AI**, turn on **Use AI** and choose **Ollama**. **In a container** (the test lab or the single container), change the **Base URL** from `http://127.0.0.1:11434/v1`, which is the container itself, to `http://host.docker.internal:11434/v1` (Podman: `http://host.containers.internal:11434/v1`), and start Ollama listening on all interfaces: `OLLAMA_HOST=0.0.0.0 ollama serve`. Pick the model from the dropdown, press **Save**, then **Test connection** (it tests the saved settings).
+1. In the web UI open **Settings → AI**, turn on **Use AI** and choose **Ollama**. **In a container** (pull-and-run or the test lab), change the **Base URL** from `http://127.0.0.1:11434/v1`, which is the container itself, to `http://host.docker.internal:11434/v1` (Podman: `http://host.containers.internal:11434/v1`), and start Ollama listening on all interfaces: `OLLAMA_HOST=0.0.0.0 ollama serve`. Pick the model from the dropdown, press **Save**, then **Test connection** (it tests the saved settings).
 2. Plan a page with **Review with AI** ticked. Planning takes longer (a 9B model on a laptop: about a minute). Each scenario shows the model's reason; **Suggested by AI** scenarios show their steps and are unticked: tick the ones that look useful.
 3. After the run, findings have an **AI explanation** panel below the built-in one.
 
@@ -386,7 +394,7 @@ docker compose -f run-hound.compose.yml run --rm run-hound run http://kennel:300
 
 `ai test` prints `ok: … answered in …` (exit 0) or why it failed (exit 1). Without flags, `ai status` and `ai test` use what is saved in Settings or set in `.env`. To turn AI on for every run from `.env`, set `RUNHOUND_AI=1`, `RUNHOUND_AI_PROVIDER`, `RUNHOUND_AI_BASE_URL` and `RUNHOUND_AI_MODEL` (every provider needs `RUNHOUND_AI=1` and a model; a remote endpoint also `RUNHOUND_AI_ALLOW_REMOTE=1` and its key). From source, use `pnpm exec tsx src/cli.ts ai test --ai-provider ollama --ai-model qwen3:8b` in `app/`: Ollama is at its default address there.
 
-In a container, Ollama on your machine is `http://127.0.0.1:11434/v1` with `--network host` on Linux; otherwise it is `http://host.docker.internal:11434/v1` (Docker) or `http://host.containers.internal:11434/v1` (Podman), and Ollama must listen on all interfaces. Settings you save in the UI are kept in `./runs/.config` with the compose file (it sets `RUNHOUND_CONFIG_DIR=/repo/app/runs/.config`); with a plain `docker run`, add `-e RUNHOUND_CONFIG_DIR=/repo/app/runs/.config` or they are lost with the container. **`runs/.config/ai.json` holds any API key you saved: share a single `runs/<runId>` folder, never the whole `runs/` folder.** A remote endpoint needs you to tick the consent box first; nothing is sent until then.
+In a container, Ollama on your machine is `http://127.0.0.1:11434/v1` with `--network host` on Linux; otherwise it is `http://host.docker.internal:11434/v1` (Docker) or `http://host.containers.internal:11434/v1` (Podman), and Ollama must listen on all interfaces. Settings you save in the UI are kept in `./runs/.config`: the image sets `RUNHOUND_CONFIG_DIR=/repo/app/runs/.config`, inside the runs folder you mount. **`runs/.config/ai.json` holds any API key you saved: share a single `runs/<runId>` folder, never the whole `runs/` folder.** A remote endpoint needs you to tick the consent box first; nothing is sent until then.
 
 What we'd like to hear: were the reasons and suggested flows useful or noise, did a suggested flow report something that isn't a bug, and which model you used.
 
@@ -431,8 +439,8 @@ Open an issue with the **Feedback** form: <https://github.com/rahul-bharati/run-
 
 Please include:
 
-1. **The version**: `docker run --rm ghcr.io/rahul-bharati/run-hound:0.4.0 --version`, `pnpm exec tsx src/cli.ts --version` in `app/` from source, or `runHoundVersion` in `report.json`.
-2. **Your OS and how you ran it**: Docker (compose or single container) or from source, web UI or command line, Node version, and whether the run was signed in as a test account.
+1. **The version**: `docker run --rm ghcr.io/rahul-bharati/run-hound:0.4.1 --version`, `pnpm exec tsx src/cli.ts --version` in `app/` from source, or `runHoundVersion` in `report.json`.
+2. **Your OS and how you ran it**: Docker (pull-and-run or the test lab) or from source, web UI or command line, Node version, and whether the run was signed in as a test account.
 3. **What you tested**: the framework, the dev server, and what the page does (not the URL, if it's private).
 4. **The report**: `report.md`, or that one run folder zipped (`zip -r run.zip runs/<runId>`, or `app/runs/<runId>` from source). **Never send the whole `runs/` folder**: `runs/.config` holds your saved API keys and test-account passwords. **Look through the screenshots first**: they show whatever your page showed and can't be redacted.
 5. **What was wrong**, one of:
