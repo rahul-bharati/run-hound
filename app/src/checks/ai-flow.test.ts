@@ -10,6 +10,7 @@ import { createCheckContext } from "../engine/context.js";
 import { discoverPage } from "../engine/discover.js";
 import { check } from "./ai-flow.js";
 import { explainPrompt } from "../ai/explain.js";
+import { projectForm, startWidgetApp, type WidgetApp } from "../../test/fixtures/widgets/widget-app.js";
 
 /**
  * ai-flow runs the steps of an AI-suggested scenario (Scenario.flow) against the discovered form and decides each
@@ -454,6 +455,30 @@ describe("ai-flow: Enter can't submit a destructive form", () => {
     expect(result.status).toBe("fail");
     expect(s.deletes()).toBe(1);
   });
+
+  it("presses Enter in a contact form whose own submit button is \"Send message\" (sending words only count elsewhere)", async () => {
+    const page = `<!doctype html><html lang="en"><head><title>Contact</title></head><body><main>
+<form id="contact"><h1>Contact us</h1>
+  <label for="message">Message</label><input id="message" name="message">
+  <button type="submit">Send message</button><p id="status" role="status"></p>
+</form></main>
+<script>
+  document.getElementById("contact").addEventListener("submit", function (e) {
+    e.preventDefault();
+    fetch("/api/messages", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: document.getElementById("message").value }) })
+      .then(function () { document.getElementById("status").textContent = "Thanks, we got it"; });
+  });
+</script></body></html>`;
+    const s = await startFixtureServer({ pages: { "/contact": page }, routes: { "POST /api/messages": (_req, res) => json(res, 201, { ok: true }) } });
+    servers.push(s);
+    const { result } = await runFlow(`${s.url}/contact`, () => [
+      { action: "fill", field: "message", value: "Hello there" },
+      { action: "press", key: "Enter" },
+      { action: "expect", expect: "request-ok", text: null },
+    ]);
+    expect(result.status, result.notes).toBe("pass");
+    expect(s.requests.filter((r) => r.method === "POST" && r.url.startsWith("/api/messages"))).toHaveLength(1);
+  });
 });
 
 describe("ai-flow: steps that can't run", () => {
@@ -522,5 +547,87 @@ describe("ai-flow: steps that can't run", () => {
     const s = await app();
     const { result } = await runFlow(`${s.url}/profile`, () => []);
     expect(result.status).toBe("error");
+  });
+});
+
+describe("ai-flow: widgets (LOV-1, LOV-14)", () => {
+  let widgets: WidgetApp | undefined;
+  afterAll(async () => {
+    await widgets?.close();
+  });
+
+  /** Runs a flow against the Radix/shadcn form with its hand-written discovery result (no discovery needed). */
+  async function runWidgetFlow(flow: FlowStep[]): Promise<CheckResult> {
+    widgets ??= await startWidgetApp();
+    const url = `${widgets.url}/projects`;
+    const artifactsDir = await mkdtemp(join(tmpdir(), "rh-ai-flow-widgets-"));
+    const ctx = createCheckContext({ browser: await getBrowser(), form: projectForm(url), targetUrl: url, artifactsDir, allowDestructive: false, runToken: "t3st" });
+    try {
+      return await check.run(ctx, flowScenario(flow, { title: "Create a project" }));
+    } finally {
+      await ctx.dispose();
+      await rm(artifactsDir, { recursive: true, force: true });
+    }
+  }
+
+  const createProject: FlowStep[] = [
+    { action: "fill", field: "name", value: "Apollo" },
+    { action: "choose", field: "teamSize", option: "6–20" },
+    { action: "choose", field: "priority", option: "high" },
+    { action: "fill", field: "owner", value: "Sam Lee" },
+    { action: "fill", field: "terms", value: "yes" },
+    { action: "click", control: 0 },
+  ];
+
+  it("chooses in a Radix Select and RadioGroup, picks a cmdk owner and checks a Radix Checkbox, and the save goes through", async () => {
+    const result = await runWidgetFlow([...createProject, { action: "expect", expect: "request-ok", text: null }]);
+    expect(result.status, result.notes).toBe("pass");
+    expect(widgets!.posts("/api/projects").at(-1)).toMatchObject({ name: "Apollo", teamSize: "6-20", priority: "high", owner: "Sam Lee", terms: true });
+  });
+
+  it("the spec of a failed flow sets widgets by their roles, never as buttons", async () => {
+    const result = await runWidgetFlow([...createProject, { action: "expect", expect: "text-visible", text: "Project archived" }]);
+    expect(result.status).toBe("fail");
+    const source = result.findings[0]!.spec!.source;
+    for (const line of [
+      `await page.getByRole("combobox", { name: "Team size", exact: true }).click();`,
+      `await page.getByRole("option", { name: "6–20", exact: true }).click();`,
+      `await page.getByRole("radio", { name: "high", exact: true }).check();`,
+      `await page.getByRole("combobox", { name: "Owner", exact: true }).click();`,
+      `await page.getByRole("option", { name: "Sam Lee", exact: true }).click();`,
+      `await page.getByRole("checkbox", { name: "I accept the terms", exact: true }).check();`,
+      `await page.getByRole("button", { name: "Create project", exact: true }).click();`,
+    ]) {
+      expect(source).toContain(line);
+    }
+    expect(source).not.toMatch(/getByRole\("button", \{ name: "(Team size|Owner|high|I accept the terms)"/);
+  });
+
+  it("a value a widget can't take ends the flow as an error naming the field, with the steps done so far", async () => {
+    const result = await runWidgetFlow([
+      { action: "fill", field: "name", value: "Apollo" },
+      { action: "fill", field: "owner", value: "Nobody Atall" },
+      { action: "click", control: 0 },
+      { action: "expect", expect: "request-ok", text: null },
+    ]);
+    expect(result.status).toBe("error");
+    expect(result.findings).toEqual([]);
+    expect(result.notes).toMatch(/Owner/);
+    expect(result.notes).toMatch(/Nobody Atall/);
+    expect(result.steps).toHaveLength(1);
+  });
+
+  it("field-kept only checks what was typed, not the choices and checkboxes", async () => {
+    const result = await runWidgetFlow([
+      { action: "fill", field: "name", value: "Apollo" },
+      { action: "choose", field: "teamSize", option: "1–5" },
+      { action: "fill", field: "owner", value: "Priya Shah" },
+      { action: "fill", field: "notify", value: "on" },
+      // The form refuses: no priority and no terms.
+      { action: "click", control: 0 },
+      { action: "expect", expect: "field-kept", text: null },
+    ]);
+    expect(result.status, result.notes).toBe("pass");
+    expect(result.notes).toMatch(/1 typed value is still in place/);
   });
 });

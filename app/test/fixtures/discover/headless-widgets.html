@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Headless UI widgets</title>
+<style>
+  [role=radio] { cursor: pointer; display: inline-block; padding: 4px 8px; border: 1px solid #999; }
+  [role=listbox] { position: absolute; top: 40px; left: 40px; background: white; border: 1px solid #999; }
+</style>
+</head>
+<body>
+<!-- Shaped like Headless UI v2 (Listbox, Combobox, Switch, RadioGroup): no bubble inputs, hidden inputs carry the value. -->
+<main>
+<h1>Book a sitter</h1>
+<form id="booking">
+  <label for="pet">Pet name</label><input id="pet" name="pet">
+
+  <label id="headlessui-label-:r1:" for="headlessui-listbox-button-:r2:">Sitter</label>
+  <button type="button" id="headlessui-listbox-button-:r2:" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="headlessui-label-:r1: headlessui-listbox-button-:r2:" data-headlessui-state="">Anyone</button>
+  <input type="hidden" name="sitter" value="">
+
+  <label id="headlessui-label-:r5:" for="headlessui-combobox-input-:r6:">City</label>
+  <input id="headlessui-combobox-input-:r6:" role="combobox" type="text" aria-expanded="false" aria-autocomplete="list" aria-labelledby="headlessui-label-:r5:" name="city">
+  <button type="button" id="headlessui-combobox-button-:r7:" tabindex="-1" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="headlessui-combobox-button-:r7:">▾</button>
+
+  <div id="headlessui-radiogroup-:r8:" role="radiogroup" aria-labelledby="headlessui-label-:r9:">
+    <span id="headlessui-label-:r9:">Visit length</span>
+    <div id="headlessui-radio-:ra:" role="radio" aria-checked="true" tabindex="0" aria-labelledby="headlessui-label-:rb:"><span id="headlessui-label-:rb:">30 min</span></div>
+    <div id="headlessui-radio-:rc:" role="radio" aria-checked="false" tabindex="-1" aria-labelledby="headlessui-label-:rd:"><span id="headlessui-label-:rd:">1 hour</span></div>
+  </div>
+  <input type="hidden" name="length" value="30">
+
+  <p>Pet size</p>
+  <div class="sizes">
+    <span role="radio" aria-checked="false" tabindex="0">Small</span>
+    <span role="radio" aria-checked="false" tabindex="-1">Large</span>
+  </div>
+
+  <span id="headlessui-label-:rf:">Send reminders</span>
+  <button id="headlessui-switch-:rg:" role="switch" type="button" tabindex="0" aria-checked="false" aria-labelledby="headlessui-label-:rf:" data-headlessui-state=""></button>
+
+  <button type="submit">Book</button>
+</form>
+</main>
+<script>
+  for (const r of document.querySelectorAll("[role=radio]")) r.addEventListener("click", () => {
+    for (const o of document.querySelectorAll("[role=radio]")) o.setAttribute("aria-checked", String(o === r));
+  });
+  const sw = document.querySelector("[role=switch]");
+  sw.addEventListener("click", () => sw.setAttribute("aria-checked", String(sw.getAttribute("aria-checked") !== "true")));
+  const sitter = document.querySelector("[aria-haspopup=listbox]");
+  sitter.addEventListener("click", () => {
+    if (document.getElementById("sitters")) return;
+    const list = document.createElement("ul");
+    list.id = "sitters"; list.setAttribute("role", "listbox");
+    list.innerHTML = '<li role="option">Anyone</li><li role="option">Maya</li><li role="option">Theo</li>';
+    document.body.appendChild(list);
+    sitter.setAttribute("aria-expanded", "true");
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { document.getElementById("sitters")?.remove(); sitter.setAttribute("aria-expanded", "false"); } });
+  document.getElementById("booking").addEventListener("submit", (e) => e.preventDefault());
+</script>
+</body>
+</html>

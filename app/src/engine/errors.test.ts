@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanErrorMessage, containerLocalhostHint, explainNavigationError, explainNoForm, inContainer, NoFormFoundError, normalizeTargetUrl, TargetUnreachableError } from "./errors.js";
+import { cleanErrorMessage, containerLocalhostHint, explainNavigationError, explainNoForm, inContainer, NoFormFoundError, normalizeTargetUrl, splitTargetUrl, TargetUnreachableError } from "./errors.js";
 
 describe("normalizeTargetUrl", () => {
   it("adds http:// when the scheme is missing", () => {
@@ -10,6 +10,32 @@ describe("normalizeTargetUrl", () => {
   it("leaves URLs that name a scheme alone, for the safety gate to judge", () => {
     expect(normalizeTargetUrl("https://localhost:3000/")).toBe("https://localhost:3000/");
     expect(normalizeTargetUrl("file:///etc/passwd")).toBe("file:///etc/passwd");
+  });
+
+  it("drops a user name and password written into the URL, so they never reach a plan, report or log", () => {
+    expect(normalizeTargetUrl("http://admin:hunter2@127.0.0.1:4714/")).toBe("http://127.0.0.1:4714/");
+    expect(normalizeTargetUrl("admin:hunter2@localhost:3000/book?x=1#top")).toBe("http://localhost:3000/book?x=1#top");
+    expect(normalizeTargetUrl("https://token@localhost/")).toBe("https://localhost/");
+    // Even a URL the parser rejects loses them: the gate's refusal quotes the URL.
+    expect(normalizeTargetUrl("http://admin:hunter2@")).not.toContain("hunter2");
+    expect(normalizeTargetUrl("http://admin:hunter2@[not-an-ip]/")).not.toContain("hunter2");
+  });
+});
+
+describe("splitTargetUrl", () => {
+  it("returns the URL without its user name and password, and those decoded, for the browser to answer HTTP authentication", () => {
+    expect(splitTargetUrl("http://admin:hunter2@127.0.0.1:4714/")).toEqual({ url: "http://127.0.0.1:4714/", credentials: { username: "admin", password: "hunter2" } });
+    expect(splitTargetUrl("admin:p%40ss%3Aword@localhost:3000/book")).toEqual({
+      url: "http://localhost:3000/book",
+      credentials: { username: "admin", password: "p@ss:word" },
+    });
+    expect(splitTargetUrl("https://token@localhost/")).toEqual({ url: "https://localhost/", credentials: { username: "token", password: "" } });
+  });
+
+  it("leaves a URL without them as typed, with no credentials", () => {
+    expect(splitTargetUrl(" localhost:3000 ")).toEqual({ url: "http://localhost:3000" });
+    expect(splitTargetUrl("http://localhost:3000/a@b")).toEqual({ url: "http://localhost:3000/a@b" });
+    expect(splitTargetUrl("http://@localhost:3000/")).toEqual({ url: "http://@localhost:3000/" });
   });
 });
 

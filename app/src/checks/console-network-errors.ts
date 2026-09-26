@@ -13,6 +13,14 @@ const ID = "console-network-errors" as const;
 const IGNORED_FAILURES = /ERR_ABORTED|NS_BINDING_ABORTED|cancelled/i;
 
 /**
+ * A navigation Run Hound's own guard refused (engine/guard.ts aborts it with "blockedbyclient"): an iframe embed
+ * (video, map, payment widget) or a form post to another site. The app did nothing wrong; the request never left.
+ */
+export function isBlockedByRunHound(r: { resourceType: string; failure: string | null }): boolean {
+  return r.resourceType === "document" && r.failure !== null && /ERR_BLOCKED_BY_CLIENT/i.test(r.failure);
+}
+
+/**
  * Dev-server plumbing (hot reload sockets and pings of Next.js, Vite, webpack, Nuxt, Astro). A dev server can refuse
  * these for a host it doesn't expect (Run Hound in a container), which says nothing about the app itself.
  */
@@ -67,9 +75,12 @@ export const check: Check = {
       // error. Those answers, and the browser's matching "Failed to load resource" lines, are left out.
       const refusedSignIns = creates.filter((r) => isRefusedSignIn(ctx.form, r.status));
       const expectedStatusLines = refusedSignIns.map((r) => ({ status: r.status!, url: r.url }));
+      // Navigations off the target that Run Hound blocked are not tested, not failures; the notes name them.
+      const blocked = capture.requests.filter(isBlockedByRunHound);
       const failedAt = capture.requests.flatMap((r, i) =>
         !r.url.startsWith("data:") &&
         !refusedSignIns.includes(r) &&
+        !blocked.includes(r) &&
         !DEV_SERVER_NOISE.test(r.url) &&
         ((r.status !== null && r.status >= 400) || (r.failure !== null && !IGNORED_FAILURES.test(r.failure)))
           ? [{ r, when: phase(i, loaded.requests) }]
@@ -77,6 +88,7 @@ export const check: Check = {
       );
       const consoleAt = capture.console.flatMap((m, i) => {
         if (m.type !== "error" || DEV_SERVER_NOISE.test(m.text) || (m.url && DEV_SERVER_NOISE.test(m.url))) return [];
+        if (/ERR_BLOCKED_BY_CLIENT/.test(m.text) && (!m.url || blocked.some((r) => r.url === m.url))) return [];
         const expected = expectedStatusLines.findIndex((e) => isResourceStatusLine(m.text, e.status) && (!m.url || m.url === e.url));
         if (expected >= 0) {
           expectedStatusLines.splice(expected, 1);
@@ -85,15 +97,30 @@ export const check: Check = {
         return [{ m, when: phase(i, loaded.console) }];
       });
       const pageErrorsAt = capture.pageErrors.map((e, i) => ({ e, when: phase(i, loaded.pageErrors) }));
-      const failed = failedAt.map((x) => x.r);
-      const consoleErrors = consoleAt.map((x) => x.m);
-      const pageErrors = pageErrorsAt.map((x) => x.e);
+      // Errors while loading belong to the page, not to a form: on a page with several forms they are reported once,
+      // by the main form's scenario (the first form, or the only one in a V0 plan), and this form's scenario only
+      // reports what went wrong after submitting it.
+      const mainForm = (scenario.formIndex ?? 0) === 0;
+      const loadErrors = [...failedAt, ...consoleAt, ...pageErrorsAt].filter((x) => x.when === "while loading").length;
+      const ownPhase = <T extends { when: string }>(list: T[]) => (mainForm ? list : list.filter((x) => x.when !== "while loading"));
+      const failed = ownPhase(failedAt).map((x) => x.r);
+      const consoleErrors = ownPhase(consoleAt).map((x) => x.m);
+      const pageErrors = ownPhase(pageErrorsAt).map((x) => x.e);
+      const notes = [
+        ...(blocked.length > 0
+          ? [`Not tested: ${blocked.length} request${blocked.length === 1 ? "" : "s"} left the target and Run Hound blocked ${blocked.length === 1 ? "it" : "them"} (${blocked.slice(0, 3).map((r) => `${r.method} ${r.url}`).join(", ")}); not counted as errors.`]
+          : []),
+        ...(!mainForm && loadErrors > 0 ? [`${loadErrors} error${loadErrors === 1 ? "" : "s"} while loading the page ${loadErrors === 1 ? "is" : "are"} reported with the main form's scenario, not again here.`] : []),
+      ];
       // The submit itself, so the frame shows the form really was sent (and what the server said).
       const saves = creates.map((r) => `${endpointOf(r.method, r.url)} → ${r.status ?? r.failure ?? "no answer"}`);
       if (failed.length === 0 && consoleErrors.length === 0 && pageErrors.length === 0) {
         const signIn = refusedSignIns.length > 0 ? ` The sign-in was refused (${refusedSignIns[0]!.status}), as expected for made-up credentials.` : "";
-        return result(ID, scenario, started, [], `Loaded and submitted the form; ${capture.requests.length} requests, no errors.${signIn}`);
+        return result(ID, scenario, started, [], [`Loaded and submitted the form; ${capture.requests.length} requests, no errors.${signIn}`, ...notes].join(" "));
       }
+      const failedLines = ownPhase(failedAt);
+      const pageErrorLines = ownPhase(pageErrorsAt);
+      const consoleLines = ownPhase(consoleAt);
 
       const counts: Fact[] = [
         { label: "Console errors", value: String(consoleErrors.length) },
@@ -106,11 +133,11 @@ export const check: Check = {
         subtitle: page.url(),
         lines: [
           ...(failed.length ? [{ text: `Failed requests (${failed.length})` }] : []),
-          ...failedAt.map(({ r, when }) => ({ text: `  ${r.method} ${r.url} → ${r.status ?? r.failure}  (${when})`, mark: true })),
+          ...failedLines.map(({ r, when }) => ({ text: `  ${r.method} ${r.url} → ${r.status ?? r.failure}  (${when})`, mark: true })),
           ...(pageErrors.length ? [{ text: `Uncaught page errors (${pageErrors.length})` }] : []),
-          ...pageErrorsAt.map(({ e, when }) => ({ text: `  ${e.split("\n")[0]}  (${when})`, mark: true })),
+          ...pageErrorLines.map(({ e, when }) => ({ text: `  ${e.split("\n")[0]}  (${when})`, mark: true })),
           ...(consoleErrors.length ? [{ text: `Console errors (${consoleErrors.length})` }] : []),
-          ...consoleAt.map(({ m, when }) => ({ text: `  console.error: ${m.text.split("\n")[0]}  (${when})`, mark: true })),
+          ...consoleLines.map(({ m, when }) => ({ text: `  console.error: ${m.text.split("\n")[0]}  (${when})`, mark: true })),
           ...(saves.length ? [{ text: "" }, { text: `Form submit: ${saves.join(", ")}` }] : []),
         ],
         facts: counts,
@@ -175,9 +202,9 @@ export const check: Check = {
           ...pageErrors.map((e) => evidence("console", "Uncaught page error", { type: "pageerror", text: e })),
           ...consoleErrors.map((m) => evidence("console", "Console error", m)),
         ],
-        spec: { name: "no-errors-on-golden-path", source: specSource(ctx.targetUrl, "loads and submits the form without errors", body) },
+        spec: { name: "no-errors-on-golden-path", source: specSource(ctx.targetUrl, "loads and submits the form without errors", body, ctx.form) },
       });
-      return result(ID, scenario, started, [finding]);
+      return result(ID, scenario, started, [finding], notes.length > 0 ? notes.join(" ") : undefined);
     });
   },
 };

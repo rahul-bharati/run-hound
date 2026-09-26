@@ -4,6 +4,9 @@
  * and after successful bookings. Each violated rule becomes ONE finding listing every affected node
  * and the states it was seen in.
  *
+ * Each scan waits for entrance animations to end first, and a contrast failure must still be there a moment later,
+ * so text is never judged while it fades in (framer-motion hero text).
+ *
  * axe 4.13's `label` rule accepts a placeholder as a label, so a placeholder-only field is reported
  * by an extra in-page check under the same `label` rule id.
  */
@@ -11,6 +14,7 @@ import { AxeBuilder } from "@axe-core/playwright";
 import type { Page } from "playwright";
 import { isPagePost, isSaveRequest } from "../core/saves.js";
 import type { Check, CheckContext, DiscoveredForm, Evidence, Fact, Highlight, Scenario, Severity } from "../core/types.js";
+import { openForm, openFormSpec } from "../engine/open-form.js";
 import { redactSecrets } from "../engine/redact.js";
 import { checkResult, clip, evalIn, FindingList, guarded, playwrightSpec, scenarioFor, submitControl, uniquePlaces } from "./lib/a11y-common.js";
 import { canaries, fillAndSubmitSpec, fillValid, settle, submitAndWait } from "./lib/a11y-form.js";
@@ -47,6 +51,35 @@ interface RuleHit {
 
 /** At most this many violating nodes are marked on a frame, and across a rule's frames. */
 const MAX_MARKED = 10;
+
+/** How long a scan waits for entrance animations and transitions (fade-ins, slide-ins, toasts) to end. */
+const ANIMATION_WAIT_MS = 3_000;
+/** How long after a scan the page is scanned again for contrast, to tell faint text from text still fading in. */
+const CONTRAST_RECHECK_MS = 1_500;
+
+/**
+ * Waits (at most maxMs) for the page's finite animations and transitions to end: CSS animations and transitions and
+ * Web Animations (framer-motion's), including those still in their delay. Endless ones (spinners, pulses) are not
+ * waited for, and nothing is skipped ahead: the page ends where a person would see it. Returns how many it waited for.
+ */
+const SETTLE_ANIMATIONS = `async (maxMs) => {
+  const finite = document.getAnimations().filter((a) => {
+    const timing = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : null;
+    return a.playState === "running" && timing && Number.isFinite(timing.endTime);
+  });
+  if (finite.length === 0) return 0;
+  await Promise.race([
+    Promise.all(finite.map((a) => a.finished.catch(() => undefined))),
+    new Promise((resolve) => setTimeout(resolve, maxMs)),
+  ]);
+  await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+  return finite.length;
+}`;
+
+/** Lets entrance animations end before a scan, so text isn't measured half-transparent mid-fade. */
+async function settleAnimations(page: Page): Promise<void> {
+  await evalIn<number>(page, SETTLE_ANIMATIONS, ANIMATION_WAIT_MS).catch(() => 0);
+}
 
 /** A short name for each selector's element, as a person would describe it: label, aria-label, text, alt, placeholder. */
 const NAMES = `(selectors) => selectors.map((sel) => {
@@ -191,8 +224,10 @@ await page.waitForTimeout(1000);`;
     case "success":
       return `${fillAndSubmitSpec(form, canaries(runToken, "ax"))}
 await page.waitForLoadState("networkidle");
-// A classic form post leads to another page: open the form again for the second submission.
-if ((await page.locator(${JSON.stringify(form.selector)}).count()) === 0) await page.goto(TARGET);
+// A classic form post leads to another page (and a dialog closes after saving): open the form again for the second submission.
+if ((await page.locator(${JSON.stringify(form.selector)}).count()) === 0) {
+${[`await page.goto(TARGET);`, ...openFormSpec(form)].map((line) => `  ${line}`).join("\n")}
+}
 ${fillAndSubmitSpec(form, canaries(runToken, "ay"))}
 await page.waitForLoadState("networkidle");`;
   }
@@ -278,7 +313,26 @@ export const check: Check = {
           }
         }
         visited.push(state);
+        await settleAnimations(page);
         const results = await builder.analyze();
+        // Text faded in by script (not a Web Animation) can still be half-transparent: contrast failures must still be
+        // there a moment later, or they were the fade, not the colours.
+        const contrast = results.violations.find((v) => v.id === "color-contrast");
+        if (contrast) {
+          await page.waitForTimeout(CONTRAST_RECHECK_MS);
+          await settleAnimations(page);
+          const again = new AxeBuilder({ page }).withRules(["color-contrast"]);
+          if (scope.include) again.include(scope.include);
+          for (const selector of scope.exclude) again.exclude(selector);
+          const still = new Set(((await again.analyze()).violations[0]?.nodes ?? []).map((n) => n.target.map(String).join(" ")));
+          const before = contrast.nodes.length;
+          contrast.nodes = contrast.nodes.filter((n) => still.has(n.target.map(String).join(" ")));
+          if (contrast.nodes.length < before) {
+            const faded = before - contrast.nodes.length;
+            notes.push(`${state} state: ${elements(faded)} passed contrast once ${faded === 1 ? "it" : "they"} finished fading in, not reported`);
+          }
+          if (contrast.nodes.length === 0) results.violations = results.violations.filter((v) => v !== contrast);
+        }
         const violations = results.violations.map((v) => ({
           ruleId: v.id,
           impact: v.impact ?? "moderate",
@@ -364,9 +418,10 @@ export const check: Check = {
         const statuses: (number | null)[] = [];
         for (const variant of ["ax", "ay"]) {
           if (!(await formIsShown(ok.page, ctx.form))) {
-            ctx.step("Opening the form again (the last submission led to another page)", ok.page);
+            ctx.step("Opening the form again (the last submission led to another page or closed the dialog)", ok.page);
             await ok.page.goto(ctx.targetUrl, { waitUntil: "load" });
             await settle(ok.page, 300);
+            await openForm(ok.page, ctx.form);
           }
           ctx.step(`Submitting with test values (${variant === "ax" ? "1st" : "2nd"} submission)`, ok.page);
           await fillValid(ok.page, ctx.form, canaries(ctx.runToken, variant));
@@ -402,7 +457,12 @@ ${
 expect(unlabelled).toEqual([]);
 `
     : ""
-}const results = await new AxeBuilder({ page }).withTags(${JSON.stringify(AXE_TAGS)}).withRules(${JSON.stringify(hit.ruleId)})${(ctx.form.index ?? 0) > 0 ? `.include(${JSON.stringify(ctx.form.selector)})` : (ctx.discoveredPage?.forms.slice(1) ?? []).map((f) => `.exclude(${JSON.stringify(f.selector)})`).join("")}.analyze();
+}// Let entrance animations end first, so text is not measured while it fades in.
+await page.evaluate(() => Promise.race([
+  Promise.all(document.getAnimations().filter((a) => Number.isFinite(a.effect?.getComputedTiming().endTime)).map((a) => a.finished.catch(() => undefined))),
+  new Promise((resolve) => setTimeout(resolve, 3000)),
+]));
+const results = await new AxeBuilder({ page }).withTags(${JSON.stringify(AXE_TAGS)}).withRules(${JSON.stringify(hit.ruleId)})${(ctx.form.index ?? 0) > 0 ? `.include(${JSON.stringify(ctx.form.selector)})` : (ctx.discoveredPage?.forms.slice(1) ?? []).map((f) => `.exclude(${JSON.stringify(f.selector)})`).join("")}.analyze();
 expect(results.violations).toEqual([]);`;
         findings.add({
           // The count is in the title when the rule fails on several elements: one finding per rule, never per element.
@@ -427,7 +487,7 @@ expect(results.violations).toEqual([]);`;
             `no "${hit.ruleId}" violations in the ${firstState} state`,
             ctx.targetUrl,
             specBody,
-            ['import { AxeBuilder } from "@axe-core/playwright";'],
+            ['import { AxeBuilder } from "@axe-core/playwright";'], ctx.form,
           ),
         });
       }

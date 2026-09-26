@@ -512,6 +512,12 @@ export interface Check {
    */
   plan(form: DiscoveredForm, page?: DiscoveredPage, env?: PlanEnv): Scenario[];
   run(ctx: CheckContext, scenario: Scenario): Promise<CheckResult>;
+  /**
+   * How long one of this check's scenarios may take, when its work grows with the page (a check that loads the page
+   * once for every control it clicks). The runner allows the larger of this and its default limit (3 minutes);
+   * RunOptions.scenarioTimeoutMs, when given, applies as it is. Absent = the default limit.
+   */
+  timeLimitMs?(scenario: Scenario, form: DiscoveredForm, page?: DiscoveredPage): number;
 }
 
 /** A group's scenarios within a plan, in run order. */
@@ -596,11 +602,18 @@ export interface Report {
   /**
    * How many records the run may have created in the app under test: save requests (non-GET fetch, XHR or form
    * posts to the target's origin, or carrying the run's test values to another origin) that the app accepted with
-   * a 2xx or 3xx status. Run Hound never deletes them; the report says so. Optional only for older reports.
+   * a 2xx or 3xx status, and that are page posts, have no body or carry the run's test values (GraphQL queries and
+   * same-origin reads or analytics sent as POST don't count; engine/context.ts isAcceptedSave). Run Hound never
+   * deletes them; the report says so. Optional only for older reports.
    */
   testRecordsCreated?: number;
   /** True when the user stopped the run: remaining scenarios are "skipped" with notes "Stopped by you". */
   stopped?: boolean;
+  /**
+   * How the run was started, so a re-run of a report read back from disk runs the same way. The runner always sets
+   * it; it is optional only so reports written before 0.4.0 can still be read.
+   */
+  options?: { allowDestructive: boolean; headed: boolean };
   /** Browser the run used, e.g. "Chromium 153.0.8010.12". */
   browser?: string;
   /** Set when AI explanations were requested (0.3.0): the model and how many findings it explained. */

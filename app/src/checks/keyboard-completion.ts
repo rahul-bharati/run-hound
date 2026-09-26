@@ -1,16 +1,24 @@
 /**
  * keyboard-completion: fill and submit the form using only Tab, arrow keys, Space, Enter and typing.
- * Every required field (and every custom picker, whose "required" state the page can't tell us) must
- * be reachable with Tab and settable from the keyboard, and the submission must be accepted (2xx, or a 3xx redirect
- * after a classic form post; a sign-in form refusing made-up credentials also proves the form was sent).
+ * The walk sets every field the other checks fill (see keyboardTargets): text fields, choices (native and widget),
+ * and checkboxes that are required or ask for consent. Space toggles a checkbox or switch, arrows move in a radio
+ * group, Enter / Space / ArrowDown opens a select and Enter picks, and typing fills a combobox.
+ * Every required field, choice widget and custom picker must be reachable with Tab and settable from the keyboard,
+ * and the submission must be accepted (2xx, or a 3xx redirect after a classic form post; a sign-in form refusing
+ * made-up credentials also proves the form was sent). Fields nothing marks as required (react-hook-form + zod forms
+ * mark none) are filled when Tab reaches them but never reported on their own: a field kept out of the Tab order on
+ * purpose (a spam trap) looks the same. When the walk typed nothing and the submit was refused, there is nothing to
+ * judge, and the scenario is skipped with the reason.
  */
 import type { Page } from "playwright";
 import type { Check, CheckContext, DiscoveredForm, Evidence, Fact, Finding, FormField, Highlight, Scenario } from "../core/types.js";
 import { checkResult, clip, evalIn, fieldName, FindingList, guarded, listOf, markFocused, playwrightSpec, scenarioFor, submitControl, uniquePlaces } from "./lib/a11y-common.js";
 import { isAcceptedStatus, isSaveRequest } from "../core/saves.js";
+import { openFormSpec } from "../engine/open-form.js";
 import { canaries, settle, textValueFor, type Canaries } from "./lib/a11y-form.js";
 import { controlLocator, fieldLocator } from "./lib/functional-finding.js";
-import { isRefusedSignIn } from "./lib/functional-form.js";
+import { canaryValues, isRefusedSignIn, MULTI_STEP_NOTE, settingFor, watchNextStep } from "./lib/functional-form.js";
+import { fieldKind } from "./lib/widgets.js";
 
 const MAX_TABS = 200;
 
@@ -50,12 +58,24 @@ const WHERE = `(args) => {
   };
 }`;
 
-/** Whether a field now holds a value (checked radio, non-empty input/select). */
-const HAS_VALUE = `(sel) => {
-  const el = document.querySelector(sel);
+/**
+ * Whether a field now holds a value: a checked radio or checkbox (native, or aria-checked on the widget), a non-empty
+ * input or select, a widget's hidden native input (`native`), or a select widget whose trigger shows a choice rather
+ * than its placeholder (Radix marks a placeholder data-placeholder; others read "Select …", "Choose …").
+ */
+const HAS_VALUE = `(args) => {
+  const el = document.querySelector(args.sel);
   if (!el) return false;
+  const native = args.native ? document.querySelector(args.native) : null;
+  if (native) return native.matches("input[type=radio],input[type=checkbox]") ? native.checked : native.value !== "";
+  if (el.getAttribute("aria-checked") === "true") return true;
+  if (args.widget === "aria-checkbox" || args.widget === "aria-switch") return false;
   if (el.matches("input[type=radio],input[type=checkbox]")) return el.checked;
   if (el.matches("input,select,textarea")) return el.value !== "";
+  if (args.widget === "aria-select") {
+    const text = (el.textContent || "").trim();
+    return !el.hasAttribute("data-placeholder") && text !== "" && !/^(select|choose|pick|search|none)\\b/i.test(text);
+  }
   const inputs = [...el.querySelectorAll("input,select,textarea")];
   if (inputs.some((i) => (i.type === "radio" || i.type === "checkbox") ? i.checked : i.type !== "hidden" && i.value !== "")) return true;
   const hidden = inputs.filter((i) => i.type === "hidden");
@@ -63,11 +83,126 @@ const HAS_VALUE = `(sel) => {
   return !!el.querySelector('[aria-checked="true"],[aria-selected="true"]');
 }`;
 
+async function hasValue(page: Page, field: FormField): Promise<boolean> {
+  return evalIn<boolean>(page, HAS_VALUE, { sel: field.selector, native: field.nativeSelector ?? null, widget: field.widget ?? null });
+}
+
+/**
+ * The fields the walk sets from the keyboard: the ones the other checks fill (functional-form.ts settingFor). Text
+ * fields (any, required or not: react-hook-form + zod forms mark none), every choice (radio group, select, custom
+ * picker, select and radio widgets, comboboxes), and checkboxes or switches that are required or ask for consent.
+ * Sliders and range inputs keep their value.
+ */
+export function keyboardTargets(form: DiscoveredForm, runToken: string): FormField[] {
+  return canaryValues(form, runToken, "kb")
+    .filter((v) => v.field.type === "custom" || (v.field.type !== "range" && fieldKind(v.field) !== "slider" && settingFor(v) !== null))
+    .map((v) => v.field);
+}
+
+/**
+ * Whether the walk must be able to reach and set this field, so that failing is a finding: required fields, custom
+ * pickers and choices. A text field nothing marks as required is filled when reached but never reported on its own.
+ */
+function mustSet(field: FormField): boolean {
+  return field.required || fieldKind(field) !== "text";
+}
+
 const DATE_ORDER = `() => new Intl.DateTimeFormat(navigator.language).formatToParts(new Date(2030, 0, 5))
   .filter((p) => p.type === "year" || p.type === "month" || p.type === "day").map((p) => p.type)`;
 
+/**
+ * Where focus is after pressing a key on a select widget's trigger: "option" (on an option of a listbox that opened),
+ * "input" (in a search box of a popover that opened, like cmdk), "expanded" (still on the trigger, which says it is
+ * open), "closed", or "moved" (somewhere else).
+ */
+const OPENED = `(sel) => {
+  const t = document.querySelector(sel);
+  const a = document.activeElement;
+  if (!t) return "closed";
+  if (a && a !== t && !t.contains(a) && a !== document.body) {
+    if (a.matches("[role=option], [role=menuitem], [role=menuitemradio]") || a.closest("[role=listbox], [role=menu]")) return "option";
+    if (a.matches("input, [role=combobox]") && a.closest("[role=dialog], [role=listbox], [data-radix-popper-content-wrapper], [cmdk-root]")) return "input";
+    return "moved";
+  }
+  return t.getAttribute("aria-expanded") === "true" ? "expanded" : "closed";
+}`;
+
+/** For a combobox input: whether its list has an option picked out for Enter (aria-activedescendant, aria-selected), and whether the list is open. */
+const ACTIVE_OPTION = `(sel) => {
+  const input = document.querySelector(sel);
+  if (!input) return { active: false, open: false };
+  const list = document.getElementById(input.getAttribute("aria-controls") || input.getAttribute("aria-owns") || "");
+  const open = !!list && !list.hidden && list.getClientRects().length > 0;
+  const id = input.getAttribute("aria-activedescendant");
+  const active = (!!id && !!document.getElementById(id)) ||
+    (open && !!list.querySelector('[role=option][aria-selected="true"], [role=option][data-highlighted], [role=option][data-selected="true"]'));
+  return { active, open, first: open ? ((list.querySelector("[role=option]") || {}).textContent || "").trim() : "" };
+}`;
+
+const pause = (page: Page) => page.waitForTimeout(150);
+
+/** Opens a select widget from the keyboard and picks the option it lands on, the way Radix, Headless UI and cmdk allow. */
+async function pickFromPopup(page: Page, field: FormField): Promise<void> {
+  for (const key of ["Enter", "Space", "ArrowDown"]) {
+    await page.keyboard.press(key);
+    await pause(page);
+    const where = await evalIn<string>(page, OPENED, field.selector);
+    if (where === "option" || where === "input") {
+      await page.keyboard.press("Enter");
+      await pause(page);
+      return;
+    }
+    if (where === "expanded") {
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("Enter");
+      await pause(page);
+      return;
+    }
+    if (where === "moved") return;
+  }
+}
+
+/**
+ * Types into a combobox input: the first known option (or the first suggestion shown), then picks the suggestion
+ * the list highlights with Enter. Enter is only pressed when the list has picked out an option, since Enter in a
+ * plain text input sends the form.
+ */
+async function typeIntoCombobox(page: Page, field: FormField, values: Canaries): Promise<void> {
+  const shown = await evalIn<{ active: boolean; open: boolean; first: string }>(page, ACTIVE_OPTION, field.selector);
+  const text = field.options?.[0]?.label ?? (shown.first || textValueFor({ ...field, type: "text" }, values) || "");
+  await page.keyboard.type(text);
+  await pause(page);
+  let now = await evalIn<{ active: boolean; open: boolean; first: string }>(page, ACTIVE_OPTION, field.selector);
+  if (!now.active && now.open) {
+    await page.keyboard.press("ArrowDown");
+    await pause(page);
+    now = await evalIn<{ active: boolean; open: boolean; first: string }>(page, ACTIVE_OPTION, field.selector);
+  }
+  if (now.active) await page.keyboard.press("Enter");
+  else if (now.open) await page.keyboard.press("Escape");
+  await pause(page);
+}
+
 /** Sets the focused field using only the keyboard. */
 async function operate(page: Page, field: FormField, values: Canaries): Promise<void> {
+  switch (field.widget) {
+    case "aria-checkbox":
+    case "aria-switch":
+      await page.keyboard.press("Space");
+      return;
+    case "aria-radio":
+      // Space checks the focused item; in a group that only moves focus, the arrow keys check as they move.
+      await page.keyboard.press("Space");
+      if (await hasValue(page, field)) return;
+      await page.keyboard.press("ArrowDown");
+      return;
+    case "aria-select":
+      return pickFromPopup(page, field);
+    case "aria-combobox":
+      return typeIntoCombobox(page, field, values);
+    case "aria-slider":
+      return;
+  }
   if (field.type === "radio" || field.type === "checkbox" || field.type === "custom") {
     await page.keyboard.press("Space");
     if (field.type === "custom") await page.keyboard.press("Enter");
@@ -75,7 +210,7 @@ async function operate(page: Page, field: FormField, values: Canaries): Promise<
   }
   if (field.type === "select" || field.type === "select-one") {
     for (let i = 0; i < (field.options?.length ?? 1) + 1; i++) {
-      if (await evalIn<boolean>(page, HAS_VALUE, field.selector)) return;
+      if (await hasValue(page, field)) return;
       await page.keyboard.press("ArrowDown");
     }
     return;
@@ -149,8 +284,10 @@ async function tabThrough(
     if (at.field >= 0 && !walk.reached.has(at.field)) {
       walk.reached.add(at.field);
       field = targets[at.field]!;
-      await operate(page, field, values);
-      if (await evalIn<boolean>(page, HAS_VALUE, field.selector)) walk.set.add(at.field);
+      // A toggle or choice that already has a value (a default) is left alone: Space would clear a checked box.
+      const preset = field.widget !== undefined && field.widget !== "aria-combobox" && (await hasValue(page, field));
+      if (!preset) await operate(page, field, values);
+      if (preset || (await hasValue(page, field))) walk.set.add(at.field);
       // Typing can move focus inside a widget; re-read so the next Tab starts from here.
       previous = (await evalIn<Focus>(page, WHERE, args)).index;
     }
@@ -180,6 +317,9 @@ const TAB_TO = `const tabTo = async (target: import("@playwright/test").Locator)
 /** Spec helper: whether a field (or the inputs / options inside it) holds a value; mirrors HAS_VALUE. */
 const HAS_VALUE_SPEC = `const hasValue = (target: import("@playwright/test").Locator) =>
   target.evaluate((el) => {
+    if (el.getAttribute("aria-checked") === "true") return true;
+    // A select widget's trigger shows its placeholder until an option is picked (Radix marks it data-placeholder).
+    if (el.matches("button[role=combobox]")) return !el.hasAttribute("data-placeholder");
     if (el.matches("input[type=radio],input[type=checkbox]")) return (el as HTMLInputElement).checked;
     if (el.matches("input,select,textarea")) return (el as HTMLInputElement).value !== "";
     const inputs = [...el.querySelectorAll("input,select,textarea")] as HTMLInputElement[];
@@ -189,6 +329,12 @@ const HAS_VALUE_SPEC = `const hasValue = (target: import("@playwright/test").Loc
 
 /** Spec lines that set the focused field from the keyboard, like operate(). */
 function operateLines(field: FormField, values: Canaries): string[] {
+  if (field.widget === "aria-checkbox" || field.widget === "aria-switch" || field.widget === "aria-radio") return [`await page.keyboard.press("Space");`];
+  if (field.widget === "aria-select") {
+    return [`// Open the list from the keyboard, then pick the option it lands on.`, `await page.keyboard.press("Enter");`, `await page.keyboard.press("Enter");`];
+  }
+  if (field.widget === "aria-combobox") return [`await page.keyboard.type(${JSON.stringify(field.options?.[0]?.label ?? textValueFor({ ...field, type: "text" }, values) ?? "")});`];
+  if (field.widget === "aria-slider") return [];
   if (field.type === "radio" || field.type === "checkbox") return [`await page.keyboard.press("Space");`];
   if (field.type === "custom") return [`await page.keyboard.press("Space");`, `await page.keyboard.press("Enter");`];
   if (field.type === "select" || field.type === "select-one") return [`await page.keyboard.press("ArrowDown");`];
@@ -232,7 +378,7 @@ function keyboardSpec(ctx: CheckContext, no: number, kind: ProblemKind, name: st
     rejected: "the form can be filled in and submitted with the keyboard only",
   };
   // Each field is checked from a freshly loaded page, so one failure doesn't depend on another.
-  const reload = (i: number) => (i > 0 ? [`await page.goto(TARGET, { waitUntil: "networkidle" });`] : []);
+  const reload = (i: number) => (i > 0 ? [`await page.goto(TARGET, { waitUntil: "networkidle" });`, ...openFormSpec(ctx.form)] : []);
   let body: string;
   if (kind === "submit" || (kind === "unreachable" && fields.length === 0)) {
     body = `${TAB_TO}
@@ -266,7 +412,7 @@ const response = await saved;
 expect(response.status()).toBeGreaterThanOrEqual(200);
 expect(response.status()).toBeLessThan(400);`;
   }
-  return playwrightSpec("keyboard-completion", no, title[kind], ctx.targetUrl, body);
+  return playwrightSpec("keyboard-completion", no, title[kind], ctx.targetUrl, body, [], ctx.form);
 }
 
 /**
@@ -325,7 +471,7 @@ export const check: Check = {
     return [
       scenarioFor("keyboard-completion", "keyboard-only", {
         title: "Fill in and submit the form using only the keyboard",
-        description: "Uses only Tab, arrow keys, Space, Enter and typing to fill every required field and submit. Creates one test record.",
+        description: "Uses only Tab, arrow keys, Space, Enter and typing to fill the form (text fields, choices, and the checkboxes it needs) and submit it. Creates one test record.",
         priority: "high",
       }),
     ];
@@ -335,9 +481,9 @@ export const check: Check = {
     return guarded("keyboard-completion", scenario, async (startedAt) => {
       const findings = new FindingList("keyboard-completion", "accessibility");
       const submit = submitControl(ctx.form)!;
-      const targets = ctx.form.fields.filter((f) => f.required || f.type === "custom");
       const values = canaries(ctx.runToken, "kb");
-      const { page } = await ctx.openPage();
+      const targets = keyboardTargets(ctx.form, ctx.runToken);
+      const { page, capture } = await ctx.openPage();
       const args: WalkArgs = { selectors: targets.map((f) => f.selector), submit: submit.selector, form: ctx.form.selector };
 
       ctx.step("Pressing Tab through the form and filling each field from the keyboard", page);
@@ -346,6 +492,7 @@ export const check: Check = {
 
       const problems: { field: FormField | null; kind: "unreachable" | "inoperable" | "submit" | "rejected" }[] = [];
       targets.forEach((field, i) => {
+        if (!mustSet(field)) return;
         if (!reached.has(i)) problems.push({ field, kind: "unreachable" });
         else if (!set.has(i) && field.type !== "custom") problems.push({ field, kind: "inoperable" });
       });
@@ -377,12 +524,34 @@ export const check: Check = {
           await page.keyboard.press("Tab");
           if ((await evalIn<Focus>(page, WHERE, args)).isSubmit) break;
         }
+        const step = await watchNextStep(page, capture, ctx.targetUrl, ctx.runToken);
         await page.keyboard.press("Enter");
         status = (await response)?.status() ?? null;
         await settle(page);
         // A sign-in form refuses made-up credentials: the answer proves the keyboard sent the form.
         signInRefused = isRefusedSignIn(ctx.form, status);
-        if (!isAcceptedStatus(status) && !signInRefused) problems.push({ field: null, kind: "rejected" });
+        if (!isAcceptedStatus(status) && !signInRefused) {
+          const skipped = (notes: string) => ({ ...checkResult("keyboard-completion", scenario, startedAt, []), status: "skipped" as const, notes });
+          // The first step of a wizard: Enter went to the next step, which is how it should work, and saved nothing yet.
+          if (status === null && (await step.moved())) return skipped(MULTI_STEP_NOTE);
+          if (set.size === 0) {
+            // Nothing was typed, so a refused submit says nothing about the keyboard: the fields may be required
+            // (then Tab never reaching them is the problem) or a spam trap kept out of the Tab order on purpose.
+            const sent = status === null ? "not sent" : `answered ${status}`;
+            if (targets.length === 0) {
+              return skipped(
+                `Skipped: this form has no field Run Hound fills (text fields, choices, required checkboxes), so nothing was typed, and the empty form was ${sent}. That doesn't show whether a keyboard user can complete it.`,
+              );
+            }
+            const list = listOf(targets.map(fieldName), 6);
+            const one = targets.length === 1;
+            const how = reached.size === 0 ? `pressing Tab never reached ${one ? "the field" : "any of the fields"} Run Hound fills (${list})` : `the keyboard set none of the fields Run Hound fills (${list})`;
+            return skipped(
+              `Skipped: ${how}, so nothing was typed, and the empty form was ${sent}. Nothing marks ${one ? "that field" : "those fields"} as required, so that doesn't show whether a keyboard user can complete the form; if ${one ? "it is" : "they are"} required, check by hand that ${one ? "it" : "each"} can be reached with Tab and filled in.`,
+            );
+          }
+          problems.push({ field: null, kind: "rejected" });
+        }
       }
 
       const evidence: Evidence[] = [];
@@ -473,7 +642,11 @@ export const check: Check = {
           },
           rejected: {
             title: "Form can't be completed with the keyboard",
-            meaning: `Every required field was filled in with the keyboard and the form was submitted with Enter, but nothing was saved (${status === null ? "no request was sent" : `the server answered ${status}`}). Run Hound's made-up test values may break one of the form's own rules, so check whether the same values are accepted when entered with a mouse.`,
+            meaning: `${
+              set.size === targets.length
+                ? `Every field Run Hound fills (${targets.length}) was filled in with the keyboard`
+                : `${set.size} of the ${targets.length} fields Run Hound fills ${set.size === 1 ? "was" : "were"} filled in with the keyboard (${listOf(targets.filter((_, i) => !set.has(i)).map(fieldName), 4)} ${targets.length - set.size === 1 ? "was" : "were"} ${targets.some((_, i) => !reached.has(i)) ? "not reached by Tab or " : ""}left empty)`
+            } and the form was submitted with Enter, but nothing was saved (${status === null ? "no request was sent" : `the server answered ${status}`}). Run Hound's made-up test values may break one of the form's own rules, so check whether the same values are accepted when entered with a mouse.`,
             impact: "Keyboard-only users can't complete the form.",
             fix: "Check which fields don't take keyboard input and make them keyboard-operable; make sure pressing Enter on the submit button submits the form.",
           },

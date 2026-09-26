@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set up your workspace</title>
+<!--
+  A two-step onboarding wizard, each step its own <form> (as react-hook-form wizards usually are). Step 1 ("Continue")
+  sends nothing: it only shows step 2. Step 2 ("Finish setup") saves both steps with POST /api/workspaces.
+  ?indicator=text shows "Step 1 of 2" text instead of a list with aria-current="step".
+-->
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; color: #111; background: #fff; }
+  label { display: block; font-weight: 600; }
+  input { display: block; width: 100%; max-width: 360px; padding: 6px 8px; font-size: 16px; border: 1px solid #555; border-radius: 4px; }
+  button { font-size: 16px; margin-top: 12px; }
+  .msg { color: #b00020; font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Set up your workspace</h1>
+<div id="indicator"></div>
+<div id="host"></div>
+<p id="done" role="status"></p>
+</main>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var textIndicator = new URLSearchParams(location.search).get("indicator") === "text";
+  var workspace = "";
+
+  function indicator(step) {
+    $("indicator").innerHTML = textIndicator
+      ? "<p>Step " + step + " of 2</p>"
+      : '<ol><li' + (step === 1 ? ' aria-current="step"' : "") + '>1. Workspace</li><li' + (step === 2 ? ' aria-current="step"' : "") + ">2. Invite</li></ol>";
+  }
+
+  function stepOne() {
+    indicator(1);
+    $("host").innerHTML =
+      '<form id="step-1" novalidate><label for="ws">Workspace name</label><input id="ws" name="workspace" value="">' +
+      '<p class="msg" id="ws-msg"></p><button type="submit">Continue</button></form>';
+    $("ws").value = workspace;
+    $("step-1").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var value = $("ws").value.trim();
+      if (value.length < 2) { $("ws-msg").textContent = "Name your workspace"; return; }
+      workspace = value;
+      stepTwo();
+    });
+  }
+
+  function stepTwo() {
+    indicator(2);
+    $("host").innerHTML =
+      '<form id="step-2" novalidate><label for="invite">Invite a teammate</label><input id="invite" name="email" type="email" value="">' +
+      '<p class="msg" id="invite-msg"></p><button type="button" id="back">Back</button> <button type="submit">Finish setup</button></form>';
+    $("back").addEventListener("click", stepOne);
+    $("step-2").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var email = $("invite").value.trim();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { $("invite-msg").textContent = "Enter a valid email"; return; }
+      fetch("/api/workspaces", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ workspace: workspace, email: email }) })
+        .then(function (res) {
+          if (!res.ok) throw new Error("failed");
+          $("host").innerHTML = "";
+          $("done").textContent = "All set! " + workspace + " is ready.";
+        })
+        .catch(function () { $("invite-msg").textContent = "Could not finish setup"; });
+    });
+  }
+
+  stepOne();
+})();
+</script>
+</body>
+</html>

@@ -16,13 +16,16 @@ import {
   canaryValues,
   fieldName,
   fillForm,
+  fillProblemsNote,
   isCreatePlaywrightRequest,
+  MULTI_STEP_NOTE,
   PAGE_POST_NOTE,
   shiftDay,
   simulatedResponse,
   STOPPED_PAGE_POST_HTML,
   submitForm,
   waitFor,
+  watchNextStep,
   type FieldValue, isSearchForm } from "./lib/functional-form.js";
 
 const ID = "client-only-validation" as const;
@@ -33,13 +36,17 @@ const ID = "client-only-validation" as const;
  */
 const DROP_HEADERS = /^(:|content-length$|host$|connection$|cookie$|accept-encoding$|accept-language$|origin$|referer$|user-agent$|sec-|proxy-|keep-alive$|te$|trailer$|transfer-encoding$|upgrade$|via$|date$|expect$|dnt$)/i;
 
-/** Sent from the page so the request uses the pinned browser; redirect "manual" means a 3xx is never followed. */
+/**
+ * Sent from the page so the request uses the pinned browser; redirect "manual" means a 3xx is never followed. A server
+ * that never answers is given 10 seconds (page.evaluate has no timeout of its own): status -2.
+ */
 const REPLAY = `async (args) => {
   try {
-    const res = await fetch(args.url, { method: args.method, headers: args.headers, body: args.body, redirect: "manual", credentials: "same-origin" });
+    const res = await fetch(args.url, { method: args.method, headers: args.headers, body: args.body, redirect: "manual", credentials: "same-origin", signal: AbortSignal.timeout(10000) });
     if (res.type === "opaqueredirect") return { status: 0, redirected: true, text: "" };
     return { status: res.status, redirected: false, text: (await res.text()).slice(0, 4000) };
   } catch (err) {
+    if (err && err.name === "TimeoutError") return { status: -2, redirected: false, text: "" };
     return { status: -1, redirected: false, text: String(err && err.message || err) };
   }
 }`;
@@ -152,7 +159,7 @@ export const check: Check = {
   run(ctx, scenario) {
     return guarded(ID, scenario, ctx, async (started) => {
       if (!isLocalTarget(ctx.targetUrl)) return errorResult(ID, scenario, started, LOCAL_ONLY_NOTE, "skipped");
-      const { page } = await ctx.openPage();
+      const { page, capture } = await ctx.openPage();
       const values = canaryValues(ctx.form, ctx.runToken, "replay");
 
       // The page may write to more than one of its own endpoints on submit (telemetry, a log). The request
@@ -180,22 +187,31 @@ export const check: Check = {
         await route.fulfill(simulatedResponse(request, 201, body || "{}"));
       });
       ctx.step("Filling the form and capturing its save request (answered by Run Hound)", page);
-      await fillForm(page, values);
+      const unset = await fillForm(page, values);
+      const step = await watchNextStep(page, capture, ctx.targetUrl, ctx.runToken);
       await submitForm(page, ctx.form);
       await waitFor(() => captured !== null || pagePost, 5000);
-      await page.unrouteAll({ behavior: "ignoreErrors" });
 
-      if (pagePost && !captured) return errorResult(ID, scenario, started, PAGE_POST_NOTE, "skipped");
+      if (pagePost && !captured) {
+        await page.unrouteAll({ behavior: "ignoreErrors" });
+        return errorResult(ID, scenario, started, PAGE_POST_NOTE, "skipped");
+      }
       const request = (captured ?? firstWrite) as Request | null;
       if (!request) {
+        // The first step of a wizard saves nothing: it shows the next step. That is not a refusal.
+        const moved = await step.moved();
+        await page.unrouteAll({ behavior: "ignoreErrors" });
+        if (moved) return errorResult(ID, scenario, started, MULTI_STEP_NOTE, "skipped");
+        const why = fillProblemsNote(unset);
         return errorResult(
           ID,
           scenario,
           started,
-          "Skipped: submitting the form sent no save request (nothing carrying the typed values reached a server), so there was nothing to replay. The page may have refused Run Hound's test values.",
+          `Skipped: submitting the form sent no save request (nothing carrying the typed values reached a server), so there was nothing to replay. ${why ? `${why} The page may need ${unset.length === 1 ? "that field" : "those fields"}.` : "The page may have refused Run Hound's test values."}`,
           "skipped",
         );
       }
+      await page.unrouteAll({ behavior: "ignoreErrors" });
       if (!isLocalTarget(request.url())) {
         return errorResult(ID, scenario, started, `Skipped: the form saves to ${safeHost(request.url())}, which is not on this machine; replaying requests only runs against localhost.`, "skipped");
       }
@@ -212,6 +228,14 @@ export const check: Check = {
         text: string;
       };
       if (replay.status === -1) return errorResult(ID, scenario, started, `The replayed request could not be sent: ${replay.text}`);
+      if (replay.status === -2) {
+        return errorResult(
+          ID,
+          scenario,
+          started,
+          `The server did not answer within 10 seconds when Run Hound sent ${endpointOf(request.method(), request.url())} with ${mutation.describe}, so it is unknown whether the server checks it. A server that never answers bad input is worth a look too.`,
+        );
+      }
       const status = replay.status;
       const responseText = replay.text.slice(0, 2000);
       if (replay.redirected) {

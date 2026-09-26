@@ -52,7 +52,8 @@ const LMSTUDIO_DOWN = "Nothing is answering at http://127.0.0.1:1234 — is LM S
 
 interface Stub {
   ai: AiStatus;
-  models: (provider: string, baseUrl: string) => AiModelList;
+  /** allowRemote is the query parameter as sent (null when the page left it out). */
+  models: (provider: string, baseUrl: string, allowRemote: string | null) => AiModelList;
   put: (body: Record<string, unknown>) => { status: number; body: unknown };
   test: () => unknown;
   plan: (body: Record<string, unknown>) => unknown;
@@ -103,7 +104,7 @@ async function open(hash: string, stub: Partial<Stub>, width = 1280): Promise<Op
       if (r.status === 200) s.ai = r.body as AiStatus;
       return json(r.body, r.status);
     }
-    if (url.pathname === "/api/ai/models") return json(s.models(url.searchParams.get("provider") ?? "", url.searchParams.get("baseUrl") ?? ""));
+    if (url.pathname === "/api/ai/models") return json(s.models(url.searchParams.get("provider") ?? "", url.searchParams.get("baseUrl") ?? "", url.searchParams.get("allowRemote")));
     if (url.pathname === "/api/ai/test") return json(s.test());
     if (url.pathname === "/api/settings") return json({ version: "0.3.0", runsDir: "/runs", allowedHosts: [], serverHosts: [], ai: s.ai });
     if (url.pathname === "/api/plan") {
@@ -420,6 +421,32 @@ describe("Settings → AI card: key, locks, consent, save and test", () => {
     // A local endpoint needs no consent box at all.
     await page.getByLabel("Base URL").fill("http://127.0.0.1:1234/v1");
     await expect.poll(() => box().count()).toBe(0);
+    await page.close();
+  });
+
+  it("lists a new remote endpoint's models as soon as the consent box is ticked, before Save (allowRemote=1)", async () => {
+    const ASK = "Tick the consent box to list models from openrouter.ai";
+    const REMOTE_MODELS: AiModelList = { models: [{ id: "openai/gpt-x", details: null, suitable: null }], error: null };
+    const o = await open("#/settings", {
+      ai: status({ provider: "openai-compatible", baseUrl: "https://openrouter.ai/api/v1", model: "", remote: true, host: "openrouter.ai", problem: "Sending to openrouter.ai needs your consent" }),
+      models: (_p, _u, allowRemote) => (allowRemote === "1" ? REMOTE_MODELS : { models: [], error: ASK }),
+    });
+    const { page } = o;
+    await expect.poll(() => page.locator("#ai-models-msg").textContent()).toBe(ASK);
+    // Unticked: no consent is claimed (the server falls back to the saved consent for that host).
+    expect(modelCalls(o).at(-1)!.query.get("allowRemote")).toBeNull();
+
+    await page.getByLabel(/Send redacted page structure/).check();
+    await expect.poll(() => optionTexts(page)).toContain("openai/gpt-x");
+    expect(modelCalls(o).at(-1)!.query.get("allowRemote")).toBe("1");
+    expect(await page.locator("#ai-models-msg").textContent()).toBe("1 model on this server.");
+    // Nothing was saved by ticking.
+    expect(o.calls.some((c) => c.method === "PUT")).toBe(false);
+
+    await page.getByLabel(/Send redacted page structure/).uncheck();
+    await expect.poll(() => page.locator("#ai-models-msg").textContent()).toBe(ASK);
+    expect(modelCalls(o).at(-1)!.query.get("allowRemote")).toBeNull();
+    expect(o.errors).toEqual([]);
     await page.close();
   });
 

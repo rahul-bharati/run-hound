@@ -10,6 +10,9 @@ import {
   type ClientOptions,
 } from "../../test/fixtures/checks/_behavior/booking-app.js";
 import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectPlan, findingText } from "../../test/fixtures/checks/_behavior/expectations.js";
+import { startHangApp } from "../../test/fixtures/checks/hang-app.js";
+import { startModernApp } from "../../test/fixtures/checks/modern-apps.js";
+import { MULTI_STEP_NOTE } from "./lib/functional-form.js";
 import { check } from "./client-only-validation.js";
 
 const ID = "client-only-validation" as const;
@@ -161,6 +164,45 @@ describe("client-only-validation: the replay stays on the target", () => {
       expect(results.some((r) => r.status === "fail")).toBe(false);
     } finally {
       await elsewhere.close();
+    }
+  });
+});
+
+describe("client-only-validation: a server that never answers the replay (ENG-1)", () => {
+  it("gives up on the replay after 10 seconds and says so plainly", async () => {
+    const s = await startHangApp("invalid");
+    try {
+      const started = Date.now();
+      const { results } = await runCheck(check, `${s.url}/contact`);
+      expect(Date.now() - started, "the check finished on its own").toBeLessThan(30_000);
+      expect(s.hung(), "the replay reached the server and was never answered").toBeGreaterThan(0);
+      expect(results[0]!.findings).toEqual([]);
+      expect(results[0]!.notes).toMatch(/did not answer within 10 seconds/);
+    } finally {
+      await s.close();
+    }
+  }, 45_000);
+});
+
+describe("client-only-validation: the first step of a wizard (LOV-12)", () => {
+  it("skips with the multi-step reason, not as refused test values", async () => {
+    const a = await startModernApp({
+      path: "/wizard",
+      heading: "Set up your workspace",
+      fields: [
+        { name: "workspace", label: "Workspace name", type: "text" },
+        { name: "email", label: "Invite a teammate", type: "email" },
+      ],
+      submitLabel: "Finish setup",
+      after: "toast",
+      wizard: true,
+    });
+    try {
+      const { results } = await runCheck(check, a.formUrl);
+      expect(results[0]!.status).toBe("skipped");
+      expect(results[0]!.notes).toBe(MULTI_STEP_NOTE);
+    } finally {
+      await a.close();
     }
   });
 });

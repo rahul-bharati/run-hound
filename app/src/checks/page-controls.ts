@@ -4,7 +4,7 @@
  * storage change, value change or focus change. The same probe as dead-control, without typing anything first.
  */
 import type { Check, Scenario } from "../core/types.js";
-import { clickEach, isDestructiveControl } from "./dead-control.js";
+import { clickEach, clickingTimeLimitMs, isDestructiveControl } from "./dead-control.js";
 import { listOf } from "./lib/a11y-common.js";
 import { controlName } from "./lib/functional-form.js";
 
@@ -33,7 +33,7 @@ export const check: Check = {
           (safe.length === 1
             ? `Click ${listOf(safe.map(controlName))} on a freshly loaded page and check that it causes`
             : `Click ${listOf(safe.map(controlName), 12)} one at a time, each on a freshly loaded page, and check that each causes`) +
-          " a request, a page change, navigation, a storage change or a focus change." +
+          " a request, a page change, navigation (or a new tab), a storage change or a focus change." +
           (risky.length > 0 ? ` Left out unless you allow destructive scenarios: ${listOf(risky.map(controlName), 8)}.` : "") +
           " A button that saves something may create test records.",
         kind: "golden",
@@ -43,6 +43,9 @@ export const check: Check = {
       },
     ];
   },
+
+  // The controls run() goes through (destructive ones are only clicked with --allow-destructive).
+  timeLimitMs: (_scenario, _form, page) => clickingTimeLimitMs((page?.controls ?? []).slice(0, MAX_PAGE_CONTROLS + 20).length),
 
   run(ctx, scenario) {
     const controls = (ctx.discoveredPage?.controls ?? []).slice(0, MAX_PAGE_CONTROLS + 20);

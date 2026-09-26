@@ -128,6 +128,12 @@ describe("createCheckContext", () => {
     expect(b.page.isClosed()).toBe(true);
   });
 
+  it("opens no page once disposed: a check abandoned at a stop or its time limit can't start another one", async () => {
+    const ctx = await makeContext();
+    await ctx.dispose();
+    await expect(ctx.openPage()).rejects.toThrow("The scenario has ended, so no new page is opened.");
+  });
+
   it("screenshot writes a PNG under artifactsDir and returns relative evidence", async () => {
     const ctx = await makeContext();
     try {

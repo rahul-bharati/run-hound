@@ -3,7 +3,9 @@
  * body, and scan the server's responses and the page for stack traces, internal file paths or framework
  * error dumps. A plain error message (even a 500) passes; other checks own those.
  */
+import { isLocalOrigin } from "../core/saves.js";
 import type { Capture, Check, Evidence, Fact, Scenario } from "../core/types.js";
+import { isAllowedUrl, type SafetyOptions } from "../engine/safety.js";
 import { clip, controlLocator, endpointOf, evidence, fillLines, findingFactory, guarded, markText, result, specSource, tryCapture, tryCard } from "./lib/functional-finding.js";
 import { canaryValues, createRequests, fillForm, isCreatePlaywrightRequest, settle, submitControl, submitForm, waitForCreates, type FieldValue, isSearchForm } from "./lib/functional-form.js";
 
@@ -36,8 +38,37 @@ export function findLeak(text: string): { name: string; match: string; excerpt: 
   return null;
 }
 
+/** The hosts RUNHOUND_ALLOWED_HOSTS lists, as the runner reads them (engine/runner.ts). */
+function envAllowedHosts(): string[] {
+  return (process.env.RUNHOUND_ALLOWED_HOSTS ?? "").split(",").map((h) => h.trim()).filter(Boolean);
+}
+
+/**
+ * Whether Run Hound may send its own malformed replay to `url`: only where the safety gate (engine/safety.ts) would
+ * let it test. The target's host and addresses on this machine or the local network pass without a lookup; any other
+ * host must pass the gate itself (a name that resolves only to private addresses, or one in RUNHOUND_ALLOWED_HOSTS).
+ * The app's own save may go to a cloud backend (Supabase, Firebase, an API on the internet); a crafted request never
+ * does. The navigation guard does not see fetches, so this is the only thing stopping it.
+ */
+export async function replayAllowed(url: string, targetUrl: string, safety: SafetyOptions = { allowedHosts: envAllowedHosts() }): Promise<boolean> {
+  if (isLocalOrigin(url, targetUrl)) return true;
+  return isAllowedUrl(url, safety);
+}
+
+/** The host (and port) of a URL, for notes. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
 /** The body Run Hound replays the save request with: JSON that stops half way. */
 const MALFORMED_BODY = '{"broken": [1, 2,';
+
+/** How long the malformed replay waits for an answer: an app whose error path never answers must not hang the run. */
+const REPLAY_TIMEOUT_MS = 10_000;
 
 /** How the check produced a request, in words, for facts and card titles. */
 function howSent(r: Capture["requests"][number]): string {
@@ -114,12 +145,17 @@ export const check: Check = {
       // Replay the save request with a body that is not valid JSON (or form data).
       const save = createRequests(capture, ctx.targetUrl, ctx.runToken)[0];
       let replayed: Capture["requests"][number] | null = null;
-      if (save) {
+      // The app's own save went where the app sends it; Run Hound's crafted replay only goes where it may test.
+      const notReplayed = save && !(await replayAllowed(save.url, ctx.targetUrl))
+        ? `The malformed replay was not sent: the form saves to ${hostOf(save.url)}, which Run Hound is not allowed to test (only localhost, private addresses and hosts in RUNHOUND_ALLOWED_HOSTS), so only the oversized submit was checked.`
+        : null;
+      if (save && !notReplayed) {
         const headers = Object.fromEntries(Object.entries(saveHeaders ?? {}).filter(([k]) => !/^(content-length|cookie|host)$/i.test(k)));
         ctx.step(`Replaying ${endpointOf(save.method, save.url)} with a malformed body`, page);
         // The answer is read in the page: the browser only keeps a response body the page reads, and many apps never
-        // read the body of an error (or of a save on another origin).
-        const script = `fetch(${JSON.stringify(save.url)}, { method: ${JSON.stringify(save.method)}, headers: ${JSON.stringify(headers)}, body: ${JSON.stringify(MALFORMED_BODY)}, redirect: "manual" })
+        // read the body of an error (or of a save on another origin). A server that never answers is given 10 seconds
+        // (page.evaluate has no timeout of its own); no answer counts as none, like a network error.
+        const script = `fetch(${JSON.stringify(save.url)}, { method: ${JSON.stringify(save.method)}, headers: ${JSON.stringify(headers)}, body: ${JSON.stringify(MALFORMED_BODY)}, redirect: "manual", signal: AbortSignal.timeout(${REPLAY_TIMEOUT_MS}) })
           .then(async (r) => ({ status: r.status, text: (await r.text()).slice(0, 65536) })).catch(() => null)`;
         const answer = (await page.evaluate(script).catch(() => null)) as { status: number; text: string } | null;
         if (answer && answer.status > 0) {
@@ -204,7 +240,7 @@ export const check: Check = {
               source: specSource(ctx.targetUrl, "bad input never shows internal error details", [
                 ...baseSpec,
                 `await expect(page.locator("body")).not.toContainText(/\\bat\\s.*\\/\\S+:\\d+(:\\d+)?|node:internal\\//);`,
-              ]),
+              ], ctx.form),
             },
           }),
         );
@@ -232,13 +268,13 @@ export const check: Check = {
                 `page.on("response", async (r) => { if (r.request().method() !== "GET") bodies.push(await r.text().catch(() => "")); });`,
                 ...baseSpec,
                 `for (const body of bodies) expect(body).not.toMatch(/\\bat\\s.*\\/\\S+:\\d+(:\\d+)?|node:internal\\//);`,
-              ]),
+              ], ctx.form),
             },
           }),
         ); // one response finding is enough; the evidence names the endpoint
       }
 
-      return result(ID, scenario, started, findings, `Checked ${responses.length} responses and the page text.`);
+      return result(ID, scenario, started, findings, [`Checked ${responses.length} responses and the page text.`, notReplayed].filter(Boolean).join(" "));
     });
   },
 };

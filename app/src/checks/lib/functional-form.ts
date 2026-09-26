@@ -5,6 +5,7 @@
 import type { Page, Request } from "playwright";
 import { isSameOrigin as sameOriginCore, isSaveRequest } from "../../core/saves.js";
 import { SIMULATED_RESPONSE_HEADER, type Capture, type DiscoveredForm, type FormControl, type FormField } from "../../core/types.js";
+import { fieldKind, firstChoice, isConsentCheckbox, meansYes, setField, showsLabel, type FieldSetting } from "./widgets.js";
 
 /** What the checks put into one field. Choice fields record the option they picked. */
 export interface FieldValue {
@@ -72,8 +73,20 @@ export function canaryValues(form: DiscoveredForm, token: string, salt: string):
 
   for (const field of form.fields) {
     const text = describe(field);
-    if (field.options && field.options.length > 0) {
-      values.push({ field, value: field.options[0]!.label, canary: false });
+    const kind = fieldKind(field);
+    // Choices get their first real option ("None" and "Select…" are skipped). A picker whose options only exist once
+    // it is open gets "" (setField picks the first one it shows); a combobox also keeps a typed fallback.
+    if (kind === "select" || kind === "radio" || kind === "custom" || (kind === "combobox" && firstChoice(field))) {
+      values.push({ field, value: firstChoice(field)?.label ?? "", canary: false });
+      continue;
+    }
+    if (kind === "combobox") {
+      values.push({ field, value: fit(`${nameWord(field)} ${tag}`, field), canary: false });
+      continue;
+    }
+    // Checkboxes and switches are decided by settingFor; sliders keep the value they start with.
+    if (kind === "check" || kind === "slider" || kind === "none") {
+      values.push({ field, value: "", canary: false });
       continue;
     }
     switch (field.type) {
@@ -116,9 +129,7 @@ export function canaryValues(form: DiscoveredForm, token: string, salt: string):
         } else if (/phone|mobile|tel/i.test(text)) {
           values.push({ field, value: `555 01${hashDigits(tag, 2)} ${hashDigits(salt, 3)}`, canary: true });
         } else {
-          // Capitalised words read like a name and satisfy most "letters only" rules.
-          const word = (fieldName(field).split(/\s+/).pop() ?? "Value").replace(/[^A-Za-z]/g, "") || "Value";
-          values.push({ field, value: fit(`${word} ${tag}`, field), canary: true });
+          values.push({ field, value: fit(`${nameWord(field)} ${tag}`, field), canary: true });
         }
       }
     }
@@ -126,29 +137,139 @@ export function canaryValues(form: DiscoveredForm, token: string, salt: string):
   return values;
 }
 
-/** Fills every field. Choice fields get their chosen option clicked or checked; required checkboxes are checked. */
-export async function fillForm(page: Page, values: FieldValue[]): Promise<void> {
-  for (const { field, value } of values) {
-    if (field.options && field.options.length > 0) {
-      const option = field.options.find((o) => o.label === value) ?? field.options[0]!;
-      if (field.type === "select" || field.role === "combobox" || field.role === "listbox") {
-        await page.locator(field.selector).first().selectOption({ label: option.label }).catch(async () => {
-          await page.locator(option.selector).first().click();
-        });
-      } else if (field.type === "radio") {
-        await page.locator(option.selector).first().check({ force: true });
-      } else {
-        await page.locator(option.selector).first().click();
-      }
-      continue;
-    }
-    if (field.type === "checkbox") {
-      if (field.required) await page.locator(field.selector).first().check();
-      continue;
-    }
-    if (field.type === "radio" || field.type === "custom" || field.type === "file" || field.type === "hidden") continue;
-    await page.locator(field.selector).first().fill(value);
+/**
+ * The last word of the field's name ("name" for "Project name *"): canaries made of words read like a name and
+ * satisfy most "letters only" rules. Required markers ("*", "(required)") are not words of the name.
+ */
+function nameWord(field: FormField): string {
+  const words = fieldName(field).replace(/\(?\brequired\b\)?|\*/gi, " ").split(/\s+/).map((w) => w.replace(/[^A-Za-z]/g, ""));
+  return words.filter(Boolean).pop() ?? "Value";
+}
+
+/**
+ * How fillForm sets one value (the fill policy), or null to leave the field as the page made it:
+ * - text-like fields get the value typed;
+ * - selects, radio groups and pickers get the chosen option ("first" when the value is empty: the first one shown);
+ * - a combobox with suggestions gets its first suggestion;
+ * - a checkbox or switch is checked when it is required (by attribute or label) or asks for consent (terms, privacy),
+ *   else left alone; a value of its own ("yes"/"no") wins;
+ * - a slider keeps its value unless one is given; file and hidden inputs are never set.
+ */
+export function settingFor(v: FieldValue): FieldSetting | null {
+  const { field, value } = v;
+  switch (fieldKind(field)) {
+    case "text":
+      return { text: value };
+    case "select":
+      return { option: value || "first" };
+    case "combobox":
+      return { option: firstChoice(field) ? value || "first" : "first" };
+    case "radio":
+      return value ? { option: value } : field.widget === "aria-radio" ? { option: "first" } : null;
+    case "custom":
+      return value ? { option: value } : null;
+    case "check":
+      if (value) return { text: value };
+      return field.required || isConsentCheckbox(field) ? { checked: true } : null;
+    case "slider":
+      return value ? { number: Number(value) } : null;
+    case "none":
+      return null;
   }
+}
+
+/** A field fillForm could not set, and why ("Couldn't set Owner: no options appeared after opening it."). */
+export interface FillProblem {
+  field: FormField;
+  message: string;
+}
+
+/**
+ * Fills every field through setField, following settingFor (widgets included: a Radix Select, cmdk combobox, Radix
+ * Checkbox/Switch/RadioGroup or slider is set like a person would). A field that can't be set doesn't stop the fill:
+ * it is returned, so a check can say which field it was (fillProblemsNote) when the form then refuses to submit.
+ */
+export async function fillForm(page: Page, values: FieldValue[]): Promise<FillProblem[]> {
+  const problems: FillProblem[] = [];
+  for (const v of values) {
+    const setting = settingFor(v);
+    if (!setting) continue;
+    try {
+      await setField(page, v.field, setting);
+    } catch (err) {
+      // A combobox that offered no suggestion may still take typed text (a free-text field with hints).
+      if (fieldKind(v.field) === "combobox" && v.value && !("text" in setting)) {
+        const typed = await setField(page, v.field, { text: v.value }).then(
+          () => true,
+          () => false,
+        );
+        if (typed) continue;
+      }
+      problems.push({ field: v.field, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return problems;
+}
+
+const flat = (s: string | null | undefined) => (s ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+
+/**
+ * Whether the value fillForm gave `v` is still in its field (after a failed save, say): the typed text, the chosen
+ * option (a select's selected label, a widget trigger's text, the checked radio) or a checkbox's checked state. Null
+ * for a field fillForm leaves alone (settingFor) and for a choice it can't name ("first" on a picker whose options
+ * only show once open, a combobox suggestion). A field that is gone counts as not kept.
+ */
+export async function valueKept(page: Page, v: FieldValue): Promise<boolean | null> {
+  const setting = settingFor(v);
+  if (!setting) return null;
+  const { field, value } = v;
+  const el = page.locator(field.selector).first();
+  const timeout = 2_000;
+  try {
+    switch (fieldKind(field)) {
+      case "text":
+        return (await el.inputValue({ timeout })) === value;
+      case "select": {
+        if (!value) return null;
+        if (field.widget) return showsLabel(await el.innerText({ timeout }), value);
+        const label = await el.evaluate((s) => {
+          const o = (s as HTMLSelectElement).selectedOptions[0];
+          return o ? o.label || o.text : "";
+        }, undefined, { timeout });
+        return flat(label) === flat(value);
+      }
+      case "radio": {
+        const option = value ? field.options?.find((o) => o.label === value) : firstChoice(field);
+        if (!option) return null;
+        const state = await page.locator(option.selector).first().evaluate((r) => r.getAttribute("aria-checked") ?? String((r as HTMLInputElement).checked === true), undefined, { timeout });
+        return state === "true";
+      }
+      case "check": {
+        const want = "checked" in setting ? setting.checked : meansYes(value);
+        const state = await el.evaluate((c) => c.getAttribute("aria-checked") ?? String((c as HTMLInputElement).checked === true), undefined, { timeout });
+        return (state === "true") === want;
+      }
+      default:
+        return null;
+    }
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * One sentence for a skipped scenario's note naming the fields fillForm could not set, e.g. "Run Hound could not set
+ * Owner (no options appeared after opening it)." Empty when there are none.
+ */
+export function fillProblemsNote(problems: FillProblem[]): string {
+  if (problems.length === 0) return "";
+  const parts = problems.slice(0, 3).map((p) => {
+    const why = p.message.replace(/^Couldn't set .*?: /, "").replace(/\.$/, "");
+    return `${fieldName(p.field)} (${why})`;
+  });
+  const more = problems.length > 3 ? ` and ${problems.length - 3} more` : "";
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0]!;
+  return `Run Hound could not set ${list}${more}.`;
 }
 
 /** The form's submit control, if discovery found one. */
@@ -156,7 +277,7 @@ export function submitControl(form: DiscoveredForm): FormControl | undefined {
   return form.controls.find((c) => c.isSubmit);
 }
 
-/** Clicks the submit control, or presses Enter in the first text field when there is none. */
+/** Clicks the submit control, or presses Enter in the first text field when there is none (never in a widget). */
 export async function submitForm(page: Page, form: DiscoveredForm, how: "click" | "dblclick" = "click"): Promise<void> {
   const submit = submitControl(form);
   if (submit) {
@@ -164,9 +285,78 @@ export async function submitForm(page: Page, form: DiscoveredForm, how: "click" 
     await (how === "dblclick" ? locator.dblclick() : locator.click());
     return;
   }
-  const first = form.fields.find((f) => !f.options && f.type !== "checkbox");
+  const first = form.fields.find((f) => fieldKind(f) === "text");
   if (first) await page.locator(first.selector).first().press("Enter");
 }
+
+// ---------- Multi-step forms (LOV-12) ----------
+
+/** What a form shows at one moment: its visible fields ("tag|type|name|label" each) and its step indicator. */
+export interface FormStep {
+  fields: string[];
+  /** Text of the step indicator ([aria-current=step], "Step 2 of 3"), or null when the page shows none. */
+  step: string | null;
+}
+
+/** Runs in the page (a string, so the bundler's helpers never leak in). */
+const STEP_SCRIPT = String.raw`(() => {
+  const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
+  const shown = (el) => !el.closest("[hidden], [aria-hidden=true], [inert]") && getComputedStyle(el).visibility !== "hidden" && el.getClientRects().length > 0;
+  const skip = ["hidden", "submit", "button", "reset", "image"];
+  const fields = [];
+  for (const el of document.querySelectorAll("input, select, textarea, [role=combobox], [role=checkbox], [role=switch], [role=radio], [role=slider], [role=textbox], [contenteditable=true]")) {
+    if (el.tagName === "INPUT" && skip.includes(el.type)) continue;
+    if (!shown(el)) continue;
+    const labelled = norm((el.getAttribute("aria-labelledby") || "").split(/\s+/).map((id) => document.getElementById(id)).filter(Boolean).map((n) => n.textContent).join(" "));
+    const labels = el.labels ? norm(Array.from(el.labels).map((l) => l.textContent).join(" ")) : "";
+    const name = norm(el.getAttribute("aria-label")) || labelled || labels || norm(el.getAttribute("placeholder"));
+    // Framework ids (React's useId) change between renders, so they only count when nothing else names the field.
+    fields.push([el.tagName.toLowerCase(), el.getAttribute("role") || el.type || "", el.getAttribute("name") || "", name || el.id].join("|"));
+  }
+  const current = Array.from(document.querySelectorAll('[aria-current="step"]')).filter(shown).map((el) => norm(el.textContent)).join(" / ");
+  const counter = ((document.body && document.body.innerText) || "").match(/\bstep\s+\d+\s*(?:of|\/)\s*\d+\b/i);
+  const step = [current, counter ? norm(counter[0]).toLowerCase() : ""].filter(Boolean).join(" / ");
+  return { fields, step: step || null };
+})()`;
+
+/** What the page shows now (see FormStep). A page that can't be read shows nothing. */
+export async function formStep(page: Page): Promise<FormStep> {
+  return ((await page.evaluate(STEP_SCRIPT).catch(() => null)) as FormStep | null) ?? { fields: [], step: null };
+}
+
+/**
+ * True when going from `before` to `after` looks like a multi-step form moving to its next step: no save request was
+ * sent (`savesSent` is 0), and fields the page didn't show before appeared or the step indicator changed. A form
+ * that only went away (a thank-you message) or showed an error is not a next step.
+ */
+export function isNextStep(before: FormStep, after: FormStep, savesSent: number): boolean {
+  if (savesSent > 0) return false;
+  const known = new Set(before.fields);
+  if (after.fields.some((f) => !known.has(f))) return true;
+  return after.step !== null && after.step !== before.step && after.fields.length > 0;
+}
+
+/**
+ * Watches one submit of a possibly multi-step form. Call it right before submitting; after the submit (and
+ * waitForCreates), moved() says whether the submit sent no save request and showed the form's next step (isNextStep),
+ * waiting up to a second for the next step to render. A check that needs a saved record then skips with
+ * MULTI_STEP_NOTE instead of blaming the test values.
+ */
+export async function watchNextStep(page: Page, capture: Capture, pageUrl: string, runToken = ""): Promise<{ moved(): Promise<boolean> }> {
+  const before = await formStep(page);
+  const saves = createRequests(capture, pageUrl, runToken).length;
+  return {
+    async moved() {
+      const sent = createRequests(capture, pageUrl, runToken).length - saves;
+      if (sent > 0) return false;
+      return waitFor(async () => isNextStep(before, await formStep(page), createRequests(capture, pageUrl, runToken).length - saves), 1_000);
+    },
+  };
+}
+
+/** Why a check that needs a saved record skips a multi-step form's first step (a skipped scenario's note). */
+export const MULTI_STEP_NOTE =
+  "Skipped: this is a multi-step form. Submitting its first step showed the next step without saving anything, and Run Hound tests the first step only, so there was no saved record to check.";
 
 /** Same origin as the target page. */
 export function isSameOrigin(url: string, pageUrl: string): boolean {

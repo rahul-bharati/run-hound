@@ -100,7 +100,8 @@ export async function checkTarget(url: string, options: SafetyOptions = {}): Pro
     throw refuse(`only http and https targets are supported, not ${parsed.protocol}`);
   }
 
-  // WHATWG URL already lowercases, strips userinfo and normalises numeric IPv4 forms; IPv6 keeps brackets.
+  // WHATWG URL already lowercases and normalises numeric IPv4 forms, and `hostname` never includes a user name or
+  // password (the URL itself keeps them: errors.ts splitTargetUrl takes them out); IPv6 keeps brackets.
   const host = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
   if (!host) throw refuse("the URL has no host");
   if (host === "localhost" || host.endsWith(".localhost")) return { host, addresses: [], resolved: false };
@@ -149,7 +150,7 @@ export async function assertAllowedTarget(url: string, options: SafetyOptions = 
   await checkTarget(url, options);
 }
 
-/** The same decision as a boolean, for places that ask about many URLs (the navigation guard). */
+/** The same decision as a boolean, for places that ask about many URLs. */
 export async function isAllowedUrl(url: string, options: SafetyOptions = {}): Promise<boolean> {
   return checkTarget(url, options).then(
     () => true,
@@ -160,7 +161,8 @@ export async function isAllowedUrl(url: string, options: SafetyOptions = {}): Pr
 /**
  * Chromium launch arguments that pin a DNS-resolved target host to the address the gate approved, so a
  * second lookup (DNS rebinding) can't send the browser somewhere else. Empty for localhost, IP literals
- * and explicitly allowed hosts, which are never resolved here.
+ * and explicitly allowed hosts, which are never resolved here. Only the target can be pinned (the rules are fixed
+ * when the browser starts); the navigation guard checks where any other host name answered from (guard.ts).
  */
 export function pinArgs(check: TargetCheck): string[] {
   const address = check.addresses[0];

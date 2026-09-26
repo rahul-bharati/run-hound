@@ -5,13 +5,15 @@
  */
 import type { Page } from "playwright";
 import { isPagePost } from "../core/saves.js";
-import type { Check, Fact, Highlight, Scenario } from "../core/types.js";
+import type { Check, Fact, FormField, Highlight, Scenario } from "../core/types.js";
 import { controlLocator, endpointOf, fieldLocator, evidence, fillLines, findingFactory, guarded, markText, recordFlow, result, specSource } from "./lib/functional-finding.js";
 import {
   canaryValues,
   fieldName,
   fillForm,
+  fillProblemsNote,
   isCreatePlaywrightRequest,
+  MULTI_STEP_NOTE,
   PAGE_POST_NOTE,
   simulatedResponse,
   sleep,
@@ -19,6 +21,7 @@ import {
   submitControl,
   submitForm,
   waitFor,
+  watchNextStep,
   type FieldValue, isSearchForm } from "./lib/functional-form.js";
 
 const ID = "silent-failure" as const;
@@ -45,9 +48,13 @@ const PROBE_SCRIPT = `(() => {
   const re = new RegExp(${JSON.stringify(ERROR_WORDS)}, "i");
   const shown = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none"; };
   const isNew = (el) => { const t = (el.innerText || "").trim(); return t && re.test(t) && w.__rhBefore && w.__rhBefore.get(el) !== t; };
+  // A live region is often a container with no size of its own: sonner's <section aria-live> holds a fixed <ol> whose
+  // toasts are absolutely positioned, so the region measures 0 px high while the toast is plainly on screen. What
+  // counts is whether the error text inside it is visible.
+  const contentShown = (el) => shown(el) || Array.from(el.querySelectorAll("*")).some((d) => re.test((d.innerText || "").trim()) && shown(d));
   const regions = document.querySelectorAll('[role=alert], [role=status], [role=log], [aria-live]:not([aria-live=off])');
   for (const el of regions) {
-    if (isNew(el) && shown(el)) return { announced: true, how: "live region (" + (el.getAttribute("role") || "aria-live=" + el.getAttribute("aria-live")) + ")", text: el.innerText.trim().slice(0, 300) };
+    if (isNew(el) && contentShown(el)) return { announced: true, how: "live region (" + (el.getAttribute("role") || "aria-live=" + el.getAttribute("aria-live")) + ")", text: el.innerText.trim().slice(0, 300) };
   }
   const active = document.activeElement;
   if (active && active !== w.__rhFocusBefore && active !== document.body && !active.matches("input, select, textarea, button") && isNew(active) && shown(active)) {
@@ -67,20 +74,48 @@ interface Probe {
   text: string | null;
 }
 
-/** Fields whose typed value is gone after the error (radios and pickers compared by checked state). */
-async function lostInputs(page: Page, values: FieldValue[]): Promise<string[]> {
+/**
+ * What a field shows now, whatever kind it is: a text field's or select's value, the checked radio of a group, a
+ * checkbox's or switch widget's aria-checked, a slider's aria-valuenow, a widget's hidden native input, else the
+ * control's text (a select widget's trigger shows the chosen option). Null when the field isn't on the page.
+ */
+const READ_SCRIPT = `(args) => {
+  const el = document.querySelector(args.sel);
+  if (!el) return null;
+  if (el.getAttribute("role") === "slider") return el.getAttribute("aria-valuenow");
+  if (el.hasAttribute("aria-checked")) return el.getAttribute("aria-checked");
+  const native = args.native ? document.querySelector(args.native) : null;
+  if (native) return native.matches("input[type=checkbox], input[type=radio]") ? String(native.checked) : native.value;
+  if (el.matches("input[type=radio]")) {
+    const on = el.form ? Array.from(el.form.elements).find((i) => i.type === "radio" && i.name === el.name && i.checked) : el.checked ? el : null;
+    return on ? on.value : "";
+  }
+  if (el.matches("input[type=checkbox]")) return String(el.checked);
+  if (el.matches("input, textarea, select")) return el.value;
+  const checked = el.querySelector('input:checked, [aria-checked="true"]');
+  if (el.querySelector("input[type=radio], [role=radio]")) return checked ? checked.value || checked.getAttribute("value") || checked.textContent || "checked" : "";
+  return (el.textContent || "").trim();
+}`;
+
+async function readField(page: Page, field: FormField): Promise<string | null> {
+  return (await page.evaluate(`(${READ_SCRIPT})(${JSON.stringify({ sel: field.selector, native: field.nativeSelector ?? null })})`).catch(() => null)) as string | null;
+}
+
+/** What every filled field shows, just before submitting. */
+async function snapshot(page: Page, values: FieldValue[]): Promise<(string | null)[]> {
+  const shown: (string | null)[] = [];
+  for (const { field } of values) shown.push(["file", "hidden"].includes(field.type) ? null : await readField(page, field));
+  return shown;
+}
+
+/** Fields that no longer show what they showed before submitting (the form was cleared after the error). */
+async function lostInputs(page: Page, values: FieldValue[], before: (string | null)[]): Promise<string[]> {
   const lost: string[] = [];
-  for (const { field, value } of values) {
-    try {
-      if (field.type === "radio" && field.options?.length) {
-        const option = field.options.find((o) => o.label === value) ?? field.options[0]!;
-        if (!(await page.locator(option.selector).first().isChecked())) lost.push(fieldName(field));
-      } else if (!field.options && !["checkbox", "radio", "custom", "file", "hidden"].includes(field.type)) {
-        if ((await page.locator(field.selector).first().inputValue()) !== value) lost.push(fieldName(field));
-      }
-    } catch {
-      lost.push(fieldName(field));
-    }
+  for (const [i, { field }] of values.entries()) {
+    const was = before[i];
+    // Nothing to lose in a field that was empty (or unreadable) before the submit.
+    if (was === null || was === undefined || was === "" || was === "false") continue;
+    if ((await readField(page, field)) !== was) lost.push(fieldName(field));
   }
   return lost;
 }
@@ -109,7 +144,7 @@ export const check: Check = {
 
   run(ctx, scenario) {
     return guarded(ID, scenario, ctx, async (started) => {
-      const { page } = await ctx.openPage();
+      const { page, capture } = await ctx.openPage();
       const values = canaryValues(ctx.form, ctx.runToken, "silent");
       let intercepted: { method: string; url: string } | null = null;
       let pagePost = false;
@@ -126,7 +161,7 @@ export const check: Check = {
       });
 
       ctx.step("Filling the form with valid test values", page);
-      await fillForm(page, values);
+      const unset = await fillForm(page, values);
       const submit = submitControl(ctx.form);
       const flow = recordFlow(ctx, page, "submit while the server fails");
       await flow.step("Form filled with valid data", {
@@ -136,7 +171,9 @@ export const check: Check = {
           { label: "Server answer", value: "500, simulated by Run Hound (nothing is saved)" },
         ],
       });
+      const typed = await snapshot(page, values);
       await page.evaluate(ARM_SCRIPT);
+      const step = await watchNextStep(page, capture, ctx.targetUrl, ctx.runToken);
       await submitForm(page, ctx.form);
       const submittedAt = Date.now();
       await waitFor(() => (intercepted as unknown) !== null || pagePost, 2000);
@@ -161,17 +198,21 @@ export const check: Check = {
       // Assigned inside the route handler, which TypeScript's narrowing can't see.
       const hit = intercepted as { method: string; url: string } | null;
       if (!hit) {
+        // The first step of a wizard saves nothing: it shows the next step. That is not a refusal.
+        const why = fillProblemsNote(unset);
         return {
           ...result(ID, scenario, started, []),
           status: "skipped",
-          notes: "Skipped: submitting the form sent no save request (the page may have refused Run Hound's test values), so there was no server answer to turn into an error.",
+          notes: (await step.moved())
+            ? MULTI_STEP_NOTE
+            : `Skipped: submitting the form sent no save request (${why ? `${why.replace(/\.$/, "")}, and the page may need it` : "the page may have refused Run Hound's test values"}), so there was no server answer to turn into an error.`,
         };
       }
       const seenAfterMs = Date.now() - submittedAt;
       // Give a form reset that runs with the message a moment to land.
       await sleep(300);
       ctx.step("Checking the typed values are still there", page);
-      const lost = await lostInputs(page, values);
+      const lost = await lostInputs(page, values, typed);
 
       const make = findingFactory(ID, "broken-feature", scenario);
       const failed = !probe.announced || lost.length > 0;
@@ -244,7 +285,7 @@ export const check: Check = {
               source: specSource(ctx.targetUrl, "a server error shows an announced message", [
                 ...baseSpec,
                 `await expect(page.getByRole("alert").filter({ hasText: /${ERROR_WORDS}/i })).toBeVisible({ timeout: ${BUDGET_MS} });`,
-              ]),
+              ], ctx.form),
             },
           }),
         );
@@ -270,9 +311,9 @@ export const check: Check = {
                 ...baseSpec,
                 `await page.waitForTimeout(${BUDGET_MS});`,
                 ...values
-                  .filter((v) => lost.includes(fieldName(v.field)) && !v.field.options && v.field.type !== "radio")
+                  .filter((v) => lost.includes(fieldName(v.field)) && !v.field.options && !v.field.widget && !["radio", "checkbox"].includes(v.field.type))
                   .map((v) => `await expect(${fieldLocator(v.field)}).toHaveValue(${JSON.stringify(v.value)});`),
-              ]),
+              ], ctx.form),
             },
           }),
         );

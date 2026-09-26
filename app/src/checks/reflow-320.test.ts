@@ -4,7 +4,7 @@ import { startFixtureServer, type FixtureServer } from "../../test-support/serve
 import { bookingApp, type BookingVariant } from "../../test/fixtures/checks/booking-page.js";
 import { allFindings, bug, expectPlanShape, expectWellFormedFinding } from "../../test/fixtures/checks/assert-finding.js";
 import * as fixtures from "../../test/fixtures/checks/reflow-320/variants.js";
-import { check } from "./reflow-320.js";
+import { check, looksLikeTestValue } from "./reflow-320.js";
 
 const servers: FixtureServer[] = [];
 afterEach(async () => {
@@ -72,5 +72,42 @@ describe("reflow-320 check", () => {
     expect(findings).toHaveLength(1);
     expect(findings[0]!.confidence).toBe("confirmed");
     expect(findings[0]!.location).toMatch(/#long-code/);
+  });
+
+  it("ADVISORY: an oversized test record saved by an EARLIER run (another run token) is Run Hound's data too (LOV-11)", async () => {
+    const { results, findings } = await run(fixtures.earlierRunRecord);
+    expect(overallStatus(results)).toBe("fail");
+    expect(findings).toHaveLength(1);
+    const f = findings[0]!;
+    expect(f.confidence).toBe("advisory");
+    expect(f.severity).toBe("low");
+    expect(f.title).toMatch(/long unbroken text/i);
+    expect(f.meaning).toMatch(/earlier Run Hound run/);
+    expect(f.location).toMatch(/#old-task/);
+  });
+});
+
+describe("reflow-320: Run Hound's test values, from any run (LOV-11)", () => {
+  it("recognises every shape Run Hound types, whatever the run token", () => {
+    for (const text of [
+      "Task deadbeefverbose",
+      "fa145884verbose " + "x".repeat(300),
+      "owner.1a2b3c4dkeepf2@example.test",
+      "runhound-1a2b3c4dax@example.com",
+      "Run Hound test 1a2b3c4d",
+      "Rh 1a2b3c4day",
+      "Feed twice a day, note 1a2b3c4dsilent",
+      "https://example.test/1a2b3c4dcne",
+      "Fake-Passw0rd-1a2b3c4dtwice!",
+      "x".repeat(250),
+    ]) {
+      expect(looksLikeTestValue(text), text).toBe(true);
+    }
+  });
+
+  it("does not take the page's own text for a test value", () => {
+    for (const text of ["SUPPORT-REFERENCE-CODE-ABCDEFGHIJKLMNOPQRSTUVWXYZ", "Order deadbeef shipped", "a1b2c3d4e5f6a7b8c9d0", "help@example.com", "Rhubarb pie"]) {
+      expect(looksLikeTestValue(text), text).toBe(false);
+    }
   });
 });

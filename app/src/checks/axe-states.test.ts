@@ -1,7 +1,13 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import type { Finding } from "../core/types.js";
-import { closeBrowser, overallStatus, runCheck } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
+import { closeBrowser, getBrowser, overallStatus, runCheck } from "../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
+import { createCheckContext } from "../engine/context.js";
+import { discoverPage } from "../engine/discover.js";
 import { bookingApp, type BookingVariant } from "../../test/fixtures/checks/booking-page.js";
 import {
   allFindings,
@@ -123,4 +129,63 @@ describe("axe-states check", () => {
     }
     expect(findings.filter((f) => findingText(f).includes("#phone"))).toHaveLength(1);
   });
+});
+
+describe("axe-states: text that is fading in is not measured mid-fade (LOV-9)", () => {
+  const contrast = (findings: Finding[]) => findings.filter((f) => axeRuleIds(f).includes("color-contrast"));
+
+  it("GOOD: a hero paragraph with an entrance fade (Web Animations) passes once it has faded in", async () => {
+    const { results, findings } = await run(fixtures.fadeInWaapi);
+    expect(contrast(findings), JSON.stringify(findings.map((f) => f.evidence.find((e) => e.kind === "axe")?.data))).toEqual([]);
+    expect(overallStatus(results)).toBe("pass");
+  });
+
+  it("GOOD: the same fade driven by script frame by frame passes too", async () => {
+    const { findings } = await run(fixtures.fadeInScript);
+    expect(contrast(findings), JSON.stringify(findings.map((f) => f.evidence.find((e) => e.kind === "axe")?.data))).toEqual([]);
+  });
+
+  it("BAD: text that stays too faint after its fade-in is still one color-contrast finding", async () => {
+    const { findings } = await run(fixtures.fadeInLowContrast);
+    const found = contrast(findings);
+    expect(found).toHaveLength(1);
+    expect(findingText(found[0]!)).toContain("#hero");
+  });
+});
+
+describe("axe-states: a form in a dialog that closes after saving (LOV-8)", () => {
+  it("opens the dialog again for the second submission", async () => {
+    const members: unknown[] = [];
+    const server = await startFixtureServer({
+      root: fileURLToPath(new URL("../../test/fixtures/discover/", import.meta.url)),
+      routes: {
+        "GET /api/members": (_req, res) => json(res, 200, members),
+        "POST /api/members": (req, res) => {
+          members.push(JSON.parse(req.body));
+          json(res, 201, {});
+        },
+      },
+    });
+    servers.push(server);
+    const url = `${server.url}/dialog-only.html`;
+    const browser = await getBrowser();
+    const discovery = await browser.newPage();
+    await discovery.goto(url, { waitUntil: "networkidle" });
+    const found = await discoverPage(discovery, { openers: true });
+    await discovery.close();
+    const form = found.forms[0]!;
+    expect(form.opener?.name).toBe("Add member");
+
+    const artifactsDir = await mkdtemp(join(tmpdir(), "rh-axe-dialog-"));
+    const ctx = createCheckContext({ browser, form, discoveredPage: found, targetUrl: url, artifactsDir, runToken: "t3st" });
+    try {
+      const [scenario] = check.plan(form, found);
+      const result = await check.run(ctx, scenario!);
+      expect(result.status, result.notes).not.toBe("error");
+      expect(members, "both submissions of the success state were saved").toHaveLength(2);
+    } finally {
+      await ctx.dispose();
+      await rm(artifactsDir, { recursive: true, force: true });
+    }
+  }, 120_000);
 });

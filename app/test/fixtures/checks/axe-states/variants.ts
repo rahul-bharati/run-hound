@@ -55,3 +55,32 @@ export const allRules: BookingVariant = {
   replace: [...bad.missingLabel.variant.replace, ...bad.namelessIconButton.variant.replace] as [string, string][],
   css: [bad.lowContrastHelper.variant.css, bad.smallTargets.variant.css].join("\n"),
 };
+
+/** Adds a muted "hero" paragraph (#737373 on white, about 4.7:1: passes AA) at the top of <main>, then runs `animate`. */
+function heroParagraph(color: string, animate: string): BookingVariant {
+  return {
+    script: `const p = document.createElement("p"); p.id = "hero"; p.style.color = "${color}"; p.textContent = "Trusted by 2,000 pet owners across the city.";
+document.querySelector("main").prepend(p);
+${animate}`,
+  };
+}
+
+/** GOOD: an entrance fade (Web Animations, like framer-motion): the text is only faint while it fades in. */
+export const fadeInWaapi = heroParagraph(
+  "#737373",
+  `p.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 1500, delay: 300, fill: "backwards", easing: "ease-out" });`,
+);
+
+/** GOOD: the same fade driven from JavaScript frame by frame (no Web Animation to wait for). */
+export const fadeInScript = heroParagraph(
+  "#737373",
+  `p.style.opacity = "0"; const start = performance.now();
+const step = (now) => { const t = Math.min(1, (now - start) / 1800); p.style.opacity = String(t); if (t < 1) requestAnimationFrame(step); };
+requestAnimationFrame(step);`,
+);
+
+/** BAD: text that is too faint (#bbbbbb, about 1.9:1) even after its fade-in ends is still reported. */
+export const fadeInLowContrast = heroParagraph(
+  "#bbbbbb",
+  `p.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 1500, delay: 300, fill: "backwards" });`,
+);

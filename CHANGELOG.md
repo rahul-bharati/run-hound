@@ -2,6 +2,40 @@
 
 All notable changes to Run Hound. Versions follow [Semantic Versioning](https://semver.org/); while the version is 0.x, any release may change behaviour.
 
+## Unreleased (0.4.0)
+
+Work in progress on the 0.4.0 contract ([docs/v2-spec.md](docs/v2-spec.md)). So far: modern form stacks (React 19, Radix/shadcn, react-hook-form + zod, cmdk, sonner), and the fixes from the 0.3.0 audit.
+
+### Added
+
+- **Widgets**: Radix/shadcn, Headless UI, cmdk and MUI selects, comboboxes, checkboxes, switches, radio groups and sliders are discovered as fields (`FormField.widget`, with the hidden Radix input as `nativeSelector`) and set the way a person sets them (`setField`), in the checks and in exported specs. Fields marked required only in their label ("Email *", "(required)") count as required.
+- **Forms in dialogs**: discovery tries up to 3 controls that look like they open a dialog or sheet ("Add member", `aria-haspopup="dialog"`, never a link to another page), with writes blocked (every request but GET, HEAD and OPTIONS, and every message the page sends over a WebSocket), and plans the form it shows (`DiscoveredForm.opener`). The form's scenarios open it after every page load, and exported specs open it too; page-wide scenarios see the page as it loads.
+- **Multi-step forms**: when submitting shows the next step without saving, the checks that need a saved record skip with a plain "multi-step form" note instead of blaming the test values.
+- **Stable selectors**: ids a framework numbers in mount order (React `useId`, `radix-`, `headlessui-`, `mui-`, UUIDs) are never used, so a selector finds the same field on every load.
+
+### Fixed
+
+- A scenario can take at most 3 minutes (the checks that click every control get a minute plus 15 s per control when that is more); one that hangs (often a request the app never answers) ends as an error with a note, and the run and its report finish. The replays and re-fetches sent from the page give up after 10 seconds.
+- `run` exits 2 with "Nothing was tested" when every approved scenario errored or was skipped, instead of 0. `serve` on a port already in use prints one plain line and exits 2.
+- A user name and password in the target URL are taken out of the plan, reports, specs, logs and UI, and only answer that origin's HTTP authentication.
+- False findings on modern apps: sonner toasts count as announced; a toast is not a saved record; a move to a thank-you page is followed; uppercase and formatted phone lists match the typed values; a double click counts only the saves it sent (not GraphQL queries); a guarded button, a covered radio card, a new tab, fading-in text and Run Hound's own earlier test data are no longer reported; errors while loading are reported once per page, not once per form; blocked embeds are left out of console errors.
+- The test-record count leaves out GraphQL queries and same-origin reads or analytics sent as POST.
+- `persistence` still reports lost data when the app moves to another page after saving: a detail page or list that leaves out a field, and a list that showed the new record only until the page was loaded again. A greeting by name, or the signed-in user's name in the page header, is not taken for a list of records, and a list in a live region (`aria-live`) is not taken for a toast.
+- `dead-control` and `page-controls` report a button an invisible element covers (a leftover backdrop) as one nobody can click, and a scenario in which no control could be clicked is skipped instead of passing.
+- `dead-control` and `page-controls` leave out sending, paying, ordering and trash-icon controls unless `--allow-destructive`; a contact form's own "Send message" button still works with Enter in a suggested flow.
+- `pii-leak` doesn't report the app's own hosted backend or form service (Supabase, Firebase, Formspree, …) as a third party. `verbose-errors` sends its malformed replay only where the safety gate allows. `bundle-secrets` keeps two different keys with the same preview apart.
+- The AI review can tick a scenario but never untick one that is ticked by default. Provider error messages never echo the API key.
+
+### Security
+
+- The local server answers only loopback names and addresses, `RUNHOUND_SERVER_HOSTS`, the `RUNHOUND_PUBLIC_URL` host and the specific `serve --host` address; other IP literals get 403. Every response carries `nosniff`, `X-Frame-Options: DENY`, `no-referrer` and a Content-Security-Policy; `report.html` is sandboxed.
+- The navigation guard closes a context whose navigation to a DNS-approved host answered from an address that isn't private (DNS rebinding on hosts that can't be pinned).
+- Docker: on a rootful engine with a runs folder Docker created as root, the folder is handed to the image's user (uid 1001) with normal permissions (755/644) instead of being made world-writable; deleting reports then needs `sudo`, and the entrypoint says so.
+
+### Changed
+
+- Reports record how the run was started (`Report.options`: `allowDestructive`, `headed`), so a re-run of a report read back from disk runs the same way. A re-run of a target whose saved URL had a secret redacted out of it is refused with a plain message.
+
 ## 0.3.0 (optional AI: plan review, suggested flows, explanations)
 
 Bring your own model. AI is off by default and never decides pass or fail. Contract: [docs/ai-spec.md](docs/ai-spec.md).
