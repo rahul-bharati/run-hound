@@ -315,6 +315,17 @@ export const AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
  * "<rule>: <target> (<summary>)" so a failing expect() says what is wrong. Clean mode must return [].
  */
 export async function axeViolations(page: Page, options: { include?: string; disableRules?: string[] } = {}): Promise<string[]> {
+  // Let entrance animations and transitions (a toast sliding in, a dialog fading in) finish first: text caught
+  // mid-fade is half transparent, and its contrast would be measured wrong on a slow machine. Endless ones (spinners)
+  // never finish, so they don't count.
+  await page
+    .waitForFunction(
+      () =>
+        document.getAnimations().every((a) => a.playState !== "running" || a.effect?.getComputedTiming().endTime === Infinity),
+      undefined,
+      { timeout: 5_000 },
+    )
+    .catch(() => undefined);
   let builder = new AxeBuilder({ page }).withTags(AXE_TAGS);
   if (options.include) builder = builder.include(options.include);
   if (options.disableRules?.length) builder = builder.disableRules(options.disableRules);
