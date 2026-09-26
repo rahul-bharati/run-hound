@@ -167,4 +167,28 @@ export interface Profile {
 /** The profile endpoint of a user (the Settings page uses the signed-in user's id from GET /api/me). */
 export const profilePath = (userId: string) => `/api/users/${encodeURIComponent(userId)}/profile`;
 
+/** The update endpoint of a task (PATCH with the whole task: title, projectId, done). */
+export const taskPath = (taskId: string) => `/api/tasks/${encodeURIComponent(taskId)}`;
+
+/** What the client sends to PATCH /api/tasks/:id: the task's editable fields, all of them. */
+export const taskUpdate = (task: Pick<Task, "title" | "projectId" | "done">) => ({ title: task.title, projectId: task.projectId, done: task.done });
+
+/** An upgrade started with POST /api/billing/checkout (server/routes/billing.mjs). `amount` is in cents. */
+export interface Checkout {
+  id: string;
+  plan: string;
+  amount: number;
+  currency: string;
+  status: "open" | "paid" | "fulfilled";
+}
+
+/** POST /api/billing/confirm: whether the checkout was paid and the plan granted, and the account's plan now. */
+export interface UpgradeConfirmation {
+  confirmed: boolean;
+  plan: string;
+}
+
+/** Where the local test checkout lands after paying (the SPA's success page). */
+export const upgradedPath = (checkoutId?: string) => (checkoutId ? `/app/upgraded?checkout=${encodeURIComponent(checkoutId)}` : "/app/upgraded");
+
 export type NotificationSettings = Record<string, boolean>;

@@ -314,6 +314,7 @@ describe("signed-in pages (clean mode)", () => {
     ["/app/settings", "/login?next=/app/settings"],
     ["/app/settings#billing", "/login?next=/app/settings%23billing"],
     ["/app/help", "/login?next=/app/help"],
+    ["/app/upgraded", "/login?next=/app/upgraded"],
   ])("signed out, %s sends you to %s; signing in there brings you back", async (path, login) => {
     const { page, events, close } = await openPage(ref.fw, path, { reducedMotion: "reduce" });
     try {

@@ -690,8 +690,8 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
 }
 
 /**
- * True for a scenario that needs the other account signed in (docs/v2-spec.md "access-control"): the access-control
- * check's other-account scenario, on any form.
+ * True for a scenario that needs the other account signed in (docs/v2-spec.md "access-control"): the
+ * other-account scenario of access-control, on any form.
  */
 export function needsOtherAccount(scenario: Scenario): boolean {
   return scenario.checkId === "access-control" && /(?:^|:)other-account(?:@form-\d+)?(?:#\d+)?$/.test(scenario.id);

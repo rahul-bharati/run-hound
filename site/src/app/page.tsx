@@ -20,6 +20,7 @@ import {
   Container as Box,
   DatabaseZap,
   FileCode,
+  Globe,
   KeyRound,
   LayoutDashboard,
   Link2Off,
@@ -39,7 +40,7 @@ export const metadata = pageMetadata({
     "Open-source, AI-assisted UI testing for AI-built apps: real checks in a real browser, with evidence and a Playwright test. Runs on your machine.",
 });
 
-/** The V2 preview's checks (0.4.0, docs/v2-spec.md), as the questions they answer. */
+/** The V2 preview's checks (0.4.0, and 0.5.0's csrf; docs/v2-spec.md), as the questions they answer. */
 const accessChecks: { icon: LucideIcon; id: string; title: string; text: string }[] = [
   {
     icon: UsersRound,
@@ -58,6 +59,12 @@ const accessChecks: { icon: LucideIcon; id: string; title: string; text: string 
     id: "deep-links",
     title: "Do your pages survive a reload?",
     text: "It opens the page's own links directly, as a reload or a shared link would, and reports the ones that answer with an error or a not-found page. Signed in or not.",
+  },
+  {
+    icon: Globe,
+    id: "csrf",
+    title: "Can another website act for you?",
+    text: "A page on another site (localhost vs 127.0.0.1) sends Account A's save from Account A's own browser, as any website could. A forged value that sticks is a finding; without a cross-site address the result is inconclusive, never a pass.",
   },
 ];
 
@@ -169,16 +176,16 @@ export default function Home() {
 
       <Section
         id="signed-in"
-        eyebrow={`NEW IN 0.4.0 · ${site.preview.toUpperCase()}`}
+        eyebrow={`NEW IN 0.5.0 · ${site.preview.toUpperCase()}`}
         title={
           <>
             Signed-in runs <span className="text-accent">and access checks.</span>
           </>
         }
-        intro="Add two test accounts you own on your app, A and B. Run Hound signs in before it tests, so pages behind a login get every check, and three new checks look for what AI-built backends often get wrong. It is the first part of V2, released as a preview."
+        intro="Add two test accounts you own on your app, A and B. Run Hound signs in before it tests, so pages behind a login get every check, and four checks look for what AI-built backends often get wrong: three from 0.4.0 and one that writes (0.5.0). They are the first parts of V2, released as a preview."
         className="border-t border-line-soft"
       >
-        <ul className="grid gap-5 md:grid-cols-3">
+        <ul className="grid gap-5 md:grid-cols-2">
           {accessChecks.map((item) => (
             <li key={item.id} className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-6 sm:p-7">
               <span className="grid size-11 place-items-center rounded-xl border border-line-strong text-accent">
@@ -213,8 +220,8 @@ export default function Home() {
               customer&apos;s.
             </p>
             <p>
-              Still planned for V2: testing a feature across pages, checking whether one account can change another&apos;s
-              data, rate limits, CSRF, file uploads, prompt injection and paywall trust.
+              Still planned for V2: checks that another account or a signed-out visitor can&apos;t change your data and that a paid
+              plan needs a real payment, testing a feature across pages, rate limits, file uploads and prompt injection.
             </p>
             <ArrowLink href="/docs#accounts">Signed-in runs in the docs</ArrowLink>
           </div>

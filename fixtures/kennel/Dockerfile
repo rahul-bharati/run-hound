@@ -1,9 +1,9 @@
 # Kennel: the deliberately broken booking app Run Hound is tested against.
-# Published as ghcr.io/rahul-bharati/run-hound-kennel:0.4.1. Build it yourself from the repository root (the pnpm
+# Published as ghcr.io/rahul-bharati/run-hound-kennel:0.5.0. Build it yourself from the repository root (the pnpm
 # workspace and lockfile live there):
 #   docker build -f fixtures/kennel/Dockerfile -t localhost/run-hound-kennel:dev .
 #   docker run --rm --init -p 127.0.0.1:3000:3000 -p 127.0.0.1:3001:3001 -e KENNEL_BUGS=none \
-#     ghcr.io/rahul-bharati/run-hound-kennel:0.4.1
+#     ghcr.io/rahul-bharati/run-hound-kennel:0.5.0
 # Kennel is a local test target only (its planted bugs include public secret keys and a CORS hole): publish its
 # ports on 127.0.0.1 as above and never expose it to your network or the internet.
 

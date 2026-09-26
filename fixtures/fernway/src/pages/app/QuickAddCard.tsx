@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/components/ui/sonner";
-import { apiPost, isApiError, type Project, type Task } from "@/lib/api";
+import { apiPatch, apiPost, isApiError, taskPath, taskUpdate, type Project, type Task } from "@/lib/api";
 import { useBug } from "@/lib/bugs";
 import { cn } from "@/lib/utils";
 import { LIMITS } from "./constants";
@@ -39,7 +39,8 @@ interface QuickAddCardProps {
 
 /**
  * "Quick add" (CONTRACT.md): the Quick add task form (Task, Project, "Add task") and the "Today" list under it. The
- * list sits outside the <form>, so its checkboxes are not fields of the form.
+ * list sits outside the <form>, so its checkboxes are not fields of the form. Adding a task is two requests: POST
+ * /api/tasks creates it, then PATCH /api/tasks/:id saves the whole task, the one update call every task change uses.
  * W03: "Add task" never disables and nothing guards a second submit, so a double click posts twice.
  */
 export function QuickAddCard({ projects, tasks, onCreated, onToggle, className }: QuickAddCardProps) {
@@ -59,7 +60,8 @@ export function QuickAddCard({ projects, tasks, onCreated, onToggle, className }
     setStatus("");
     const title = values.title.trim();
     try {
-      const task = await apiPost<Task>("/api/tasks", { title, projectId: values.projectId === NO_PROJECT ? "" : values.projectId });
+      const created = await apiPost<Task>("/api/tasks", { title, projectId: values.projectId === NO_PROJECT ? "" : values.projectId });
+      const task = await apiPatch<Task>(taskPath(created.id), taskUpdate(created));
       onCreated(task);
       form.reset({ title: "", projectId: values.projectId });
       setStatus(`Added “${task.title}” to Today.`);

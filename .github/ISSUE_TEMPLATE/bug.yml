@@ -12,8 +12,8 @@ body:
     id: version
     attributes:
       label: Run Hound version
-      description: "`docker run --rm ghcr.io/rahul-bharati/run-hound:0.4.1 --version`, `pnpm exec tsx src/cli.ts --version` in `app/` from source, or `runHoundVersion` in report.json."
-      placeholder: run-hound 0.4.1
+      description: "`docker run --rm ghcr.io/rahul-bharati/run-hound:0.5.0 --version`, `pnpm exec tsx src/cli.ts --version` in `app/` from source, or `runHoundVersion` in report.json."
+      placeholder: run-hound 0.5.0
     validations:
       required: true
   - type: input
@@ -34,6 +34,7 @@ body:
         - During a run
         - "Test accounts or signing in (0.4.0, V2 preview: Settings → Test accounts, accounts set/test, --as)"
         - "Access checks (0.4.0, V2 preview: access-control, mass-assignment, deep-links)"
+        - "CSRF check (0.5.0, V2 preview)"
         - "AI (Settings → AI, ai status/test, --ai)"
         - Writing or opening the report
         - Docker or Podman

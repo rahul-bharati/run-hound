@@ -367,7 +367,8 @@ describe("/onboarding wizard (clean mode)", () => {
 
       expect(events.consoleErrors).toEqual([]);
       expect(events.pageErrors).toEqual([]);
-      expect(events.failedRequests).toEqual([]);
+      // The reload cancels the dashboard's images still loading (net::ERR_ABORTED): the browser's doing, not a failure.
+      expect(events.failedRequests.filter((f) => !/\/images\/\S+: net::ERR_ABORTED$/.test(f))).toEqual([]);
       expect(events.badResponses).toEqual([]);
     } finally {
       await close();

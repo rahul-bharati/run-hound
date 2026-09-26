@@ -11,7 +11,7 @@ import { check as accessControl } from "../checks/access-control.js";
 import { check as deepLinks } from "../checks/deep-links.js";
 import { checks as allChecks } from "../checks/index.js";
 import { check as massAssignment } from "../checks/mass-assignment.js";
-import type { AccountRef, CheckGroup, CheckId, DiscoveredForm, DiscoveredPage, FormControl, FormField, Plan, PlanEnv, Scenario } from "../core/types.js";
+import { CHECK_IDS, V2_CHECK_IDS, type AccountRef, type CheckGroup, type CheckId, type DiscoveredForm, type DiscoveredPage, type FormControl, type FormField, type Plan, type PlanEnv, type Scenario } from "../core/types.js";
 import { discoverPage } from "./discover.js";
 import { buildPlan, WHOLE_PAGE } from "./plan.js";
 import { planWarnings } from "./runner.js";
@@ -212,16 +212,22 @@ describe("deep-links planning", () => {
 });
 
 describe("run order", () => {
-  it("with every check, signed in: the V2 Security scenarios come after the existing ones, access-control before mass-assignment", () => {
+  it("with every check, signed in: the V2 Security scenarios come after the existing ones, in CHECK_IDS order", () => {
     const plan = signedIn(buildPlan(target, notes, allChecks, SIGNED_IN_WITH_B));
     const security = plan.groups.find((g) => g.id === "security")!.scenarioIds;
     const checkOf = (id: string) => plan.scenarios.find((s) => s.id === id)!.checkId;
+    const isV2 = (id: string) => V2_CHECK_IDS.includes(checkOf(id));
     const firstAccess = security.findIndex((id) => checkOf(id) === "access-control");
     const firstMass = security.findIndex((id) => checkOf(id) === "mass-assignment");
-    const lastOlder = security.findLastIndex((id) => checkOf(id) !== "access-control" && checkOf(id) !== "mass-assignment");
+    const firstCsrf = security.findIndex((id) => checkOf(id) === "csrf");
+    const lastOlder = security.findLastIndex((id) => !isV2(id));
     expect(firstAccess).toBeGreaterThan(-1);
     expect(firstMass).toBeGreaterThan(firstAccess);
+    // 0.5.0: csrf plans on a form that saves a record, after the 0.4.0 checks.
+    expect(firstCsrf).toBeGreaterThan(firstMass);
     expect(lastOlder).toBeLessThan(firstAccess);
+    const v2Order = [...new Set(security.filter(isV2).map(checkOf))];
+    expect(v2Order).toEqual(CHECK_IDS.filter((id) => v2Order.includes(id)));
     const features = plan.groups.find((g) => g.id === "features")!.scenarioIds;
     expect(features.map(checkOf)).toContain("deep-links");
   });

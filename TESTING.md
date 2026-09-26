@@ -1,6 +1,6 @@
-# Trying Run Hound 0.4.1 (V2 preview)
+# Trying Run Hound 0.5.0 (V2 preview)
 
-Thanks for trying Run Hound. The repository is public and open source: anyone can try it (no clone needed with Docker), read the code and file issues. Run Hound is AI-assisted UI testing for AI-built apps: AI plans and explains, real checks decide. This preview ships the real checks; 0.4.0 adds signed-in runs with two test accounts and the first access checks, and handles the widgets and dialogs AI app builders generate. Since 0.3.0 you can add your own model to review the plan, suggest extra flows and explain findings (optional, off by default). This guide covers what Run Hound does, how to run it on Kennel (the demo app) and then on your own app, signed-in runs, how to read the report, and what to send back.
+Thanks for trying Run Hound. The repository is public and open source: anyone can try it (no clone needed with Docker), read the code and file issues. Run Hound is AI-assisted UI testing for AI-built apps: AI plans and explains, real checks decide. This preview ships the real checks; 0.4.0 adds signed-in runs with two test accounts and the first access checks, and handles the widgets and dialogs AI app builders generate; 0.5.0 adds the CSRF check (can another website change your data). Since 0.3.0 you can add your own model to review the plan, suggest extra flows and explain findings (optional, off by default). This guide covers what Run Hound does, how to run it on Kennel (the demo app) and then on your own app, signed-in runs, how to read the report, and what to send back.
 
 **Contents:** [Who this is for](#who-this-is-for) · [What it does](#what-it-does-and-doesnt-do) · [Requirements](#requirements) · [Install](#install) · [Try it on Kennel first](#try-it-on-kennel-first-10-minutes) · [Test your own app](#test-your-own-app) · [Signed-in runs and access checks](#signed-in-runs-and-access-checks-v2-preview) · [Trying the AI features](#trying-the-ai-features) · [Reading the report](#reading-the-report) · [Known limitations](#known-limitations) · [Sending feedback](#sending-feedback)
 
@@ -14,6 +14,10 @@ What we most want to learn: **is every finding real, and did it miss a bug you k
 
 **It does:** open one page of your local app in a headless Chromium, find the forms on it (up to 5, the one with the most fields first, including forms in dialogs and sheets) and the buttons outside them, plan the form checks for each form plus the page-wide checks (usually 15 to 20 scenarios for a page with one form), let you pick which ones to run, run them, and write a report with evidence (annotated screenshots, short GIFs, request and response cards) and a Playwright test for each finding.
 
+**New in 0.5.0:**
+
+- **`csrf`** (signed in, unticked by default): can a page on another site make A's browser change A's data? It writes only the test record Run Hound just created as A, judges from a re-read as A, and puts back what it changed. See [The CSRF check](#the-csrf-check-050). `write-access` and `paywall-trust`, planned for 0.5.0 too, are not in this release.
+
 **New in 0.4.0:**
 
 - **Signed-in runs**: save two test accounts you own (A and B), and Run Hound signs in before it tests, so pages behind your sign-in can be tested. Three checks join the plan: `access-control` (can account B, or a visitor who isn't signed in, read account A's data?), `mass-assignment` (does the server accept `role` or `plan` fields the form never sends?) and `deep-links` (do the app's pages load when opened directly?). See [Signed-in runs and access checks](#signed-in-runs-and-access-checks-v2-preview).
@@ -25,7 +29,7 @@ What we most want to learn: **is every finding real, and did it miss a bug you k
 
 - follow links to other pages (one page per run: `deep-links` opens the page's own links to see that they load, but doesn't test those pages; whole features across pages are planned);
 - sign in with verification codes, captchas, "Sign in with Google/GitHub", or a sign-in split over two pages (see [what sign-in can't do](#what-sign-in-cant-do));
-- check that account B can change account A's records, rate limits, CSRF or file uploads (planned);
+- test rate limits or file uploads (planned), or `csrf` on a host name other than `localhost` or `127.0.0.1` (inconclusive there);
 - test public websites: only your own machine and private network addresses (see [Safety rules](#safety-rules));
 - use AI unless you turn it on: with AI off (the default) the plan comes from the built-in checks below, the explanations are written for each check, and nothing is sent to any AI provider. With AI on (see [Trying the AI features](#trying-the-ai-features)) your model reviews the plan, suggests flows and explains findings, but every pass or fail still comes from a real check in a real browser;
 - delete the test records it creates (see [Test records](#test-records-it-creates)).
@@ -58,10 +62,11 @@ What we most want to learn: **is every finding real, and did it miss a bug you k
 | `access-control` (0.4.0, signed in) | As account A, saves a test record (or finds responses naming A), then replays the read requests that returned A's data as account B and with no session. Any of A's data coming back is a finding. Read-only replays. | up to 1 per scenario, in account A |
 | `mass-assignment` (0.4.0, signed in) | Saves the form as A, sends the same save with `role: "admin"`, `plan: "pro"`, `isAdmin: true` and similar fields added, reads the record back, then restores the original values. Unticked by default. | up to 2, in account A (a save that creates a record makes a second one; one it changes is restored) |
 | `deep-links` (0.4.0) | Opens up to 10 of the page's own links directly, as a reload or a shared link would, and flags pages that answer with an error or a "not found" view. Never opens a link that acts (sign out, delete, unsubscribe). | 0 |
+| `csrf` (0.5.0, signed in) | Saves a test record as A, then sends the same save with a new value from a page on another site (`127.0.0.1` for a `localhost` app, and the other way round) in A's own browser, and re-reads it as A. A stored forged value is a finding. Inconclusive on any other host name. Unticked by default. | up to 2, in account A (the forged save can create one) |
 
-The checks are grouped as **Accessibility** (`axe-states`, `keyboard-completion`, `focus-visible`, `error-announcement`, `credential-fields`, `reflow-320`), **Features** (`console-network-errors`, `dead-control`, `silent-failure`, `persistence`, `double-submit`, `client-only-validation`, `page-controls`, `ai-flow`, `deep-links`) and **Security** (`bundle-secrets`, `pii-leak`, `verbose-errors`, `security-headers`, `cookie-flags`, `cors`, `source-maps`, `access-control`, `mass-assignment`). The plan, the run, the progress and the report all follow that order.
+The checks are grouped as **Accessibility** (`axe-states`, `keyboard-completion`, `focus-visible`, `error-announcement`, `credential-fields`, `reflow-320`), **Features** (`console-network-errors`, `dead-control`, `silent-failure`, `persistence`, `double-submit`, `client-only-validation`, `page-controls`, `ai-flow`, `deep-links`) and **Security** (`bundle-secrets`, `pii-leak`, `verbose-errors`, `security-headers`, `cookie-flags`, `cors`, `source-maps`, `access-control`, `mass-assignment`, `csrf`). The plan, the run, the progress and the report all follow that order.
 
-Form checks (and `mass-assignment`) run once per form; on a page with several forms their scenarios are named after the form ("… (Newsletter form)"). `page-controls`, `security-headers`, `cookie-flags`, `cors`, `source-maps`, `bundle-secrets`, `focus-visible`, `reflow-320`, `access-control` and `deep-links` run once for the whole page. A search form gets only the checks that make sense for it (it saves nothing), and a form that never shows what it saved (a newsletter signup) has its `persistence` scenario skipped with that reason rather than reported as lost data. Buttons that sign you out, cancel a subscription or empty a cart are never clicked unless you allow destructive scenarios (and never while signed in).
+Form checks (and `mass-assignment` and `csrf`) run once per form; on a page with several forms their scenarios are named after the form ("… (Newsletter form)"). `page-controls`, `security-headers`, `cookie-flags`, `cors`, `source-maps`, `bundle-secrets`, `focus-visible`, `reflow-320`, `access-control` and `deep-links` run once for the whole page. A search form gets only the checks that make sense for it (it saves nothing), and a form that never shows what it saved (a newsletter signup) has its `persistence` scenario skipped with that reason rather than reported as lost data. Buttons that sign you out, cancel a subscription or empty a cart are never clicked unless you allow destructive scenarios (and never while signed in).
 
 **Dev servers:** a dev server (Vite, Next.js dev, webpack dev server, …) doesn't send the headers, cookie flags and CORS settings of your production build, so on a dev server those findings are marked advisory and `source-maps` is skipped. Check them again on a production build (`vite preview`, `next start`).
 
@@ -123,16 +128,16 @@ The image has these settings built in: `RUNHOUND_ALLOWED_HOSTS=host.docker.inter
 
 **Windows PowerShell:** write each `docker run` on one line, since PowerShell doesn't continue lines with `\`, and use `mkdir runs` instead of `mkdir -p runs`. For the downloads in the test lab below, use `curl.exe` instead of `curl` (in Windows PowerShell 5.1, `curl` is an alias for `Invoke-WebRequest`, which rejects these options).
 
-The images are public on GitHub's registry and need no login: `ghcr.io/rahul-bharati/run-hound:0.4.1`, `run-hound-kennel`, `run-hound-samples` and `run-hound-fernway` (also tagged `0.4` and `latest`; linux/amd64 and arm64). The commands here use `latest`; `docker pull` again to update.
+The images are public on GitHub's registry and need no login: `ghcr.io/rahul-bharati/run-hound:0.5.0`, `run-hound-kennel`, `run-hound-samples` and `run-hound-fernway` (also tagged `0.5` and `latest`; linux/amd64 and arm64). The commands here use `latest`; `docker pull` again to update.
 
-Check it works: `docker run --rm ghcr.io/rahul-bharati/run-hound --version` prints `run-hound 0.4.1`.
+Check it works: `docker run --rm ghcr.io/rahul-bharati/run-hound --version` prints `run-hound 0.5.0`.
 
 ### Try it on the demo apps: the test lab
 
 One compose file starts Run Hound with every test app. In an empty folder:
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.4.1/run-hound.compose.yml
+curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.5.0/run-hound.compose.yml
 mkdir -p runs                                  # reports land here; create it yourself so the files belong to you
 docker compose -f run-hound.compose.yml up     # or: podman compose -f run-hound.compose.yml up (podman-compose works too)
 ```
@@ -160,12 +165,12 @@ The first start downloads about 0.5 GB of images (about 1 GB once unpacked). Whe
 
 - `docker compose -f run-hound.compose.yml ps` lists every service with its health check: `healthy` once it answers.
 - **Stop it** with Ctrl+C, then `docker compose -f run-hound.compose.yml down` (removes the containers; your reports in `./runs` stay). `up -d` starts it in the background instead.
-- **Update** to a later release: download that release's compose file (the same `curl` with the new tag, such as `v0.4.1`, in the address) and run `docker compose -f run-hound.compose.yml up` again; it pulls the images the new file names. `docker compose -f run-hound.compose.yml pull` fetches them ahead of time.
+- **Update** to a later release: download that release's compose file (the same `curl` with the new tag, such as `v0.5.0`, in the address) and run `docker compose -f run-hound.compose.yml up` again; it pulls the images the new file names. `docker compose -f run-hound.compose.yml pull` fetches them ahead of time.
 
 **Settings.** Every setting (host ports, `KENNEL_BUGS`, `FERNWAY_BUGS`, the runs folder, `RUNHOUND_ALLOWED_HOSTS`, AI, test accounts) has a default. To change one, put it in a `.env` file next to the compose file; the documented example is [`.env.example`](.env.example):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.4.1/.env.example -o .env   # then edit it
+curl -fsSL https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.5.0/.env.example -o .env   # then edit it
 ```
 
 Ports taken? Set them in `.env` (for example `RUNHOUND_HOST_PORT=4400`), or on the command line: `RUNHOUND_HOST_PORT=4400 KENNEL_HOST_PORT=5310 docker compose -f run-hound.compose.yml up`.
@@ -186,7 +191,7 @@ pnpm --filter fernway build         # only needed for the Fernway app
 
 On Ubuntu or Debian, if Chromium complains about missing libraries, run `pnpm --filter run-hound exec playwright install --with-deps chromium` (it uses sudo). On other Linux distributions Playwright prints "BEWARE: your OS is not officially supported"; that is harmless as long as Chromium starts.
 
-Check it works: `cd app && pnpm exec tsx src/cli.ts --version` prints `run-hound 0.4.1`. In the clone, `docker compose up --build` builds and starts the same containers as above from your working tree.
+Check it works: `cd app && pnpm exec tsx src/cli.ts --version` prints `run-hound 0.5.0`. In the clone, `docker compose up --build` builds and starts the same containers as above from your working tree.
 
 ## Try it on Kennel first (10 minutes)
 
@@ -302,7 +307,7 @@ Options: `--approve all|default|<id,id>` (default: the recommended scenarios; `a
 | A plan for your sign-in page when you entered another page | The page sent you to sign in, so the sign-in page was tested (check **Pages tested** in the report). Set up a test account and plan the page signed in ([Signed-in runs](#signed-in-runs-and-access-checks-v2-preview)). |
 | `Refusing to test …` | The host isn't local or private. Use `localhost`; list your own internal host names in `RUNHOUND_ALLOWED_HOSTS`. |
 | `EADDRINUSE` | The port is taken. Pick another (`--port`, `PORT`, `RUNHOUND_HOST_PORT`). |
-| `manifest unknown` or `denied` pulling `ghcr.io/rahul-bharati/run-hound…` | `manifest unknown`: the tag doesn't exist; check it (`0.4.1`, `0.4` or `latest`) and that the compose file came from a release tag. `denied`: usually an old `docker login ghcr.io`; run `docker logout ghcr.io` and try again (the images need no login). `no matching manifest`: your platform isn't linux/amd64 or linux/arm64, the only ones published. To build the images yourself instead: `docker compose up --build` in a clone. |
+| `manifest unknown` or `denied` pulling `ghcr.io/rahul-bharati/run-hound…` | `manifest unknown`: the tag doesn't exist; check it (`0.5.0`, `0.5` or `latest`) and that the compose file came from a release tag. `denied`: usually an old `docker login ghcr.io`; run `docker logout ghcr.io` and try again (the images need no login). `no matching manifest`: your platform isn't linux/amd64 or linux/arm64, the only ones published. To build the images yourself instead: `docker compose up --build` in a clone. |
 | `Invoke-WebRequest : A parameter cannot be found that matches parameter name 'fsSLO'` | Windows PowerShell's `curl` isn't curl. Use `curl.exe`. |
 | `EACCES … mkdir '/repo/app/runs/…'` | The container can't write to your reports folder. Create it yourself first (`mkdir -p runs`); on Podman avoid `--user`. |
 | `Error: executing /usr/bin/podman-compose run … exit status 1` | Podman's `docker compose` wrapper repeating Run Hound's exit code, not a crash: 1 means the run finished and found confirmed findings (the report was written), 2 an error or a run that tested nothing because every scenario errored or was skipped (the message above it says which). |
@@ -314,11 +319,11 @@ Options: `--approve all|default|<id,id>` (default: the recommended scenarios; `a
 
 ## Signed-in runs and access checks (V2 preview)
 
-Run Hound can sign in as one of two test accounts you own on your app, A and B, before it tests. Every check then runs signed in, so pages behind your sign-in can be tested, and three checks join the plan: `access-control`, `mass-assignment` and `deep-links`. They are a preview: tell us what they got right and wrong.
+Run Hound can sign in as one of two test accounts you own on your app, A and B, before it tests. Every check then runs signed in, so pages behind your sign-in can be tested, and four checks join the plan: `access-control`, `mass-assignment` and `deep-links` (0.4.0), and `csrf` (0.5.0, unticked by default). They are a preview: tell us what they got right and wrong.
 
 ### Try it on Fernway first
 
-Fernway is the test lab's SaaS app. It runs twice: `fernway` (clean) and `fernway-bugs` (with every planted bug, including the access bugs V01-V05). Its two accounts are Alex (`alex@fernway.test`, account A) and Sam (`sam@fernway.test`, account B), each with a workspace of their own; the passwords are in [fixtures/fernway/README.md](fixtures/fernway/README.md#accounts). To look around first, open <http://localhost:4111/login> and press **Use the demo account**.
+Fernway is the test lab's SaaS app. It runs twice: `fernway` (clean) and `fernway-bugs` (with every planted bug, including the access bugs V01-V05 and the write bugs V06-V09; `csrf` catches V08, and V06, V07 and V09 wait for checks that are still planned). Its two accounts are Alex (`alex@fernway.test`, account A) and Sam (`sam@fernway.test`, account B), each with a workspace of their own; the passwords are in [fixtures/fernway/README.md](fixtures/fernway/README.md#accounts). To look around first, open <http://localhost:4111/login> and press **Use the demo account**.
 
 1. With the test lab running, open <http://localhost:4000> → **Settings → Test accounts**.
 2. **Account A**: sign-in page `http://fernway-bugs:4110/login`, username `alex@fernway.test`, Alex's password. Press **Save**, then **Test sign-in**: it says where it landed (the dashboard).
@@ -327,7 +332,8 @@ Fernway is the test lab's SaaS app. It runs twice: `fernway` (clean) and `fernwa
 5. **New Run**: enter `http://fernway-bugs:4110/app`, set **Sign in as** to Account A, and press **Plan checks**. The plan says "Signed in as Account A". Under Security you find `access-control` (two scenarios: another account, and a signed-out visitor) and `mass-assignment` (one per form, unticked); under Features, `deep-links`. Start the run.
 6. In the report, expect confirmed findings for Fernway's access bugs on that page: account B can read Alex's tasks (V02), the workspace API answers without a session (V03), and the help page the sidebar links to, `/app/help`, answers 404 when opened directly (V05, from `deep-links`; clicking **Help** in the sidebar still opens it). The page also has some of Fernway's other planted bugs ([the full list](fixtures/fernway/README.md#planted-bugs)).
 7. Plan `http://fernway-bugs:4110/app/settings` as Account A next, tick `mass-assignment` (it is unticked by default) and run it. Expect account B reading Alex's profile (V01), the API answering without a session (V03), and the server storing the `role` and `plan` fields the form never sends (V04); `deep-links` reports `/app/help` again, because the sidebar is on every signed-in page. Read the `mass-assignment` notes: they say which values Run Hound put back.
-8. Now the clean app: change both accounts' sign-in page to `http://fernway:4110/login`. **Enter the passwords again**: a saved password is only sent to the site it was saved for. Plan and run `http://fernway:4110/app` and `http://fernway:4110/app/settings` as Account A with every scenario ticked. **Clean Fernway should give zero confirmed findings**; any confirmed finding there is a false positive worth reporting.
+8. The CSRF check: plan `http://fernway-bugs:4110/app` again, tick `csrf` (unticked by default) and run it. It is **inconclusive** in the test lab, because `fernway-bugs` is a container name with no cross-site twin; to see it catch V08, run Fernway from source and test `http://localhost:4111/app` (below).
+9. Now the clean app: change both accounts' sign-in page to `http://fernway:4110/login`. **Enter the passwords again**: a saved password is only sent to the site it was saved for. Plan and run `http://fernway:4110/app` and `http://fernway:4110/app/settings` as Account A with every scenario ticked. **Clean Fernway should give zero confirmed findings**; any confirmed finding there is a false positive worth reporting.
 
 Fernway keeps its data in memory: `docker compose -f run-hound.compose.yml restart fernway-bugs` puts the seed data back (the same for `fernway`), for example after a `mass-assignment` run that couldn't restore everything.
 
@@ -340,7 +346,7 @@ docker compose -f run-hound.compose.yml run --rm run-hound accounts test      # 
 docker compose -f run-hound.compose.yml run --rm run-hound run http://fernway-bugs:4110/app --as a --approve all
 ```
 
-`--approve all` includes `mass-assignment`. To pipe the password in instead of typing it (from a script or a password manager), add `-T` after `run` (`printf '%s\n' "$PASSWORD" | docker compose -f run-hound.compose.yml run --rm -T run-hound accounts set a --password-stdin`): without it, podman-compose gives the container a terminal, and that terminal prints the piped password. From source, run Fernway with `FERNWAY_BUGS=all PORT=4111 pnpm --filter fernway start` (after `pnpm --filter fernway build`), and use `pnpm exec tsx src/cli.ts accounts …` in `app/` with the sign-in page `http://localhost:4111/login`. The web UI and the command line share the saved accounts.
+`--approve all` includes `mass-assignment` and `csrf`. To pipe the password in instead of typing it (from a script or a password manager), add `-T` after `run` (`printf '%s\n' "$PASSWORD" | docker compose -f run-hound.compose.yml run --rm -T run-hound accounts set a --password-stdin`): without it, podman-compose gives the container a terminal, and that terminal prints the piped password. From source, run Fernway with `FERNWAY_BUGS=all PORT=4111 pnpm --filter fernway start` (after `pnpm --filter fernway build`), and use `pnpm exec tsx src/cli.ts accounts …` in `app/` with the sign-in page `http://localhost:4111/login`. The web UI and the command line share the saved accounts.
 
 ### On your own app
 
@@ -360,6 +366,19 @@ docker compose -f run-hound.compose.yml run --rm run-hound run http://fernway-bu
 
 While signed in, Run Hound never clicks a sign-out control (it would end the run's session) and never submits a form that sets a password (change password, sign up), even with `--allow-destructive`.
 
+### The CSRF check (0.5.0)
+
+`csrf` tests a **write**. It changes account A's data on purpose, so it is **unticked by default**, and it follows these rules:
+
+- It writes **only the test record Run Hound created as A in the same scenario** (it carries the run's token). Never one of A's own records, never an id found by listing, guessing or counting up. A page with no form that creates such a record gets the scenario skipped with the reason.
+- Requests go only to your app's own address or its local API, through the same safety gate as everything else. Never to sign-out, password, email, account-deletion, payment-provider, invitation or sharing endpoints, even with `--allow-destructive`.
+- A write counts as working only when **a re-read as A** shows the change. The status code never decides: a `200 {"error": …}` or an ignored write is common.
+- Afterwards it **puts it back** (the original values), re-reads it and compares. Whatever couldn't be undone is named in the notes ("… check Account A"), and the scenario isn't a pass while that note stands. A stop or the time limit can end a scenario between a write and its restore: the report then asks you to check account A.
+
+How it works: as A, it creates the test record, then opens a page on **another site** in A's own browser (`127.0.0.1` when your app is on `localhost`, and the other way round; another port is the same site and doesn't count) and sends the form's save from there with a new value. Only requests any web page can send without a CORS preflight are forged (form-encoded or `text/plain` bodies, no custom headers, nothing added), and the browser attaches only the cookies it would for any website (a `SameSite=Lax` cookie stays home). A forged value that shows when A re-reads the record is a high finding; the notes say which defence was missing. On any other host name (`host.docker.internal`, a name from `RUNHOUND_ALLOWED_HOSTS`, a container name in the test lab) there is no cross-site address to use, and the scenario is **inconclusive**: never a pass, never a finding. A save sent only as JSON that the app doesn't also accept form-encoded or as text passes with "needs a preflight".
+
+`write-access` (can account B, or a visitor who isn't signed in, change A's data) and `paywall-trust` (can A get a paid plan without paying) are specified in [docs/v2-spec.md](docs/v2-spec.md#050-write-side-checks) but not built yet; Fernway's V06, V07 and V09 are planted for them.
+
 ### Passwords and other secrets
 
 - The password is **write-only**: typed in Settings or read from stdin with `--password-stdin` (never a command-line flag, so it stays out of your shell history), and never shown or sent back by the UI or the API. `accounts status` says only whether one is saved.
@@ -373,7 +392,7 @@ While signed in, Run Hound never clicks a sign-out control (it would end the run
 
 - Sign-in needs a form with a username (or email) field and a password field on one page. Verification codes (multi-factor), captchas, "Sign in with Google/GitHub" and two-step pages (the email on one page, the password on the next) aren't supported; **Test sign-in** says what it ran into.
 - The session has to carry over to a new browser: cookies, localStorage and IndexedDB work (Supabase and Firebase keep their sessions there). A session kept only in sessionStorage doesn't, and the plan stops with "still shows the sign-in page".
-- The access checks only test reading: account B changing A's records, rate limits, CSRF and file upload are planned. Each run tests one page; a feature across several pages is planned too.
+- `csrf` needs your app on `localhost` or `127.0.0.1`, and the sign-in page on the same host name; elsewhere it is inconclusive. Rate limits and file upload are planned. Each run tests one page; a feature across several pages is planned too.
 
 ## Trying the AI features
 
@@ -439,7 +458,7 @@ Open an issue with the **Feedback** form: <https://github.com/rahul-bharati/run-
 
 Please include:
 
-1. **The version**: `docker run --rm ghcr.io/rahul-bharati/run-hound:0.4.1 --version`, `pnpm exec tsx src/cli.ts --version` in `app/` from source, or `runHoundVersion` in `report.json`.
+1. **The version**: `docker run --rm ghcr.io/rahul-bharati/run-hound:0.5.0 --version`, `pnpm exec tsx src/cli.ts --version` in `app/` from source, or `runHoundVersion` in `report.json`.
 2. **Your OS and how you ran it**: Docker (pull-and-run or the test lab) or from source, web UI or command line, Node version, and whether the run was signed in as a test account.
 3. **What you tested**: the framework, the dev server, and what the page does (not the URL, if it's private).
 4. **The report**: `report.md`, or that one run folder zipped (`zip -r run.zip runs/<runId>`, or `app/runs/<runId>` from source). **Never send the whole `runs/` folder**: `runs/.config` holds your saved API keys and test-account passwords. **Look through the screenshots first**: they show whatever your page showed and can't be redacted.

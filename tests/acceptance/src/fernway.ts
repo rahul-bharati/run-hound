@@ -6,9 +6,10 @@
  *   - prints "fernway listening" once it accepts connections
  *   - POST /api/__reset restores the seed (sessions survive it)
  *
- * V2 (CONTRACT.md "Accounts"): /app, /app/settings and /app/help need a session. Run Hound signs in as Alex (test
- * account A) with Sam as account B; fernwayAccounts() builds that AccountsConfig for an instance, so no test reads
- * accounts.json.
+ * V2 (CONTRACT.md "Accounts"): /app, /app/settings, /app/help and /app/upgraded need a session. Run Hound signs in as
+ * Alex (test account A) with Sam as account B; fernwayAccounts() builds that AccountsConfig for an instance, so no test
+ * reads accounts.json. accountState() reads an account's own records and plan straight from Fernway's API, so the
+ * write-side checks (0.5.0) can be held to leaving them as they were.
  */
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
@@ -43,8 +44,8 @@ export const FERNWAY_ACCOUNTS = {
   sam: { email: "sam@fernway.test", password: "staple-lemon-orbit", name: "Sam Okafor" },
 } as const;
 
-/** The routes that need a session (signed out, the SPA sends you to /login?next=<path>). */
-export const SIGNED_IN_ROUTES: readonly string[] = ["/app", "/app/settings", "/app/help"];
+/** The routes that need a session (signed out, the SPA sends you to /login?next=<path>). /app/upgraded is 0.5.0's. */
+export const SIGNED_IN_ROUTES: readonly string[] = ["/app", "/app/settings", "/app/help", "/app/upgraded"];
 export const needsSignIn = (route: string) => SIGNED_IN_ROUTES.includes(route);
 
 /**
@@ -75,6 +76,89 @@ export async function filesContaining(dir: string, needles: Record<string, strin
     const bytes = await readFile(path);
     for (const [label, needle] of Object.entries(needles)) {
       if (bytes.includes(Buffer.from(needle, "utf8"))) hits.push(`${path.slice(dir.length + 1)}: ${label}`);
+    }
+  }
+  return hits;
+}
+
+/** A record with an id, as Fernway's list APIs return them. */
+type Row = { id: string } & Record<string, unknown>;
+
+/** One account's data as Fernway's own API returns it to that account: what the write-side checks must leave alone. */
+export interface AccountState {
+  tasks: Row[];
+  projects: Row[];
+  /** The Settings profile, with the server-side `role` and `plan`. */
+  profile: Record<string, unknown>;
+}
+
+/**
+ * Signs in to a running Fernway as `who` (its own session, not Run Hound's) and reads that account's tasks, projects
+ * and profile (plan included). Node's fetch sends no Origin header, which clean mode's cross-site defence lets through.
+ */
+export async function accountState(url: string, who: keyof typeof FERNWAY_ACCOUNTS): Promise<AccountState> {
+  const account = FERNWAY_ACCOUNTS[who];
+  const login = await fetch(`${url}/api/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: account.email, password: account.password }),
+  });
+  if (login.status !== 200) throw new Error(`Signing in to Fernway as ${who} answered ${login.status}`);
+  const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+  const get = async <T>(path: string): Promise<T> => {
+    const res = await fetch(`${url}${path}`, { headers: { cookie } });
+    if (res.status !== 200) throw new Error(`GET ${path} as ${who} answered ${res.status}`);
+    return (await res.json()) as T;
+  };
+  const me = await get<{ id: string }>("/api/me");
+  const [tasks, projects, profile] = await Promise.all([
+    get<Row[]>("/api/tasks"),
+    get<Row[]>("/api/projects"),
+    get<Record<string, unknown>>(`/api/users/${encodeURIComponent(me.id)}/profile`),
+  ]);
+  await fetch(`${url}/api/logout`, { method: "POST", headers: { cookie } }).catch(() => undefined);
+  return { tasks, projects, profile };
+}
+
+/**
+ * What changed in an account's pre-existing data between two reads, one line per change: a record that is gone or
+ * holds other values, or a changed profile field (the plan included). Records created in between (the run's test
+ * records) are not changes.
+ */
+export function stateChanges(before: AccountState, after: AccountState): string[] {
+  const changes: string[] = [];
+  for (const kind of ["tasks", "projects"] as const) {
+    const now = new Map(after[kind].map((r) => [r.id, r]));
+    for (const record of before[kind]) {
+      const later = now.get(record.id);
+      if (!later) changes.push(`${kind} ${record.id} is gone`);
+      else if (JSON.stringify(later) !== JSON.stringify(record)) changes.push(`${kind} ${record.id}: ${JSON.stringify(record)} -> ${JSON.stringify(later)}`);
+    }
+  }
+  const keys = new Set([...Object.keys(before.profile), ...Object.keys(after.profile)]);
+  for (const key of keys) {
+    const [was, is] = [JSON.stringify(before.profile[key]), JSON.stringify(after.profile[key])];
+    if (was !== is) changes.push(`profile.${key}: ${was} -> ${is}`);
+  }
+  return changes;
+}
+
+/**
+ * CSRF token values a text file shows in the clear: a `csrf`/`xsrf` token name followed by a value (a header, a form
+ * field, a cookie or a JSON key) that isn't a redaction marker. Fernway's clean mode defends with an Origin check and
+ * issues no token, so on Fernway this finds nothing unless something invents one; it keeps the grep honest for apps
+ * that do.
+ */
+export async function csrfTokensIn(dir: string): Promise<string[]> {
+  const hits: string[] = [];
+  const pattern = /\b[xc]srf[-_]?token["']?\s*(?:[:=]|%3D)\s*["']?([A-Za-z0-9+/_.=-]{12,})/gi;
+  const entries = await readdir(dir, { recursive: true, withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isFile() || !/\.(json|md|html|txt|log|ts|js|har)$/i.test(entry.name)) continue;
+    const path = join(entry.parentPath, entry.name);
+    const text = await readFile(path, "utf8");
+    for (const m of text.matchAll(pattern)) {
+      if (!/REDACTED/i.test(m[1]!)) hits.push(`${path.slice(dir.length + 1)}: ${m[0].slice(0, 40)}…`);
     }
   }
   return hits;

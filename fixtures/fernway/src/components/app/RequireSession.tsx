@@ -9,9 +9,10 @@ import { loadSession, loginPath, useSession } from "@/lib/session";
 import { useDocumentTitle } from "@/lib/utils";
 
 /**
- * The auth guard for /app, /app/settings and /app/help (CONTRACT.md "Accounts"): asks GET /api/me, then renders the
- * page for a signed-in user, or sends a signed-out visitor to /login?next=<path> (replacing the history entry, so Back
- * does not bounce). While it asks, a quiet loading view; if the check itself fails, an alert with "Try again".
+ * The auth guard for /app, /app/settings, /app/help and /app/upgraded (CONTRACT.md "Accounts"): asks GET /api/me,
+ * then renders the page for a signed-in user, or sends a signed-out visitor to /login?next=<path> (replacing the
+ * history entry, so Back does not bounce). While it asks, a quiet loading view; if the check itself fails, an alert
+ * with "Try again".
  */
 export function RequireSession() {
   const session = useSession();

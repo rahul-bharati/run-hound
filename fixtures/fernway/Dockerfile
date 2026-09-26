@@ -1,8 +1,8 @@
 # Fernway: a polished, AI-builder-style SaaS app (Vite + React + Tailwind v4 + shadcn/ui-style components) that
 # Run Hound is tested against. Clean by default; FERNWAY_BUGS plants bugs (see CONTRACT.md).
 # Build from the repository root (the pnpm workspace and lockfile live there):
-#   docker build -f fixtures/fernway/Dockerfile -t ghcr.io/rahul-bharati/run-hound-fernway:0.4.1 .
-#   docker run --rm -p 127.0.0.1:4110:4110 -e FERNWAY_BUGS=none ghcr.io/rahul-bharati/run-hound-fernway:0.4.1
+#   docker build -f fixtures/fernway/Dockerfile -t ghcr.io/rahul-bharati/run-hound-fernway:0.5.0 .
+#   docker run --rm -p 127.0.0.1:4110:4110 -e FERNWAY_BUGS=none ghcr.io/rahul-bharati/run-hound-fernway:0.5.0
 # Fernway is a local test target only: do not expose it to the internet.
 
 # ---- build: install the workspace deps for fernway and run `vite build` ----

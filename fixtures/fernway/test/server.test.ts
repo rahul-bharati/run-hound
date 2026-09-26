@@ -2,7 +2,7 @@
  * The server contract built by the scaffold (CONTRACT.md "Process", "Routes", "API", "Response headers, cookies and
  * source maps", W06/W08/W09): bug parsing, static files and the SPA fallback, security headers, the session cookie,
  * source maps, the API pipeline (404s, malformed JSON, body limit, the "Crash" rule, Idempotency-Key replay) and a
- * browser smoke test of the seven routes.
+ * browser smoke test of the eight routes.
  */
 import { spawn } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
@@ -94,7 +94,7 @@ afterAll(async () => {
 // ---- FERNWAY_BUGS ------------------------------------------------------------------------------
 
 describe("FERNWAY_BUGS parsing", () => {
-  it("knows W01..W10 and V01..V05, the same list the tests use", () => {
+  it("knows W01..W10 and V01..V09, the same list the tests use", () => {
     expect([...SERVER_BUGS]).toEqual([...ALL_BUGS]);
   });
 
@@ -343,7 +343,7 @@ describe("W06: a Stripe-style live secret key in the page's JavaScript", () => {
 describe("FERNWAY_BUGS=all", () => {
   const ref = useFernway("all");
 
-  it("GET /api/__config lists all fifteen ids, sorted", async () => {
+  it("GET /api/__config lists all nineteen ids, sorted", async () => {
     expect((await api(ref.fw, "/api/__config")).body).toEqual({ bugs: [...ALL_BUGS].sort() });
   });
 });
@@ -711,7 +711,7 @@ describe("seed data", () => {
   });
 });
 
-// ---- the seven routes in a browser -------------------------------------------------------------
+// ---- the eight routes in a browser -------------------------------------------------------------
 
 describe("the routes render in a browser (clean mode)", () => {
   const ref = useFernway("none");

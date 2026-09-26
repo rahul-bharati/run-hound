@@ -696,8 +696,15 @@ describe("New project sheet (clean mode)", () => {
       await page.getByRole("listbox").waitFor({ state: "hidden" });
       expect(await sheet.getByRole("combobox", { name: "Status" }).textContent()).toContain("Paused");
 
-      // Priority: arrow keys move the selection.
-      await sheet.getByRole("radio", { name: "Medium" }).focus();
+      // Priority: arrow keys move the selection. The Select above gives focus back to its trigger as it finishes closing,
+      // which can land after a focus() here on a slow machine: focus Medium until it keeps focus, then press the arrow.
+      const medium = sheet.getByRole("radio", { name: "Medium" });
+      await expect
+        .poll(async () => {
+          await medium.focus();
+          return medium.evaluate((el) => el === document.activeElement);
+        })
+        .toBe(true);
       await page.keyboard.press("ArrowRight", { delay: 50 });
       await expect.poll(() => sheet.getByRole("radio", { name: "High" }).getAttribute("aria-checked")).toBe("true");
 

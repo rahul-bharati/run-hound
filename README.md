@@ -4,7 +4,7 @@ AI-assisted UI testing for AI-built apps: it hunts for the holes AI-generated ap
 
 **AI plans and explains; real checks decide.** Since 0.3.0 you can bring your own model (Ollama, LM Studio, llama.cpp, vLLM, any OpenAI-compatible endpoint, or Amazon Bedrock) to review the plan, suggest extra flows and explain findings. AI is **off by default**; without it the plan comes from Run Hound's built-in checks and nothing is sent to any AI provider. See [AI (optional)](#ai-optional).
 
-> **V2 preview (0.4.0): signed-in runs and access checks; works on AI-built UIs.** Run Hound tests one page of an app running on your own machine: the forms on it (including forms in dialogs, and the Radix/shadcn-style widgets AI app builders use), the buttons outside them, and page-wide checks for security headers, session cookies, CORS and public source maps. New in 0.4.0: it can sign in as one of two test accounts you own, test pages behind the sign-in, and check that another account, or a visitor who isn't signed in, can't read the first account's data. The repository is public: anyone can try it, read the code and [file an issue](https://github.com/rahul-bharati/run-hound/issues/new/choose). To try it, start with **[TESTING.md](TESTING.md)**: install (Docker, no clone, or from source), a 10-minute run on the Kennel demo, testing your own app, signed-in runs, reading the report, and how to send feedback. Changes: [CHANGELOG.md](CHANGELOG.md).
+> **V2 preview (0.5.0): signed-in runs, access checks and a CSRF check; works on AI-built UIs.** Run Hound tests one page of an app running on your own machine: the forms on it (including forms in dialogs, and the Radix/shadcn-style widgets AI app builders use), the buttons outside them, and page-wide checks for security headers, session cookies, CORS and public source maps. New in 0.4.0: it can sign in as one of two test accounts you own, test pages behind the sign-in, and check that another account, or a visitor who isn't signed in, can't read the first account's data. New in 0.5.0: an opt-in check that another website can't change it (CSRF). The repository is public: anyone can try it, read the code and [file an issue](https://github.com/rahul-bharati/run-hound/issues/new/choose). To try it, start with **[TESTING.md](TESTING.md)**: install (Docker, no clone, or from source), a 10-minute run on the Kennel demo, testing your own app, signed-in runs, reading the report, and how to send feedback. Changes: [CHANGELOG.md](CHANGELOG.md).
 >
 > **Quickest start (no clone, just Docker or Podman):** in any folder,
 >
@@ -21,7 +21,7 @@ AI-assisted UI testing for AI-built apps: it hunts for the holes AI-generated ap
 
 Point Run Hound at one page of a local app. It finds the forms and controls on it, plans the form checks for each form plus the page-wide checks, you approve the plan and watch the run, and you get a report with annotated evidence. Signed in as a test account, the same run covers a page behind your sign-in and adds the access checks. The main way needs only Docker or Podman and no clone: pull the image and run it. The image has Run Hound's web UI, its command line and Chromium. To try it on the demo apps, start [the test lab](#try-it-on-the-demo-apps-the-test-lab). To contribute, or to watch the browser in a window, install it [from source](#from-source-contributing). The step-by-step guide, [TESTING.md](TESTING.md), covers the same steps with more detail and troubleshooting.
 
-The images are public on GitHub's registry, so no login is needed: `ghcr.io/rahul-bharati/run-hound`, `run-hound-kennel`, `run-hound-samples` and `run-hound-fernway` (tags `0.4.1`, `0.4` and `latest`; linux/amd64 and arm64). The commands below use `latest`; add a release tag (`ghcr.io/rahul-bharati/run-hound:<version>`) to stay on one release. Run Hound's image is Node 24 on Debian with Chromium's headless shell only: about 260 MB to download and 715 MB on disk. The whole test lab is about 0.5 GB to download and about 1 GB on disk. To build the images yourself, run `docker compose up --build` in a clone ([From source](#from-source-contributing)).
+The images are public on GitHub's registry, so no login is needed: `ghcr.io/rahul-bharati/run-hound`, `run-hound-kennel`, `run-hound-samples` and `run-hound-fernway` (tags `0.5.0`, `0.5` and `latest`; linux/amd64 and arm64). The commands below use `latest`; add a release tag (`ghcr.io/rahul-bharati/run-hound:<version>`) to stay on one release. Run Hound's image is Node 24 on Debian with Chromium's headless shell only: about 260 MB to download and 715 MB on disk. The whole test lab is about 0.5 GB to download and about 1 GB on disk. To build the images yourself, run `docker compose up --build` in a clone ([From source](#from-source-contributing)).
 
 ### With Docker or Podman
 
@@ -59,7 +59,7 @@ Testing an app on your machine from a container has a few rules (the dev server 
 One compose file starts Run Hound with every test app: Kennel (broken and clean), Fernway (a Lovable-style SaaS app, clean and with planted bugs) and five well-built sample apps. In an empty folder:
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.4.1/run-hound.compose.yml
+curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.5.0/run-hound.compose.yml
 mkdir -p runs                                  # reports land in ./runs; create it first so the files belong to you
 docker compose -f run-hound.compose.yml up     # UI on http://localhost:4000 (Podman: podman compose -f run-hound.compose.yml up)
 ```
@@ -67,7 +67,7 @@ docker compose -f run-hound.compose.yml up     # UI on http://localhost:4000 (Po
 Open <http://localhost:4000> and enter `http://kennel:3000/book`; the other targets are listed under [Containers](#containers). The first start downloads about 0.5 GB. Every setting (host ports, `KENNEL_BUGS`, `FERNWAY_BUGS`, allowed hosts, the runs folder, AI, test accounts) has a default; to change one, put it in a `.env` next to the compose file, starting from the documented example:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.4.1/.env.example -o .env
+curl -fsSL https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.5.0/.env.example -o .env
 ```
 
 - **Is it up?** `docker compose -f run-hound.compose.yml ps` lists every service with its health check: `healthy` once it answers.
@@ -205,19 +205,22 @@ Settings come from the Settings page (saved to `~/.config/run-hound/ai.json`, mo
 
 ### Signed-in runs and access checks (V2 preview)
 
-Pages behind a sign-in can be tested signed in, as one of two test accounts **you own** on your app: A and B. Run Hound signs in with a fresh session at the start of each plan and run, and every check then runs signed in. Three V2 checks join the plan:
+Pages behind a sign-in can be tested signed in, as one of two test accounts **you own** on your app: A and B. Run Hound signs in with a fresh session at the start of each plan and run, and every check then runs signed in. Four V2 checks join the plan: three from 0.4.0 and one that writes (0.5.0):
 
 | Check | What it asks | Planned |
 |---|---|---|
 | `access-control` | Signed in as A, Run Hound finds A's data on the page. Can account B read it? Can a visitor who isn't signed in? | Signed in. The account B scenario only when B is set up and "A and B must not see each other's data" is on. Ticked. |
 | `mass-assignment` | Does the server store `role`, `isAdmin`, `plan`, `credits`, `verified` and similar fields that the form never sends? | Signed in, for each form that saves (it needs a JSON save request, and skips with the reason otherwise). **Unticked**: it changes account A, then restores it. |
 | `deep-links` | Do the app's own pages load when opened directly (a reload, a shared link)? | When the page links to other pages of the app, signed in or not. Ticked. |
+| `csrf` (0.5.0) | Can a page on another site make A's browser change A's data (no CSRF token, no Origin check, a session cookie sent cross-site)? | Signed in, for each form that saves a record. **Unticked**. |
 
 What they never do:
 
 - `access-control` replays only the read requests (GET) that returned A's data on this page, as B and with no session. It never replays a path that acts (`/logout`, `/unsubscribe`), and each of its two scenarios saves at most one test record as A, through a form that saves a record, so it has data to look for. When it finds none, it is skipped with the reason.
 - `mass-assignment` saves the form as A, sends the same save once more with the extra fields, reads the record back, then saves the original values again. Its notes say what came back, what the server kept, and what it couldn't restore (a field that wasn't there before can't be removed: check account A).
 - `deep-links` opens at most 10 of the page's own links, each in a fresh browser, and never a link that acts when opened: sign out, delete, unsubscribe, disconnect, accept an invitation, `?action=delete`.
+- `csrf` writes only the test record Run Hound created as A **in the same scenario** (never one of A's own records, never an id found by listing or guessing), and only to your app's own origin or its local API. It never calls sign-out, password, email, account-deletion, payment-provider, invitation or sharing endpoints, even with `--allow-destructive`. A write counts as working only when a re-read as A shows it, never from a status code. Afterwards it puts the record back, re-reads it, and names anything it couldn't undo ("check Account A"); a scenario is never a pass while such a note stands.
+- `csrf` sends the forged request from a real browser page on another site (`127.0.0.1` for a `localhost` app, and the other way round), so the browser attaches only the cookies it would for any website; only requests a web page can send without a CORS preflight are forged. On any other host name (a private name from `RUNHOUND_ALLOWED_HOSTS`, `host.docker.internal`) no cross-site origin can be set up and the scenario is **inconclusive**, never a pass. Point it at `http://localhost:<port>` or `http://127.0.0.1:<port>`.
 
 **"A and B must not see each other's data"** (on by default) is your statement that A and B are different users, not teammates in one workspace. Only then does B reading A's data count as a bug, so the account B scenario is planned only when it is on.
 
@@ -243,7 +246,7 @@ pnpm exec tsx src/cli.ts run http://localhost:5173/app --as a --approve all
 - The session must survive a new browser: cookies, localStorage and IndexedDB (Supabase and Firebase keep it there) work. A session kept only in sessionStorage doesn't, and the plan fails with "still shows the sign-in page".
 - The sign-in page and the page under test must use the same host name (`localhost` and `127.0.0.1` keep their cookies apart).
 - While signed in, Run Hound never clicks sign-out controls and never submits a form that sets a password (change password, sign up), even with `--allow-destructive`.
-- The access checks only test reading. Account B changing A's records, rate limits, CSRF and file upload are planned.
+- `csrf` needs the app on `localhost` or `127.0.0.1` (its cross-site page is served on the other one); on any other host name it is inconclusive. Rate limits and file upload are planned.
 
 Contract: [docs/v2-spec.md](docs/v2-spec.md).
 
@@ -394,12 +397,13 @@ Point it at a page and the agent finds the interactive elements on it, then gene
 - **Built in 0.4.0:** apps built the way Lovable, Bolt and v0 build them: Radix/shadcn-style widgets, forms in dialogs and sheets, schema-validated forms, toasts and client-side routing ([Works on AI-built apps](#works-on-ai-built-apps)). Fernway's W01-W10 bugs check it.
 - Advisory checks that rely on model judgement (**planned**): alt-text quality, generic link text, placeholder/demo data.
 
-### V2: Single feature (preview in 0.4.0)
+### V2: Single feature (preview since 0.4.0)
 
 Give it a feature (e.g. "signup" or "checkout") and it does end-to-end testing of that feature across pages.
 
 - **Built in 0.4.0:** two test accounts you own and signed-in runs; `access-control` (can another account, or a visitor who isn't signed in, read account A's data: cross-user reads, IDOR, APIs that answer without a session behind a frontend-only sign-in); `mass-assignment` (self-promotion through `role`, `plan` or `isAdmin` fields the form never sends); `deep-links` (pages that break when opened directly). Developed against Fernway's planted bugs V01-V05. Contract: [docs/v2-spec.md](docs/v2-spec.md).
-- **Planned:** multi-page feature runs (the feature tested across its pages), write-side access checks (account B changing A's records), paid features without payment (paywall and success-page trust), and opt-in, throttled checks for rate limits, CSRF, file upload and prompt injection in LLM features. A Supabase-backed variant of the fixture (RLS off, `USING (true)`), as described in [docs/fixtures.md](docs/fixtures.md), is planned for later.
+- **Built in 0.5.0:** `csrf` (can a page on another site make A's browser change A's data), which changes only the run's own test record in account A and puts it back. Developed against Fernway's planted bug V08.
+- **Planned:** `write-access` (can account B, or a visitor who isn't signed in, change or delete A's records) and `paywall-trust` (can A get a paid plan without paying, for example from a success page that grants it on load), with Fernway's V06, V07 and V09 already planted for them; multi-page feature runs (the feature tested across its pages); and opt-in, throttled checks for rate limits, file upload and prompt injection in LLM features. A Supabase-backed variant of the fixture (RLS off, `USING (true)`), as described in [docs/fixtures.md](docs/fixtures.md), is planned for later.
 
 ### V3: Whole app
 
@@ -424,7 +428,7 @@ Support for testing live staging/dev sites behind ownership verification.
 Run Hound is developed and scored against deliberately broken apps with planted bugs behind toggles and a clean mode:
 
 - **Kennel**: a single booking form (`/book`) on a small in-memory Node server with a mock analytics service ([fixtures/kennel/CONTRACT.md](fixtures/kennel/CONTRACT.md), [bugs.json](fixtures/kennel/bugs.json)). Its V0 and V1 bugs cover the form and page checks.
-- **Fernway**: a Lovable-style SaaS app (Vite, React 19, Tailwind CSS, Radix/shadcn-style components, react-hook-form with zod, sonner) with a landing page, sign-up, sign-in, an onboarding wizard, and a dashboard and settings behind a real sign-in with two accounts ([fixtures/fernway/README.md](fixtures/fernway/README.md), [CONTRACT.md](fixtures/fernway/CONTRACT.md), [bugs.json](fixtures/fernway/bugs.json)). W01-W10 are the bugs AI-built apps typically ship with; V01-V05 are the access bugs the V2 checks look for.
+- **Fernway**: a Lovable-style SaaS app (Vite, React 19, Tailwind CSS, Radix/shadcn-style components, react-hook-form with zod, sonner) with a landing page, sign-up, sign-in, an onboarding wizard, and a dashboard and settings behind a real sign-in with two accounts ([fixtures/fernway/README.md](fixtures/fernway/README.md), [CONTRACT.md](fixtures/fernway/CONTRACT.md), [bugs.json](fixtures/fernway/bugs.json)). W01-W10 are the bugs AI-built apps typically ship with; V01-V05 are the access bugs the V2 checks look for, and V06-V09 (0.5.0) the write bugs: writes to another account's task, writes without a session, CSRF, and an upgrade success page that grants Pro without a payment. `csrf` catches V08; V06, V07 and V09 are for checks that are still planned.
 - **Sample apps**: five well-built apps ([fixtures/samples/README.md](fixtures/samples/README.md)) as the false-positive suite.
 
 Fernway replaces, for 0.4.0, the multi-page Kennel on a local Supabase described in [docs/fixtures.md](docs/fixtures.md); that stays planned as a Supabase variant. Scoring, in CI on every pull request, covers planted bugs found, false positives in clean mode and evidence on every finding; repeating runs to check that findings are stable is planned ([docs/fixtures.md](docs/fixtures.md#scoring)).
@@ -450,7 +454,7 @@ Details: [docs/business-model.md](docs/business-model.md).
 
 - [TESTING.md](TESTING.md): how to try it, step by step, and how to send feedback
 - [CHANGELOG.md](CHANGELOG.md): what changed in each release
-- [docs/v0-spec.md](docs/v0-spec.md), [docs/v1-spec.md](docs/v1-spec.md) and [docs/v2-spec.md](docs/v2-spec.md): the build contracts for V0 (single form), V1 (single page) and the V2 preview (signed-in runs and access checks)
+- [docs/v0-spec.md](docs/v0-spec.md), [docs/v1-spec.md](docs/v1-spec.md) and [docs/v2-spec.md](docs/v2-spec.md): the build contracts for V0 (single form), V1 (single page) and the V2 preview (signed-in runs, access checks and the CSRF check)
 - [docs/ai-spec.md](docs/ai-spec.md): optional AI (0.3.0): providers, settings, privacy and consent rules
 - [docs/app-ui-spec.md](docs/app-ui-spec.md): the local web UI
 - [docs/fixtures.md](docs/fixtures.md): the Kennel test fixture, its planned Supabase version, and scoring

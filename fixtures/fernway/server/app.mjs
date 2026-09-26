@@ -1,5 +1,6 @@
 // Fernway's request handler: static files from dist/, the SPA fallback, the JSON API (route modules in
-// server/routes/), security headers, the session cookie and the Idempotency-Key replay cache. See CONTRACT.md.
+// server/routes/), security headers, the session cookie, the cross-site (CSRF) defences and the Idempotency-Key replay
+// cache. See CONTRACT.md.
 // Node built-ins only. server/index.mjs reads the environment and listens; tests can create an app in-process.
 
 import { createHash, randomUUID } from "node:crypto";
@@ -9,6 +10,7 @@ import { basename, dirname, extname, join, normalize, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRouter } from "./http.mjs";
 import * as auth from "./routes/auth.mjs";
+import * as billing from "./routes/billing.mjs";
 import * as marketing from "./routes/marketing.mjs";
 import * as onboarding from "./routes/onboarding.mjs";
 import * as workspace from "./routes/workspace.mjs";
@@ -18,11 +20,11 @@ import { createSeed } from "./seed.mjs";
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SECRETS = join(ROOT, "server", "secrets");
 
-/** The seven client-side routes: each serves index.html with 200 (a trailing slash is accepted too). */
-export const SPA_ROUTES = Object.freeze(["/", "/signup", "/login", "/onboarding", "/app", "/app/settings", "/app/help"]);
+/** The eight client-side routes: each serves index.html with 200 (a trailing slash is accepted too). */
+export const SPA_ROUTES = Object.freeze(["/", "/signup", "/login", "/onboarding", "/app", "/app/settings", "/app/help", "/app/upgraded"]);
 
 /** Route modules, each exporting register(router, ctx). */
-export const ROUTE_MODULES = Object.freeze([marketing, auth, onboarding, workspace]);
+export const ROUTE_MODULES = Object.freeze([marketing, auth, onboarding, workspace, billing]);
 
 /** Largest accepted request body. */
 export const MAX_BODY = 256 * 1024;
@@ -88,16 +90,40 @@ export const NOT_FOUND_HTML =
 const REPLAY_LIMIT = 2_000;
 
 /**
+ * The task writes (POST /api/tasks, PATCH /api/tasks/:id): V08 lets these take a form-encoded body with no Origin
+ * check, and in clean mode they take JSON only.
+ */
+const TASK_WRITE = /^\/api\/tasks(?:\/[^/]+)?\/?$/;
+
+/** The answer to a write sent from another site (clean mode's Origin check). */
+export const CROSS_SITE_MESSAGE = "This request came from another site, so Fernway refused it.";
+
+/**
+ * True for a host name a browser treats as secure over plain http (localhost, *.localhost, 127.0.0.0/8, ::1): the
+ * only hosts where V08's `Secure` session cookie is kept on http. `host` may carry a port.
+ * @param {string | undefined} host
+ */
+export function isLoopbackHost(host) {
+  const value = String(host ?? "").toLowerCase();
+  // "[::1]:4110" -> "::1"; "localhost:4110" -> "localhost" (a bare IPv6 address has more than one colon: kept whole).
+  const bracketed = /^\[([^\]]*)\](?::\d+)?$/.exec(value);
+  const name = bracketed ? bracketed[1] : value.split(":").length === 2 ? value.replace(/:\d+$/, "") : value;
+  return name === "localhost" || name.endsWith(".localhost") || name === "::1" || /^127(?:\.\d{1,3}){3}$/.test(name);
+}
+
+/**
  * @typedef {object} AppContext  What route modules get as `ctx` in register(router, ctx).
  * @property {ReadonlySet<string>} bugs       Enabled bug ids.
  * @property {(id: string) => boolean} bugOn  True when FERNWAY_BUGS enables that id.
  * @property {import("./seed.mjs").Store} store  The in-memory data. The object is stable but POST /api/__reset
  *   replaces its fields (all but `sessions`), so read `ctx.store.workspaces` inside handlers; never keep a reference
  *   to a field.
- * @property {(sessionId?: string) => string} sessionCookie  A Set-Cookie value for fernway_session (a new UUID
- *   when no id is given): "Path=/; HttpOnly; SameSite=Lax", without HttpOnly under W09.
- * @property {() => string} clearSessionCookie  A Set-Cookie value that removes fernway_session (Max-Age=0), with the
- *   same flags as sessionCookie.
+ * @property {(sessionId?: string, host?: string) => string} sessionCookie  A Set-Cookie value for fernway_session (a
+ *   new UUID when no id is given): "Path=/; HttpOnly; SameSite=Lax", without HttpOnly under W09. V08 makes it
+ *   "SameSite=None; Secure" when `host` (the request's Host header) is a loopback name (isLoopbackHost), since a
+ *   browser drops a Secure cookie sent over plain http anywhere else.
+ * @property {(host?: string) => string} clearSessionCookie  A Set-Cookie value that removes fernway_session
+ *   (Max-Age=0), with the same flags as sessionCookie.
  * @property {(cookies: Record<string, string>) => import("./seed.mjs").User | null} sessionUser  The user signed in
  *   with the request's fernway_session cookie, or null (no cookie, an unknown id, or a visitor's session that never
  *   signed in).
@@ -120,8 +146,14 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
   const on = (id) => bugs.has(id);
 
   const store = createSeed();
-  /** The session cookie's flags; W09 drops HttpOnly. */
-  const cookieFlags = () => (on("W09") ? "Path=/; SameSite=Lax" : "Path=/; HttpOnly; SameSite=Lax");
+  /**
+   * The session cookie's flags; W09 drops HttpOnly. V08 sends it cross-site (SameSite=None; Secure) on a loopback host.
+   * @param {string | undefined} host
+   */
+  const cookieFlags = (host) => {
+    const sameSite = on("V08") && isLoopbackHost(host) ? "SameSite=None; Secure" : "SameSite=Lax";
+    return on("W09") ? `Path=/; ${sameSite}` : `Path=/; HttpOnly; ${sameSite}`;
+  };
   /** @type {(() => void)[]} */
   const resetHooks = [];
   /** @type {Map<string, Promise<import("./http.mjs").ApiResponse>>} */
@@ -132,11 +164,11 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
     bugs,
     bugOn: on,
     store,
-    sessionCookie(sessionId = randomUUID()) {
-      return `${SESSION_COOKIE}=${sessionId}; ${cookieFlags()}`;
+    sessionCookie(sessionId = randomUUID(), host) {
+      return `${SESSION_COOKIE}=${sessionId}; ${cookieFlags(host)}`;
     },
-    clearSessionCookie() {
-      return `${SESSION_COOKIE}=; ${cookieFlags()}; Max-Age=0`;
+    clearSessionCookie(host) {
+      return `${SESSION_COOKIE}=; ${cookieFlags(host)}; Max-Age=0`;
     },
     sessionUser(cookies) {
       const sid = cookies[SESSION_COOKIE];
@@ -255,6 +287,39 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
     });
   }
 
+  // ---- cross-site defences ---------------------------------------------------------------------
+
+  /**
+   * True when a write comes from another site: its Origin header names another origin than the Host it was sent to
+   * ("null" included), or, without an Origin, Sec-Fetch-Site says cross-site. A request with neither (curl, a server,
+   * a test) is not a browser's cross-site request.
+   * @param {import("node:http").IncomingMessage} req
+   */
+  function fromAnotherSite(req) {
+    const header = req.headers.origin;
+    const origin = Array.isArray(header) ? header[0] : header;
+    if (origin !== undefined) {
+      try {
+        return new URL(origin).host !== String(req.headers.host ?? "").toLowerCase();
+      } catch {
+        return true;
+      }
+    }
+    return String(req.headers["sec-fetch-site"] ?? "").toLowerCase() === "cross-site";
+  }
+
+  /**
+   * A form-encoded body as an object: every value a string, except "true"/"false", which become booleans (so a
+   * checkbox-style `done=true` means done). Only V08's task writes read bodies this way.
+   * @param {string} raw
+   */
+  function parseForm(raw) {
+    /** @type {Record<string, unknown>} */
+    const out = {};
+    for (const [key, value] of new URLSearchParams(raw)) out[key] = value === "true" ? true : value === "false" ? false : value;
+    return out;
+  }
+
   // ---- API -------------------------------------------------------------------------------------
 
   /**
@@ -290,12 +355,28 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
     const match = router.match(method, path);
     if (!match) return sendJson(res, 404, { error: "Not found" });
 
+    const write = method !== "GET" && method !== "HEAD";
+    const taskWrite = write && TASK_WRITE.test(path);
+    // V08: the task save trusts any caller that has the session cookie: no Origin check, and a form body is fine.
+    const v08 = on("V08") && taskWrite;
+    // Clean mode's CSRF defence, on top of the SameSite=Lax cookie: a write from another site is refused.
+    if (write && !v08 && fromAnotherSite(req)) {
+      await readBody(req).catch(() => "");
+      return sendJson(res, 403, { error: CROSS_SITE_MESSAGE });
+    }
+
     /** @type {Record<string, unknown>} */
     let body = {};
     let raw = "";
-    if (method !== "GET" && method !== "HEAD") {
+    if (write) {
       raw = await readBody(req);
-      if (raw.trim() !== "") {
+      const contentType = String(req.headers["content-type"] ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+      if (v08 && contentType === "application/x-www-form-urlencoded") {
+        body = parseForm(raw);
+      } else if (taskWrite && !v08 && raw.trim() !== "" && contentType !== "application/json") {
+        // Clean mode: the task save takes JSON only, so a cross-site page can't send it as a plain form or text.
+        return sendJson(res, 415, { errors: { body: "Send the data as JSON (Content-Type: application/json)." } });
+      } else if (raw.trim() !== "") {
         let parsed;
         try {
           parsed = JSON.parse(raw);
@@ -375,7 +456,7 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
    */
   function sendPage(req, res, status) {
     const cookies = parseCookies(req.headers.cookie);
-    const cookie = cookies[SESSION_COOKIE] ? {} : { "set-cookie": ctx.sessionCookie() };
+    const cookie = cookies[SESSION_COOKIE] ? {} : { "set-cookie": ctx.sessionCookie(undefined, req.headers.host) };
     send(res, status, indexHtml(), { "content-type": TYPES[".html"], ...cookie });
   }
 
