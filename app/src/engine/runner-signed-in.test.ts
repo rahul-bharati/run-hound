@@ -94,11 +94,15 @@ afterEach(async () => {
 });
 
 describe("needsOtherAccount", () => {
-  it("is true only for access-control's other-account scenario, on any form", () => {
+  it("is true only for the other-account scenario of access-control or write-access (0.5.0), on any form", () => {
     expect(needsOtherAccount(scenario("access-control", "access-control:other-account"))).toBe(true);
     expect(needsOtherAccount(scenario("access-control", "access-control:other-account@form-2"))).toBe(true);
     expect(needsOtherAccount(scenario("access-control", "access-control:signed-out"))).toBe(false);
     expect(needsOtherAccount(scenario("dead-control", "other-account"))).toBe(false);
+    expect(needsOtherAccount(scenario("write-access", "write-access:other-account"))).toBe(true);
+    expect(needsOtherAccount(scenario("write-access", "write-access:other-account@form-1"))).toBe(true);
+    expect(needsOtherAccount(scenario("write-access", "write-access:signed-out"))).toBe(false);
+    expect(needsOtherAccount(scenario("csrf", "csrf:cross-site"))).toBe(false);
   });
 });
 

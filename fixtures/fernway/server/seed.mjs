@@ -85,6 +85,14 @@ const SEEDED_AT = "2026-09-01T09:00:00.000Z";
  * @property {{ id: string, email: string, createdAt: string }[]} newsletter
  * @property {Record<string, unknown>[]} onboardings  Created by POST /api/onboarding.
  * @property {string[]} takenSlugs     Workspace URLs GET /api/slug-available reports as taken.
+ * @property {Checkout[]} checkouts    The local test checkout's sessions (server/routes/billing.mjs).
+ */
+
+/**
+ * One upgrade started with POST /api/billing/checkout. `status` is "open" until the local test payment marks it
+ * "paid"; confirming it on /app/upgraded makes it "fulfilled" (the plan was granted once).
+ * @typedef {{ id: string, userId: string, plan: string, amount: number, currency: string,
+ *   status: "open" | "paid" | "fulfilled", createdAt: string }} Checkout
  */
 
 /** @param {Omit<Project, "createdAt">} fields @returns {Project} */
@@ -352,5 +360,6 @@ export function createSeed() {
     newsletter: [],
     onboardings: [],
     takenSlugs: ["acme", "admin", "app", "fernway", "studio"],
+    checkouts: [],
   };
 }

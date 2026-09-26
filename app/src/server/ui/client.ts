@@ -850,11 +850,11 @@ export const CLIENT = String.raw`
       h("p", { class: "muted acct-intro", text: "Two accounts on your app, so Run Hound can test pages behind a sign-in: choose one under New Run → Sign in as. Run Hound signs in with them in its own browser and never shows a saved password again." }),
       h("p", { class: "acct-note" },
         h("b", { text: "Access checks: " }),
-        "signed in as Account A, Run Hound checks that Account B, and a visitor who isn't signed in, can't read Account A's data. Use accounts you own, made for testing: never a real customer's. Runs create test records in Account A."),
+        "signed in as Account A, Run Hound checks that Account B, and a visitor who isn't signed in, can't read Account A's data. The write checks (unticked by default) also check that they, or a page on another site, can't change it, and that a paid plan needs a payment: they change Account A's own test data and put it back. Use accounts you own, made for testing: never a real customer's. Runs create test records in Account A."),
       h("div", { class: "acct-grid" }, slots),
       h("div", { class: "option acct-isolated" }, isolated,
         h("label", { for: "acct-isolated" }, "A and B must not see each other's data",
-          h("span", { class: "desc", text: "Tick when they are different users, not teammates in one workspace. Run Hound only checks that Account B can't read Account A's data when this is ticked." })),
+          h("span", { class: "desc", text: "Tick when they are different users, not teammates in one workspace. Run Hound only checks that Account B can't read or change Account A's data when this is ticked." })),
         lockedIsolated ? h("span", { class: "locked", text: "Set by environment" }) : null),
       isolatedMsg,
       st.file ? h("p", { class: "note" }, "Saved to ", h("code", { class: "mono", text: st.file }), ", readable only by you.") : null);

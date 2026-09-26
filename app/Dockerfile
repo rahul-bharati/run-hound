@@ -1,5 +1,5 @@
 # Run Hound: local UI + API on port 4000, with Playwright's Chromium (715 MB unpacked, about 260 MB to download).
-# Published as ghcr.io/rahul-bharati/run-hound:0.4.1 (linux/amd64, linux/arm64), so running it needs no clone; the
+# Published as ghcr.io/rahul-bharati/run-hound:0.5.0 (linux/amd64, linux/arm64), so running it needs no clone; the
 # commands below work from any folder. To build it yourself, from the repository root (the pnpm workspace and
 # lockfile live there):
 #   docker build -f app/Dockerfile -t localhost/run-hound:dev .
@@ -7,9 +7,9 @@
 # defines on Linux; Docker Desktop defines it itself; settings saved in the UI go to ./runs/.config):
 #   mkdir -p runs
 #   docker run --rm --init -p 127.0.0.1:4000:4000 --add-host host.docker.internal:host-gateway \
-#     -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.4.1
+#     -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.5.0
 # Command line against an app on your machine (Linux; the container shares the host's network):
-#   docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.4.1 \
+#   docker run --rm --init --network host -v "$PWD/runs:/repo/app/runs" ghcr.io/rahul-bharati/run-hound:0.5.0 \
 #     run http://localhost:5173/signup --approve all
 # Run Hound only tests localhost, private addresses and hosts listed in RUNHOUND_ALLOWED_HOSTS
 # (e.g. -e RUNHOUND_ALLOWED_HOSTS=kennel when the target is another compose service). See TESTING.md; the whole test

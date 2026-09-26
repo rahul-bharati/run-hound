@@ -18,8 +18,10 @@ import { site } from "@/lib/site";
 import {
   AppWindow,
   Container as Box,
+  BadgeDollarSign,
   DatabaseZap,
   FileCode,
+  Globe,
   KeyRound,
   LayoutDashboard,
   Link2Off,
@@ -27,6 +29,7 @@ import {
   SlidersHorizontal,
   Terminal,
   TextCursorInput,
+  UserPen,
   UsersRound,
   type LucideIcon,
 } from "lucide-react";
@@ -39,7 +42,7 @@ export const metadata = pageMetadata({
     "Open-source, AI-assisted UI testing for AI-built apps: real checks in a real browser, with evidence and a Playwright test. Runs on your machine.",
 });
 
-/** The V2 preview's checks (0.4.0, docs/v2-spec.md), as the questions they answer. */
+/** The V2 preview's checks (0.4.0 and 0.5.0's write-side checks, docs/v2-spec.md), as the questions they answer. */
 const accessChecks: { icon: LucideIcon; id: string; title: string; text: string }[] = [
   {
     icon: UsersRound,
@@ -58,6 +61,24 @@ const accessChecks: { icon: LucideIcon; id: string; title: string; text: string 
     id: "deep-links",
     title: "Do your pages survive a reload?",
     text: "It opens the page's own links directly, as a reload or a shared link would, and reports the ones that answer with an error or a not-found page. Signed in or not.",
+  },
+  {
+    icon: UserPen,
+    id: "write-access",
+    title: "Can someone else change your data?",
+    text: "It sends the update and delete requests your app uses for Account A's test record as Account B and as a visitor who isn't signed in, then reads the record as Account A. Only that test record is written, and it is put back. Unticked until you tick it.",
+  },
+  {
+    icon: Globe,
+    id: "csrf",
+    title: "Can another website act for you?",
+    text: "A page on another site (localhost vs 127.0.0.1) sends Account A's save from Account A's own browser, as any website could. A forged value that sticks is a finding; without a cross-site address the result is inconclusive, never a pass.",
+  },
+  {
+    icon: BadgeDollarSign,
+    id: "paywall-trust",
+    title: "Can you get Pro without paying?",
+    text: "It opens your app's own upgrade success page and replays its own upgrade request with a zero price, then reads Account A's plan again. It never enters payment details or calls a payment provider, and puts the plan back.",
   },
 ];
 
@@ -169,13 +190,13 @@ export default function Home() {
 
       <Section
         id="signed-in"
-        eyebrow={`NEW IN 0.4.0 · ${site.preview.toUpperCase()}`}
+        eyebrow={`NEW IN 0.5.0 · ${site.preview.toUpperCase()}`}
         title={
           <>
             Signed-in runs <span className="text-accent">and access checks.</span>
           </>
         }
-        intro="Add two test accounts you own on your app, A and B. Run Hound signs in before it tests, so pages behind a login get every check, and three new checks look for what AI-built backends often get wrong. It is the first part of V2, released as a preview."
+        intro="Add two test accounts you own on your app, A and B. Run Hound signs in before it tests, so pages behind a login get every check, and six checks look for what AI-built backends often get wrong: three that read (0.4.0) and three that write (0.5.0). They are the first parts of V2, released as a preview."
         className="border-t border-line-soft"
       >
         <ul className="grid gap-5 md:grid-cols-3">
@@ -213,8 +234,7 @@ export default function Home() {
               customer&apos;s.
             </p>
             <p>
-              Still planned for V2: testing a feature across pages, checking whether one account can change another&apos;s
-              data, rate limits, CSRF, file uploads, prompt injection and paywall trust.
+              Still planned for V2: testing a feature across pages, rate limits, file uploads and prompt injection.
             </p>
             <ArrowLink href="/docs#accounts">Signed-in runs in the docs</ArrowLink>
           </div>

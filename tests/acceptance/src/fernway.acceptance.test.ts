@@ -2,7 +2,7 @@
  * Run Hound against Fernway (fixtures/fernway/CONTRACT.md): an app built the way Lovable, Bolt and v0 build them
  * (Vite, React, Tailwind CSS v4, shadcn/ui-style components on Radix, react-hook-form + zod, sonner, React Router).
  *
- * Clean mode is well built on purpose, so for each of the seven routes, with every scenario approved
+ * Clean mode is well built on purpose, so for each of the eight routes, with every scenario approved
  * (allowDestructive false):
  *   - no scenario errored
  *   - ZERO confirmed findings (any is a Run Hound false positive or a real Fernway defect: triage it)
@@ -11,34 +11,58 @@
  *     including the Radix widgets (Select, Checkbox, RadioGroup) that stand in for native controls
  *   - discovery found the forms behind a trigger (DiscoveredForm.opener, 0.4.0): "Book a demo" and "New project"
  *
- * The public routes (/, /signup, /login, /onboarding) run signed out, exactly as in 0.3.0. /app, /app/settings and
- * /app/help need a session (V2, docs/v2-spec.md "Fernway V2"): they run signed in as Alex (test account A,
- * RunOptions.signInAs "a") with Sam as account B (isolated), every scenario approved including mass-assignment (planned
- * where a form saves: not on /app/help, which has no form), and both access-control scenarios (other-account,
- * signed-out) must pass.
+ * The public routes (/, /signup, /login, /onboarding) run signed out, exactly as in 0.3.0. /app, /app/settings,
+ * /app/help and /app/upgraded need a session (V2, docs/v2-spec.md "Fernway V2"): they run signed in as Alex (test
+ * account A, RunOptions.signInAs "a") with Sam as account B (isolated), every scenario approved including
+ * mass-assignment and the 0.5.0 write-side checks (unticked by default), and both access-control scenarios
+ * (other-account, signed-out) must pass.
+ *
+ * The write-side checks (0.5.0, docs/v2-spec.md "Acceptance (0.5.0 additions)") also run on their own on clean
+ * Fernway: every write-access, csrf and paywall-trust scenario of /app and /app/settings approved, no confirmed
+ * finding, and a re-read through Fernway's API shows Alex's and Sam's pre-existing records and plan as they were.
+ * `csrf` on Fernway reached at a non-loopback address (no localhost/127.0.0.1 twin) reports inconclusive, never a
+ * finding and never a pass.
  *
  * Then each planted bug alone (FERNWAY_BUGS=<id>, fixtures/fernway/bugs.json): only the scenarios of the bug's
  * `detectedBy` check run on its page ("*" = every page, tested on /; V03 also on its `alsoOn` page), signed in on /app
  * pages, and that check must report a confirmed finding (from `scenario` when the bug names one, while the check's
- * other scenarios stay clean).
+ * other scenarios stay clean). For the write-side bugs (V06-V09), Alex's and Sam's data is re-read afterwards and must
+ * be as it was: the check restored Alex's test record and plan.
  *
- * Last, no run folder, log line, Plan or Report of any signed-in run holds either account's password.
+ * Last, no run folder, log line, Plan or Report of any signed-in run holds either account's password, a session
+ * cookie value of the run (every secret the engine registered while it ran: sign-in's cookies and tokens) or a CSRF
+ * token.
  *
  * Env:
- *   ACCEPTANCE_FERNWAY=/,/app,W01   run only these routes and bugs (default: all); "clean" = every route, "bugs" = every bug
+ *   ACCEPTANCE_FERNWAY=/,/app,W01   run only these routes and bugs (default: all); "clean" = every route, "bugs" = every bug,
+ *                                   "write-side" = the write-side clean runs and the inconclusive csrf run
  *   FERNWAY_SKIP_BUILD=1            reuse fixtures/fernway/dist instead of running `vite build`
  *   ACCEPTANCE_FERNWAY_DIR=<dir>    build and start Fernway from a copy of fixtures/fernway instead
  *   KEEP_RUNS=1                     keep the runs/ directories (paths are printed)
  */
 import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import type { AccountsConfig } from "../../../app/src/accounts/types.js";
 import { checks } from "../../../app/src/checks/index.js";
-import type { DiscoveredForm, Plan, Report } from "../../../app/src/core/types.js";
+import type { CheckId, DiscoveredForm, Plan, Report } from "../../../app/src/core/types.js";
+import { registeredLiterals } from "../../../app/src/engine/redact.js";
 import { discoverAndPlan, runPlan } from "../../../app/src/engine/runner.js";
-import { buildFernway, FERNWAY_ACCOUNTS, fernwayAccounts, filesContaining, loadFernwayBugs, needsSignIn, startFernway, type FernwayBug } from "./fernway.js";
+import {
+  accountState,
+  buildFernway,
+  csrfTokensIn,
+  FERNWAY_ACCOUNTS,
+  fernwayAccounts,
+  filesContaining,
+  loadFernwayBugs,
+  needsSignIn,
+  startFernway,
+  stateChanges,
+  type AccountState,
+  type FernwayBug,
+} from "./fernway.js";
 
 interface FormSpec {
   /** The discovered form's name must match this. */
@@ -95,10 +119,26 @@ const ROUTES: RouteSpec[] = [
   { route: "/app/settings", forms: [{ name: /profile/i, fields: ["Display name", "Email", "Bio", "Time zone"] }] },
   // No form: page-wide checks only. V05 makes a direct load of it answer 404 (caught by deep-links on /app).
   { route: "/app/help", forms: [] },
+  // 0.5.0: the upgrade success page (no form). Clean mode confirms only a paid checkout, so loading it changes nothing.
+  { route: "/app/upgraded", forms: [] },
 ];
 
 /** The two access-control scenarios (docs/v2-spec.md "access-control"). */
 const ACCESS_SCENARIOS = ["access-control:other-account", "access-control:signed-out"] as const;
+
+/** The 0.5.0 write-side checks (docs/v2-spec.md "Checks (0.5.0)"): unticked by default, they change Account A's data. */
+const WRITE_SIDE: readonly CheckId[] = ["write-access", "csrf", "paywall-trust"];
+const isWriteSide = (checkId: string) => (WRITE_SIDE as readonly string[]).includes(checkId);
+
+/**
+ * Where each write-side check must plan on clean Fernway, signed in as Alex with Sam as B (docs/v2-spec.md "Checks
+ * (0.5.0)"): write-access and csrf on /app (Quick add saves a task), paywall-trust on /app/settings (the profile
+ * holds Alex's plan). The profile form changes the account's email, so csrf and write-access don't use it.
+ */
+const WRITE_SIDE_PAGES: { route: string; checks: CheckId[] }[] = [
+  { route: "/app", checks: ["write-access", "csrf"] },
+  { route: "/app/settings", checks: ["paywall-trust"] },
+];
 
 const bugs = await loadFernwayBugs();
 
@@ -117,8 +157,14 @@ const bugCases: BugCase[] = bugs.flatMap((bug) => {
 const only = process.env.ACCEPTANCE_FERNWAY?.split(",").map((s) => s.trim()).filter(Boolean);
 const selectedRoutes = only ? ROUTES.filter((r) => only.includes(r.route) || only.includes("clean")) : ROUTES;
 const selectedBugs = only ? bugCases.filter((c) => only.includes(c.bug.id) || only.includes("bugs")) : bugCases;
+const writeSide = !only || only.includes("write-side");
 const keepRuns = process.env.KEEP_RUNS === "1";
-const anySignedIn = selectedRoutes.some((r) => needsSignIn(r.route)) || selectedBugs.some((c) => needsSignIn(c.route));
+const anySignedIn = selectedRoutes.some((r) => needsSignIn(r.route)) || selectedBugs.some((c) => needsSignIn(c.route)) || writeSide;
+
+/** A non-loopback IPv4 address of this machine: it reaches Fernway but has no localhost/127.0.0.1 twin (csrf). */
+const lanAddress = Object.values(networkInterfaces())
+  .flat()
+  .find((n) => n && n.family === "IPv4" && !n.internal)?.address;
 
 /** Notes a person can read: not empty, and not a stack trace, a raw error class or a Playwright call log. */
 const TECHNICAL = /\n\s+at |\b(TypeError|ReferenceError|SyntaxError|TimeoutError)\b|Call log:|locator\(|page\.\w+:|undefined|\[object Object\]/;
@@ -174,28 +220,67 @@ let runsRoot: string;
 const signedInRuns: { label: string; dir: string; logs: string[]; json: string; signedIn: boolean }[] = [];
 
 /**
+ * Every secret the engine held registered while a signed-in plan or run was going: the passwords and the session
+ * values sign-in produced (cookies, bearer tokens, in every encoding redactSecrets knows). Sampled from the log and
+ * progress callbacks, so it holds the real session cookie values of these runs without the test ever reading a
+ * cookie. Values shorter than 8 characters are left out: they could turn up by chance in an image's bytes.
+ */
+const runSecrets = new Set<string>();
+function sampleSecrets(): void {
+  for (const secret of registeredLiterals().secrets) if (secret.length >= 8) runSecrets.add(secret);
+}
+function logInto(logs: string[]): (line: string) => void {
+  return (line) => {
+    logs.push(line);
+    sampleSecrets();
+  };
+}
+
+/** Alex's (A) and Sam's (B) data, read through Fernway's API: the write-side checks must leave it as it was. */
+async function bothAccounts(url: string): Promise<{ alex: AccountState; sam: AccountState }> {
+  const [alex, sam] = await Promise.all([accountState(url, "alex"), accountState(url, "sam")]);
+  return { alex, sam };
+}
+
+/** What changed in Alex's and Sam's pre-existing data between two reads (test records created by the run are not). */
+function accountChanges(before: { alex: AccountState; sam: AccountState }, after: { alex: AccountState; sam: AccountState }): string[] {
+  return [...stateChanges(before.alex, after.alex).map((c) => `Alex (A) ${c}`), ...stateChanges(before.sam, after.sam).map((c) => `Sam (B) ${c}`)];
+}
+
+/**
  * Discovers and plans `route` on a running Fernway, signed in as Alex (A, with Sam as B) when the route needs a
  * session, else signed out as in 0.3.0.
  */
-async function planRoute(url: string, route: string, logs: string[]): Promise<{ plan: Plan; accounts: AccountsConfig | undefined }> {
+async function planRoute(url: string, route: string, logs: string[], allowedHosts?: string[]): Promise<{ plan: Plan; accounts: AccountsConfig | undefined }> {
   const accounts = needsSignIn(route) ? fernwayAccounts(url) : undefined;
   const plan = await discoverAndPlan(`${url}${route}`, {
     checks,
-    log: (line) => logs.push(line),
+    log: logInto(logs),
     ...(accounts ? { signInAs: "a" as const, accounts } : {}),
+    ...(allowedHosts ? { allowedHosts } : {}),
   });
   return { plan, accounts };
 }
 
 /** Runs the approved scenarios of `plan` (with the accounts it was planned with) into runsRoot/<name>. */
-async function runRoute(label: string, plan: Plan, approved: string[], accounts: AccountsConfig | undefined, name: string, logs: string[]) {
+async function runRoute(
+  label: string,
+  plan: Plan,
+  approved: string[],
+  accounts: AccountsConfig | undefined,
+  name: string,
+  logs: string[],
+  allowedHosts?: string[],
+) {
   const { report, dir } = await runPlan(plan, {
     checks,
     approved,
     allowDestructive: false,
     runsDir: join(runsRoot, name),
-    log: (line) => logs.push(line),
+    log: logInto(logs),
+    onProgress: sampleSecrets,
     ...(accounts ? { accounts } : {}),
+    ...(allowedHosts ? { allowedHosts } : {}),
   });
   if (accounts) {
     signedInRuns.push({ label, dir, logs, json: JSON.stringify({ plan, report }), signedIn: report.accounts?.signedInAs?.id === "a" });
@@ -250,7 +335,8 @@ describe.skipIf(selectedRoutes.length === 0).concurrent("Run Hound against Fernw
         }
       }
 
-      // Every scenario approved: on /app pages that includes mass-assignment (unticked by default) and both access checks.
+      // Every scenario approved: on /app pages that includes mass-assignment and the write-side checks (unticked by
+      // default) and both access checks.
       const approved = plan.scenarios.map((s) => s.id);
       if (signedIn) {
         expect.soft(approved.filter((id) => (ACCESS_SCENARIOS as readonly string[]).includes(id)).sort(), "both access-control scenarios planned").toEqual([...ACCESS_SCENARIOS].sort());
@@ -302,6 +388,8 @@ describe.skipIf(selectedBugs.length === 0).concurrent("Run Hound catches each Fe
     const logs: string[] = [];
     try {
       await fw.reset();
+      // The write-side bugs (0.5.0): Alex's and Sam's data before the run, to hold the check to restoring it.
+      const before = isWriteSide(bug.detectedBy) ? await bothAccounts(fw.url) : null;
       const { plan, accounts } = await planRoute(fw.url, route, logs);
       if (needsSignIn(route)) expect.soft(plan.account?.id, `${route} discovered signed in as account A`).toBe("a");
       const approved = plan.scenarios.filter((s) => s.checkId === bug.detectedBy).map((s) => s.id);
@@ -334,24 +422,117 @@ describe.skipIf(selectedBugs.length === 0).concurrent("Run Hound catches each Fe
           `${bug.id} changes only ${bug.scenario}`,
         ).toEqual([]);
       }
+      if (before) {
+        expect.soft(
+          accountChanges(before, await bothAccounts(fw.url)),
+          `${bug.id}: Alex's and Sam's records and plan after the run (the check must restore what it changed)`,
+        ).toEqual([]);
+      }
     } finally {
       await fw.stop();
     }
   });
 });
 
-describe("the signed-in runs never write a password", () => {
-  it.skipIf(!anySignedIn)("no report, evidence file, spec, log line, Plan or Report of a signed-in run holds either account's password", async ({ expect }) => {
+describe.skipIf(!writeSide).concurrent("the write-side checks on clean Fernway (0.5.0)", () => {
+  it.for(WRITE_SIDE_PAGES)("$route: all three ticked, no confirmed finding, Alex's and Sam's data unchanged", async (spec, { expect }) => {
+    const fw = await startFernway("none");
+    const logs: string[] = [];
+    try {
+      await fw.reset();
+      const before = await bothAccounts(fw.url);
+      const { plan, accounts } = await planRoute(fw.url, spec.route, logs);
+      expect.soft(plan.account?.id, `${spec.route} discovered signed in as account A`).toBe("a");
+      const writes = plan.scenarios.filter((s) => isWriteSide(s.checkId));
+      for (const checkId of spec.checks) {
+        expect.soft(writes.some((s) => s.checkId === checkId), `${checkId} is planned on ${spec.route} (docs/v2-spec.md "Checks (0.5.0)")`).toBe(true);
+      }
+      expect.soft(
+        writes.filter((s) => s.defaultSelected || s.destructive).map((s) => s.id),
+        "write-side scenarios are unticked by default and not destructive",
+      ).toEqual([]);
+      if (writes.length === 0) return;
+
+      const label = `write-side ${spec.route}`;
+      const report = await runRoute(label, plan, writes.map((s) => s.id), accounts, `write-side${spec.route.replace(/\//g, "_")}`, logs);
+      console.log(describeRun(label, plan, report));
+
+      expect.soft(
+        report.results.filter((r) => r.status === "error").map((r) => `${r.scenarioId}: ${r.notes ?? "(no notes)"}`),
+        "errored scenarios",
+      ).toEqual([]);
+      expect.soft(
+        report.findings.filter((f) => f.confidence === "confirmed").map((f) => `${f.checkId}: ${f.title}${f.location ? ` @ ${f.location}` : ""}`),
+        "confirmed write-side findings on clean Fernway",
+      ).toEqual([]);
+      expect.soft(
+        report.results
+          .filter((r) => r.status === "skipped")
+          .filter((r) => !r.notes || r.notes.trim().length < 10 || TECHNICAL.test(r.notes))
+          .map((r) => `${r.scenarioId}: ${JSON.stringify(r.notes ?? null)}`),
+        "skipped scenarios without a plain-language reason",
+      ).toEqual([]);
+      // A pass never stands next to something that could not be undone (docs/v2-spec.md "Safety contract").
+      expect.soft(
+        report.results.filter((r) => r.status === "pass" && /could not be undone|check Account A/i.test(r.notes ?? "")).map((r) => `${r.scenarioId}: ${r.notes}`),
+        "passing scenarios that say something could not be undone",
+      ).toEqual([]);
+      expect.soft(accountChanges(before, await bothAccounts(fw.url)), "Alex's and Sam's records and plan after the run").toEqual([]);
+    } finally {
+      await fw.stop();
+    }
+  });
+
+  // docs/v2-spec.md "csrf": with no truly cross-site local origin, the scenario is inconclusive, never confirmed or pass.
+  // Fernway reached at this machine's own non-loopback address has no localhost/127.0.0.1 twin. V08 is on, so a
+  // missing defence is there to be found: the check must still not report it.
+  it.skipIf(!lanAddress)("csrf on a target with no cross-site twin reports inconclusive (V08 on, non-loopback address)", async ({ expect }) => {
+    const fw = await startFernway("V08");
+    const logs: string[] = [];
+    try {
+      await fw.reset();
+      const url = fw.url.replace("localhost", lanAddress!);
+      const allowedHosts = [lanAddress!];
+      const { plan, accounts } = await planRoute(url, "/app", logs, allowedHosts);
+      expect(plan.account?.id, "/app discovered signed in as account A at the non-loopback address").toBe("a");
+      const approved = plan.scenarios.filter((s) => s.checkId === "csrf").map((s) => s.id);
+      expect(approved, "csrf is planned on /app").not.toEqual([]);
+
+      const label = "csrf inconclusive /app";
+      const report = await runRoute(label, plan, approved, accounts, "csrf-inconclusive", logs, allowedHosts);
+      console.log(describeRun(label, plan, report));
+      const results = report.results.filter((r) => r.checkId === "csrf");
+      expect(results.map((r) => r.scenarioId).sort(), "every csrf scenario has a result").toEqual([...approved].sort());
+      for (const r of results) {
+        expect.soft(r.status, `${r.scenarioId}: neither pass nor fail (${r.notes ?? "no notes"})`).toBe("skipped");
+        expect.soft(r.notes ?? "", `${r.scenarioId}: says it is inconclusive, and why`).toMatch(/inconclusive[\s\S]*cross-site/i);
+        expect.soft(r.findings.map((f) => `${f.confidence} ${f.title}`), `${r.scenarioId}: no finding`).toEqual([]);
+      }
+    } finally {
+      await fw.stop();
+    }
+  });
+});
+
+describe("the signed-in runs never write a password, a session value or a CSRF token", () => {
+  it.skipIf(!anySignedIn)("no report, evidence file, spec, log line, Plan or Report of a signed-in run holds a password, a session cookie value or a CSRF token", async ({ expect }) => {
     expect(
       signedInRuns.filter((r) => r.signedIn).map((r) => r.label),
       `runs that really ran signed in as account A (none: signing in failed or never happened; runs with the accounts: ${signedInRuns.map((r) => r.label).join(", ") || "none"})`,
     ).not.toEqual([]);
-    const needles = { "Alex's password": FERNWAY_ACCOUNTS.alex.password, "Sam's password": FERNWAY_ACCOUNTS.sam.password };
+    // The session values (0.5.0 widening): sampled while the runs held them registered. Signing in always registers
+    // the session cookie, so an empty set means the sampling broke, not that there was nothing to find.
+    expect(runSecrets.size, "session values registered during the signed-in runs").toBeGreaterThan(2);
+    const passwords: Record<string, string> = { "Alex's password": FERNWAY_ACCOUNTS.alex.password, "Sam's password": FERNWAY_ACCOUNTS.sam.password };
+    const needles: Record<string, string> = { ...passwords };
+    let n = 0;
+    for (const secret of runSecrets) if (!Object.values(passwords).includes(secret)) needles[`a session value (#${++n}, never printed)`] = secret;
     for (const run of signedInRuns) {
       expect.soft(await filesContaining(run.dir, needles), `${run.label}: files in ${run.dir}`).toEqual([]);
+      expect.soft(await csrfTokensIn(run.dir), `${run.label}: CSRF tokens in the clear in ${run.dir}`).toEqual([]);
       expect.soft(
         run.logs.filter((line) => Object.values(needles).some((p) => line.includes(p))).length,
-        `${run.label}: log lines holding a password`,
+        `${run.label}: log lines holding a password or a session value`,
       ).toBe(0);
       expect.soft(
         Object.entries(needles).filter(([, p]) => run.json.includes(p)).map(([label]) => label),

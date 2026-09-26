@@ -10,7 +10,8 @@
 //   GET   /api/members            -> 200 Member[] (the workspace's team)
 //   GET   /api/tasks              -> 200 Task[]
 //   POST  /api/tasks              { title, projectId } -> 201. W03: the Idempotency-Key is ignored.
-//   PATCH /api/tasks/:id          { done: boolean } -> 200 Task (the Today list's checkboxes)
+//   PATCH /api/tasks/:id          { title?, projectId?, done? } (at least one) -> 200 Task. The client sends the whole
+//                                 task: Quick add right after creating one, the Today list's checkboxes on toggle.
 //   GET   /api/users/:id/profile  -> 200 Profile { id, displayName, email, bio, timeZone, avatar, role, plan }
 //   PUT   /api/users/:id/profile  { displayName, email, bio, timeZone } -> 200 Profile (bio left out = unchanged).
 //                                 Only those 4 keys are ever taken: role, plan, avatar, id and anything else sent are
@@ -23,6 +24,9 @@
 //   V02  GET /api/tasks answers every user's tasks.
 //   V03  without a signed-in session, every endpoint here answers as Alex (GET /api/me stays honest).
 //   V04  PUT /api/users/:id/profile stores every key it is sent (except id), including role and plan; GET returns them.
+//   V06  PATCH /api/tasks/:id updates another user's task (no ownership check on the write).
+//   V07  PATCH /api/tasks/:id works without a session, on any user's task.
+//   (V08, the task save's missing CSRF defence, lives in server/app.mjs; V09 in server/routes/billing.mjs.)
 //
 // The name "Crash" (after trim) in a project name, task title or display name answers 500 (CONTRACT.md). Saves take
 // SAVE_DELAY_MS, like a real network round trip, so the pending state (disabled button, spinner) is visible and a
@@ -214,17 +218,42 @@ export function register(router, ctx) {
     { idempotency: !ctx.bugOn("W03") },
   );
 
-  router.patch(
-    "/api/tasks/:id",
-    signedIn(async ({ params, body, ws }) => {
-      const task = ws.tasks.find((t) => t.id === params.id);
-      if (!task) return notFound();
-      if (typeof body.done !== "boolean") return badRequest({ done: "Send done as true or false." });
-      await sleep(TOGGLE_DELAY_MS);
-      task.done = body.done;
-      return ok(task);
-    }),
-  );
+  /**
+   * The workspace holding task `id` among every user's workspaces (only V06 and V07 look outside the caller's own).
+   * @param {string} id
+   */
+  const anyWorkspaceWithTask = (id) => [...ctx.store.workspaces.values()].find((w) => w.tasks.some((t) => t.id === id));
+
+  // Not wrapped in signedIn: V07 lets a request without a session through, so the session rule is spelled out here.
+  router.patch("/api/tasks/:id", async (request) => {
+    const { params, body } = request;
+    const user = actingUser(request);
+    const own = user ? ctx.workspaceOf(user.id) : undefined;
+    if (!own && !ctx.bugOn("V07")) return unauthorized(AUTH_MESSAGES.signInFirst);
+    // Clean mode: only the caller's own task (another user's id is 404). V06: any signed-in user writes any user's
+    // task; V07: so does a request without a session.
+    const outside = own ? ctx.bugOn("V06") : ctx.bugOn("V07");
+    const ws = own?.tasks.some((t) => t.id === params.id) ? own : outside ? anyWorkspaceWithTask(params.id) : undefined;
+    const task = ws?.tasks.find((t) => t.id === params.id);
+    if (!ws || !task) return notFound();
+
+    const v = validator(body);
+    const has = (/** @type {string} */ key) => body[key] !== undefined;
+    if (!has("title") && !has("projectId") && !has("done")) return badRequest({ done: "Send done as true or false (or a title or project)." });
+    const title = has("title")
+      ? v.text("title", { required: "Enter a task.", max: LIMITS.taskTitle, maxMessage: `Use ${LIMITS.taskTitle} characters or fewer.` })
+      : task.title;
+    const projectId = has("projectId") ? v.text("projectId") : task.projectId;
+    // The task's own workspace decides which projects are valid.
+    if (has("projectId") && projectId && !liveProjects(ws).some((p) => p.id === projectId)) v.fail("projectId", "Choose a project from the list.");
+    if (has("done") && typeof body.done !== "boolean") v.fail("done", "Send done as true or false.");
+    if (!v.ok) return badRequest(v.errors);
+    crashIfNamed(title);
+
+    await sleep(TOGGLE_DELAY_MS);
+    Object.assign(task, { title, projectId, ...(has("done") ? { done: body.done } : {}) });
+    return ok(task);
+  });
 
   // ---- profile ----------------------------------------------------------------------------------
 

@@ -1,6 +1,6 @@
-# Run Hound 0.4.1 and the apps it is tested against, from the published images: no clone, no build.
+# Run Hound 0.5.0 and the apps it is tested against, from the published images: no clone, no build.
 #
-#   curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.4.1/run-hound.compose.yml
+#   curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.5.0/run-hound.compose.yml
 #   mkdir -p runs                                  # reports land in ./runs; create it first so the files belong to you
 #   docker compose -f run-hound.compose.yml up     # or: podman compose -f run-hound.compose.yml up
 #
@@ -20,14 +20,14 @@
 #
 # Your own app on this machine: enter http://host.docker.internal:<port>/<page> (TESTING.md has the dev-server
 # settings). Every setting below has a default; override them in a .env file next to this one (the variables are
-# listed in https://github.com/rahul-bharati/run-hound/blob/v0.4.1/.env.example). All ports are bound to 127.0.0.1.
+# listed in https://github.com/rahul-bharati/run-hound/blob/v0.5.0/.env.example). All ports are bound to 127.0.0.1.
 #
 # Only want Run Hound itself? `docker compose -f run-hound.compose.yml up run-hound` still starts the test apps it
 # depends on; for Run Hound alone use the single `docker run` in the README.
 # Working from a clone? docker-compose.yml builds these same services from source.
 
 x-sample: &sample
-  image: ghcr.io/rahul-bharati/run-hound-samples:0.4.1
+  image: ghcr.io/rahul-bharati/run-hound-samples:0.5.0
   init: true
   # Healthy while the app answers on its PORT (any status below 500). The images have no curl, so Node's fetch probes.
   healthcheck: &app-healthcheck
@@ -39,7 +39,7 @@ x-sample: &sample
 
 services:
   run-hound:
-    image: ghcr.io/rahul-bharati/run-hound:0.4.1
+    image: ghcr.io/rahul-bharati/run-hound:0.5.0
     init: true
     environment:
       # Named hosts the safety gate accepts besides localhost and private addresses: the test apps and the names
@@ -117,7 +117,7 @@ services:
 
   # ---- Kennel: the deliberately broken booking app -------------------------------------------------------------
   kennel: &kennel
-    image: ghcr.io/rahul-bharati/run-hound-kennel:0.4.1
+    image: ghcr.io/rahul-bharati/run-hound-kennel:0.5.0
     init: true
     healthcheck: *app-healthcheck
     environment:
@@ -136,7 +136,7 @@ services:
 
   # ---- Fernway: a Lovable/Bolt-style SaaS app (Vite, React, Tailwind, Radix) --------------------------------------
   fernway: &fernway
-    image: ghcr.io/rahul-bharati/run-hound-fernway:0.4.1
+    image: ghcr.io/rahul-bharati/run-hound-fernway:0.5.0
     init: true
     healthcheck: *app-healthcheck
     environment:

@@ -50,6 +50,10 @@ export const CHECK_IDS = [
   "access-control",
   "mass-assignment",
   "deep-links",
+  // V2 (0.5.0): write-side checks, which change Account A's own test record and restore it (docs/v2-spec.md).
+  "write-access",
+  "csrf",
+  "paywall-trust",
 ] as const;
 
 /** Checks added in V1 (single page). Everything else in CHECK_IDS shipped in V0. */
@@ -57,8 +61,11 @@ export const V1_CHECK_IDS: readonly CheckId[] = ["page-controls", "security-head
 
 export type CheckId = (typeof CHECK_IDS)[number];
 
-/** Checks added in 0.4.0 (the first V2 slice: test accounts, access checks, deep links). docs/v2-spec.md. */
-export const V2_CHECK_IDS: readonly CheckId[] = ["access-control", "mass-assignment", "deep-links"];
+/**
+ * Checks added in V2: 0.4.0 (the first slice: test accounts, access checks, deep links) and 0.5.0 (the write-side
+ * checks). docs/v2-spec.md.
+ */
+export const V2_CHECK_IDS: readonly CheckId[] = ["access-control", "mass-assignment", "deep-links", "write-access", "csrf", "paywall-trust"];
 
 /** The two test-account slots (docs/v2-spec.md "Test accounts"). */
 export type AccountId = "a" | "b";

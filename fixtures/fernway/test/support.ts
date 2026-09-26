@@ -15,16 +15,16 @@ import { chromium, type Browser, type BrowserContext, type BrowserContextOptions
 /** Absolute path of fixtures/fernway. */
 export const FERNWAY_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** The V2 bugs (docs/v2-spec.md "Fernway V2"). */
-export const V2_BUGS = ["V01", "V02", "V03", "V04", "V05"] as const;
+/** The V2 bugs (docs/v2-spec.md "Fernway V2": V01-V05; "Fernway (0.5.0 planned bugs)": V06-V09). */
+export const V2_BUGS = ["V01", "V02", "V03", "V04", "V05", "V06", "V07", "V08", "V09"] as const;
 /** Every bug FERNWAY_BUGS=all turns on (server/bugs.mjs). */
 export const ALL_BUGS = ["W01", "W02", "W03", "W04", "W05", "W06", "W07", "W08", "W09", "W10", ...V2_BUGS] as const;
 export type BugId = (typeof ALL_BUGS)[number];
 
-/** The seven client-side routes; each answers 200 with index.html. */
-export const ROUTES = ["/", "/signup", "/login", "/onboarding", "/app", "/app/settings", "/app/help"] as const;
+/** The eight client-side routes; each answers 200 with index.html. */
+export const ROUTES = ["/", "/signup", "/login", "/onboarding", "/app", "/app/settings", "/app/help", "/app/upgraded"] as const;
 /** The routes that need a session (signed out, the SPA sends you to /login?next=<path>). */
-export const SIGNED_IN_ROUTES = ["/app", "/app/settings", "/app/help"] as const;
+export const SIGNED_IN_ROUTES = ["/app", "/app/settings", "/app/help", "/app/upgraded"] as const;
 export const isSignedInRoute = (route: string) => (SIGNED_IN_ROUTES as readonly string[]).includes(route);
 
 /** The seeded accounts (server/seed.mjs ACCOUNTS; CONTRACT.md "Accounts"). */

@@ -123,7 +123,18 @@ Caught with Run Hound signed in as Alex (account A), with Sam as account B.
 | V04 | `/app/settings` | Saving the profile stores any field it is sent, including `role` and `plan` | `mass-assignment` |
 | V05 | `/app` | `/app/help` (linked from the sidebar) answers 404 when opened directly | `deep-links` |
 
-`FERNWAY_BUGS=all` turns on W01-W10 and V01-V05. The full tables, with what each bug changes, are in
+### V06-V09: the write-side bugs (0.5.0)
+
+Caught the same way, with the write-side checks ticked (they are unticked by default).
+
+| ID | Page | Planted defect | Caught by |
+|---|---|---|---|
+| V06 | `/app` | `PATCH /api/tasks/:id` updates another user's task | `write-access` (other account) |
+| V07 | `/app` | Writes to `/api/tasks/:id` work without a session | `write-access` (signed out) |
+| V08 | `/app` | The session cookie is `SameSite=None; Secure`, and the task save takes a form-encoded body with no token or Origin check | `csrf` (target on `localhost`) |
+| V09 | `/app/settings` | `/app/upgraded` grants Pro on load, with no payment | `paywall-trust` |
+
+`FERNWAY_BUGS=all` turns on W01-W10 and V01-V09. The full tables, with what each bug changes, are in
 [CONTRACT.md](../fixtures/fernway/CONTRACT.md); the ground truth is [bugs.json](../fixtures/fernway/bugs.json).
 
 ## Scoring

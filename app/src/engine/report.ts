@@ -179,15 +179,27 @@ function notApproved(report: Report): { id: string; checkId: string; title: stri
     });
 }
 
-/** Checks that plan scenarios only on a signed-in run (docs/v2-spec.md "Checks"). */
-const SIGNED_IN_CHECK_IDS: readonly CheckId[] = ["access-control", "mass-assignment"];
+/** Checks that plan scenarios only on a signed-in run (docs/v2-spec.md "Checks" and "Checks (0.5.0)"). */
+const SIGNED_IN_CHECK_IDS: readonly CheckId[] = ["access-control", "mass-assignment", "write-access", "csrf", "paywall-trust"];
 
-/** True for a report written by Run Hound 0.4.0 or later (a pre-release of 0.4.0 counts), which has the V2 checks. */
-function hasV2Checks(report: Report): boolean {
+/** The V2 checks added in 0.5.0 (the write-side checks); every other V2 check shipped in 0.4.0. */
+const V2_050_CHECK_IDS: readonly CheckId[] = ["write-access", "csrf", "paywall-trust"];
+
+/**
+ * The minor version of Run Hound 0.x that wrote `report` (a pre-release counts as its release), or Infinity when the
+ * version is missing or 1.0 and later, which has every check.
+ */
+function reportMinor(report: Report): number {
   const m = /^(\d+)\.(\d+)/.exec(report.runHoundVersion ?? "");
-  if (!m) return true;
+  if (!m) return Infinity;
   const [major, minor] = [Number(m[1]), Number(m[2])];
-  return major > 0 || minor >= 4;
+  return major > 0 ? Infinity : minor;
+}
+
+/** True when the Run Hound that wrote `report` had check `id`: the 0.4.0 V2 checks from 0.4, the 0.5.0 ones from 0.5. */
+function hadCheck(report: Report, id: CheckId): boolean {
+  if (!V2_CHECK_IDS.includes(id)) return true;
+  return reportMinor(report) >= (V2_050_CHECK_IDS.includes(id) ? 5 : 4);
 }
 
 /**
@@ -198,9 +210,8 @@ function hasV2Checks(report: Report): boolean {
 function notPlanned(report: Report): string[] {
   const planned = new Set(report.plan.scenarios.map((s) => s.checkId));
   const signedIn = reportAccounts(report).signedInAs !== null;
-  const v2 = hasV2Checks(report);
   return CHECK_IDS.filter(
-    (id) => !planned.has(id) && !AI_CHECK_IDS.includes(id) && (v2 || !V2_CHECK_IDS.includes(id)) && (signedIn || !SIGNED_IN_CHECK_IDS.includes(id)),
+    (id) => !planned.has(id) && !AI_CHECK_IDS.includes(id) && hadCheck(report, id) && (signedIn || !SIGNED_IN_CHECK_IDS.includes(id)),
   );
 }
 

@@ -10,6 +10,7 @@ import type { Capture, Check, CheckContext, Evidence, Finding, PlanEnv, Scenario
 import { isDestructiveControl } from "./dead-control.js";
 import { endpointOf, errorResult, guarded, result, tryCard } from "./lib/functional-finding.js";
 import { canaryValues, createRequests, fillForm, isSearchForm, settle, submitControl, submitForm, waitForCreates, type FieldValue } from "./lib/functional-form.js";
+import { findOwnRecord, jsonObjectBody, nearest, parseJson, recordChains, type JsonObject } from "./lib/record-state.js";
 
 const ID = "mass-assignment" as const;
 
@@ -39,45 +40,6 @@ function otherFieldsKind(fields: string[]): string {
 
 const q = (v: unknown) => JSON.stringify(v);
 
-type JsonObject = Record<string, unknown>;
-
-/**
- * The records of `node` (parsed JSON) that hold one of `needles` (the test values Run Hound typed): for each, the chain
- * of objects from the one holding the value up to the root, deepest first. One chain per record. A list of other
- * people or older records is never part of a chain, so its values never count.
- */
-function recordChains(node: unknown, needles: string[]): JsonObject[][] {
-  const chains: JsonObject[][] = [];
-  const seen = new Set<JsonObject>();
-  const walk = (n: unknown, parents: JsonObject[], depth: number) => {
-    if (depth > 12) return;
-    if (typeof n === "string") {
-      const holder = parents[parents.length - 1];
-      if (holder && !seen.has(holder) && needles.some((v) => n.includes(v))) {
-        seen.add(holder);
-        chains.push([...parents].reverse());
-      }
-      return;
-    }
-    if (Array.isArray(n)) {
-      for (const item of n) walk(item, parents, depth + 1);
-      return;
-    }
-    if (n && typeof n === "object") {
-      const obj = n as JsonObject;
-      for (const v of Object.values(obj)) walk(v, [...parents, obj], depth + 1);
-    }
-  };
-  walk(node, [], 0);
-  return chains;
-}
-
-/** The value of `key` in the nearest object of `chain` that has it (the record itself first, then its parents). */
-function nearest(chain: JsonObject[], key: string): { found: boolean; value?: unknown } {
-  for (const obj of chain) if (Object.prototype.hasOwnProperty.call(obj, key)) return { found: true, value: obj[key] };
-  return { found: false };
-}
-
 /** True when some record of `chains` holds `key` equal to `value`. */
 function holds(chains: JsonObject[][], key: string, value: unknown): boolean {
   return chains.some((chain) => {
@@ -91,21 +53,6 @@ function recordsOrTop(json: unknown, needles: string[]): JsonObject[][] {
   const chains = recordChains(json, needles);
   if (chains.length > 0) return chains;
   return json !== null && typeof json === "object" && !Array.isArray(json) ? [[json as JsonObject]] : [];
-}
-
-function parseJson(body: string): unknown {
-  try {
-    return JSON.parse(body);
-  } catch {
-    return null;
-  }
-}
-
-/** A JSON object body (not an array, not a scalar), or null. */
-function jsonObjectBody(body: string | null | undefined): Record<string, unknown> | null {
-  if (!body) return null;
-  const value = parseJson(body);
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
 function listOf(names: string[]): string {
@@ -240,7 +187,7 @@ export const check: Check = {
       await page.reload({ waitUntil: "load" }).catch(() => undefined);
       await settle(page);
       const testValues = values.filter((v) => v.canary && v.value).map((v) => v.value);
-      const recordGet = await findRecord(ctx, capture, testValues);
+      const recordGet = await findOwnRecord(ctx, capture, testValues);
       const beforeChains = recordGet ? recordChains(parseJson(recordGet.body), testValues) : [];
 
       // Replay the save with the privilege fields added. From here on Account A's record may hold injected values, so a
@@ -390,25 +337,6 @@ export const check: Check = {
     });
   },
 };
-
-/**
- * The record endpoint: a GET the page made after the save whose JSON object holds a test value. A read from the app's
- * API on another local origin has no body in the capture, so those are read again as Account A (at most 10).
- */
-async function findRecord(ctx: CheckContext, capture: Capture, testValues: string[]): Promise<{ url: string; body: string } | null> {
-  const holdsTestValue = (body: string | null | undefined): body is string => Boolean(body && jsonObjectBody(body) && testValues.some((v) => body.includes(v)));
-  const ok = (r: Capture["requests"][number]) => r.method.toUpperCase() === "GET" && typeof r.status === "number" && r.status >= 200 && r.status < 300;
-  for (const r of capture.requests) if (ok(r) && holdsTestValue(r.responseBody)) return { url: r.url, body: r.responseBody };
-  const tried = new Set<string>();
-  for (const r of [...capture.requests]) {
-    if (!ok(r) || r.responseBody || !["fetch", "xhr"].includes(r.resourceType) || tried.has(r.url) || tried.size >= 10) continue;
-    if (isSameOrigin(r.url, ctx.targetUrl) || !isLocalOrigin(r.url, ctx.targetUrl)) continue;
-    tried.add(r.url);
-    const again = await ctx.request("self", { method: "GET", url: r.url }).catch(() => null);
-    if (again && again.status >= 200 && again.status < 300 && holdsTestValue(again.body)) return { url: r.url, body: again.body };
-  }
-  return null;
-}
 
 /**
  * After a failure part-way through, when which injected fields the server kept is unknown: sends the save again with

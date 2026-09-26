@@ -3,8 +3,8 @@
 Fernway is a second test app for Run Hound, built the way AI app builders (Lovable, Bolt, v0) build apps today:
 Vite + React + TypeScript, Tailwind CSS v4, shadcn/ui-style components on Radix primitives, lucide icons, sonner
 toasts, react-hook-form + zod, React Router. It is a small SaaS ("Fernway: project planning for small studios")
-with a marketing page, sign-up and sign-in, an onboarding wizard, and a dashboard, settings and a help page behind a
-real sign-in (two seeded accounts, each with a workspace of its own).
+with a marketing page, sign-up and sign-in, an onboarding wizard, and a dashboard, settings, a help page and an upgrade
+page behind a real sign-in (two seeded accounts, each with a workspace and a plan of its own).
 
 Kennel is one plain form with planted bugs. Fernway answers a different question: **does Run Hound work on the
 kind of app people actually generate?** Custom selects, comboboxes, switches, dialogs, toasts, client-side routing,
@@ -14,8 +14,8 @@ animations, dark mode. So:
   defect in Fernway (fix Fernway) or a Run Hound false positive or limitation (fix Run Hound; never bend Fernway to
   hide it). Triage every one.
 - **Bug mode** (`FERNWAY_BUGS`) plants the bugs AI-built apps typically ship with, one per id, each caught by one
-  Run Hound check: W01-W10 by V0/V1 checks, V01-V05 by the V2 checks run signed in (`docs/v2-spec.md` "Fernway
-  V2"). Tables below.
+  Run Hound check: W01-W10 by V0/V1 checks, V01-V09 by the V2 checks run signed in (`docs/v2-spec.md` "Fernway
+  V2" for V01-V05, "Fernway (0.5.0 planned bugs)" for V06-V09). Tables below.
 
 Anything named here (texts, labels, attribute values, field keys, routes, ids) is load-bearing: tests and Run Hound
 checks rely on it. `docs/v0-spec.md`, `docs/v1-spec.md` and `docs/v2-spec.md` win on any conflict about Run Hound's
@@ -29,12 +29,13 @@ behaviour.
 - Env:
   - `PORT` (default `4110`): app and API.
   - `HOST` (default: all interfaces).
-  - `FERNWAY_BUGS`: `none` (default), `all` (W01-W10 and V01-V05), or a comma list such as `W01,V02`
+  - `FERNWAY_BUGS`: `none` (default), `all` (W01-W10 and V01-V09), or a comma list such as `W01,V02`
     (case-insensitive, whitespace ignored; an unknown id exits with an error naming the known ids).
 - When listening, the process writes a line containing `fernway listening`. Exits cleanly on `SIGTERM`/`SIGINT`.
 - Data lives in memory, seeded on start: two users (see "Accounts"), each with a workspace (Alex's: 6 projects, 8
   team members, 3 tasks, a profile, 4 notification settings; Sam's: 6 projects, 5 members, 3 tasks, a profile, 4
-  settings). `POST /api/__reset` restores the seed and clears the Idempotency-Key cache (`204`); sessions survive it
+  settings; both on the Free plan; no checkouts). `POST /api/__reset` restores the seed and clears the Idempotency-Key
+  cache (`204`); sessions survive it
   (a session of a user signed up after the seed no longer resolves). `GET /api/__config` answers
   `200 { "bugs": [...] }` (sorted ids, `[]` in clean mode).
 - No request ever leaves the app's origin: fonts (Inter via `@fontsource-variable/inter`), icons and images are
@@ -42,7 +43,7 @@ behaviour.
 
 ## Routes (all serve the SPA's `index.html` with `200`, client-side routing with React Router)
 
-`/app`, `/app/settings` and `/app/help` need a session (see "Accounts"); the other four are public.
+`/app`, `/app/settings`, `/app/help` and `/app/upgraded` need a session (see "Accounts"); the other four are public.
 
 | Route | Page | Forms on the page (in DOM on load) | Notable controls outside forms |
 |---|---|---|---|
@@ -53,6 +54,7 @@ behaviour.
 | `/app` (signed in) | Dashboard | Quick add task | Sidebar collapse, command palette (⌘K), notifications, user menu (with Sign out), "New project" (opens a sheet with a form), status tabs, table row actions |
 | `/app/settings` (signed in) | Settings with tabs | Profile (Profile tab on load) | Tabs, notification Switches (auto-save) |
 | `/app/help` (signed in) | Help & shortcuts | none | Keyboard shortcuts list, FAQ, "Contact support" text (the app shell's controls only) |
+| `/app/upgraded` (signed in) | Your upgrade (the test checkout's success page) | none | "Back to billing" (the app shell's controls) |
 
 Any other path: the SPA's `index.html` with **`404`** status and a "Page not found" view. (V05 breaks `/app/help` on
 purpose, and only that route; see "V2 planted bugs".)
@@ -74,7 +76,7 @@ notification settings. Nothing in one workspace names the other account. Account
 - **`GET /api/me`** answers `200 { id, name, email, workspace }` for the session user (`workspace` is the workspace
   name), else `401 { error: "Sign in to continue" }`. Only the signed-in pages ask it (never a public page, so a
   signed-out visit to a public page makes no failing request). V03 never changes it.
-- **Signed-in pages**: `/app`, `/app/settings` and `/app/help` render after `GET /api/me` answers `200` (a short
+- **Signed-in pages**: `/app`, `/app/settings`, `/app/help` and `/app/upgraded` render after `GET /api/me` answers `200` (a short
   "Opening your workspace…" status while it asks). Signed out, the SPA replaces the URL with `/login?next=<path>` (the
   path readable, e.g. `/login?next=/app/settings`; a query or hash in it is escaped, e.g.
   `/login?next=/app/settings%23billing`).
@@ -85,13 +87,15 @@ notification settings. Nothing in one workspace names the other account. Account
 - **Every workspace API** (`/api/projects`, `/api/tasks`, `/api/members`, `/api/users/:id/profile`,
   `/api/notifications`, every method) answers `401 { error: "Sign in to continue" }` without a session and only ever
   returns or changes the session user's own data. Another user's ids answer `404 { error: "Not found" }` (a profile,
-  a project or a task); another workspace's projects and members are not valid choices (`400` on `projectId` /
-  `ownerId`).
+  a project or a task, for reads and writes alike); another workspace's projects and members are not valid choices
+  (`400` on `projectId` / `ownerId`). The billing API (see "Billing") needs a session too.
 - **The profile** is loaded and saved by user id: `GET`/`PUT /api/users/:id/profile`, where the Settings page uses
   the id from `GET /api/me`. The stored record is `{ id, displayName, email, bio, timeZone, avatar, role, plan }`;
   `PUT` takes only `displayName`, `email`, `bio` and `timeZone` (the field allowlist): `role`, `plan`, `avatar`, `id`
   and any other key sent are ignored, while `GET` and `PUT` answer the whole record. The profile's `email` is a
-  contact address: changing it does not change the sign-in email. (`/api/profile` no longer exists: `404`.)
+  contact address: changing it does not change the sign-in email. (`/api/profile` no longer exists: `404`.) `plan`
+  (`"free"` or `"pro"`) is the account's entitlement: both seeded accounts start on `"free"`, and only the billing API
+  changes it (see "Billing"; V04 aside).
 - **Sign-up** (`POST /api/signup`) creates a new user with an empty workspace (named after the company, else
   "<first name>'s workspace"; the user as its only member, role "Owner"; no projects or tasks; a profile from the
   sign-up fields, time zone `UTC`, no photo, `role: "member"`, `plan: "free"`) and signs them in.
@@ -202,8 +206,11 @@ Every page:
   row actions DropdownMenu per row ("Actions for <project>": Open, Duplicate, Archive). Archive asks in an
   AlertDialog, then sends `PATCH /api/projects/:id { archived: true }` and removes the row (for good).
 - **Quick add task form** (card "Quick add"): `Task` (required), `Project` (Radix Select of project names), submit
-  `Add task`. `POST /api/tasks` → `201`, the task appears in the "Today" list under the form (and after reload).
-  The Today list (outside the form) has a checkbox per task that sends `PATCH /api/tasks/:id { done }`.
+  `Add task`. Adding is two requests: `POST /api/tasks { title, projectId }` → `201` creates the task, then
+  `PATCH /api/tasks/<new id> { title, projectId, done }` saves the whole task (the one update call every task change
+  uses, so the app itself shows the update request for the new record); the task appears in the "Today" list under
+  the form (and after reload). The Today list (outside the form) has a checkbox per task that sends
+  `PATCH /api/tasks/:id { title, projectId, done }` with the new `done`.
 - "New project" button opens a Radix Dialog rendered as a right-side sheet with the **New project form**: `Project
   name` (required), `Description` (textarea), `Status` (Select: Active, Paused, Done), `Priority` (RadioGroup: Low,
   Medium, High), `Owner` (Combobox: Popover + cmdk list of the 8 members, filterable), `Due date` (date input),
@@ -220,8 +227,13 @@ Every page:
   shown values come from `GET /api/users/<me.id>/profile` (survive a reload); `<me.id>` is `GET /api/me`'s `id`.
 - Notifications tab: 4 Switches loaded from `GET /api/notifications`, each saving on toggle
   (`PATCH /api/notifications`) with a toast.
-- Billing tab: current plan card, "Change plan" (link to `/#pricing`), "Cancel subscription" (opens a Radix
-  AlertDialog; destructive, so Run Hound must not click it by default).
+- Billing tab (mounted, hidden until chosen, like every panel): first the **account's plan** card (`plan` from
+  `GET /api/users/<me.id>/profile`): on Free, "Free plan" with an **"Upgrade to Pro"** button (starts the local test
+  checkout, see "Billing"; its name is on Run Hound's never-click list) and a link **"Already paid? Refresh your
+  plan"** to `/app/upgraded` (in the page on load, so Run Hound's `paywall-trust` finds the success route); on Pro,
+  "Pro plan" with **"Switch back to Free"** (`POST /api/billing/cancel`). Then the workspace's Studio plan card
+  (client-side, as before): "Change plan" (link to `/#pricing`), "Cancel subscription" (opens a Radix AlertDialog;
+  destructive, so Run Hound must not click it by default).
 
 ### `/app/help` Help & shortcuts
 
@@ -234,13 +246,24 @@ Every page:
   - **Contact support**: plain text naming `support@fernway.test` and the signed-in workspace; no `mailto:` link.
 - No form and no text field. The page asks the server only `GET /api/me` (plus `/api/__config`); no workspace API.
 
+### `/app/upgraded` Your upgrade
+
+- The success page of the local test checkout: the app shell, the workspace name over the `<h1>` "Your upgrade"
+  (`<title>` "Fernway: Upgrade"). No form.
+- On load it sends `POST /api/billing/confirm { checkout }` once, with the `?checkout=` id (`null` without one), and
+  shows the answer in a card: "Pro is active" when `confirmed`, else "No payment to confirm" and the current plan
+  (`role="status"`), plus a "Back to billing" link to `/app/settings#billing`. The answer is `200` either way, so a
+  visit by hand makes no failing request.
+- The page itself grants nothing: the server decides (see "Billing"). V09 breaks that on the server.
+
 ## API
 
 JSON in and out; unknown keys ignored; malformed JSON → `400 { errors: { body: "..." } }`; validation errors →
 `400 { errors: { <field>: <message> } }`; any other `/api/*` → `404 { error: "Not found" }`; a server failure →
 `500 { error: "Something went wrong" }` with no stack traces, paths or `node:internal` in any body. The name
 `Crash` in any name field (after trim) makes that create request fail with `500` (a deterministic error path for
-tests). "Workspace" below means the session user's own workspace: without a session those endpoints answer
+tests); so does renaming a task to `Crash`. A write from another site answers `403`, and a task write that isn't JSON
+`415` (see "Cross-site requests"). "Workspace" below means the session user's own workspace: without a session those endpoints answer
 `401 { error: "Sign in to continue" }`, and another user's ids answer `404` (see "Accounts").
 
 | Method and path | Body keys | Success |
@@ -259,9 +282,13 @@ tests). "Workspace" below means the session user's own workspace: without a sess
 | `PATCH /api/projects/:id` (workspace) | `archived` (boolean, required) | `200` the project; other keys ignored |
 | `GET /api/members` (workspace) | | `200` list |
 | `GET /api/tasks`, `POST /api/tasks` (workspace) | `title`, `projectId` | `200` list / `201` |
-| `PATCH /api/tasks/:id` (workspace) | `done` (boolean, required) | `200` the task |
+| `PATCH /api/tasks/:id` (workspace) | `title`, `projectId`, `done` (boolean): any of them, at least one (none → `400` on `done`); the project must be one of the task's own workspace | `200` the task |
 | `GET /api/users/:id/profile`, `PUT /api/users/:id/profile` (workspace, own id only) | `displayName`, `email`, `bio`, `timeZone` (nothing else is taken) | `200` the record `{ id, displayName, email, bio, timeZone, avatar, role, plan }` |
 | `GET /api/notifications`, `PATCH /api/notifications` (workspace) | `{ <key>: boolean }` for `productUpdates`, `weeklyDigest`, `mentions`, `taskReminders` | `200` all 4 settings |
+| `POST /api/billing/checkout` (session) | `plan` (`"pro"`) | `201 { id, plan, amount, currency, status }` (see "Billing") |
+| `POST /api/billing/checkout/:id/pay` (session, own checkout) | | `200` the checkout, `status: "paid"` |
+| `POST /api/billing/confirm` (session) | `checkout` (an id or `null`) | `200 { confirmed, plan }` |
+| `POST /api/billing/cancel` (session) | | `200 { plan: "free" }` |
 
 Save requests that repeat an `Idempotency-Key` with the same body, from the same session, answer the first response
 again (no second record; the replay carries `Idempotent-Replayed: true`), also while the first is still running. The
@@ -271,6 +298,46 @@ visitor, another session of the same user, or the same cookie after it was signe
 new session cookie). Requests without any session cookie share one anonymous slot. Server failures (5xx) are not
 cached. `POST /api/login`, `/api/login/demo` and `/api/logout` are never replayed.
 
+## Billing (the plan and the local test checkout)
+
+The account's plan is `plan` on its profile record: `"free"` (both seeded accounts, and every sign-up) or `"pro"`. It
+is kept on the server only; no page or client value decides it. Upgrading needs no payment provider: Fernway fakes
+one locally, so nothing leaves the app and nothing is charged. Code: `server/routes/billing.mjs`,
+`src/pages/app/settings/ProPlanCard.tsx`, `src/pages/Upgraded.tsx`.
+
+1. **"Upgrade to Pro"** → `POST /api/billing/checkout { plan: "pro" }` → `201 { id: "chk_<uuid>", plan, amount: 1200,
+   currency: "usd", status: "open" }`. The server sets the price: an `amount`, `price` or `currency` in the body is
+   ignored; another plan answers `400`.
+2. A "Test checkout" dialog shows "Fernway Pro, monthly $12.00" and **"Pay $12.00"** →
+   `POST /api/billing/checkout/:id/pay` → `200` (status `"paid"`). This endpoint stands in for the payment provider: it
+   is the only thing that records a payment. Another user's checkout id answers `404`.
+3. The SPA opens `/app/upgraded?checkout=<id>`, which sends `POST /api/billing/confirm { checkout }` →
+   `200 { confirmed, plan }`. The plan is granted only for a checkout of the session user that the server recorded as
+   paid, and only once (the checkout becomes `"fulfilled"`; confirming it again answers `confirmed: true` and grants
+   nothing new, also after a switch back to Free). No checkout, an unknown or unpaid one, or another user's paid one
+   answer `{ confirmed: false, plan }` and change nothing.
+4. **"Switch back to Free"** → `POST /api/billing/cancel` → `200 { plan: "free" }`, straight away.
+
+Every billing endpoint needs a signed-in session (`401` without one; V03 does not apply to them).
+
+## Cross-site requests (clean mode)
+
+A page on another site can't make a signed-in browser change anything:
+
+- The session cookie is `SameSite=Lax`, so a browser leaves it out of another site's POST.
+- **Origin check**: every write (`POST`/`PUT`/`PATCH`/`DELETE` to an existing `/api/*` route) whose `Origin` header
+  names another origin than the `Host` it was sent to (`Origin: null` included), or, without an `Origin`, whose
+  `Sec-Fetch-Site` is `cross-site`, answers `403 { error: "This request came from another site, so Fernway refused
+  it." }` before the route runs. A request without either header (curl, a server, Run Hound's own API replays) is
+  not a browser's cross-site request and is let through (the session rules still apply). Reads are never checked.
+  An unknown route still answers `404`.
+- **The task writes take JSON only**: `POST /api/tasks` and `PATCH /api/tasks/:id` with a non-empty body whose
+  `Content-Type` isn't `application/json` answer `415 { errors: { body } }`, so the no-preflight bodies a cross-site
+  page can send (form-encoded, `text/plain`) are refused even from the app's own origin. (Every other endpoint still
+  parses its body as JSON whatever the `Content-Type`, as before.)
+
+V08 removes the last two for the task writes and sends the cookie cross-site (see "V2 planted bugs").
+
 ## Response headers, cookies and source maps (clean mode)
 
 - Every response: `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
@@ -279,7 +346,7 @@ cached. `POST /api/login`, `/api/login/demo` and `/api/logout` are never replaye
 - The first page load sets `fernway_session=<uuid>; Path=/; HttpOnly; SameSite=Lax` (a visitor's session: signed
   out). Signing in or up sets a new one with the same flags (plus `Max-Age=2592000` with Remember me);
   `POST /api/logout` answers `fernway_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`. W09 drops `HttpOnly`
-  from all of them.
+  from all of them; V08 turns `SameSite=Lax` into `SameSite=None; Secure` in all of them (on a loopback host).
 - No CORS headers on the API. Source maps are built hidden and `*.map` answers `404`.
 
 ## Planted bugs (`FERNWAY_BUGS`)
@@ -303,9 +370,11 @@ a confirmed finding on its page (pages under `/app` run signed in as Alex).
 
 Bug ids never change clean-mode behaviour of anything else.
 
-## V2 planted bugs (`FERNWAY_BUGS`, docs/v2-spec.md "Fernway V2")
+## V2 planted bugs (`FERNWAY_BUGS`, docs/v2-spec.md "Fernway V2" and "Fernway (0.5.0 planned bugs)")
 
-Caught by the V2 checks with Run Hound signed in as Alex (account A) and Sam as account B (`isolated: true`).
+Caught by the V2 checks with Run Hound signed in as Alex (account A) and Sam as account B (`isolated: true`): V01-V05
+by the 0.4.0 checks, V06-V09 by the 0.5.0 write-side checks (`write-access`, `csrf`, `paywall-trust`), which write
+only to the test record they create and re-read it as Alex.
 
 | Id | Bug | Caught by (page) |
 |---|---|---|
@@ -314,6 +383,10 @@ Caught by the V2 checks with Run Hound signed in as Alex (account A) and Sam as 
 | V03 | The workspace APIs answer without a session (only the SPA redirects) | `access-control:signed-out` (`/app`, `/app/settings`) |
 | V04 | `PUT /api/users/:id/profile` stores any key it is sent, including `role` and `plan` | `mass-assignment` (`/app/settings`) |
 | V05 | Opening `/app/help` directly answers `404` (no SPA fallback for that path) | `deep-links` (`/app`) |
+| V06 | `PATCH /api/tasks/:id` updates another user's task | `write-access:other-account` (`/app`) |
+| V07 | Writes to `/api/tasks/:id` work without a session | `write-access:signed-out` (`/app`) |
+| V08 | Session cookie set `SameSite=None; Secure` (Chromium accepts Secure on `http://localhost` and `http://127.0.0.1`), and the task save accepts a form-encoded body with no CSRF token or Origin check | `csrf` (`/app`) |
+| V09 | `/app/upgraded` sets `plan: "pro"` on load (a fake local checkout, no provider) | `paywall-trust` (`/app/settings`) |
 
 Details (each changes only what it names):
 
@@ -331,8 +404,29 @@ Details (each changes only what it names):
   directly with `FERNWAY_BUGS=all`), and in-app navigation (the sidebar's "Help" link, the palette's "Go to Help")
   still renders the page. `/app` links to it from the sidebar, which is where `deep-links` finds it.
 
-Clean mode fixes each properly (ownership checks, session checks, a field allowlist, the SPA fallback), so the clean
-runs exercise the same flows.
+- **V06**: `PATCH /api/tasks/:id` from any signed-in user finds the task in whichever workspace holds it and updates it
+  (the project is checked against that task's own workspace, so the whole task the client sends is accepted). Reads
+  stay scoped (Sam's `GET /api/tasks` never lists Alex's task), and without a session the write is still `401`.
+- **V07**: `PATCH /api/tasks/:id` without a signed-in session (no cookie, or a visitor's) updates any user's task by id.
+  A signed-in user still only writes their own (`404` for another's), and every other endpoint, reads and
+  `POST /api/tasks` included, still needs a session.
+- **V08**: the session cookie (the visitor's, the sign-in's and the sign-out's) is `SameSite=None; Secure` when the
+  request's `Host` is a loopback name (`localhost`, `*.localhost`, `127.x.x.x`, `[::1]`); on any other host name it
+  stays `SameSite=Lax`, since a browser drops a `Secure` cookie sent over plain http there, which would break sign-in.
+  The task writes (`POST /api/tasks`, `PATCH /api/tasks/:id`) skip the Origin check and take a form-encoded body
+  (`title=…&projectId=…`; `true`/`false` become booleans) or JSON sent as `text/plain`. So a plain HTML form on
+  another site, in Alex's browser, creates a task in Alex's workspace (Run Hound's `csrf` check forges the Quick add
+  save that way; `GET /api/tasks` as Alex then holds the forged title). Every other write keeps the Origin check.
+- **V09**: `POST /api/billing/confirm` grants `"pro"` to whoever calls it, with no checkout and no payment: the server
+  trusts the success page, so opening `/app/upgraded` (linked from the Billing tab) as Alex makes Alex Pro. The
+  profile's `plan` shows it (`GET /api/users/<id>/profile`, the entitlement Run Hound re-reads). "Switch back to Free"
+  (`POST /api/billing/cancel`) or `POST /api/__reset` undoes it; the profile `PUT` still never takes `plan` (V04's
+  business). With `FERNWAY_BUGS=all`, any check that opens `/app/upgraded` (deep-links follows the Billing tab's link)
+  moves Alex to Pro.
+
+Clean mode fixes each properly (ownership checks, session checks, a field allowlist, the SPA fallback, ownership and
+session checks on writes, the Origin check with JSON-only task writes and the `SameSite=Lax` cookie, and a plan granted
+only for a payment the server recorded), so the clean runs exercise the same flows.
 
 ## Images
 

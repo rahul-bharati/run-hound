@@ -3,8 +3,12 @@
 /** The V1 bugs (W01-W10): each caught by an existing Run Hound check. */
 export const V1_BUGS = Object.freeze(["W01", "W02", "W03", "W04", "W05", "W06", "W07", "W08", "W09", "W10"]);
 
-/** The V2 bugs (V01-V05, docs/v2-spec.md "Fernway V2"): caught signed in, by access-control, mass-assignment, deep-links. */
-export const V2_BUGS = Object.freeze(["V01", "V02", "V03", "V04", "V05"]);
+/**
+ * The V2 bugs, caught signed in: V01-V05 (0.4.0, docs/v2-spec.md "Fernway V2") by access-control, mass-assignment and
+ * deep-links; V06-V09 (0.5.0, "Fernway (0.5.0 planned bugs)") by the write-side checks write-access, csrf and
+ * paywall-trust.
+ */
+export const V2_BUGS = Object.freeze(["V01", "V02", "V03", "V04", "V05", "V06", "V07", "V08", "V09"]);
 
 /** Every bug id FERNWAY_BUGS knows, in order. */
 export const ALL_BUGS = Object.freeze([...V1_BUGS, ...V2_BUGS]);

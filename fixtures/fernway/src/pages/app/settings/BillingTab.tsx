@@ -20,6 +20,7 @@ import { toast } from "@/components/ui/sonner";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useSessionUser } from "@/lib/session";
 import { cn, formatDate } from "@/lib/utils";
+import { ProPlanCard } from "./ProPlanCard";
 
 const SEAT_PRICE = 29;
 const SEATS = 8;
@@ -46,7 +47,8 @@ const INVOICES = [
 const money = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 
 /**
- * The Billing tab: the current plan with usage, "Change plan" (a link to /#pricing) and "Cancel subscription", which
+ * The Billing tab: the account's own plan first (ProPlanCard: Free or Pro, kept on the server, with the local test
+ * checkout), then the workspace's Studio plan with usage, "Change plan" (a link to /#pricing) and "Cancel subscription", which
  * asks in a Radix AlertDialog first (destructive: Run Hound never clicks it by default). Fernway keeps billing on
  * the client: cancelling only schedules the end of the plan, and "Resume subscription" undoes it.
  */
@@ -73,10 +75,11 @@ export function BillingTab() {
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
       <div className="grid min-w-0 grid-cols-1 gap-6">
+        <ProPlanCard />
         <Card className="relative overflow-hidden">
           <div aria-hidden="true" className="pointer-events-none absolute -top-24 -right-16 size-64 rounded-full bg-linear-to-br from-primary/25 via-brand-via/20 to-brand-to/20 blur-3xl" />
           <CardHeader>
-            <CardDescription>Current plan</CardDescription>
+            <CardDescription>Workspace plan</CardDescription>
             <CardTitle as="h2" className="flex flex-wrap items-center gap-2 text-2xl">
               <Sparkles aria-hidden="true" className="size-5 text-primary" />
               Studio plan

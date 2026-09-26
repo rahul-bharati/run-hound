@@ -5,7 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
-import { apiGet, apiPatch, apiPost, isApiError, type Member, type Project, type Task } from "@/lib/api";
+import { apiGet, apiPatch, apiPost, isApiError, taskPath, taskUpdate, type Member, type Project, type Task } from "@/lib/api";
 import { useSessionUser } from "@/lib/session";
 import { todayIso, useDocumentTitle } from "@/lib/utils";
 import { LIMITS } from "./app/constants";
@@ -113,7 +113,7 @@ export default function Dashboard() {
     const set = (value: boolean) => setData((d) => ({ ...d, tasks: d.tasks.map((t) => (t.id === task.id ? { ...t, done: value } : t)) }));
     set(done);
     try {
-      await apiPatch(`/api/tasks/${encodeURIComponent(task.id)}`, { done });
+      await apiPatch(taskPath(task.id), taskUpdate({ ...task, done }));
     } catch (err) {
       set(!done);
       toast.error("Task not updated", { description: errorMessage(err) });

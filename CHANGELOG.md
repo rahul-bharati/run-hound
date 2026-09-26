@@ -2,6 +2,25 @@
 
 All notable changes to Run Hound. Versions follow [Semantic Versioning](https://semver.org/); while the version is 0.x, any release may change behaviour.
 
+## 0.5.0 (V2 preview: write-side checks)
+
+The second slice of V2. Three new checks use the two test accounts to test **writes**, not reads: can another account or a signed-out visitor change account A's data, can a page on another site make A's browser change it (CSRF), and can A get a paid plan without paying. They change account A's data on purpose, so they are unticked by default and follow one safety contract: they write only the test record Run Hound created as A in the same scenario, decide from a re-read as A (never a status code), and put back what they changed, naming anything they couldn't. Contract: [docs/v2-spec.md](docs/v2-spec.md#050-write-side-checks); how to try it: [TESTING.md](TESTING.md#the-write-side-checks-050).
+
+### Added
+
+- **`write-access`** (Security, signed in, unticked): as account B (`write-access:other-account`, when B is set up and isolated) and with no session (`write-access:signed-out`), sends the update requests the app itself used for A's test record (PUT/PATCH/POST to its id; a DELETE only when the app showed one, and last) with one field changed, and re-reads the record as A after each. A change or a deletion is a critical finding. The runner signs account B in for its other-account scenario, as for `access-control`.
+- **`csrf`** (Security, signed in, unticked): serves a blank page on another *site* from a local server (`127.0.0.1` for a `localhost` target, and the other way round), opens it in account A's own browser and sends the form's save from there with a new value, as a form post or a `text/plain` body (no preflight, nothing added). The browser attaches cookies by their SameSite rules, so the check never goes through `CheckContext.request`. A forged value that A's re-read shows is a high finding. On any other host name the scenario is **inconclusive** (skipped with the reason), never a pass or a finding; a cookie inside Chromium's 2-minute Lax-by-default window is recorded and not counted.
+- **`paywall-trust`** (Security, signed in, unticked): with A on a free plan, opens the app's own upgrade success pages and replays the app's own upgrade request with a zero price or a paid plan, then re-reads A's plan. A paid plan without paying is a critical finding. It never enters payment details or loads or calls a payment provider, and puts A's plan back.
+- `app/src/checks/lib/record-state.ts`: the shared helpers the write-side checks and `mass-assignment` use to find, snapshot, re-read and restore the run's own test record (`findOwnRecord`, `snapshotRecord`, `rereadRecord`, `restoreRecord`); `mass-assignment`'s record lookup moved there unchanged.
+- **Fernway V06-V09**: `PATCH /api/tasks/:id` updates another user's task (V06) or works without a session (V07); the session cookie is `SameSite=None; Secure` on `localhost`/`127.0.0.1` and the task save takes a form-encoded body with no Origin check (V08); `/app/upgraded` grants Pro on load (V09). Clean mode checks ownership and the session on task writes, refuses writes from another origin, accepts only JSON on the task writes, and grants Pro only for a paid local test checkout (`/api/billing/checkout`, `/pay`, `/confirm`, `/cancel`; no provider). The Billing tab shows the account's Free/Pro plan, and `/app/upgraded` is a new signed-in page.
+- **Acceptance**: each of V06-V09 alone is caught only by its named scenario, and Alex's and Sam's records and plan read the same through Fernway's API afterwards; on clean Fernway the three checks, all ticked, give no confirmed finding and leave both accounts' data as it was; `csrf` against Fernway on a non-loopback address reports inconclusive with V08 on; the secret grep of the signed-in run folders now also covers every session value the engine registered during the runs (the session cookies) and CSRF tokens, besides both passwords. Kennel's golden files and the samples are unchanged: the new checks plan nothing signed out.
+
+### Changed
+
+- The report's "Checks with nothing to test on this page" leaves the write-side checks out of a signed-out run (they need a test account, like `access-control` and `mass-assignment`) and out of reports written before 0.5.0.
+- Settings → Test accounts explains the write checks, and "A and B must not see each other's data" now also gates `write-access:other-account`.
+- The run order puts the 0.5.0 checks after the 0.4.0 ones in the Security group (`CHECK_IDS` order).
+
 ## 0.4.1 (pull and run; fixes from the 0.4.0 review)
 
 Run Hound now starts with one `docker pull` and one `docker run`, and 0.4.1 fixes what a review of 0.4.0 found, most of it in signed-in runs.

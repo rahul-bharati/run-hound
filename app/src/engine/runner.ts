@@ -612,7 +612,7 @@ function noOtherAccountNote(signing: Signing | null): string {
   if (!signing.config.isolated) {
     return `Skipped: the test accounts are not marked as unable to see each other's data (Settings → Test accounts), so ${label} was not used.`;
   }
-  return `Skipped: ${label} isn't set up (Settings → Test accounts), so no other account could try to read ${accountLabel(signing.account)}'s data.`;
+  return `Skipped: ${label} isn't set up (Settings → Test accounts), so no other account could try to read or change ${accountLabel(signing.account)}'s data.`;
 }
 
 /** Notes of every scenario a stopped run did not finish (RunOptions.signal). */
@@ -690,11 +690,11 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
 }
 
 /**
- * True for a scenario that needs the other account signed in (docs/v2-spec.md "access-control"): the access-control
- * check's other-account scenario, on any form.
+ * True for a scenario that needs the other account signed in (docs/v2-spec.md "access-control" and "write-access"):
+ * the other-account scenario of access-control or write-access, on any form.
  */
 export function needsOtherAccount(scenario: Scenario): boolean {
-  return scenario.checkId === "access-control" && /(?:^|:)other-account(?:@form-\d+)?(?:#\d+)?$/.test(scenario.id);
+  return (scenario.checkId === "access-control" || scenario.checkId === "write-access") && /(?:^|:)other-account(?:@form-\d+)?(?:#\d+)?$/.test(scenario.id);
 }
 
 /**
