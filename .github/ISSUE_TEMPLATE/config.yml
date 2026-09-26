@@ -2,4 +2,4 @@ blank_issues_enabled: true
 contact_links:
   - name: Getting-started guide
     url: https://github.com/rahul-bharati/run-hound/blob/main/TESTING.md
-    about: How to run Run Hound 0.4.0 (the V2 preview), test your own app, try signed-in runs and read the report.
+    about: How to run Run Hound 0.4.1 (the V2 preview), test your own app, try signed-in runs and read the report.

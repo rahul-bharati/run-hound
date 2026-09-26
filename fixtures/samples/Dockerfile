@@ -1,9 +1,9 @@
 # The five well-built sample apps (classic-post, spa-fetch, login, cross-origin-api, multi-form; see
 # fixtures/samples/README.md) in one small image. Each compose service picks one with its command. They use only
 # node: built-ins, so there is no install step.
-# Published as ghcr.io/rahul-bharati/run-hound-samples:0.4.0. Build it yourself from the repository root:
+# Published as ghcr.io/rahul-bharati/run-hound-samples:0.4.1. Build it yourself from the repository root:
 #   docker build -f fixtures/samples/Dockerfile -t localhost/run-hound-samples:dev .
-#   docker run --rm --init -p 127.0.0.1:4102:4102 -e PORT=4102 ghcr.io/rahul-bharati/run-hound-samples:0.4.0 \
+#   docker run --rm --init -p 127.0.0.1:4102:4102 -e PORT=4102 ghcr.io/rahul-bharati/run-hound-samples:0.4.1 \
 #     node spa-fetch/server.mjs
 # The samples are local test targets only: do not expose them to the internet.
 # Pinned to an exact Node release, like app/Dockerfile, so a rebuild of a tag gets the same base.

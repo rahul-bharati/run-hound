@@ -12,8 +12,8 @@ body:
     id: version
     attributes:
       label: Run Hound version
-      description: "`docker run --rm ghcr.io/rahul-bharati/run-hound:0.4.0 --version`, `pnpm exec tsx src/cli.ts --version` in `app/` from source, or `runHoundVersion` in report.json."
-      placeholder: run-hound 0.4.0
+      description: "`docker run --rm ghcr.io/rahul-bharati/run-hound:0.4.1 --version`, `pnpm exec tsx src/cli.ts --version` in `app/` from source, or `runHoundVersion` in report.json."
+      placeholder: run-hound 0.4.1
     validations:
       required: true
   - type: input
