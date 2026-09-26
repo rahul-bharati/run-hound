@@ -23,7 +23,7 @@ describe("compose files", () => {
     expect(release).not.toMatch(/^\s+build:/m);
     const images = [...release.matchAll(/image: (\S+)/g)].map((m) => m[1]);
     expect(images.length).toBeGreaterThan(0);
-    for (const image of images) expect(image).toMatch(new RegExp(`^ghcr\\.io/rahul-bharati/run-hound(-kennel|-samples)?:${version.replace(/\./g, "\\.")}$`));
+    for (const image of images) expect(image).toMatch(new RegExp(`^ghcr\\.io/rahul-bharati/run-hound(-kennel|-samples|-fernway)?:${version.replace(/\./g, "\\.")}$`));
   });
 });
 

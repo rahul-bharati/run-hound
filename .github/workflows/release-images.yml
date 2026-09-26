@@ -1,10 +1,15 @@
-# Builds and publishes the Docker images when a version tag is pushed (git tag v0.3.0 && git push origin v0.3.0):
-#   ghcr.io/rahul-bharati/run-hound          Run Hound (web UI + CLI, Chromium included)
+# Builds and publishes the Docker images when a version tag is pushed (git tag v0.4.0 && git push origin v0.4.0):
+#   ghcr.io/rahul-bharati/run-hound          Run Hound (web UI + CLI, Chromium's headless shell included)
 #   ghcr.io/rahul-bharati/run-hound-kennel   Kennel, the deliberately broken demo app
 #   ghcr.io/rahul-bharati/run-hound-samples  the well-built sample apps (false-positive suite)
 #   ghcr.io/rahul-bharati/run-hound-fernway  Fernway, a Lovable-style SaaS test app (clean, or with planted bugs)
-# Tags: 0.3.0, 0.3 and latest (latest only for a pushed release tag, not a pre-release such as v0.4.0-rc.1 or a
+# Tags: 0.4.0, 0.4 and latest (latest only for a pushed release tag, not a pre-release such as v0.5.0-rc.1 or a
 # manual run), for linux/amd64 and linux/arm64.
+#
+# Order: check-version (the tag matches app/package.json, both compose files and the Dockerfile comments), then the
+# whole CI workflow (every test suite, the image build and smoke test, the site build), and only then the images are
+# built for both platforms and pushed. After the push, each image's arm64 variant is pulled and started under QEMU as
+# a sanity check.
 #
 # GHCR needs no setup: the workflow's GITHUB_TOKEN pushes. New GHCR packages are private: after the first release,
 # open each package (github.com/rahul-bharati?tab=packages) → Package settings → Change visibility → Public.
@@ -20,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish, e.g. 0.3.0 (must match app/package.json)"
+        description: "Version to publish, e.g. 0.4.0 (must match app/package.json and the compose files)"
         required: true
 
 permissions:
@@ -38,21 +43,71 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
-      - name: The tag matches app/package.json
+      - name: The tag matches app/package.json, the compose files and the Dockerfile comments
         id: version
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           tag="${INPUT_VERSION:-${GITHUB_REF_NAME#v}}"
-          pkg=$(node -p "require('./app/package.json').version")
+          pkg=$(jq -r .version app/package.json)
+          fail=0
           if [ "$tag" != "$pkg" ]; then
-            echo "::error::Version $tag does not match app/package.json ($pkg)"
-            exit 1
+            echo "::error file=app/package.json::Version $tag does not match app/package.json ($pkg)"
+            fail=1
           fi
+
+          # Every image in both compose files is pinned to exactly this version (users fetch run-hound.compose.yml
+          # from main, so it must never point at another release), and run-hound.compose.yml has all four images.
+          for file in run-hound.compose.yml docker-compose.yml; do
+            images=$(sed -nE 's/^[[:space:]]*image:[[:space:]]*([^[:space:]#]+).*/\1/p' "$file")
+            if [ -z "$images" ]; then
+              echo "::error file=$file::No image: lines found"
+              fail=1
+            fi
+            for image in $images; do
+              case "$image" in
+                "ghcr.io/rahul-bharati/run-hound:$tag" | "ghcr.io/rahul-bharati/run-hound-kennel:$tag" | \
+                "ghcr.io/rahul-bharati/run-hound-samples:$tag" | "ghcr.io/rahul-bharati/run-hound-fernway:$tag") ;;
+                *)
+                  echo "::error file=$file::$image is not pinned to this release (ghcr.io/rahul-bharati/run-hound[-kennel|-samples|-fernway]:$tag)"
+                  fail=1
+                  ;;
+              esac
+            done
+          done
+          for name in run-hound run-hound-kennel run-hound-samples run-hound-fernway; do
+            if ! grep -qE "^[[:space:]]*image: ghcr\.io/rahul-bharati/$name:" run-hound.compose.yml; then
+              echo "::error file=run-hound.compose.yml::The $name image is missing"
+              fail=1
+            fi
+          done
+
+          # Version numbers in the comments ("Run Hound 0.4.0", "ghcr.io/rahul-bharati/run-hound-kennel:0.4.0", ...)
+          # of the Dockerfiles, the compose files and .env.example must not contradict it either.
+          for file in app/Dockerfile fixtures/*/Dockerfile docker-compose.yml run-hound.compose.yml .env.example; do
+            while IFS=: read -r line ref; do
+              [ -n "$ref" ] || continue
+              version=$(printf '%s' "$ref" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.-]*$')
+              version=${version%.}
+              if [ "$version" != "$tag" ]; then
+                echo "::error file=$file,line=$line::\"$ref\" contradicts the release version $tag"
+                fail=1
+              fi
+            done < <(grep -noE '(run-hound(-[a-z]+)?:|Run Hound \(?)v?[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.-]*' "$file" || true)
+          done
+
+          if [ "$fail" != 0 ]; then exit 1; fi
           echo "version=$pkg" >> "$GITHUB_OUTPUT"
 
-  image:
+  # Every suite, the image smoke tests and the site build (ci.yml). Nothing is pushed unless all of it passes.
+  ci:
     needs: check-version
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  image:
+    needs: [check-version, ci]
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -67,14 +122,20 @@ jobs:
             file: fixtures/kennel/Dockerfile
             title: Run Hound Kennel
             description: Kennel, a deliberately broken booking app for trying Run Hound.
+            port: "3000"
+            path: /book
           - name: run-hound-samples
             file: fixtures/samples/Dockerfile
             title: Run Hound sample apps
             description: Well-built sample apps Run Hound should report no confirmed findings on.
+            port: "4102"
+            path: /
           - name: run-hound-fernway
             file: fixtures/fernway/Dockerfile
             title: Run Hound Fernway
             description: Fernway, a Lovable-style SaaS test app with optional planted bugs.
+            port: "4110"
+            path: /
     env:
       HAS_DOCKERHUB: ${{ vars.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
     steps:
@@ -98,9 +159,14 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Image names and tags
+      # Labels go on each platform's image config; annotations also go on the multi-arch index, which is where GHCR
+      # reads the package description from. Both include org.opencontainers.image.source (links the package to this
+      # repository), .version and .revision (the tagged commit), which metadata-action fills in itself.
+      - name: Image names, tags, labels and annotations
         id: meta
         uses: docker/metadata-action@v6
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
         with:
           images: |
             ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}
@@ -113,7 +179,12 @@ jobs:
             org.opencontainers.image.title=${{ matrix.title }}
             org.opencontainers.image.description=${{ matrix.description }}
             org.opencontainers.image.licenses=MIT
+          annotations: |
+            org.opencontainers.image.title=${{ matrix.title }}
+            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.licenses=MIT
 
+      # The amd64 half mostly comes from CI's cache (scope ci-<image>), built from this same commit minutes earlier.
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
@@ -123,5 +194,50 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.name }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          cache-from: |
+            type=gha,scope=${{ matrix.name }}
+            type=gha,scope=ci-${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      # CI runs only amd64, so the arm64 images would otherwise never be started anywhere. Pull the pushed arm64 variant
+      # and start it under QEMU: run-hound prints --version (Node, tsx and esbuild's arm64 binary all have to work),
+      # the apps must answer on their port. Cost: about a minute for run-hound (a ~260 MB pull plus Node starting under
+      # emulation), well under a minute for the others. It doesn't launch Chromium; that stays a manual check on arm64.
+      - name: arm64 sanity check (under QEMU)
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}:${{ needs.check-version.outputs.version }}
+          NAME: ${{ matrix.name }}
+          VERSION: ${{ needs.check-version.outputs.version }}
+          APP_PORT: ${{ matrix.port }}
+          APP_PATH: ${{ matrix.path }}
+        run: |
+          docker pull --platform linux/arm64 "$IMAGE"
+          arch=$(docker run --rm --platform linux/arm64 --entrypoint uname "$IMAGE" -m)
+          echo "uname -m: $arch"
+          if [ "$arch" != aarch64 ]; then
+            echo "::error::$IMAGE for linux/arm64 reports $arch"
+            exit 1
+          fi
+          if [ "$NAME" = run-hound ]; then
+            out=$(docker run --rm --platform linux/arm64 "$IMAGE" --version)
+            echo "$out"
+            if [ "$out" != "run-hound $VERSION" ]; then
+              echo "::error::arm64 run-hound --version printed \"$out\", expected \"run-hound $VERSION\""
+              exit 1
+            fi
+            exit 0
+          fi
+          docker run --detach --name arm64-check --platform linux/arm64 -e PORT="$APP_PORT" \
+            -p "127.0.0.1:18080:$APP_PORT" "$IMAGE"
+          ok=no
+          for _ in $(seq 1 60); do
+            if curl -fsS -o /dev/null "http://127.0.0.1:18080$APP_PATH"; then ok=yes; break; fi
+            sleep 2
+          done
+          docker logs arm64-check
+          docker rm -f arm64-check
+          if [ "$ok" != yes ]; then
+            echo "::error::$IMAGE for linux/arm64 didn't answer on port $APP_PORT within 2 minutes"
+            exit 1
+          fi
