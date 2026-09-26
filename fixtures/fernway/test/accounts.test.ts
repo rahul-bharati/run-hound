@@ -313,6 +313,7 @@ describe("signed-in pages (clean mode)", () => {
     ["/app", "/login?next=/app"],
     ["/app/settings", "/login?next=/app/settings"],
     ["/app/settings#billing", "/login?next=/app/settings%23billing"],
+    ["/app/help", "/login?next=/app/help"],
   ])("signed out, %s sends you to %s; signing in there brings you back", async (path, login) => {
     const { page, events, close } = await openPage(ref.fw, path, { reducedMotion: "reduce" });
     try {
@@ -515,10 +516,10 @@ describe("V04: PUT /api/users/:id/profile stores any key (mass assignment)", () 
   });
 });
 
-describe("V05: /app/settings and /onboarding answer 404 when opened directly", () => {
+describe("V05: /app/help answers 404 when opened directly", () => {
   const ref = useFernway("V05");
 
-  it.each(["/app/settings", "/onboarding", "/app/settings/", "/onboarding/"])("GET %s answers a bare 404 Not Found page (not the SPA)", async (path) => {
+  it.each(["/app/help", "/app/help/"])("GET %s answers a bare 404 Not Found page (not the SPA)", async (path) => {
     const res = await fetch(`${ref.fw.url}${path}`);
     expect(res.status).toBe(404);
     expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
@@ -529,27 +530,41 @@ describe("V05: /app/settings and /onboarding answer 404 when opened directly", (
     expect(html).not.toContain('<div id="root"></div>');
   });
 
-  it("every other route still serves the SPA", async () => {
-    for (const route of ["/", "/signup", "/login", "/app"]) expect((await fetch(`${ref.fw.url}${route}`)).status, route).toBe(200);
+  it("every other route still serves the SPA, /app/settings and /onboarding included", async () => {
+    for (const route of ["/", "/signup", "/login", "/onboarding", "/onboarding/", "/app", "/app/settings", "/app/settings/"]) {
+      const res = await fetch(`${ref.fw.url}${route}`);
+      expect(res.status, route).toBe(200);
+      expect(await res.text(), route).toContain('<div id="root"></div>');
+    }
   });
 
-  it("in-app navigation still renders them: the sidebar's Settings link and the footer's Set up a workspace link", async () => {
+  it("/app/settings and /onboarding load when opened directly (signed in for /app/settings)", async () => {
+    for (const [route, heading, as] of [
+      ["/app/settings", "Settings", "alex"],
+      ["/onboarding", "Set up your workspace", undefined],
+    ] as const) {
+      const { page, events, close } = await openPage(ref.fw, route, as ? { as } : {});
+      try {
+        await page.getByRole("heading", { level: 1, name: heading }).waitFor();
+        expect(events.badResponses, route).toEqual([]);
+      } finally {
+        await close();
+      }
+    }
+  });
+
+  it("in-app navigation still renders /app/help (the sidebar's Help link); a reload answers the bare 404", async () => {
     const { page, events, close } = await openPage(ref.fw, "/app", { as: "alex" });
     try {
       await page.getByRole("heading", { level: 1, name: "Dashboard" }).waitFor();
-      await page.getByRole("navigation", { name: "App" }).first().getByRole("link", { name: "Settings" }).click();
-      await page.waitForURL(`${ref.fw.url}/app/settings`);
-      await page.getByRole("heading", { level: 1, name: "Settings" }).waitFor();
+      await page.getByRole("navigation", { name: "App" }).first().getByRole("link", { name: "Help" }).click();
+      await page.waitForURL(`${ref.fw.url}/app/help`);
+      await page.getByRole("heading", { level: 1, name: "Help & shortcuts" }).waitFor();
       expect(events.badResponses).toEqual([]);
       // A reload (opening it directly) breaks.
       const reload = await page.reload();
       expect(reload?.status()).toBe(404);
       expect(await page.locator("h1").textContent()).toBe("Not Found");
-
-      await page.goto(`${ref.fw.url}/`, { waitUntil: "networkidle" });
-      await page.getByRole("contentinfo").getByRole("link", { name: "Set up a workspace" }).click();
-      await page.waitForURL(`${ref.fw.url}/onboarding`);
-      await page.getByRole("heading", { level: 1, name: "Set up your workspace" }).waitFor();
     } finally {
       await close();
     }
@@ -566,7 +581,7 @@ describe("V01-V05 off: clean mode answers every V2 probe correctly", () => {
     await api(ref.fw, profileUrl("alex"), { method: "PUT", body: { ...validProfile(), ...PRIVILEGE_FIELDS }, as: "alex" });
     expect((await api(ref.fw, profileUrl("alex"), { as: "alex" })).body).toMatchObject({ role: "member", plan: "free" });
     expect((await api(ref.fw, profileUrl("alex"), { as: "alex" })).body).not.toHaveProperty("isAdmin");
-    for (const route of ["/app/settings", "/onboarding"]) expect((await fetch(`${ref.fw.url}${route}`)).status, route).toBe(200);
+    for (const route of ["/app/settings", "/onboarding", "/app/help"]) expect((await fetch(`${ref.fw.url}${route}`)).status, route).toBe(200);
   });
 
   it("W09 also drops HttpOnly from the sign-in cookie and the sign-out cookie", async () => {

@@ -265,7 +265,7 @@ Targets to enter in the UI (inside the compose network, apps are reached by serv
 |---|---|---|
 | `http://kennel:3000/book` | Kennel with the bugs in `KENNEL_BUGS` (default: every V0 and V1 bug) | <http://localhost:3000/book> |
 | `http://kennel-clean:3000/book` | Kennel in clean mode: every check should pass | <http://localhost:3100/book> |
-| `http://fernway:4110/` | Fernway, a Lovable-style SaaS app, clean: any confirmed finding is a false positive. Also `/signup`, `/login`, `/onboarding`, and signed in `/app` and `/app/settings` | <http://localhost:4110/> |
+| `http://fernway:4110/` | Fernway, a Lovable-style SaaS app, clean: any confirmed finding is a false positive. Also `/signup`, `/login`, `/onboarding`, and signed in `/app`, `/app/settings` and `/app/help` | <http://localhost:4110/> |
 | `http://fernway-bugs:4110/` | Fernway with the bugs in `FERNWAY_BUGS` (default: all, W01-W10 and the access bugs V01-V05) | <http://localhost:4111/> |
 | `http://classic-post:4101/signup` | Sample: server-rendered sign-up form, no JavaScript | <http://localhost:4101/signup> |
 | `http://spa-fetch:4102/` | Sample: vanilla-JS contact form, same-origin JSON API | <http://localhost:4102/> |

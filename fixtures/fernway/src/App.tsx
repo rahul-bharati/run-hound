@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/lib/theme";
 import Dashboard from "@/pages/Dashboard";
+import Help from "@/pages/Help";
 import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
 import NotFound from "@/pages/NotFound";
@@ -13,10 +14,10 @@ import Settings from "@/pages/Settings";
 import Signup from "@/pages/Signup";
 
 /**
- * The client-side routes (CONTRACT.md "Routes"); the server answers each with index.html and 200. /app and
- * /app/settings need a session: <RequireSession> sends signed-out visitors to /login?next=<path>.
+ * The client-side routes (CONTRACT.md "Routes"); the server answers each with index.html and 200. /app, /app/settings
+ * and /app/help need a session: <RequireSession> sends signed-out visitors to /login?next=<path>.
  */
-export const ROUTES = ["/", "/signup", "/login", "/onboarding", "/app", "/app/settings"] as const;
+export const ROUTES = ["/", "/signup", "/login", "/onboarding", "/app", "/app/settings", "/app/help"] as const;
 
 /** Scrolls to the top on a new page, or to the element named by the hash (in-page anchors like /#pricing). */
 function RouteEffects() {
@@ -68,6 +69,7 @@ export function App() {
             <Route element={<RequireSession />}>
               <Route path="/app" element={<Dashboard />} />
               <Route path="/app/settings" element={<Settings />} />
+              <Route path="/app/help" element={<Help />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

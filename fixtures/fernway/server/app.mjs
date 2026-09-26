@@ -18,8 +18,8 @@ import { createSeed } from "./seed.mjs";
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SECRETS = join(ROOT, "server", "secrets");
 
-/** The six client-side routes: each serves index.html with 200 (a trailing slash is accepted too). */
-export const SPA_ROUTES = Object.freeze(["/", "/signup", "/login", "/onboarding", "/app", "/app/settings"]);
+/** The seven client-side routes: each serves index.html with 200 (a trailing slash is accepted too). */
+export const SPA_ROUTES = Object.freeze(["/", "/signup", "/login", "/onboarding", "/app", "/app/settings", "/app/help"]);
 
 /** Route modules, each exporting register(router, ctx). */
 export const ROUTE_MODULES = Object.freeze([marketing, auth, onboarding, workspace]);
@@ -74,8 +74,11 @@ const SECRET_SCRIPTS = Object.freeze([{ bug: "W06", path: "/config/billing.js", 
 const FAKE_STRIPE_SECRET = ["sk", "live", "FAKEfernwayDemoOnly0000000000FAKE"].join("_");
 const FAKE_SECRET_PLACEHOLDER = "__FERNWAY_FAKE_STRIPE_SECRET__";
 
-/** V05: the routes a direct GET answers 404 for (no SPA fallback), while in-app navigation still renders them. */
-export const V05_ROUTES = Object.freeze(["/app/settings", "/onboarding"]);
+/**
+ * V05: the routes a direct GET answers 404 for (no SPA fallback), while in-app navigation still renders them. Only the
+ * help page, so every page that carries another bug (/app/settings: W04, V01, V04) still loads with FERNWAY_BUGS=all.
+ */
+export const V05_ROUTES = Object.freeze(["/app/help"]);
 
 /** V05's answer: a static host's bare "Not Found" page (not the SPA). */
 export const NOT_FOUND_HTML =
@@ -364,7 +367,7 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
   }
 
   /**
-   * index.html with the given status (200 for the six routes, 404 otherwise); sets the session cookie on a
+   * index.html with the given status (200 for the seven routes, 404 otherwise); sets the session cookie on a
    * visitor's first page load (a visitor's session: it signs nobody in).
    * @param {import("node:http").IncomingMessage} req
    * @param {import("node:http").ServerResponse} res
@@ -392,7 +395,7 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
       const body = (await readFile(join(SECRETS, secret.file), "utf8")).replace(FAKE_SECRET_PLACEHOLDER, FAKE_STRIPE_SECRET);
       return send(res, 200, body, { "content-type": TYPES[".js"] });
     }
-    // V05: like a static host without a fallback to index.html, a direct GET of these routes answers a bare 404.
+    // V05: like a static host without a fallback to index.html, a direct GET of /app/help answers a bare 404.
     if (on("V05") && V05_ROUTES.includes(trimSlash(pathname))) return send(res, 404, NOT_FOUND_HTML, { "content-type": TYPES[".html"] });
     if (isSpaRoute(pathname)) return sendPage(req, res, 200);
 

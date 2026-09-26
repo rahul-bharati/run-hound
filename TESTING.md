@@ -125,7 +125,7 @@ This starts Run Hound and every test app, each on its own port bound to `127.0.0
 | `run-hound` | | <http://localhost:4000> | The web UI |
 | `kennel` | `http://kennel:3000/book` | <http://localhost:3000/book> | Kennel with the bugs in `KENNEL_BUGS` (default: all V0 and V1 bugs) |
 | `kennel-clean` | `http://kennel-clean:3000/book` | <http://localhost:3100/book> | Kennel in clean mode: every check should pass |
-| `fernway` | `http://fernway:4110/` | <http://localhost:4110/> | Fernway, a Lovable-style SaaS app, clean. Pages `/`, `/signup`, `/login`, `/onboarding`, and signed in `/app` and `/app/settings` |
+| `fernway` | `http://fernway:4110/` | <http://localhost:4110/> | Fernway, a Lovable-style SaaS app, clean. Pages `/`, `/signup`, `/login`, `/onboarding`, and signed in `/app`, `/app/settings` and `/app/help` |
 | `fernway-bugs` | `http://fernway-bugs:4110/` | <http://localhost:4111/> | Fernway with the bugs in `FERNWAY_BUGS` (default: all, W01-W10 and V01-V05) |
 | `classic-post` | `http://classic-post:4101/signup` | <http://localhost:4101/signup> | Server-rendered sign-up form, no JavaScript |
 | `spa-fetch` | `http://spa-fetch:4102/` | <http://localhost:4102/> | Contact form saving with `fetch` |
@@ -317,12 +317,11 @@ Fernway is the test lab's SaaS app. It runs twice: `fernway` (clean) and `fernwa
 3. **Account B**: the same sign-in page, `sam@fernway.test` and Sam's password. **Save**, **Test sign-in**.
 4. Leave **A and B must not see each other's data** ticked: Alex and Sam are different users with separate workspaces.
 5. **New Run**: enter `http://fernway-bugs:4110/app`, set **Sign in as** to Account A, and press **Plan checks**. The plan says "Signed in as Account A". Under Security you find `access-control` (two scenarios: another account, and a signed-out visitor) and `mass-assignment` (one per form, unticked); under Features, `deep-links`. Start the run.
-6. In the report, expect confirmed findings for Fernway's access bugs on that page: account B can read Alex's tasks (V02), the workspace API answers without a session (V03), and `/app/settings` and `/onboarding` answer 404 when opened directly (V05, from `deep-links`). The page also has some of Fernway's other planted bugs ([the full list](fixtures/fernway/README.md#planted-bugs)).
-7. Try `http://fernway-bugs:4110/app/settings` next: Run Hound refuses to plan it, because with every bug on, that page answers 404 when opened directly. That is V05, the bug `deep-links` just reported. To test the settings page's own bugs, turn V05 off: set `FERNWAY_BUGS=V01,V02,V03,V04` in `.env` (next to the compose file) and run `docker compose -f run-hound.compose.yml up -d fernway-bugs`. The saved accounts still work.
-8. Plan `http://fernway-bugs:4110/app/settings` as Account A, tick `mass-assignment` (it is unticked by default) and run it. Expect account B reading Alex's profile (V01), the API answering without a session (V03), and the server storing the `role` and `plan` fields the form never sends (V04). Read the `mass-assignment` notes: they say which values Run Hound put back.
-9. Now the clean app: change both accounts' sign-in page to `http://fernway:4110/login`. **Enter the passwords again**: a saved password is only sent to the site it was saved for. Plan and run `http://fernway:4110/app` and `http://fernway:4110/app/settings` as Account A with every scenario ticked. **Clean Fernway should give zero confirmed findings**; any confirmed finding there is a false positive worth reporting.
+6. In the report, expect confirmed findings for Fernway's access bugs on that page: account B can read Alex's tasks (V02), the workspace API answers without a session (V03), and the help page the sidebar links to, `/app/help`, answers 404 when opened directly (V05, from `deep-links`; clicking **Help** in the sidebar still opens it). The page also has some of Fernway's other planted bugs ([the full list](fixtures/fernway/README.md#planted-bugs)).
+7. Plan `http://fernway-bugs:4110/app/settings` as Account A next, tick `mass-assignment` (it is unticked by default) and run it. Expect account B reading Alex's profile (V01), the API answering without a session (V03), and the server storing the `role` and `plan` fields the form never sends (V04); `deep-links` reports `/app/help` again, because the sidebar is on every signed-in page. Read the `mass-assignment` notes: they say which values Run Hound put back.
+8. Now the clean app: change both accounts' sign-in page to `http://fernway:4110/login`. **Enter the passwords again**: a saved password is only sent to the site it was saved for. Plan and run `http://fernway:4110/app` and `http://fernway:4110/app/settings` as Account A with every scenario ticked. **Clean Fernway should give zero confirmed findings**; any confirmed finding there is a false positive worth reporting.
 
-Fernway keeps its data in memory: `docker compose -f run-hound.compose.yml restart fernway-bugs` puts the seed data back (the same for `fernway`), for example after a `mass-assignment` run that couldn't restore everything. Set `FERNWAY_BUGS=all` again (and run `up -d fernway-bugs`) to get every bug back.
+Fernway keeps its data in memory: `docker compose -f run-hound.compose.yml restart fernway-bugs` puts the seed data back (the same for `fernway`), for example after a `mass-assignment` run that couldn't restore everything.
 
 The same from the command line, in the folder with `run-hound.compose.yml` (each `accounts set` asks for the password and doesn't show it):
 
@@ -333,7 +332,7 @@ docker compose -f run-hound.compose.yml run --rm run-hound accounts test      # 
 docker compose -f run-hound.compose.yml run --rm run-hound run http://fernway-bugs:4110/app --as a --approve all
 ```
 
-`--approve all` includes `mass-assignment`. From source, run Fernway with `FERNWAY_BUGS=all PORT=4111 pnpm --filter fernway start` (after `pnpm --filter fernway build`; `FERNWAY_BUGS=V01,V02,V03,V04` for the settings page), and use `pnpm exec tsx src/cli.ts accounts …` in `app/` with the sign-in page `http://localhost:4111/login`. The web UI and the command line share the saved accounts.
+`--approve all` includes `mass-assignment`. To pipe the password in instead of typing it (from a script or a password manager), add `-T` after `run` (`printf '%s\n' "$PASSWORD" | docker compose -f run-hound.compose.yml run --rm -T run-hound accounts set a --password-stdin`): without it, podman-compose gives the container a terminal, and that terminal prints the piped password. From source, run Fernway with `FERNWAY_BUGS=all PORT=4111 pnpm --filter fernway start` (after `pnpm --filter fernway build`), and use `pnpm exec tsx src/cli.ts accounts …` in `app/` with the sign-in page `http://localhost:4111/login`. The web UI and the command line share the saved accounts.
 
 ### On your own app
 

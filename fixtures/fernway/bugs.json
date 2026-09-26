@@ -15,6 +15,6 @@
     { "id": "V02", "version": "V2", "category": "security", "severity": "critical", "title": "GET /api/tasks returns every user's tasks", "detectedBy": "access-control", "scenario": "access-control:other-account", "page": "/app" },
     { "id": "V03", "version": "V2", "category": "security", "severity": "critical", "title": "The workspace APIs answer without a session (only the SPA redirects)", "detectedBy": "access-control", "scenario": "access-control:signed-out", "page": "/app", "alsoOn": ["/app/settings"] },
     { "id": "V04", "version": "V2", "category": "security", "severity": "critical", "title": "PUT /api/users/:id/profile stores any key it is sent, including role and plan (mass assignment)", "detectedBy": "mass-assignment", "page": "/app/settings" },
-    { "id": "V05", "version": "V2", "category": "broken-feature", "severity": "high", "title": "Opening /app/settings or /onboarding directly answers 404 (no SPA fallback for those paths)", "detectedBy": "deep-links", "page": "/app" }
+    { "id": "V05", "version": "V2", "category": "broken-feature", "severity": "high", "title": "Opening /app/help directly answers 404 (no SPA fallback for that path; the sidebar links to it)", "detectedBy": "deep-links", "page": "/app" }
   ]
 }

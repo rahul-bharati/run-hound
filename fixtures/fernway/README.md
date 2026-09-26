@@ -3,8 +3,8 @@
 Fernway ("project planning for small studios") is a small, fictional SaaS app that Run Hound is tested against. It is
 built the way AI app builders such as Lovable, Bolt and v0 build apps today: Vite, React 19, TypeScript, Tailwind CSS
 v4, shadcn/ui-style components on Radix primitives, lucide icons, sonner toasts, react-hook-form with zod, and React
-Router. It has a marketing page, sign-up and sign-in, an onboarding wizard, and a dashboard and settings behind a real
-sign-in (two accounts, each with a workspace of its own), in light and dark mode.
+Router. It has a marketing page, sign-up and sign-in, an onboarding wizard, and a dashboard, settings and a help page
+behind a real sign-in (two accounts, each with a workspace of its own), in light and dark mode.
 
 ## Why it exists
 
@@ -34,14 +34,16 @@ names in it are load-bearing: Fernway's tests and Run Hound's acceptance suite r
 | `/onboarding` | 3-step wizard | Workspace (step 1) | Back / Continue, slug availability check | `http://localhost:4110/onboarding` / `http://fernway:4110/onboarding` |
 | `/app` (signed in) | Dashboard | Quick add task | "New project" sheet with a form, command palette (Ctrl+K), sidebar, status tabs, row menus, Sign out | `http://localhost:4110/app` / `http://fernway:4110/app` |
 | `/app/settings` (signed in) | Settings | Profile | Notifications tab (auto-saving Switches), Billing tab | `http://localhost:4110/app/settings` / `http://fernway:4110/app/settings` |
+| `/app/help` (signed in) | Help & shortcuts | none | Keyboard shortcuts, a short FAQ, how to contact support; linked from the sidebar | `http://localhost:4110/app/help` / `http://fernway:4110/app/help` |
 
 Any other path answers `404` with a "Page not found" view. Data lives in memory and is seeded on start;
 `POST /api/__reset` restores the seed (sessions survive it).
 
 ## Accounts
 
-`/app` and `/app/settings` need a session: signed out, they send you to `/login?next=<path>`. Every workspace API
-answers `401` without a session and only shows the signed-in user's own workspace (`404` for anyone else's ids).
+`/app`, `/app/settings` and `/app/help` need a session: signed out, they send you to `/login?next=<path>`. Every
+workspace API answers `401` without a session and only shows the signed-in user's own workspace (`404` for anyone
+else's ids).
 
 | Account | Email | Password | Workspace |
 |---|---|---|---|
@@ -124,12 +126,12 @@ The V2 bugs, caught with Run Hound signed in as Alex (A) with Sam as B:
 | V02 | `/app` | `GET /api/tasks` returns every user's tasks | `access-control:other-account` |
 | V03 | `/app`, `/app/settings` | The workspace APIs answer without a session (only the SPA redirects) | `access-control:signed-out` |
 | V04 | `/app/settings` | `PUT /api/users/:id/profile` stores any key it is sent, including `role` and `plan` | `mass-assignment` |
-| V05 | `/app` | Opening `/app/settings` or `/onboarding` directly answers `404` (no SPA fallback for those paths) | `deep-links` |
+| V05 | `/app` | Opening `/app/help` (linked from the sidebar) directly answers `404` (no SPA fallback for that path) | `deep-links` |
 
-A bug id never changes the clean-mode behaviour of anything else. Bugs can get in each other's way, though: with
-`all`, V05 makes a direct load of `/app/settings` and `/onboarding` answer `404`, so Run Hound refuses to plan those
-pages. Test them with V05 off, for example `FERNWAY_BUGS=V01,V02,V03,V04` for V01 and V04 on `/app/settings`
-(add `W04` for its Bio bug); the acceptance suite turns on one bug at a time.
+A bug id never changes the clean-mode behaviour of anything else. V05 breaks only `/app/help`, a page with no form, so
+with `all` every other page still loads directly: plan `/app/settings` signed in as Alex to see W04, V01, V03 and V04
+there, and `/app` for W03, W05, V02, V03 and V05 (the sidebar's Help link). The acceptance suite turns on one bug at a
+time.
 
 ## Tests
 
@@ -139,9 +141,9 @@ pnpm --filter fernway typecheck
 ```
 
 `FERNWAY_SKIP_BUILD=1` reuses an existing `dist/`. The acceptance suite runs Run Hound itself against Fernway: every
-route in clean mode (zero confirmed findings, every form discovered; `/app` and `/app/settings` signed in as Alex with
-Sam as the other account, every scenario approved including mass assignment), each bug on its page, and a check that
-no run folder holds either password.
+route in clean mode (zero confirmed findings, every form discovered; `/app`, `/app/settings` and `/app/help` signed in
+as Alex with Sam as the other account, every scenario approved including mass assignment), each bug on its page, and a
+check that no run folder holds either password.
 
 ```sh
 cd tests/acceptance

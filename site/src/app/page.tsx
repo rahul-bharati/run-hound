@@ -8,6 +8,7 @@ import { Evidence } from "@/components/home/evidence";
 import { Groups } from "@/components/home/groups";
 import { Hero } from "@/components/home/hero";
 import { SeeItRun } from "@/components/home/see-it-run";
+import { AiBuiltTour, SignedInTour } from "@/components/home/v2-tours";
 import { ArrowIcon, GitHubIcon } from "@/components/button-link";
 import { CommandCopy } from "@/components/command-copy";
 import { GetStarted } from "@/components/get-started";
@@ -189,6 +190,7 @@ export default function Home() {
             </li>
           ))}
         </ul>
+        <SignedInTour />
         <div className="grid gap-8 rounded-2xl border border-line bg-bg-deep p-6 sm:p-8 lg:grid-cols-[1.4fr_1fr] lg:gap-12">
           <div className="flex flex-col gap-4">
             <p className="flex items-center gap-2 font-mono text-xs tracking-widest text-dim">
@@ -241,6 +243,7 @@ export default function Home() {
             </li>
           ))}
         </ul>
+        <AiBuiltTour />
         <p className="max-w-3xl text-[15px] leading-relaxed text-muted">
           Limits: a multi-step form is tested on its first step only, and a form that opens some other way (from a menu,
           for example) isn&apos;t found.{" "}

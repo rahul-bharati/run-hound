@@ -2,7 +2,7 @@
  * Run Hound against Fernway (fixtures/fernway/CONTRACT.md): an app built the way Lovable, Bolt and v0 build them
  * (Vite, React, Tailwind CSS v4, shadcn/ui-style components on Radix, react-hook-form + zod, sonner, React Router).
  *
- * Clean mode is well built on purpose, so for each of the six routes, with every scenario approved
+ * Clean mode is well built on purpose, so for each of the seven routes, with every scenario approved
  * (allowDestructive false):
  *   - no scenario errored
  *   - ZERO confirmed findings (any is a Run Hound false positive or a real Fernway defect: triage it)
@@ -11,10 +11,11 @@
  *     including the Radix widgets (Select, Checkbox, RadioGroup) that stand in for native controls
  *   - discovery found the forms behind a trigger (DiscoveredForm.opener, 0.4.0): "Book a demo" and "New project"
  *
- * The public routes (/, /signup, /login, /onboarding) run signed out, exactly as in 0.3.0. /app and /app/settings need a
- * session (V2, docs/v2-spec.md "Fernway V2"): they run signed in as Alex (test account A, RunOptions.signInAs "a") with
- * Sam as account B (isolated), every scenario approved including mass-assignment, and both access-control scenarios
- * (other-account, signed-out) must pass.
+ * The public routes (/, /signup, /login, /onboarding) run signed out, exactly as in 0.3.0. /app, /app/settings and
+ * /app/help need a session (V2, docs/v2-spec.md "Fernway V2"): they run signed in as Alex (test account A,
+ * RunOptions.signInAs "a") with Sam as account B (isolated), every scenario approved including mass-assignment (planned
+ * where a form saves: not on /app/help, which has no form), and both access-control scenarios (other-account,
+ * signed-out) must pass.
  *
  * Then each planted bug alone (FERNWAY_BUGS=<id>, fixtures/fernway/bugs.json): only the scenarios of the bug's
  * `detectedBy` check run on its page ("*" = every page, tested on /; V03 also on its `alsoOn` page), signed in on /app
@@ -92,6 +93,8 @@ const ROUTES: RouteSpec[] = [
     ],
   },
   { route: "/app/settings", forms: [{ name: /profile/i, fields: ["Display name", "Email", "Bio", "Time zone"] }] },
+  // No form: page-wide checks only. V05 makes a direct load of it answer 404 (caught by deep-links on /app).
+  { route: "/app/help", forms: [] },
 ];
 
 /** The two access-control scenarios (docs/v2-spec.md "access-control"). */
@@ -251,7 +254,7 @@ describe.concurrent("Run Hound against Fernway in clean mode", () => {
       const approved = plan.scenarios.map((s) => s.id);
       if (signedIn) {
         expect.soft(approved.filter((id) => (ACCESS_SCENARIOS as readonly string[]).includes(id)).sort(), "both access-control scenarios planned").toEqual([...ACCESS_SCENARIOS].sort());
-        expect.soft(plan.scenarios.some((s) => s.checkId === "mass-assignment"), "mass-assignment planned (a form that saves)").toBe(true);
+        expect.soft(plan.scenarios.some((s) => s.checkId === "mass-assignment"), "mass-assignment planned (a form that saves)").toBe(spec.forms.length > 0);
       }
       const report = await runRoute(`clean ${spec.route}`, plan, approved, accounts, `clean${spec.route.replace(/\//g, "_")}`, logs);
       console.log(describeRun(`clean ${spec.route}`, plan, report));

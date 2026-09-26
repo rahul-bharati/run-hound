@@ -2,7 +2,7 @@
  * The server contract built by the scaffold (CONTRACT.md "Process", "Routes", "API", "Response headers, cookies and
  * source maps", W06/W08/W09): bug parsing, static files and the SPA fallback, security headers, the session cookie,
  * source maps, the API pipeline (404s, malformed JSON, body limit, the "Crash" rule, Idempotency-Key replay) and a
- * browser smoke test of the six routes.
+ * browser smoke test of the seven routes.
  */
 import { spawn } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
@@ -156,7 +156,7 @@ describe("clean mode: pages, static files and headers", () => {
   });
 
   it("accepts a trailing slash on the routes", async () => {
-    for (const route of ["/app/", "/app/settings/", "/signup/"]) {
+    for (const route of ["/app/", "/app/settings/", "/app/help/", "/signup/"]) {
       expect((await fetch(`${ref.fw.url}${route}`)).status).toBe(200);
     }
   });
@@ -711,7 +711,7 @@ describe("seed data", () => {
   });
 });
 
-// ---- the six routes in a browser ---------------------------------------------------------------
+// ---- the seven routes in a browser -------------------------------------------------------------
 
 describe("the routes render in a browser (clean mode)", () => {
   const ref = useFernway("none");

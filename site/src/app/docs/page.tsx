@@ -7,7 +7,7 @@ import { DocSection } from "@/components/docs/doc-section";
 import { DocsToc } from "@/components/docs/toc";
 import { SeverityLabel, type Severity } from "@/components/finding";
 import { Container, NewTag, PageHeader } from "@/components/layout";
-import { aiScreens } from "@/components/screens";
+import { aiBuiltScreens, aiScreens, v2Screens, type Screen } from "@/components/screens";
 import { Screenshot } from "@/components/screenshot";
 import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
@@ -78,11 +78,11 @@ const testApps: { name: string; body: string }[] = [
   { name: "Kennel (clean)", body: "The same app in clean mode: every check should pass. Target: http://kennel-clean:3000/book." },
   {
     name: "Fernway",
-    body: "A project-planning app built the way AI builders build them (Vite, React, Tailwind, Radix, sonner), in clean mode. Target: http://fernway:4110/, and /signup, /login, /onboarding, /app, /app/settings.",
+    body: "A project-planning app built the way AI builders build them (Vite, React, Tailwind, Radix, sonner), in clean mode. Target: http://fernway:4110/, and /signup, /login, /onboarding, /app, /app/settings, /app/help.",
   },
   {
     name: "Fernway (bugs)",
-    body: "The same app with its planted bugs on (FERNWAY_BUGS in .env). /app and /app/settings need a signed-in run. Target: http://fernway-bugs:4110/.",
+    body: "The same app with its planted bugs on (FERNWAY_BUGS in .env). /app, /app/settings and /app/help need a signed-in run. Target: http://fernway-bugs:4110/.",
   },
   { name: "classic-post", body: "A server-rendered sign-up form with no JavaScript that posts and redirects. Target: http://classic-post:4101/signup." },
   { name: "spa-fetch", body: "A contact form that saves with fetch and lists what it saved. Target: http://spa-fetch:4102/." },
@@ -123,11 +123,43 @@ pnpm exec tsx src/cli.ts run http://localhost:5310/book --ai --ai-provider ollam
 const docShotSizes =
   "(min-width: 1280px) 768px, (min-width: 1024px) calc(100vw - 428px), (min-width: 640px) calc(100vw - 48px), calc(100vw - 32px)";
 
-const aiFigures = [
+type Figure = { screen: Screen; caption: string };
+
+const aiFigures: Figure[] = [
   { screen: aiScreens.settings, caption: "Settings → AI with Ollama on the same machine: the model picked from the server's list and a successful Test connection." },
   { screen: aiScreens.suggested, caption: "Two Suggested by AI flows in a plan: unticked, each with the model's reason and the steps it will take, ending in a check." },
   { screen: aiScreens.explanation, caption: "A finding after the run: the built-in “What to ask your AI”, then the model's AI explanation, labelled advisory." },
 ];
+
+// Fernway's two accounts in the web UI, and a signed-in run on its settings page with its planted bugs on.
+const accountFigures: Figure[] = [
+  { screen: v2Screens.accounts, caption: "Settings → Test accounts with Fernway's two accounts, both saved and tested. A saved password is never shown again: the field only says it is saved." },
+  { screen: v2Screens.signedInPlan, caption: "New Run with Sign in as → Account A: the plan says who it was made as, and the run signs in as the same account." },
+];
+
+const accessFigures: Figure[] = [
+  { screen: v2Screens.accessControl, caption: "An access-control finding: Account B read Account A's profile (GET /api/users/alex-rivera/profile answered 200), with the answer that proves it. Account A's values are masked." },
+  { screen: v2Screens.massAssignment, caption: "A mass-assignment finding: the record read back after the replay holds role, isAdmin, plan and six more fields the form never sends." },
+];
+
+const aiBuiltFigures: Figure[] = [
+  { screen: aiBuiltScreens.plan, caption: "Fernway's landing page planned: the waitlist, the newsletter form and the Book a demo form, which appears only in its dialog; 40 scenarios, each tagged with its form." },
+  { screen: aiBuiltScreens.dialog, caption: "Mid-run, the golden path of the Book a demo form: Run Hound opened the dialog and filled it, the Radix Company size select and the consent checkbox included." },
+];
+
+/** Screenshots in the docs column, each with its caption below. */
+function Figures({ items }: { items: Figure[] }) {
+  return (
+    <div className="flex flex-col gap-8">
+      {items.map((f) => (
+        <figure key={f.caption} className="flex flex-col gap-3">
+          <Screenshot screen={f.screen} sizes={docShotSizes} />
+          <figcaption className="text-sm leading-relaxed text-muted">{f.caption}</figcaption>
+        </figure>
+      ))}
+    </div>
+  );
+}
 
 const aiDocker = `# .env: Ollama on your machine, seen from the container
 RUNHOUND_AI=1
@@ -647,6 +679,9 @@ export default function DocsPage() {
                     Signed out, a plan with a form shows a hint that plans the page again signed in.
                   </li>
                 </ol>
+              </div>
+              <Figures items={accountFigures} />
+              <div className="prose-night">
                 <h3>From the command line</h3>
                 <p>
                   <code>--password-stdin</code> reads the password from what you type or pipe in, never from a flag, so
@@ -707,6 +742,9 @@ export default function DocsPage() {
                     invitation.
                   </li>
                 </ul>
+              </div>
+              <Figures items={accessFigures} />
+              <div className="prose-night">
                 <h3>Secrets stay out of what it writes</h3>
                 <ul>
                   <li>
@@ -735,12 +773,10 @@ export default function DocsPage() {
                   <code>http://fernway-bugs:4110/login</code> (their emails and passwords are in{" "}
                   <a href={site.fernwayGuide}>Fernway&apos;s README</a>), then plan{" "}
                   <code>http://fernway-bugs:4110/app</code> signed in as Account A, with every scenario ticked. The
-                  planted access bugs show up as access-control and deep-links findings. With every bug on,{" "}
-                  <code>/app/settings</code> answers 404 when opened directly (the bug deep-links reports), so Run Hound
-                  can&apos;t plan it: to see mass-assignment catch Fernway&apos;s bug there, set{" "}
-                  <code>FERNWAY_BUGS=V01,V02,V03,V04</code> in <code>.env</code>, run{" "}
-                  <code>docker compose -f run-hound.compose.yml up -d fernway-bugs</code> and plan{" "}
-                  <code>http://fernway-bugs:4110/app/settings</code>. On clean Fernway, <code>http://fernway:4110</code>{" "}
+                  planted access bugs show up as access-control and deep-links findings: deep-links reports{" "}
+                  <code>/app/help</code>, the help page in the sidebar, which answers 404 when opened directly. Then
+                  plan <code>http://fernway-bugs:4110/app/settings</code> the same way to see mass-assignment catch
+                  Fernway&apos;s bug there. On clean Fernway, <code>http://fernway:4110</code>{" "}
                   with its own sign-in page (enter the passwords again: they only go to the site they were saved for),
                   the same runs should give no confirmed findings. The{" "}
                   <a href={`${site.testingGuide}#try-it-on-fernway-first`}>getting-started guide</a> walks through it.
@@ -783,6 +819,9 @@ export default function DocsPage() {
                     are never used as selectors.
                   </li>
                 </ul>
+              </div>
+              <Figures items={aiBuiltFigures} />
+              <div className="prose-night">
                 <h3>What it doesn&apos;t cover yet</h3>
                 <ul>
                   <li>
@@ -862,14 +901,7 @@ export default function DocsPage() {
                   </li>
                 </ol>
               </div>
-              <div className="flex flex-col gap-8">
-                {aiFigures.map((f) => (
-                  <figure key={f.caption} className="flex flex-col gap-3">
-                    <Screenshot screen={f.screen} sizes={docShotSizes} />
-                    <figcaption className="text-sm leading-relaxed text-muted">{f.caption}</figcaption>
-                  </figure>
-                ))}
-              </div>
+              <Figures items={aiFigures} />
               <div className="prose-night">
                 <h3>Command line</h3>
                 <p>

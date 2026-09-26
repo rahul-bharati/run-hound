@@ -91,9 +91,10 @@ Tailwind CSS, shadcn/ui-style components on Radix, react-hook-form with zod, son
 whether Run Hound works on the kind of app people actually generate: custom selects, switches and radio cards, forms in
 dialogs and sheets, toasts, client-side routing and dark mode.
 
-Pages: `/`, `/signup`, `/login`, `/onboarding`, and, behind a real sign-in, `/app` and `/app/settings`. Two accounts
-(`alex@fernway.test` and `sam@fernway.test`, passwords in the [README](../fixtures/fernway/README.md#accounts)) each
-have a workspace of their own. Clean mode is well built on purpose; any confirmed finding on it must be triaged.
+Pages: `/`, `/signup`, `/login`, `/onboarding`, and, behind a real sign-in, `/app`, `/app/settings` and `/app/help`.
+Two accounts (`alex@fernway.test` and `sam@fernway.test`, passwords in the
+[README](../fixtures/fernway/README.md#accounts)) each have a workspace of their own. Clean mode is well built on
+purpose; any confirmed finding on it must be triaged.
 
 ### W01-W10: V1-style bugs on a modern UI
 
@@ -120,7 +121,7 @@ Caught with Run Hound signed in as Alex (account A), with Sam as account B.
 | V02 | `/app` | The task list returns every user's tasks | `access-control` (other account) |
 | V03 | `/app`, `/app/settings` | The workspace APIs answer without a session; only the page redirects | `access-control` (signed out) |
 | V04 | `/app/settings` | Saving the profile stores any field it is sent, including `role` and `plan` | `mass-assignment` |
-| V05 | `/app` | `/app/settings` and `/onboarding` answer 404 when opened directly | `deep-links` |
+| V05 | `/app` | `/app/help` (linked from the sidebar) answers 404 when opened directly | `deep-links` |
 
 `FERNWAY_BUGS=all` turns on W01-W10 and V01-V05. The full tables, with what each bug changes, are in
 [CONTRACT.md](../fixtures/fernway/CONTRACT.md); the ground truth is [bugs.json](../fixtures/fernway/bugs.json).

@@ -6,10 +6,10 @@
 # Tags: 0.4.0, 0.4 and latest (latest only for a pushed release tag, not a pre-release such as v0.5.0-rc.1 or a
 # manual run), for linux/amd64 and linux/arm64.
 #
-# Order: check-version (the tag matches app/package.json, both compose files and the Dockerfile comments), then the
-# whole CI workflow (every test suite, the image build and smoke test, the site build), and only then the images are
-# built for both platforms and pushed. After the push, each image's arm64 variant is pulled and started under QEMU as
-# a sanity check.
+# Order: check-version (the tag matches app/package.json, the site, both compose files, the Dockerfile comments and
+# the tag-pinned download links in the compose file headers, README.md and TESTING.md), then the whole CI workflow
+# (every test suite, the image build and smoke test, the site build), and only then the images are built for both
+# platforms and pushed. After the push, each image's arm64 variant is pulled and started under QEMU as a sanity check.
 #
 # GHCR needs no setup: the workflow's GITHUB_TOKEN pushes. New GHCR packages are private: after the first release,
 # open each package (github.com/rahul-bharati?tab=packages) → Package settings → Change visibility → Public.
@@ -43,7 +43,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
-      - name: The tag matches app/package.json, the site, the compose files and the Dockerfile comments
+      - name: The tag matches app/package.json, the site, the compose files, the Dockerfile comments and the docs' links
         id: version
         env:
           INPUT_VERSION: ${{ inputs.version }}
@@ -63,8 +63,8 @@ jobs:
             fail=1
           fi
 
-          # Every image in both compose files is pinned to exactly this version (users fetch run-hound.compose.yml
-          # from main, so it must never point at another release), and run-hound.compose.yml has all four images.
+          # Every image in both compose files is pinned to exactly this version (users download run-hound.compose.yml
+          # from this release's tag, so it must name this release's images), and run-hound.compose.yml has all four.
           for file in run-hound.compose.yml docker-compose.yml; do
             images=$(sed -nE 's/^[[:space:]]*image:[[:space:]]*([^[:space:]#]+).*/\1/p' "$file")
             if [ -z "$images" ]; then
@@ -101,6 +101,21 @@ jobs:
                 fail=1
               fi
             done < <(grep -noE '(run-hound(-[a-z]+)?:|Run Hound \(?)v?[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.-]*' "$file" || true)
+          done
+
+          # The download links (curl of raw.githubusercontent.com/rahul-bharati/run-hound/vX.Y.Z/run-hound.compose.yml
+          # and .env.example; github.com/.../blob/vX.Y.Z/...) in the compose file headers, README.md and TESTING.md are
+          # pinned to a release tag: every one must be this release's, so the docs hand out this release's compose file.
+          link='(raw\.githubusercontent\.com/rahul-bharati/run-hound|github\.com/rahul-bharati/run-hound/(blob|tree|raw))'
+          for file in run-hound.compose.yml docker-compose.yml README.md TESTING.md; do
+            while IFS=: read -r line ref; do
+              [ -n "$ref" ] || continue
+              ref=${ref%/}
+              if [ "${ref##*/}" != "v$tag" ]; then
+                echo "::error file=$file,line=$line::\"$ref/\" is not pinned to the release tag v$tag"
+                fail=1
+              fi
+            done < <(grep -noE "$link/v?[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.-]*/" "$file" || true)
           done
 
           if [ "$fail" != 0 ]; then exit 1; fi

@@ -7,6 +7,9 @@
   "bin": {
     "run-hound": "./src/cli.ts"
   },
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "serve": "tsx src/cli.ts serve",
     "run": "tsx src/cli.ts run",

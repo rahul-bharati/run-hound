@@ -3,6 +3,9 @@
   "private": true,
   "license": "MIT",
   "packageManager": "pnpm@12.3.4",
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "kennel": "pnpm --filter kennel start",
     "serve": "pnpm --filter run-hound serve",

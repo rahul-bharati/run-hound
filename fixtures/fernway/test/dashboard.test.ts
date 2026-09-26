@@ -455,7 +455,7 @@ describe("/app dashboard in a browser (clean mode)", () => {
       expect(await page.getByRole("button", { name: "Account menu" }).count()).toBe(1);
       expect(await page.getByRole("button", { name: "Search" }).count()).toBe(1);
       const nav = page.getByRole("navigation", { name: "App" }).first();
-      expect(await nav.getByRole("link").allInnerTexts()).toEqual(["Dashboard", "Projects", "Settings"]);
+      expect(await nav.getByRole("link").allInnerTexts()).toEqual(["Dashboard", "Projects", "Settings", "Help"]);
       expect(await page.getByText("Signed in as Alex Rivera · Rivera Studio").count()).toBeGreaterThan(0);
 
       // The palette can open the New project sheet.

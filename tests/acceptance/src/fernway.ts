@@ -6,8 +6,9 @@
  *   - prints "fernway listening" once it accepts connections
  *   - POST /api/__reset restores the seed (sessions survive it)
  *
- * V2 (CONTRACT.md "Accounts"): /app and /app/settings need a session. Run Hound signs in as Alex (test account A) with
- * Sam as account B; fernwayAccounts() builds that AccountsConfig for an instance, so no test reads accounts.json.
+ * V2 (CONTRACT.md "Accounts"): /app, /app/settings and /app/help need a session. Run Hound signs in as Alex (test
+ * account A) with Sam as account B; fernwayAccounts() builds that AccountsConfig for an instance, so no test reads
+ * accounts.json.
  */
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
@@ -43,7 +44,7 @@ export const FERNWAY_ACCOUNTS = {
 } as const;
 
 /** The routes that need a session (signed out, the SPA sends you to /login?next=<path>). */
-export const SIGNED_IN_ROUTES: readonly string[] = ["/app", "/app/settings"];
+export const SIGNED_IN_ROUTES: readonly string[] = ["/app", "/app/settings", "/app/help"];
 export const needsSignIn = (route: string) => SIGNED_IN_ROUTES.includes(route);
 
 /**

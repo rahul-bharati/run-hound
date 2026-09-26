@@ -9,7 +9,7 @@ type Shot = {
   text: string;
 };
 
-/** Real output (V1, 0.2.0) from a run on Kennel with its planted bugs switched on. */
+/** Real output (0.4.0) from a run on Kennel with its planted bugs switched on. */
 const gif: Shot = {
   shot: evidence.doubleSubmitRecording,
   kind: "GIF · ONE FRAME PER STEP",
@@ -23,7 +23,7 @@ const stills: Shot[] = [
     kind: "CARD · CAPTURED TRAFFIC",
     title: (
       <>
-        Two <code className="font-mono text-[0.9em]">POST /api/bookings</code>, 0.4 ms apart
+        Two <code className="font-mono text-[0.9em]">POST /api/bookings</code>, 0.2 ms apart
       </>
     ),
     text: "The proof behind the GIF: both requests, both 201 responses, two different record ids.",
@@ -31,7 +31,7 @@ const stills: Shot[] = [
   {
     shot: evidence.noVisibleFocus,
     kind: "FRAME · MEASURED FACTS",
-    title: "Focus you can't see: 0 of 31,552 pixels change",
+    title: "Focus you can't see: 0 of 37,296 pixels change",
     text: "Measured, not guessed: outline, shadow, border and background compared at rest and on focus.",
   },
   {

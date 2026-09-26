@@ -75,9 +75,10 @@ const USAGE = `Usage:
   run-hound accounts status | accounts test [a|b] | accounts clear a|b
   run-hound accounts set a|b [--login-url <url>] [--username <name>] [--label <text>] [--password-stdin]
       Two test accounts you own on your app (A and B), for signed-in runs and the access checks. The password is read
-      from stdin (typed, or piped: printf '%s\n' "$PASSWORD" | run-hound accounts set a --password-stdin), never
-      from a flag. "accounts test" signs in and says where it landed. RUNHOUND_ACCOUNT_A_LOGIN_URL, …_USERNAME,
-      …_PASSWORD, …_LABEL (and _B_) override the saved values.
+      from stdin, never from a flag: typed after a prompt, or piped:
+        printf '%s\\n' "$PASSWORD" | run-hound accounts set a --password-stdin
+      "accounts test" signs in and says where it landed. RUNHOUND_ACCOUNT_A_LOGIN_URL, …_USERNAME, …_PASSWORD,
+      …_LABEL (and _B_) override the saved values.
   run-hound help | --version
 
 Exit codes for run:

@@ -4,6 +4,8 @@ import { EvidenceFigure } from "@/components/demo/evidence-figure";
 import { CodeBlock } from "@/components/docs/code-block";
 import { evidence } from "@/components/evidence";
 import { Card, Eyebrow, PageHeader, Section } from "@/components/layout";
+import { aiBuiltScreens, v2Screens } from "@/components/screens";
+import { Screenshot } from "@/components/screenshot";
 import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
@@ -66,6 +68,10 @@ const planted = [
   },
 ];
 
+// Two screenshots side by side from lg: half the 1136 px container, full width below.
+const halfShotSizes =
+  "(min-width: 1280px) 552px, (min-width: 1024px) calc(50vw - 88px), (min-width: 640px) calc(100vw - 48px), calc(100vw - 32px)";
+
 const kennelCommands = `# once: git clone, pnpm install, playwright install chromium, pnpm --filter kennel build (see the docs)
 
 # terminal 1: Kennel with every bug on
@@ -103,7 +109,7 @@ export default function DemoPage() {
       <Section
         id="features"
         title="One click, two bookings"
-        intro="The double-submit check double-clicks “Book” and counts the save requests that reach the server. Kennel accepted both, so the report shows the recording and the two requests, 0.4 ms apart, with two different record ids."
+        intro="The double-submit check double-clicks “Book” and counts the save requests that reach the server. Kennel accepted both, so the report shows the recording and the two requests, 0.2 ms apart, with two different record ids."
         className="border-t border-line-soft"
       >
         <div className="grid items-start gap-5 lg:grid-cols-2">
@@ -131,7 +137,7 @@ export default function DemoPage() {
             shot={evidence.silentFailureRecording}
             sizes="(min-width: 1280px) 660px, (min-width: 1024px) 58vw, (min-width: 640px) calc(100vw - 48px), calc(100vw - 32px)"
             label="SILENT-FAILURE · RECORDING"
-            caption="5 s after the failed save, the page still shows no error. The facts panel records the injected status and that all 9 values were kept."
+            caption="5.1 s after the failed save, the page still shows no error. The facts panel records the injected status and that all 9 values were kept."
           />
           <div className="flex flex-col gap-4">
             <Eyebrow>WHY IT MATTERS</Eyebrow>
@@ -146,7 +152,7 @@ export default function DemoPage() {
       <Section
         id="accessibility"
         title="Focus you can't see, measured"
-        intro="The focus-visible check tabs through the page and compares each control focused and at rest. On Kennel, “Pet name” changes 0 of 31,552 pixels around it: no outline, shadow, border or background change."
+        intro="The focus-visible check tabs through the page and compares each control focused and at rest. On Kennel, “Pet name” changes 0 of 37,296 pixels around it: no outline, shadow, border or background change."
       >
         <EvidenceFigure
           shot={evidence.noVisibleFocus}
@@ -274,11 +280,10 @@ export default function DemoPage() {
               <code className="font-mono text-fg">http://fernway-bugs:4110/</code> for the planted bugs, or{" "}
               <code className="font-mono text-fg">http://fernway:4110/</code> for the clean app. The other pages are{" "}
               <code className="font-mono text-fg">/signup</code>, <code className="font-mono text-fg">/login</code>,{" "}
-              <code className="font-mono text-fg">/onboarding</code>, <code className="font-mono text-fg">/app</code>{" "}
-              and <code className="font-mono text-fg">/app/settings</code>. With every bug on, one of them (V05) makes{" "}
-              <code className="font-mono text-fg">/onboarding</code> and{" "}
-              <code className="font-mono text-fg">/app/settings</code> answer 404 when opened directly, so plan those
-              two on the clean app, or with V05 left out of <code className="font-mono text-fg">FERNWAY_BUGS</code>.
+              <code className="font-mono text-fg">/onboarding</code>, <code className="font-mono text-fg">/app</code>,{" "}
+              <code className="font-mono text-fg">/app/settings</code> and{" "}
+              <code className="font-mono text-fg">/app/help</code>. The help page is where one bug (V05) shows: with
+              the bugs on, it answers 404 when opened directly, though its link in the sidebar works.
             </p>
             <p>
               <Link href="/docs#accounts" className="text-accent underline underline-offset-4 hover:text-accent-strong">
@@ -286,6 +291,22 @@ export default function DemoPage() {
               </Link>
             </p>
           </div>
+        </div>
+        <div className="grid items-start gap-8 lg:grid-cols-2">
+          <figure className="flex min-w-0 flex-col gap-3">
+            <Screenshot screen={aiBuiltScreens.fernway} sizes={halfShotSizes} />
+            <figcaption className="text-sm leading-relaxed text-muted">
+              Fernway&apos;s landing page, clean: a waitlist form with a Radix select and a “Book a demo” form in a
+              dialog. Run Hound plans 40 scenarios on it, and on the clean app none of them finds an issue.
+            </figcaption>
+          </figure>
+          <figure className="flex min-w-0 flex-col gap-3">
+            <Screenshot screen={v2Screens.accessControl} sizes={halfShotSizes} />
+            <figcaption className="text-sm leading-relaxed text-muted">
+              V01, caught on <code className="font-mono text-fg">/app/settings</code> with every bug on: signed in as
+              account A, Run Hound replayed A&apos;s profile request as account B and got A&apos;s test record back.
+            </figcaption>
+          </figure>
         </div>
       </Section>
 

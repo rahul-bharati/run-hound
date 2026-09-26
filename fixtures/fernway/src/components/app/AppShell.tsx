@@ -2,6 +2,7 @@ import {
   Bell,
   FolderKanban,
   LayoutDashboard,
+  LifeBuoy,
   LogOut,
   Menu,
   Moon,
@@ -46,11 +47,12 @@ import { sessionLabel, signOut, useSessionUser } from "@/lib/session";
 import { useTheme } from "@/lib/theme";
 import { cn, initials } from "@/lib/utils";
 
-/** Sidebar links. "Projects" jumps to the dashboard's projects table (id="projects"). */
+/** Sidebar links (also the palette's "Go to" group). "Projects" jumps to the dashboard's projects table (id="projects"). */
 export const APP_NAV = [
   { label: "Dashboard", to: "/app", icon: LayoutDashboard, end: true },
   { label: "Projects", to: "/app#projects", icon: FolderKanban, end: false },
   { label: "Settings", to: "/app/settings", icon: Settings, end: true },
+  { label: "Help", to: "/app/help", icon: LifeBuoy, end: true },
 ] as const;
 
 /** The 3 items in the Notifications popover (static demo content). */
@@ -128,7 +130,7 @@ function UserAvatar({ className }: { className?: string }) {
 
 /**
  * The /app chrome (CONTRACT.md "/app Dashboard"): a collapsible sidebar ("Collapse sidebar" / "Expand sidebar",
- * aria-expanded), nav links (Dashboard, Projects, Settings), and a top bar with "Search" (cmdk command palette;
+ * aria-expanded), nav links (Dashboard, Projects, Settings, Help), and a top bar with "Search" (cmdk command palette;
  * ⌘K / Ctrl+K), "Notifications" (Popover with 3 items), a theme toggle and "Account menu" (Profile, Settings,
  * Sign out). It renders the page's <main id="main">: pages inside AppShell render their <h1> and content only,
  * never a second <main>. W05 (on /app only) strips the names of the icon-only collapse and notifications buttons.

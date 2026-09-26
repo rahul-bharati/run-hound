@@ -3,8 +3,8 @@
 Fernway is a second test app for Run Hound, built the way AI app builders (Lovable, Bolt, v0) build apps today:
 Vite + React + TypeScript, Tailwind CSS v4, shadcn/ui-style components on Radix primitives, lucide icons, sonner
 toasts, react-hook-form + zod, React Router. It is a small SaaS ("Fernway: project planning for small studios")
-with a marketing page, sign-up and sign-in, an onboarding wizard, and a dashboard and settings behind a real sign-in
-(two seeded accounts, each with a workspace of its own).
+with a marketing page, sign-up and sign-in, an onboarding wizard, and a dashboard, settings and a help page behind a
+real sign-in (two seeded accounts, each with a workspace of its own).
 
 Kennel is one plain form with planted bugs. Fernway answers a different question: **does Run Hound work on the
 kind of app people actually generate?** Custom selects, comboboxes, switches, dialogs, toasts, client-side routing,
@@ -42,7 +42,7 @@ behaviour.
 
 ## Routes (all serve the SPA's `index.html` with `200`, client-side routing with React Router)
 
-`/app` and `/app/settings` need a session (see "Accounts"); the other four are public.
+`/app`, `/app/settings` and `/app/help` need a session (see "Accounts"); the other four are public.
 
 | Route | Page | Forms on the page (in DOM on load) | Notable controls outside forms |
 |---|---|---|---|
@@ -52,9 +52,10 @@ behaviour.
 | `/onboarding` | 3-step wizard | Workspace (step 1 on load) | Back / Continue |
 | `/app` (signed in) | Dashboard | Quick add task | Sidebar collapse, command palette (⌘K), notifications, user menu (with Sign out), "New project" (opens a sheet with a form), status tabs, table row actions |
 | `/app/settings` (signed in) | Settings with tabs | Profile (Profile tab on load) | Tabs, notification Switches (auto-save) |
+| `/app/help` (signed in) | Help & shortcuts | none | Keyboard shortcuts list, FAQ, "Contact support" text (the app shell's controls only) |
 
-Any other path: the SPA's `index.html` with **`404`** status and a "Page not found" view. (V05 breaks two of the six
-routes on purpose; see "V2 planted bugs".)
+Any other path: the SPA's `index.html` with **`404`** status and a "Page not found" view. (V05 breaks `/app/help` on
+purpose, and only that route; see "V2 planted bugs".)
 
 ## Accounts (V2)
 
@@ -73,13 +74,14 @@ notification settings. Nothing in one workspace names the other account. Account
 - **`GET /api/me`** answers `200 { id, name, email, workspace }` for the session user (`workspace` is the workspace
   name), else `401 { error: "Sign in to continue" }`. Only the signed-in pages ask it (never a public page, so a
   signed-out visit to a public page makes no failing request). V03 never changes it.
-- **Signed-in pages**: `/app` and `/app/settings` render after `GET /api/me` answers `200` (a short "Opening your
-  workspace…" status while it asks). Signed out, the SPA replaces the URL with `/login?next=<path>` (the path readable,
-  e.g. `/login?next=/app/settings`; a query or hash in it is escaped, e.g. `/login?next=/app/settings%23billing`).
+- **Signed-in pages**: `/app`, `/app/settings` and `/app/help` render after `GET /api/me` answers `200` (a short
+  "Opening your workspace…" status while it asks). Signed out, the SPA replaces the URL with `/login?next=<path>` (the
+  path readable, e.g. `/login?next=/app/settings`; a query or hash in it is escaped, e.g.
+  `/login?next=/app/settings%23billing`).
   The server still answers the document with `200` (only the SPA redirects). Signing in there lands on `<path>`.
 - **The session user is shown from `GET /api/me`** (nothing about the session is kept in `localStorage`): the app
   shell reads "Signed in as <name> · <workspace>" (e.g. "Signed in as Alex Rivera · Rivera Studio"), the Settings
-  header shows the workspace name, the dashboard greets the first name.
+  and Help headers show the workspace name, the dashboard greets the first name.
 - **Every workspace API** (`/api/projects`, `/api/tasks`, `/api/members`, `/api/users/:id/profile`,
   `/api/notifications`, every method) answers `401 { error: "Sign in to continue" }` without a session and only ever
   returns or changes the session user's own data. Another user's ids answer `404 { error: "Not found" }` (a profile,
@@ -126,8 +128,9 @@ Every page:
   320x800; `prefers-reduced-motion` turns animations off.
 - Paste never blocked; correct `autocomplete` (`email`, `name`, `new-password`, `current-password`,
   `organization`).
-- No console errors, page errors, failed requests or 4xx/5xx on load or on the golden path (for `/app` and
-  `/app/settings`: signed in. Signed out, their `GET /api/me` answers `401` and the page goes to `/login`).
+- No console errors, page errors, failed requests or 4xx/5xx on load or on the golden path (for `/app`,
+  `/app/settings` and `/app/help`: signed in. Signed out, their `GET /api/me` answers `401` and the page goes to
+  `/login`).
 
 ### `/` Landing
 
@@ -189,11 +192,11 @@ Every page:
 ### `/app` Dashboard
 
 - App shell: collapsible sidebar (collapse button "Collapse sidebar"/"Expand sidebar", `aria-expanded`), nav links
-  (Dashboard, Projects, Settings), top bar with a search button "Search" (opens a cmdk command palette dialog; ⌘K /
-  Ctrl+K), notifications button "Notifications" (Popover with 3 items), user menu button "Account menu"
-  (DropdownMenu: a label with the user's name and email, then Profile, Settings, Sign out). Every icon-only button has
-  an accessible name. The sidebar footer reads "Signed in as <name> · <workspace>" (from `GET /api/me`). The
-  Notifications popover's 3 items are static demo content.
+  (Dashboard, Projects, Settings, Help; the palette's "Go to" group has the same four), top bar with a search button
+  "Search" (opens a cmdk command palette dialog; ⌘K / Ctrl+K), notifications button "Notifications" (Popover with 3
+  items), user menu button "Account menu" (DropdownMenu: a label with the user's name and email, then Profile,
+  Settings, Sign out). Every icon-only button has an accessible name. The sidebar footer reads "Signed in as <name> ·
+  <workspace>" (from `GET /api/me`). The Notifications popover's 3 items are static demo content.
 - Stat cards (4), an area chart (inline SVG, with a text summary for screen readers), a "Projects" table
   (`<table>`, caption) from `GET /api/projects` with status Tabs (All, Active, Paused, Done) that filter it, and a
   row actions DropdownMenu per row ("Actions for <project>": Open, Duplicate, Archive). Archive asks in an
@@ -219,6 +222,17 @@ Every page:
   (`PATCH /api/notifications`) with a toast.
 - Billing tab: current plan card, "Change plan" (link to `/#pricing`), "Cancel subscription" (opens a Radix
   AlertDialog; destructive, so Run Hound must not click it by default).
+
+### `/app/help` Help & shortcuts
+
+- The app shell (the sidebar's "Help" link is the current page), the workspace name over the `<h1>` "Help &
+  shortcuts", and three sections, each a region named by its `<h2>`:
+  - **Keyboard shortcuts**: a `<dl>` of at least 5 actions (`<dt>`) with their keys in `<kbd>` (`<dd>`), among them
+    "Open search and commands" (`Ctrl` + `K`, "⌘ K on a Mac") and "Close a dialog, menu or popover" (`Esc`). Every
+    shortcut listed works.
+  - **Frequently asked questions**: at least 3 questions (`<h3>`), each with its answer.
+  - **Contact support**: plain text naming `support@fernway.test` and the signed-in workspace; no `mailto:` link.
+- No form and no text field. The page asks the server only `GET /api/me` (plus `/api/__config`); no workspace API.
 
 ## API
 
@@ -299,7 +313,7 @@ Caught by the V2 checks with Run Hound signed in as Alex (account A) and Sam as 
 | V02 | `GET /api/tasks` returns every user's tasks | `access-control:other-account` (`/app`) |
 | V03 | The workspace APIs answer without a session (only the SPA redirects) | `access-control:signed-out` (`/app`, `/app/settings`) |
 | V04 | `PUT /api/users/:id/profile` stores any key it is sent, including `role` and `plan` | `mass-assignment` (`/app/settings`) |
-| V05 | Opening `/app/settings` or `/onboarding` directly answers `404` (no SPA fallback for those paths) | `deep-links` (`/app`) |
+| V05 | Opening `/app/help` directly answers `404` (no SPA fallback for that path) | `deep-links` (`/app`) |
 
 Details (each changes only what it names):
 
@@ -311,10 +325,11 @@ Details (each changes only what it names):
   honest (`401`), so the SPA still sends signed-out visitors to `/login`; a signed-in user still only sees their own.
 - **V04**: after validating the 4 fields, every other key in the body except `id` is stored on the profile record
   (`role`, `plan`, `isAdmin`, `credits`, ...) and `GET` returns it; sending the old values back restores them.
-- **V05**: a direct `GET` of `/app/settings` or `/onboarding` (with or without a trailing slash) answers `404` with a
-  bare HTML page (`<title>404 Not Found</title>`, `<h1>Not Found</h1>`), like a static host with no fallback to
-  `index.html`. Every other route still serves the SPA, and in-app navigation (the sidebar's Settings link, the
-  footer's "Set up a workspace") still renders both pages.
+- **V05**: a direct `GET` of `/app/help` (with or without a trailing slash) answers `404` with a bare HTML page
+  (`<title>404 Not Found</title>`, `<h1>Not Found</h1>`), like a static host with no fallback to `index.html`. Every
+  other route still serves the SPA (so `/app/settings`, which carries W04, V01 and V04, and `/onboarding` load
+  directly with `FERNWAY_BUGS=all`), and in-app navigation (the sidebar's "Help" link, the palette's "Go to Help")
+  still renders the page. `/app` links to it from the sidebar, which is where `deep-links` finds it.
 
 Clean mode fixes each properly (ownership checks, session checks, a field allowlist, the SPA fallback), so the clean
 runs exercise the same flows.

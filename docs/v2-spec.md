@@ -254,9 +254,10 @@ Fernway gains real accounts and the V2 planted bugs. It supersedes the Supabase-
 - Accounts: `alex@fernway.test` / `correct-horse-battery` (Alex Rivera, workspace "Rivera Studio", role `member`, plan
   `free`) and `sam@fernway.test` / `staple-lemon-orbit` (Sam Okafor, "Okafor & Co"). Each has its own seeded projects,
   tasks and profile. `GET /api/me` → `200 { id, name, email }` or `401`.
-- `/app` and `/app/settings` need a session: signed out, the SPA redirects to `/login?next=<path>`. Every workspace API
-  (`/api/projects`, `/api/tasks`, `/api/members`, `/api/users/:id/profile`, `/api/notifications`) answers `401`
-  without a session and only ever returns or changes the session user's data (`404` for another user's ids).
+- `/app`, `/app/settings` and `/app/help` need a session: signed out, the SPA redirects to `/login?next=<path>`. Every
+  workspace API (`/api/projects`, `/api/tasks`, `/api/members`, `/api/users/:id/profile`, `/api/notifications`)
+  answers `401` without a session and only ever returns or changes the session user's data (`404` for another user's
+  ids). `/app/help` (keyboard shortcuts, a FAQ, how to contact support; no form) is linked from the sidebar.
 - The Settings profile is loaded and saved by user id: `GET`/`PUT /api/users/:id/profile` (fields `displayName`,
   `email`, `bio`, `timeZone`; the stored record also has `role` and `plan`, which the API returns but never accepts
   from the client).
@@ -267,16 +268,17 @@ Fernway gains real accounts and the V2 planted bugs. It supersedes the Supabase-
 | V02 | `GET /api/tasks` returns every user's tasks | `access-control:other-account` (`/app`) |
 | V03 | The workspace APIs answer without a session (only the SPA redirects) | `access-control:signed-out` (`/app`, `/app/settings`) |
 | V04 | `PUT /api/users/:id/profile` stores any key it is sent, including `role` and `plan` | `mass-assignment` (`/app/settings`) |
-| V05 | Opening `/app/settings` or `/onboarding` directly answers `404` (no SPA fallback for those paths) | `deep-links` (`/app`) |
+| V05 | Opening `/app/help` directly answers `404` (no SPA fallback for that path; the sidebar links to it) | `deep-links` (`/app`) |
 
 Clean mode fixes each properly (ownership checks, session checks, a field allowlist, the SPA fallback), so the clean
-runs exercise the same flows. `FERNWAY_BUGS=all` includes V01–V05.
+runs exercise the same flows. `FERNWAY_BUGS=all` includes V01–V05; V05 breaks only `/app/help` (a page with no form),
+so every page that carries another bug still loads directly and can be planned with every bug on.
 
 ## Acceptance (tests/acceptance)
 
-- `fernway.acceptance.test.ts`, signed in as Alex (A) with Sam as B, clean mode: `/app` and `/app/settings` have zero
-  confirmed findings with every scenario approved (including `mass-assignment`), and `access-control` passes both
-  scenarios; signed out, `/` `/signup` `/login` `/onboarding` stay clean.
+- `fernway.acceptance.test.ts`, signed in as Alex (A) with Sam as B, clean mode: `/app`, `/app/settings` and
+  `/app/help` have zero confirmed findings with every scenario approved (including `mass-assignment` where a form
+  saves), and `access-control` passes both scenarios; signed out, `/` `/signup` `/login` `/onboarding` stay clean.
 - Each of V01–V05 alone: only the named check's scenarios run on the named page (signed in as Alex), and the named
   scenario reports a confirmed finding while the check's other scenarios stay clean.
 - Every existing suite (Kennel's golden files, the samples) passes unchanged, signed out. On Kennel the V2 checks plan

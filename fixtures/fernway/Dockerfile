@@ -6,7 +6,7 @@
 # Fernway is a local test target only: do not expose it to the internet.
 
 # ---- build: install the workspace deps for fernway and run `vite build` ----
-FROM docker.io/library/node:24-slim AS build
+FROM docker.io/library/node:24.21.0-bookworm-slim AS build
 WORKDIR /repo
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -16,7 +16,7 @@ COPY fixtures/fernway/ fixtures/fernway/
 RUN pnpm --filter fernway build
 
 # ---- run: plain Node, no dependencies (the server uses only node: built-ins) ----
-FROM docker.io/library/node:24-slim
+FROM docker.io/library/node:24.21.0-bookworm-slim
 WORKDIR /fernway
 ENV NODE_ENV=production \
     PORT=4110 \
