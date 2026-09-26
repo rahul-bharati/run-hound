@@ -43,6 +43,11 @@ const NETWORK_IDLE_MS = 5_000;
 const SUBMIT_WAIT_MS = 15_000;
 /** Once an error message appears, how long the page still gets to move on (some show "Signing in…" as an alert). */
 const ALERT_GRACE_MS = 1_000;
+/**
+ * How long an outcome must hold before the wait ends: the page off the sign-in page, or the password field gone. A
+ * form that hides for a moment while the app checks the session, or comes back, is not an outcome yet.
+ */
+const SETTLED_MS = 750;
 const POLL_MS = 150;
 /** Filling a field or clicking the submit control. */
 const ACTION_TIMEOUT_MS = 10_000;
@@ -278,6 +283,18 @@ export function samePage(a: string, b: string): boolean {
   }
 }
 
+/** What the page sent after the submit, in one sentence for a failed sign-in (methods, paths and statuses only). */
+async function whatWasSent(sent: { method: string; path: string; status: Promise<number | null> }[]): Promise<string> {
+  if (sent.length === 0) return "No request left the page after submitting: the form may have refused the values without saying why.";
+  const answers = await Promise.all(
+    sent.slice(0, 3).map(async (r) => {
+      const status = await Promise.race([r.status, sleep(2_000).then(() => null)]);
+      return `${r.method} ${redactSecrets(r.path)} ${status === null ? "got no answer" : `answered ${status}`}`;
+    }),
+  );
+  return `The page sent ${answers.join(", ")}, but kept showing the sign-in form.`;
+}
+
 function firstLine(err: unknown): string {
   return cleanErrorMessage(err instanceof Error ? err.message : String(err)).split("\n")[0] ?? "";
 }
@@ -372,6 +389,19 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
     }
     const before = page.url();
     const alertsBefore = new Set(await errorTexts(page, form.selector));
+    // What the page sends after the submit, for the message when the form is still shown (methods and paths only).
+    const sent: { method: string; path: string; status: Promise<number | null> }[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "GET" || !["fetch", "xhr", "document"].includes(request.resourceType())) return;
+      let path = "";
+      try {
+        path = new URL(request.url()).pathname;
+      } catch {
+        path = request.url();
+      }
+      const status = request.response().then((r) => r?.status() ?? null, () => null);
+      sent.push({ method: request.method(), path, status });
+    });
     const submit = form.controls.find((c) => c.isSubmit);
     const clicked = submit
       ? await page
@@ -383,16 +413,25 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
       : false;
     if (!clicked) await passwordBox.press("Enter", { timeout: ACTION_TIMEOUT_MS }).catch(() => undefined);
 
-    // 5. Wait for a new URL or the password field to go away; an error message ends the wait early.
+    // 5. Wait for a settled outcome: the page left the sign-in page (not just a new hash or query), or the password
+    // field went away, and it stays that way for SETTLED_MS. An error message ends the wait after ALERT_GRACE_MS.
     const deadline = Date.now() + SUBMIT_WAIT_MS;
     let alertSince: number | null = null;
+    let doneSince: number | null = null;
     while (Date.now() < deadline) {
-      if (passwordInAddress || page.isClosed() || page.url() !== before) break;
-      if (!(await passwordBox.isVisible().catch(() => false))) break;
-      if (alertSince === null) {
-        const fresh = (await errorTexts(page, form.selector)).filter((t) => !alertsBefore.has(t));
-        if (fresh.length > 0) alertSince = Date.now();
-      } else if (Date.now() - alertSince >= ALERT_GRACE_MS) break;
+      if (passwordInAddress || page.isClosed()) break;
+      const left = !samePage(page.url(), before);
+      const gone = left || !(await passwordBox.isVisible().catch(() => false));
+      if (gone) {
+        doneSince ??= Date.now();
+        if (Date.now() - doneSince >= SETTLED_MS) break;
+      } else {
+        doneSince = null;
+        if (alertSince === null) {
+          const fresh = (await errorTexts(page, form.selector)).filter((t) => !alertsBefore.has(t));
+          if (fresh.length > 0) alertSince = Date.now();
+        } else if (Date.now() - alertSince >= ALERT_GRACE_MS) break;
+      }
       await sleep(POLL_MS);
     }
     inAddress();
@@ -420,7 +459,7 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
         );
       }
       if (quote) throw new SignInError(`${label} could not sign in: the sign-in page said "${quote}".`);
-      throw new SignInError(`${label} could not sign in: the sign-in form was still shown after submitting, and the page showed no error.`);
+      throw new SignInError(`${label} could not sign in: the sign-in form was still shown after submitting, and the page showed no error. ${await whatWasSent(sent)}`);
     }
 
     // 7. The session, in memory only. IndexedDB too: some apps (Firebase Auth) keep their session there.

@@ -428,10 +428,16 @@ export const check: Check = {
         // elsewhere on the page is reported once, not once per form.
         const builder = new AxeBuilder({ page }).withTags(AXE_TAGS);
         const scope: { include?: string; exclude: string[] } = { exclude: [] };
+        // Popups closed and animations finished first, so the scan (and the check that the form is there) sees the
+        // page as it ends up: a dialog form that closes after saving may still be animating out until now.
+        await closePopups(page, ctx.form);
+        await settleAnimations(page);
+        const notOnPage = () => notes.push(`${state} state: the form is not on the page (${new URL(page.url()).pathname}), not scanned`);
         if ((ctx.form.index ?? 0) > 0) {
-          // A search form's submit leads to a results page without the form: nothing of this form to scan there.
+          // A search form's submit leads to a results page without the form, and a dialog form closes after saving:
+          // nothing of this form to scan there.
           if ((await page.locator(ctx.form.selector).count().catch(() => 0)) === 0) {
-            notes.push(`${state} state: the form is not on the page (${new URL(page.url()).pathname}), not scanned`);
+            notOnPage();
             return;
           }
           builder.include(ctx.form.selector);
@@ -443,10 +449,18 @@ export const check: Check = {
             scope.exclude.push(other.selector);
           }
         }
+        // The form can still go between that check and the scan (a dialog closing on a slow machine): axe then finds
+        // nothing to include, which means the same as the form not being on the page.
+        const gone = (err: unknown) => scope.include !== undefined && /No elements found for include/i.test(err instanceof Error ? err.message : String(err));
+        let results: Awaited<ReturnType<AxeBuilder["analyze"]>>;
+        try {
+          results = await builder.analyze();
+        } catch (err) {
+          if (!gone(err)) throw err;
+          notOnPage();
+          return;
+        }
         visited.push(state);
-        await closePopups(page, ctx.form);
-        await settleAnimations(page);
-        const results = await builder.analyze();
         // Text faded in by script (not a Web Animation) can still be half-transparent: contrast failures must still be
         // there a moment later, or they were the fade, not the colours.
         const contrast = results.violations.find((v) => v.id === "color-contrast");
@@ -456,7 +470,12 @@ export const check: Check = {
           const again = new AxeBuilder({ page }).withRules(["color-contrast"]);
           if (scope.include) again.include(scope.include);
           for (const selector of scope.exclude) again.exclude(selector);
-          const still = new Set(((await again.analyze()).violations[0]?.nodes ?? []).map((n) => n.target.map(String).join(" ")));
+          const recheck = await again.analyze().catch((err: unknown) => {
+            if (gone(err)) return null;
+            throw err;
+          });
+          // The form went while waiting: keep what the first scan found.
+          const still = new Set(((recheck ?? results).violations.find((v) => v.id === "color-contrast")?.nodes ?? []).map((n) => n.target.map(String).join(" ")));
           const before = contrast.nodes.length;
           contrast.nodes = contrast.nodes.filter((n) => still.has(n.target.map(String).join(" ")));
           if (contrast.nodes.length < before) {
