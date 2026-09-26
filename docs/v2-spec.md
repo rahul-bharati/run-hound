@@ -5,7 +5,7 @@ is its build contract. It extends [v0-spec.md](v0-spec.md) and [v1-spec.md](v1-s
 everything not changed here (safety gate, navigation guard, evidence, groups, reports, tester-release rules), and
 [ai-spec.md](ai-spec.md) for the optional AI layer. The acceptance suite enforces all of them.
 
-V2 is "single feature end to end" (README roadmap). 0.4.0 ships its foundation and its headline:
+V2 is "single feature end to end" ([roadmap](roadmap.md#v2-single-feature-preview-since-040)). 0.4.0 ships its foundation and its headline:
 
 - **Test accounts**: two accounts the user owns on their app (A and B), and **signed-in runs**: every existing check
   runs as account A (or B), so pages behind a login can be tested.

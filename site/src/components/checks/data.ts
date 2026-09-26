@@ -2,9 +2,9 @@ import type { Severity } from "@/components/finding";
 
 /**
  * Roadmap stage a check is in or planned for. V0 = single form on localhost (shipped, 0.1.0); V1 = single page
- * (current; page-wide checks since 0.2.0, optional AI since 0.3.0); V2 = single feature (a preview since 0.4.0:
- * signed-in runs, access checks, mass assignment and deep links, plus the CSRF check since 0.5.0; the rest is
- * planned); V4 = live staging behind domain verification.
+ * (shipped: page-wide checks in 0.2.0, optional AI in 0.3.0, AI-built UIs in 0.4.0); V2 = single feature (a preview
+ * since 0.4.0: signed-in runs, access checks, mass assignment and deep links, plus the CSRF check since 0.5.0; the
+ * rest is planned); V3 = the whole app (planned); V4 = live staging behind domain verification (planned: 1.0.0).
  */
 export type Version = "V0" | "V1" | "V2" | "V3" | "V4";
 
@@ -40,8 +40,8 @@ export const versionMeaning: Record<Version, string> = {
   V0: "One form on localhost: shipped",
   V1: "One page: available now, more to come",
   V2: "One feature, end to end: a preview is available now (signed-in runs, access checks and a CSRF check)",
-  V3: "The whole app",
-  V4: "Live staging, domain verified",
+  V3: "The whole app: planned",
+  V4: "Live staging, domain verified: planned for 1.0.0",
 };
 
 export const categories: CheckCategory[] = [

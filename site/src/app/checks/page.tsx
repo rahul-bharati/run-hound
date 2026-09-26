@@ -15,7 +15,7 @@ const v2Total = previewGroups.reduce((sum, g) => sum + g.checks.filter((c) => c.
 export const metadata = pageMetadata({
   path: "/checks/",
   title: "Checks",
-  description: `The ${previewTotal} built-in checks in Run Hound ${site.version}, in three groups, and the full catalog of gaps in AI-built apps it hunts for, with severity and roadmap version.`,
+  description: `The ${previewTotal} built-in checks in Run Hound ${site.version}, in three groups, and the full catalog of gaps in AI-built apps it hunts for, with severity and roadmap stage.`,
 });
 
 const versions = Object.keys(versionMeaning) as Version[];
@@ -35,7 +35,7 @@ export default function ChecksPage() {
             Everything <span className="text-accent">it hunts for.</span>
           </>
         }
-        lede="What Run Hound checks today, then the full catalog: the gaps AI-built apps tend to ship with, grouped the way you'd notice them, with typical severity and the roadmap version each check is in or planned for."
+        lede="What Run Hound checks today, then the full catalog: the gaps AI-built apps tend to ship with, grouped the way you'd notice them, with typical severity and the roadmap stage each check is in or planned for."
       >
         <nav aria-label="Check categories">
           <ul className="flex flex-wrap gap-2">
@@ -205,7 +205,7 @@ export default function ChecksPage() {
                 <dt>
                   <VersionBadge version="V2" />
                 </dt>
-                <dd className="text-sm text-muted">Plain: planned for that version</dd>
+                <dd className="text-sm text-muted">Plain: planned for that stage</dd>
               </div>
               <div className="flex items-center gap-3">
                 <dt>
@@ -216,7 +216,7 @@ export default function ChecksPage() {
             </dl>
           </div>
           <div className="flex flex-col gap-4">
-            <p className="font-mono text-xs tracking-widest text-dim">ROADMAP VERSIONS</p>
+            <p className="font-mono text-xs tracking-widest text-dim">ROADMAP STAGES</p>
             <dl className="flex flex-col divide-y divide-line-soft border-y border-line-soft">
               {versions.map((v) => (
                 <div key={v} className="flex items-baseline gap-4 py-2.5">

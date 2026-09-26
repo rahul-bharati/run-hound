@@ -100,7 +100,7 @@ const aiBuilt: { icon: LucideIcon; title: string; text: string }[] = [
   },
 ];
 
-/** The ways you drive a run, and the guard rails around it (README "Running it locally", "Safety"). */
+/** The ways you drive a run, and the guard rails around it (docs/install.md, docs/security.md "Safety"). */
 const tools = [
   {
     icon: LayoutDashboard,

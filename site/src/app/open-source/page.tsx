@@ -52,8 +52,8 @@ const roadmap: RoadmapStage[] = [
   {
     version: "V1",
     name: "Single page",
-    status: "current",
-    release: `0.2.0 – ${site.version}`,
+    status: "shipped",
+    release: "0.2.0 – 0.4.0",
     summary:
       "Point it at a page. It finds the forms and controls on it, plans form checks for each form plus page-wide checks, you approve, and it runs them in a real browser. Local only.",
     adds: `0.2.0 adds security headers, cookie flags, CORS, public source maps and dead controls across the whole page, and one Docker or Podman command starts it with the test apps. 0.3.0 adds optional AI with your own model: plan review, up to 5 suggested flows and explanations, off by default and never the judge of pass or fail. 0.4.0 finds and fills the custom widgets and dialog forms of AI-built apps.`,
@@ -62,7 +62,7 @@ const roadmap: RoadmapStage[] = [
     version: "V2",
     name: "Single feature",
     status: "preview",
-    release: site.version,
+    release: "since 0.4.0",
     summary: "Give it a feature such as signup or checkout and it tests that feature end to end across pages.",
     adds: `A preview ships in 0.4.0: test accounts and signed-in runs, access checks (can another account, or a visitor who isn't signed in, read your data?), mass assignment and deep links. 0.5.0 adds the CSRF check: can another website change your data? Still planned: checks that another account or a visitor can't change your data and that a paid plan needs a payment, testing a feature across pages, rate limits, file uploads and prompt injection.`,
   },
@@ -78,7 +78,9 @@ const roadmap: RoadmapStage[] = [
     version: "V4",
     name: "Live staging",
     status: "planned",
-    summary: "Support for testing live staging and dev sites behind ownership verification.",
+    release: "1.0.0",
+    summary:
+      "Support for testing live staging and dev sites behind ownership verification. Completing it is the 1.0.0 release.",
     adds: "Adds checks for live hosts, such as mixed content and email DNS records.",
   },
 ];
@@ -192,7 +194,15 @@ export default function OpenSourcePage() {
       <Section
         id="roadmap"
         title="Roadmap"
-        intro={`Each stage widens what Run Hound can test, from one form to a whole app. V0 has shipped, V1 is current, and 0.4.0 and 0.5.0 add a preview of V2: signed-in runs, access checks and a CSRF check. The rest of V2, the whole app and live staging are planned.`}
+        intro={
+          <>
+            V0 to V4 are stages of what Run Hound can test, from one form to a live staging site; they are not version
+            numbers. V0 and V1 have shipped, and V2 is in preview: 0.4.0 and 0.5.0 add signed-in runs, access checks
+            and a CSRF check. The rest of V2, the whole app (V3) and live staging (V4) are planned. Releases stay 0.x
+            while the stages are built: 1.0.0 is the release that completes V4, and 0.9.9, right before it, is the{" "}
+            <code className="font-mono text-base text-fg">npx run-hound</code> release.
+          </>
+        }
       >
         <RoadmapList stages={roadmap} />
       </Section>

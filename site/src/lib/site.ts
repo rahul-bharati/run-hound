@@ -8,7 +8,7 @@ const github = "https://github.com/rahul-bharati/run-hound";
 const composeFileUrl = raw("run-hound.compose.yml");
 // Run Hound's image without a tag, i.e. `latest`: the main pull-and-run commands use it, so they never go stale.
 const imageName = "ghcr.io/rahul-bharati/run-hound";
-// The main way to run it (README.md "Quickest start"): the web UI on http://localhost:4000, reports in ./runs, apps on
+// The main way to run it (README.md "Quick start", docs/install.md): the web UI on http://localhost:4000, reports in ./runs, apps on
 // your machine reached as http://host.docker.internal:<port>. The image sets RUNHOUND_ALLOWED_HOSTS
 // (host.docker.internal,host.containers.internal) and RUNHOUND_CONFIG_DIR (/repo/app/runs/.config) itself, and its
 // entrypoint prints the address to open; -e still overrides either. Podman: the same with `podman`.

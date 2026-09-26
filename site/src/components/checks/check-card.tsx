@@ -31,7 +31,7 @@ export function isShipped(check: Check) {
   return check.version === "V0" || check.shipped === true;
 }
 
-/** One catalog entry: name, plain-language line, typical severity, roadmap version and signal phrase. */
+/** One catalog entry: name, plain-language line, typical severity, roadmap stage and signal phrase. */
 export function CheckCard({ check }: { check: Check }) {
   const shipped = isShipped(check);
   return (
