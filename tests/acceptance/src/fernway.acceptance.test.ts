@@ -214,7 +214,7 @@ afterAll(async () => {
   else await rm(runsRoot, { recursive: true, force: true });
 });
 
-describe.concurrent("Run Hound against Fernway in clean mode", () => {
+describe.skipIf(selectedRoutes.length === 0).concurrent("Run Hound against Fernway in clean mode", () => {
   it.for(selectedRoutes)("$route: zero confirmed findings, nothing errored, every form found", async (spec, { expect }) => {
     const fw = await startFernway("none");
     const signedIn = needsSignIn(spec.route);
@@ -296,7 +296,7 @@ describe.concurrent("Run Hound against Fernway in clean mode", () => {
   });
 });
 
-describe.concurrent("Run Hound catches each Fernway planted bug", () => {
+describe.skipIf(selectedBugs.length === 0).concurrent("Run Hound catches each Fernway planted bug", () => {
   it.for(selectedBugs)("$label: $bug.detectedBy reports it", async ({ bug, route, label }, { expect }) => {
     const fw = await startFernway(bug.id);
     const logs: string[] = [];
