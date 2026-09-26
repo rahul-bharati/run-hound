@@ -15,6 +15,7 @@
 //                         continue" }. Always honest: V03 never makes it answer without a session.
 //
 // Data: ctx.store.users, ctx.store.sessions (Map session id -> user id), ctx.store.workspaces; ctx.sessionUser().
+// Cookie flags come from ctx.sessionCookie, given the request's Host (W09 drops HttpOnly; V08 sends it SameSite=None).
 
 import { badRequest, conflict, crashIfNamed, created, noContent, ok, unauthorized, validator } from "../http.mjs";
 import { hashPassword, verifyPassword } from "../passwords.mjs";
@@ -57,11 +58,12 @@ export function register(router, ctx) {
    * promoted) and returns the Set-Cookie header.
    * @param {string} userId
    * @param {boolean} remember
+   * @param {import("../http.mjs").ApiRequest} request  Its Host header decides V08's cookie flags.
    */
-  function startSession(userId, remember) {
+  function startSession(userId, remember, request) {
     const sessionId = ctx.newId();
     ctx.store.sessions.set(sessionId, userId);
-    const cookie = ctx.sessionCookie(sessionId);
+    const cookie = ctx.sessionCookie(sessionId, request.req?.headers.host);
     return { "set-cookie": remember ? `${cookie}; Max-Age=${REMEMBER_MAX_AGE}` : cookie };
   }
 
@@ -83,7 +85,8 @@ export function register(router, ctx) {
     return password;
   }
 
-  router.post("/api/signup", ({ body }) => {
+  router.post("/api/signup", (request) => {
+    const { body } = request;
     const v = validator(body);
     const name = v.text("name", { required: AUTH_MESSAGES.nameRequired, max: 80 });
     const email = v.email("email", { required: AUTH_MESSAGES.workEmailRequired, invalid: AUTH_MESSAGES.emailInvalid });
@@ -99,13 +102,14 @@ export function register(router, ctx) {
     const user = { id: ctx.newId(), name, email, company, passwordHash: hashPassword(password), createdAt: ctx.now() };
     ctx.store.users.push(user);
     ctx.store.workspaces.set(user.id, emptyWorkspace(user));
-    return created(publicUser(user), startSession(user.id, false));
+    return created(publicUser(user), startSession(user.id, false, request));
   });
 
   // Signing in creates nothing, so it is not de-duplicated: a replayed answer would hand out an old session.
   router.post(
     "/api/login",
-    ({ body }) => {
+    (request) => {
+      const { body } = request;
       const v = validator(body);
       const email = v.email("email", { required: AUTH_MESSAGES.emailRequired, invalid: AUTH_MESSAGES.emailInvalid });
       const password = readPassword(v, body.password, { required: AUTH_MESSAGES.passwordRequired });
@@ -119,7 +123,7 @@ export function register(router, ctx) {
         return unauthorized(AUTH_MESSAGES.badCredentials);
       }
       if (!verifyPassword(password, user.passwordHash)) return unauthorized(AUTH_MESSAGES.badCredentials);
-      return ok(publicUser(user), startSession(user.id, remember));
+      return ok(publicUser(user), startSession(user.id, remember, request));
     },
     { idempotency: false },
   );
@@ -127,20 +131,20 @@ export function register(router, ctx) {
   // "Use the demo account": a session for Alex, so people can try the app without the password ever being shown.
   router.post(
     "/api/login/demo",
-    () => {
+    (request) => {
       const user = ctx.store.users.find((u) => u.id === ACCOUNTS.alex.id);
       if (!user) throw new Error("the demo account is missing from the seed");
-      return ok(publicUser(user), startSession(user.id, false));
+      return ok(publicUser(user), startSession(user.id, false, request));
     },
     { idempotency: false },
   );
 
   router.post(
     "/api/logout",
-    ({ cookies }) => {
+    ({ cookies, req }) => {
       const sid = cookies.fernway_session;
       if (sid) ctx.store.sessions.delete(sid);
-      return { ...noContent(), headers: { "set-cookie": ctx.clearSessionCookie() } };
+      return { ...noContent(), headers: { "set-cookie": ctx.clearSessionCookie(req?.headers.host) } };
     },
     { idempotency: false },
   );

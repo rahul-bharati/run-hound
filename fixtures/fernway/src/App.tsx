@@ -12,12 +12,13 @@ import NotFound from "@/pages/NotFound";
 import Onboarding from "@/pages/Onboarding";
 import Settings from "@/pages/Settings";
 import Signup from "@/pages/Signup";
+import Upgraded from "@/pages/Upgraded";
 
 /**
- * The client-side routes (CONTRACT.md "Routes"); the server answers each with index.html and 200. /app, /app/settings
- * and /app/help need a session: <RequireSession> sends signed-out visitors to /login?next=<path>.
+ * The client-side routes (CONTRACT.md "Routes"); the server answers each with index.html and 200. /app, /app/settings,
+ * /app/help and /app/upgraded need a session: <RequireSession> sends signed-out visitors to /login?next=<path>.
  */
-export const ROUTES = ["/", "/signup", "/login", "/onboarding", "/app", "/app/settings", "/app/help"] as const;
+export const ROUTES = ["/", "/signup", "/login", "/onboarding", "/app", "/app/settings", "/app/help", "/app/upgraded"] as const;
 
 /** Scrolls to the top on a new page, or to the element named by the hash (in-page anchors like /#pricing). */
 function RouteEffects() {
@@ -70,6 +71,7 @@ export function App() {
               <Route path="/app" element={<Dashboard />} />
               <Route path="/app/settings" element={<Settings />} />
               <Route path="/app/help" element={<Help />} />
+              <Route path="/app/upgraded" element={<Upgraded />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

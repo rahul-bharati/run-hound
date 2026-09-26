@@ -2,6 +2,23 @@
 
 All notable changes to Run Hound. Versions follow [Semantic Versioning](https://semver.org/); while the version is 0.x, any release may change behaviour.
 
+## 0.5.0 (V2 preview: CSRF check)
+
+The second slice of V2. One new check uses the test accounts to test a **write**, not a read: can a page on another site make account A's browser change A's data (CSRF)? It changes account A's data on purpose, so it is unticked by default and follows the write-side safety contract: it writes only the test record Run Hound created as A in the same scenario, decides from a re-read as A (never a status code), and puts back what it changed, naming anything it couldn't. The other two write-side checks in the 0.5.0 plan, `write-access` (can another account or a signed-out visitor change A's data) and `paywall-trust` (can A get a paid plan without paying), are not in this release; they stay planned. Contract: [docs/v2-spec.md](docs/v2-spec.md#050-write-side-checks); how to try it: [TESTING.md](TESTING.md#the-csrf-check-050).
+
+### Added
+
+- **`csrf`** (Security, signed in, unticked): serves a blank page on another *site* from a local server (`127.0.0.1` for a `localhost` target, and the other way round), opens it in account A's own browser and sends the form's save from there with a new value, as a form post or a `text/plain` body (no preflight, nothing added). The browser attaches cookies by their SameSite rules, so the check never goes through `CheckContext.request`. A forged value that A's re-read shows is a high finding. On any other host name the scenario is **inconclusive** (skipped with the reason), never a pass or a finding; a cookie inside Chromium's 2-minute Lax-by-default window is recorded and not counted.
+- `app/src/checks/lib/record-state.ts`: the shared helpers `csrf` and `mass-assignment` use to find, snapshot, re-read and restore the run's own test record (`findOwnRecord`, `snapshotRecord`, `rereadRecord`, `restoreRecord`); `mass-assignment`'s record lookup moved there unchanged.
+- **Fernway V06-V09**: `PATCH /api/tasks/:id` updates another user's task (V06) or works without a session (V07); the session cookie is `SameSite=None; Secure` on `localhost`/`127.0.0.1` and the task save takes a form-encoded body with no Origin check (V08); `/app/upgraded` grants Pro on load (V09). V08 is what `csrf` catches; V06, V07 and V09 are groundwork for `write-access` and `paywall-trust`, which are still planned. Clean mode checks ownership and the session on task writes, refuses writes from another origin, accepts only JSON on the task writes, and grants Pro only for a paid local test checkout (`/api/billing/checkout`, `/pay`, `/confirm`, `/cancel`; no provider). The Billing tab shows the account's Free/Pro plan, and `/app/upgraded` is a new signed-in page.
+- **Acceptance**: V08 alone is caught only by its `csrf` scenario, and Alex's and Sam's records and plan read the same through Fernway's API afterwards; V06, V07 and V09 are listed and skipped, since their checks aren't built yet; on clean Fernway `csrf`, ticked, gives no confirmed finding and leaves both accounts' data as it was; `csrf` against Fernway on a non-loopback address reports inconclusive with V08 on; the secret grep of the signed-in run folders now also covers every session value the engine registered during the runs (the session cookies) and CSRF tokens, besides both passwords. Kennel's golden files and the samples are unchanged: the new check plans nothing signed out.
+
+### Changed
+
+- The report's "Checks with nothing to test on this page" leaves `csrf` out of a signed-out run (it needs a test account, like `access-control` and `mass-assignment`) and out of reports written before 0.5.0.
+- Settings → Test accounts explains the opt-in write check: it changes Account A's own test data and puts it back.
+- The run order puts `csrf` after the 0.4.0 checks in the Security group (`CHECK_IDS` order).
+
 ## 0.4.1 (pull and run; fixes from the 0.4.0 review)
 
 Run Hound now starts with one `docker pull` and one `docker run`, and 0.4.1 fixes what a review of 0.4.0 found, most of it in signed-in runs.

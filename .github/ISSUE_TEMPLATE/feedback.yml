@@ -1,5 +1,5 @@
 name: Feedback
-description: Tell us how Run Hound 0.4.1 did on your app (a wrong finding, a bug it missed, a crash, or something confusing).
+description: Tell us how Run Hound 0.5.0 did on your app (a wrong finding, a bug it missed, a crash, or something confusing).
 title: "[Feedback] "
 body:
   - type: markdown
@@ -29,6 +29,7 @@ body:
         - "Form checks (a form on the page)"
         - "Page-wide checks (buttons outside forms, headers, cookies, CORS, source maps)"
         - "Signed-in runs and access checks (0.4.0, V2 preview: access-control, mass-assignment, deep-links)"
+        - "CSRF check (0.5.0, V2 preview)"
         - "AI features (plan review, suggested flows, explanations)"
         - Install, Docker or the test lab
         - The report or the web UI
@@ -39,8 +40,8 @@ body:
     id: version
     attributes:
       label: Run Hound version
-      description: "`docker run --rm ghcr.io/rahul-bharati/run-hound:0.4.1 --version`, `pnpm exec tsx src/cli.ts --version` in `app/` from source, or `runHoundVersion` in report.json."
-      placeholder: run-hound 0.4.1
+      description: "`docker run --rm ghcr.io/rahul-bharati/run-hound:0.5.0 --version`, `pnpm exec tsx src/cli.ts --version` in `app/` from source, or `runHoundVersion` in report.json."
+      placeholder: run-hound 0.5.0
     validations:
       required: true
   - type: input

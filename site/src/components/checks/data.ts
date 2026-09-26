@@ -3,8 +3,8 @@ import type { Severity } from "@/components/finding";
 /**
  * Roadmap stage a check is in or planned for. V0 = single form on localhost (shipped, 0.1.0); V1 = single page
  * (current; page-wide checks since 0.2.0, optional AI since 0.3.0); V2 = single feature (a preview since 0.4.0:
- * signed-in runs, access checks, mass assignment and deep links; the rest is planned); V4 = live staging behind
- * domain verification.
+ * signed-in runs, access checks, mass assignment and deep links, plus the CSRF check since 0.5.0; the rest is
+ * planned); V4 = live staging behind domain verification.
  */
 export type Version = "V0" | "V1" | "V2" | "V3" | "V4";
 
@@ -23,7 +23,7 @@ export type Check = {
   note?: string;
   /**
    * In the current release. Every V0 check is; for V1 and V2 only the checks marked shipped are (V1's page-wide checks
-   * since 0.2.0, V2's preview checks since 0.4.0), the rest of their lists is still planned.
+   * since 0.2.0, V2's preview checks since 0.4.0 and 0.5.0), the rest of their lists is still planned.
    */
   shipped?: boolean;
 };
@@ -39,7 +39,7 @@ export type CheckCategory = {
 export const versionMeaning: Record<Version, string> = {
   V0: "One form on localhost: shipped",
   V1: "One page: available now, more to come",
-  V2: "One feature, end to end: a preview is available now (signed-in runs and access checks)",
+  V2: "One feature, end to end: a preview is available now (signed-in runs, access checks and a CSRF check)",
   V3: "The whole app",
   V4: "Live staging, domain verified",
 };
@@ -403,7 +403,7 @@ export const categories: CheckCategory[] = [
       },
       {
         name: "Other users' data exposed",
-        line: "One account can read another account's records. Checking whether it can change them is planned.",
+        line: "One account can read another account's records. Checking that it can't change or delete them is planned.",
         severity: "critical",
         version: "V2",
         shipped: true,
@@ -411,7 +411,7 @@ export const categories: CheckCategory[] = [
       },
       {
         name: "Auth only in the frontend",
-        line: "Pages hide things from logged-out users, but the server hands them over anyway.",
+        line: "Pages hide things from logged-out users, but the server hands them over anyway. Checking that it refuses their changes is planned.",
         severity: "critical",
         version: "V2",
         shipped: true,
@@ -422,7 +422,15 @@ export const categories: CheckCategory[] = [
         line: "The paid state can be reached without a confirmed payment, for example by trusting the success page.",
         severity: "critical",
         version: "V2",
-        signal: "payment state check",
+        signal: "payment state check, no provider called",
+      },
+      {
+        name: "Cross-site request forgery",
+        line: "A page on another site can make a signed-in user's browser change their data: no CSRF token, no Origin check, and a session cookie sent cross-site.",
+        severity: "high",
+        version: "V2",
+        shipped: true,
+        signal: "forged save from a cross-site page",
       },
       {
         name: "Sign-in weaknesses",
@@ -437,13 +445,6 @@ export const categories: CheckCategory[] = [
         severity: "high",
         version: "V2",
         signal: "small, bounded burst",
-      },
-      {
-        name: "Cross-site request forgery",
-        line: "Another site can make a signed-in user's browser take actions in your app.",
-        severity: "high",
-        version: "V2",
-        signal: "second local origin",
       },
       {
         name: "Chatbot prompt injection",
@@ -636,7 +637,7 @@ export type PreviewCheck = {
   records: string;
   /**
    * Stage that added the check: V0 (0.1.0) for the form checks, V1 (0.2.0) for the page-wide checks, V2 for the
-   * checks of the V2 preview (0.4.0).
+   * checks of the V2 preview (0.4.0 and 0.5.0).
    */
   since: "V0" | "V1" | "V2";
   /** Findings are marked advisory when the target looks like a dev server, which doesn't send production values. */
@@ -649,7 +650,7 @@ export type PreviewCheck = {
 
 /**
  * The built-in checks in the current release, in the three groups the plan, run and report follow, in run order:
- * V0's form checks, V1's page-wide checks and the V2 preview's checks (0.4.0). Source of truth: app/src/checks and
+ * V0's form checks, V1's page-wide checks and the V2 preview's checks (0.4.0 and 0.5.0). Source of truth: app/src/checks and
  * app/src/core/types.ts (CHECK_IDS); the V2 checks in docs/v2-spec.md.
  */
 export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = [
@@ -828,6 +829,15 @@ export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = 
         id: "mass-assignment",
         name: "Mass assignment",
         line: "Saves the form as Account A, replays the save with fields the form never sends (role: admin, isAdmin, plan: pro, credits, verified) and reads the record again. A field the server stored is a finding. Run Hound puts back what it changed and says what it couldn't.",
+        records: "up to 2, in Account A",
+        since: "V2",
+        signedIn: true,
+        offByDefault: true,
+      },
+      {
+        id: "csrf",
+        name: "Cross-site requests (CSRF)",
+        line: "Saves a test record as Account A, then sends the same save from a page on another site (localhost vs 127.0.0.1) in Account A's browser, as any website could. A forged value that shows when Account A reads the record again is a finding. Inconclusive, never a pass, when no cross-site address can be set up.",
         records: "up to 2, in Account A",
         since: "V2",
         signedIn: true,
