@@ -5,8 +5,8 @@ export const V1_BUGS = Object.freeze(["W01", "W02", "W03", "W04", "W05", "W06", 
 
 /**
  * The V2 bugs, caught signed in: V01-V05 (0.4.0, docs/v2-spec.md "Fernway V2") by access-control, mass-assignment and
- * deep-links; V06-V09 (0.5.0, "Fernway (0.5.0 planned bugs)") by the write-side checks write-access, csrf and
- * paywall-trust.
+ * deep-links; V08 (0.5.0, "Fernway (0.5.0 planned bugs)") by csrf. V06, V07 and V09 are groundwork for the planned
+ * write-access and paywall-trust checks.
  */
 export const V2_BUGS = Object.freeze(["V01", "V02", "V03", "V04", "V05", "V06", "V07", "V08", "V09"]);
 

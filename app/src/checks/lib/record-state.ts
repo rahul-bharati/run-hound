@@ -1,6 +1,6 @@
 /**
  * The run's own test record, read and put back as Account A (0.5.0, docs/v2-spec.md "Types and shared helpers"). Shared
- * by the write-side checks (write-access, csrf, paywall-trust) and mass-assignment: find the record endpoint after a
+ * by csrf and mass-assignment: find the record endpoint after a
  * save, snapshot the record, re-read it after an attempt, and restore it. Every read is a GET as Account A through
  * CheckContext.request (the safety gate applies), and a snapshot only ever holds a record carrying the run token, so
  * a restore never writes to one of Account A's own records.

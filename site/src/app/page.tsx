@@ -18,7 +18,6 @@ import { site } from "@/lib/site";
 import {
   AppWindow,
   Container as Box,
-  BadgeDollarSign,
   DatabaseZap,
   FileCode,
   Globe,
@@ -29,7 +28,6 @@ import {
   SlidersHorizontal,
   Terminal,
   TextCursorInput,
-  UserPen,
   UsersRound,
   type LucideIcon,
 } from "lucide-react";
@@ -42,7 +40,7 @@ export const metadata = pageMetadata({
     "Open-source, AI-assisted UI testing for AI-built apps: real checks in a real browser, with evidence and a Playwright test. Runs on your machine.",
 });
 
-/** The V2 preview's checks (0.4.0 and 0.5.0's write-side checks, docs/v2-spec.md), as the questions they answer. */
+/** The V2 preview's checks (0.4.0, and 0.5.0's csrf; docs/v2-spec.md), as the questions they answer. */
 const accessChecks: { icon: LucideIcon; id: string; title: string; text: string }[] = [
   {
     icon: UsersRound,
@@ -63,22 +61,10 @@ const accessChecks: { icon: LucideIcon; id: string; title: string; text: string 
     text: "It opens the page's own links directly, as a reload or a shared link would, and reports the ones that answer with an error or a not-found page. Signed in or not.",
   },
   {
-    icon: UserPen,
-    id: "write-access",
-    title: "Can someone else change your data?",
-    text: "It sends the update and delete requests your app uses for Account A's test record as Account B and as a visitor who isn't signed in, then reads the record as Account A. Only that test record is written, and it is put back. Unticked until you tick it.",
-  },
-  {
     icon: Globe,
     id: "csrf",
     title: "Can another website act for you?",
     text: "A page on another site (localhost vs 127.0.0.1) sends Account A's save from Account A's own browser, as any website could. A forged value that sticks is a finding; without a cross-site address the result is inconclusive, never a pass.",
-  },
-  {
-    icon: BadgeDollarSign,
-    id: "paywall-trust",
-    title: "Can you get Pro without paying?",
-    text: "It opens your app's own upgrade success page and replays its own upgrade request with a zero price, then reads Account A's plan again. It never enters payment details or calls a payment provider, and puts the plan back.",
   },
 ];
 
@@ -196,10 +182,10 @@ export default function Home() {
             Signed-in runs <span className="text-accent">and access checks.</span>
           </>
         }
-        intro="Add two test accounts you own on your app, A and B. Run Hound signs in before it tests, so pages behind a login get every check, and six checks look for what AI-built backends often get wrong: three that read (0.4.0) and three that write (0.5.0). They are the first parts of V2, released as a preview."
+        intro="Add two test accounts you own on your app, A and B. Run Hound signs in before it tests, so pages behind a login get every check, and four checks look for what AI-built backends often get wrong: three from 0.4.0 and one that writes (0.5.0). They are the first parts of V2, released as a preview."
         className="border-t border-line-soft"
       >
-        <ul className="grid gap-5 md:grid-cols-3">
+        <ul className="grid gap-5 md:grid-cols-2">
           {accessChecks.map((item) => (
             <li key={item.id} className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-6 sm:p-7">
               <span className="grid size-11 place-items-center rounded-xl border border-line-strong text-accent">
@@ -234,7 +220,8 @@ export default function Home() {
               customer&apos;s.
             </p>
             <p>
-              Still planned for V2: testing a feature across pages, rate limits, file uploads and prompt injection.
+              Still planned for V2: checks that another account or a signed-out visitor can&apos;t change your data and that a paid
+              plan needs a real payment, testing a feature across pages, rate limits, file uploads and prompt injection.
             </p>
             <ArrowLink href="/docs#accounts">Signed-in runs in the docs</ArrowLink>
           </div>

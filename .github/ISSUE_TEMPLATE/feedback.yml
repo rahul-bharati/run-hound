@@ -29,7 +29,7 @@ body:
         - "Form checks (a form on the page)"
         - "Page-wide checks (buttons outside forms, headers, cookies, CORS, source maps)"
         - "Signed-in runs and access checks (0.4.0, V2 preview: access-control, mass-assignment, deep-links)"
-        - "Write-side checks (0.5.0, V2 preview: write-access, csrf, paywall-trust)"
+        - "CSRF check (0.5.0, V2 preview)"
         - "AI features (plan review, suggested flows, explanations)"
         - Install, Docker or the test lab
         - The report or the web UI

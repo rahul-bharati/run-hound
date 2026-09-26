@@ -22,7 +22,8 @@ client-side routing, animations and dark mode.
   Fernway or a Run Hound false positive.** Triage every one, and never change Fernway just to hide a Run Hound mistake.
 - **Bug mode** (`FERNWAY_BUGS`) plants the bugs AI-built apps typically ship with, one per id. Each one is caught by
   one Run Hound check (tables below): W01-W10 by the V0/V1 checks, V01-V09 by the V2 checks run signed in (access
-  control, mass assignment and deep links in 0.4.0; write access, CSRF and paywall trust in 0.5.0).
+  control, mass assignment and deep links in 0.4.0; CSRF in 0.5.0). V06, V07 and V09 wait for the planned write
+  access and paywall trust checks.
 
 [CONTRACT.md](CONTRACT.md) is the full contract: routes, labels, texts, the API, response headers and every bug. The
 names in it are load-bearing: Fernway's tests and Run Hound's acceptance suite rely on them.
@@ -128,7 +129,9 @@ build serves every mode. [bugs.json](bugs.json) is the ground truth.
 | W09 | every page | `fernway_session` set without HttpOnly | `cookie-flags` |
 | W10 | `/login` | Sign-in errors are shown in red text only (no `role="alert"`, not linked to the fields) | `error-announcement` |
 
-The V2 bugs, caught with Run Hound signed in as Alex (A) with Sam as B:
+The V2 bugs, caught with Run Hound signed in as Alex (A) with Sam as B. V06, V07 and V09 are groundwork for
+`write-access` and `paywall-trust`, which are still planned (0.5.0 ships only `csrf`); the acceptance suite skips them
+until their checks are built.
 
 | Id | Page | Bug | Caught by |
 |---|---|---|---|
@@ -137,10 +140,10 @@ The V2 bugs, caught with Run Hound signed in as Alex (A) with Sam as B:
 | V03 | `/app`, `/app/settings` | The workspace APIs answer without a session (only the SPA redirects) | `access-control:signed-out` |
 | V04 | `/app/settings` | `PUT /api/users/:id/profile` stores any key it is sent, including `role` and `plan` | `mass-assignment` |
 | V05 | `/app` | Opening `/app/help` (linked from the sidebar) directly answers `404` (no SPA fallback for that path) | `deep-links` |
-| V06 | `/app` | `PATCH /api/tasks/:id` updates another user's task | `write-access:other-account` |
-| V07 | `/app` | Writes to `/api/tasks/:id` work without a session | `write-access:signed-out` |
+| V06 | `/app` | `PATCH /api/tasks/:id` updates another user's task | `write-access:other-account` (planned) |
+| V07 | `/app` | Writes to `/api/tasks/:id` work without a session | `write-access:signed-out` (planned) |
 | V08 | `/app` | Session cookie set `SameSite=None; Secure`, and the task save accepts a form-encoded body with no CSRF token or Origin check | `csrf` |
-| V09 | `/app/settings` | `/app/upgraded` sets `plan: "pro"` on load (the server trusts the success page; no payment needed) | `paywall-trust` |
+| V09 | `/app/settings` | `/app/upgraded` sets `plan: "pro"` on load (the server trusts the success page; no payment needed) | `paywall-trust` (planned) |
 
 A bug id never changes the clean-mode behaviour of anything else. V05 breaks only `/app/help`, a page with no form, so
 with `all` every other page still loads directly: plan `/app/settings` signed in as Alex to see W04, V01, V03, V04 and
@@ -158,8 +161,8 @@ pnpm --filter fernway typecheck
 
 `FERNWAY_SKIP_BUILD=1` reuses an existing `dist/`. The acceptance suite runs Run Hound itself against Fernway: every
 route in clean mode (zero confirmed findings, every form discovered; `/app`, `/app/settings` and `/app/help` signed in
-as Alex with Sam as the other account, every scenario approved including mass assignment and the 0.5.0 write-side
-checks), each bug on its page, and a check that no run folder holds either password.
+as Alex with Sam as the other account, every scenario approved including mass assignment and the 0.5.0 `csrf`
+check), each bug on its page, and a check that no run folder holds either password.
 
 ```sh
 cd tests/acceptance

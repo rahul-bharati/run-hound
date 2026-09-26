@@ -1,4 +1,4 @@
-# V2 spec (0.4.0 preview, 0.5.0): signed-in runs, access checks and write-side checks
+# V2 spec (0.4.0 preview, 0.5.0): signed-in runs, access checks and the CSRF check
 
 Status: the first V2 slice, shipped in 0.4.0 as a preview (the web UI and the HTML report say "V2 preview"). This
 is its build contract. It extends [v0-spec.md](v0-spec.md) and [v1-spec.md](v1-spec.md), which still hold for
@@ -13,9 +13,10 @@ V2 is "single feature end to end" (README roadmap). 0.4.0 ships its foundation a
 - **Mass assignment**: does the server accept fields the form never sends, such as `role` or `plan`?
 - **Deep links**: do the app's own pages load when opened directly (a reload, a shared link)?
 
-Not in 0.4.0: write-side access checks, CSRF and paywall/success-page trust (all three are in 0.5.0, see
-[0.5.0: write-side checks](#050-write-side-checks)). Still planned: multi-page feature runs (a feature named by the
-user, tested across its pages), rate limits, file upload, prompt injection.
+Not in 0.4.0: write-side access checks, CSRF and paywall/success-page trust. 0.5.0 ships `csrf`; `write-access` and
+`paywall-trust` are specified but still planned (see [0.5.0: write-side checks](#050-write-side-checks)). Still
+planned: multi-page feature runs (a feature named by the user, tested across its pages), rate limits, file upload,
+prompt injection.
 
 ## Test accounts
 
@@ -289,6 +290,10 @@ so every page that carries another bug still loads directly and can be planned w
 
 ## 0.5.0: write-side checks
 
+**Status: 0.5.0 ships `csrf` only.** `write-access` and `paywall-trust` are specified below but not built: they are
+planned for a later release, and are not registered `CheckId`s. Fernway's V06, V07 and V09 are already planted for
+them; the acceptance suite skips a bug whose check isn't built.
+
 The second V2 slice adds three checks that use accounts A and B to test **writes**, not reads. Everything above still
 holds. These three checks change data in account A, so each one follows the safety rules below. The acceptance suite
 enforces them.
@@ -322,7 +327,7 @@ enforces them.
 ### Types and shared helpers (additions)
 
 ```ts
-CHECK_IDS += "write-access", "csrf", "paywall-trust"   // after "deep-links"; V2_CHECK_IDS gains them too
+CHECK_IDS += "csrf"   // after "deep-links"; V2_CHECK_IDS gains it too. "write-access" and "paywall-trust" join when built
 // app/src/checks/lib/record-state.ts (shared by the three checks; no CheckContext change):
 findOwnRecord(ctx, capture, testValues): Promise<{ url: string; body: string } | null>  // mass-assignment's findRecord, moved here
 snapshotRecord(ctx, url, testValues): Promise<RecordSnapshot | null>   // GET as A, JSON, the run-token record only
@@ -342,11 +347,13 @@ do neither.
 
 | Check id | Group | Scope | Planned when | Default |
 |---|---|---|---|---|
-| `write-access` | Security | form | signed in, a form that saves a record; scenario `other-account` also needs B and `isolated` | **unticked** |
-| `csrf` | Security | form | signed in, a form that saves a record | **unticked** |
-| `paywall-trust` | Security | page | signed in, and an entitlement endpoint was found (below) | **unticked** |
+| `write-access` (planned) | Security | form | signed in, a form that saves a record; scenario `other-account` also needs B and `isolated` | **unticked** |
+| `csrf` (shipped in 0.5.0) | Security | form | signed in, a form that saves a record | **unticked** |
+| `paywall-trust` (planned) | Security | page | signed in, and an entitlement endpoint was found (below) | **unticked** |
 
 ### `write-access`
+
+Planned, not in 0.5.0.
 
 Scenarios `other-account` (as B) and `signed-out`.
 
@@ -390,6 +397,8 @@ sends whatever cookies the browser would send.
 
 ### `paywall-trust`
 
+Planned, not in 0.5.0.
+
 Run Hound never enters payment details, and never loads or calls a payment provider. The navigation guard blocks any
 third-party checkout host. A request to one is listed in the notes as "blocked (payment provider)".
 
@@ -417,10 +426,10 @@ checks on writes, and a server-side entitlement. New bugs (ids to be confirmed i
 
 | Id | Bug | Caught by (page) |
 |---|---|---|
-| V06 | `PATCH /api/tasks/:id` updates another user's task | `write-access:other-account` (`/app`) |
-| V07 | Writes to `/api/tasks/:id` work without a session | `write-access:signed-out` (`/app`) |
+| V06 | `PATCH /api/tasks/:id` updates another user's task | `write-access:other-account` (`/app`, planned) |
+| V07 | Writes to `/api/tasks/:id` work without a session | `write-access:signed-out` (`/app`, planned) |
 | V08 | Session cookie set `SameSite=None; Secure` (Chromium accepts Secure on `http://localhost`), and the task save accepts a form-encoded body with no token or Origin check | `csrf` (`/app`) |
-| V09 | `/app/upgraded` sets `plan: "pro"` on load (a fake local checkout, no provider) | `paywall-trust` (`/app/settings`) |
+| V09 | `/app/upgraded` sets `plan: "pro"` on load (a fake local checkout, no provider) | `paywall-trust` (`/app/settings`, planned) |
 
 ### Build plan (0.5.0)
 
@@ -444,9 +453,10 @@ Built in this order; each step owns the files named and touches no others.
 
 ### Acceptance (0.5.0 additions)
 
-- Clean Fernway, signed in as Alex with Sam as B, all three checks ticked: no confirmed findings, and A's records and
-  plan are unchanged afterwards (the test re-reads them).
+- Clean Fernway, signed in as Alex with Sam as B, every built write-side check ticked (`csrf` in 0.5.0): no confirmed
+  findings, and A's records and plan are unchanged afterwards (the test re-reads them).
 - Each of V06–V09 alone: only the named scenario reports a confirmed finding, and A's state is restored afterwards.
+  In 0.5.0 that is V08 (`csrf`); V06, V07 and V09 are listed and skipped until their checks are built.
 - `csrf` on a target whose cross-site origin can't be set up reports inconclusive, never confirmed.
 - Kennel and the samples: the new checks plan nothing, or skip with a reason. No existing golden file changes.
 - The password grep covers the run folders of the new checks too: no report, log, evidence or spec holds either

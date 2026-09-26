@@ -23,8 +23,8 @@ export const site = {
     "Open-source, AI-assisted UI testing for AI-built apps. Real checks in a real browser, with evidence and a Playwright test for every finding.",
   // Current stage: V1 ("Single page"), open source under MIT, with optional AI since 0.3.0. V0 ("Single form",
   // 0.1.0) shipped before it. 0.4.0 adds the first slice of V2 as a preview (docs/v2-spec.md): test accounts and
-  // signed-in runs, access checks, mass assignment and deep links; 0.5.0 adds the write-side checks (write access,
-  // CSRF, paywall trust). The web UI and reports call it "V2 preview".
+  // signed-in runs, access checks, mass assignment and deep links; 0.5.0 adds the CSRF check
+  // (csrf). The web UI and reports call it "V2 preview".
   release: "V1",
   releaseName: "Single page",
   preview: "V2 preview",

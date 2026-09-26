@@ -123,16 +123,18 @@ Caught with Run Hound signed in as Alex (account A), with Sam as account B.
 | V04 | `/app/settings` | Saving the profile stores any field it is sent, including `role` and `plan` | `mass-assignment` |
 | V05 | `/app` | `/app/help` (linked from the sidebar) answers 404 when opened directly | `deep-links` |
 
-### V06-V09: the write-side bugs (0.5.0)
+### V06-V09: the write bugs (0.5.0)
 
-Caught the same way, with the write-side checks ticked (they are unticked by default).
+0.5.0 ships only `csrf`, which catches V08 the same way, with `csrf` ticked (it is unticked by default). V06, V07 and
+V09 are planted for `write-access` and `paywall-trust`, which are still planned; the acceptance suite lists them and
+skips them until their checks are built.
 
 | ID | Page | Planted defect | Caught by |
 |---|---|---|---|
-| V06 | `/app` | `PATCH /api/tasks/:id` updates another user's task | `write-access` (other account) |
-| V07 | `/app` | Writes to `/api/tasks/:id` work without a session | `write-access` (signed out) |
+| V06 | `/app` | `PATCH /api/tasks/:id` updates another user's task | `write-access` (other account, planned) |
+| V07 | `/app` | Writes to `/api/tasks/:id` work without a session | `write-access` (signed out, planned) |
 | V08 | `/app` | The session cookie is `SameSite=None; Secure`, and the task save takes a form-encoded body with no token or Origin check | `csrf` (target on `localhost`) |
-| V09 | `/app/settings` | `/app/upgraded` grants Pro on load, with no payment | `paywall-trust` |
+| V09 | `/app/settings` | `/app/upgraded` grants Pro on load, with no payment | `paywall-trust` (planned) |
 
 `FERNWAY_BUGS=all` turns on W01-W10 and V01-V09. The full tables, with what each bug changes, are in
 [CONTRACT.md](../fixtures/fernway/CONTRACT.md); the ground truth is [bugs.json](../fixtures/fernway/bugs.json).
@@ -172,8 +174,8 @@ the same state on every run. Its bugs are listed in [bugs.json](../fixtures/kenn
 | D07 | Payments | Premium granted by the success page, not a verified webhook from the mock payment service | Premium without payment |
 
 The clean mode must fix each of these properly (real policies, server-side checks), not just remove the feature, so
-false-positive runs exercise the same flows. Some need checks that are still planned (write-side access checks,
-storage, paywall trust).
+false-positive runs exercise the same flows. Some need checks that are still planned (`write-access`,
+storage, `paywall-trust`).
 
 ## Later
 

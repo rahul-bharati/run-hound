@@ -15,7 +15,8 @@ animations, dark mode. So:
   hide it). Triage every one.
 - **Bug mode** (`FERNWAY_BUGS`) plants the bugs AI-built apps typically ship with, one per id, each caught by one
   Run Hound check: W01-W10 by V0/V1 checks, V01-V09 by the V2 checks run signed in (`docs/v2-spec.md` "Fernway
-  V2" for V01-V05, "Fernway (0.5.0 planned bugs)" for V06-V09). Tables below.
+  V2" for V01-V05, "Fernway (0.5.0 planned bugs)" for V06-V09). V06, V07 and V09 are for checks that are still planned
+  (`write-access`, `paywall-trust`). Tables below.
 
 Anything named here (texts, labels, attribute values, field keys, routes, ids) is load-bearing: tests and Run Hound
 checks rely on it. `docs/v0-spec.md`, `docs/v1-spec.md` and `docs/v2-spec.md` win on any conflict about Run Hound's
@@ -230,7 +231,7 @@ Every page:
 - Billing tab (mounted, hidden until chosen, like every panel): first the **account's plan** card (`plan` from
   `GET /api/users/<me.id>/profile`): on Free, "Free plan" with an **"Upgrade to Pro"** button (starts the local test
   checkout, see "Billing"; its name is on Run Hound's never-click list) and a link **"Already paid? Refresh your
-  plan"** to `/app/upgraded` (in the page on load, so Run Hound's `paywall-trust` finds the success route); on Pro,
+  plan"** to `/app/upgraded` (in the page on load, so Run Hound's planned `paywall-trust` can find the success route); on Pro,
   "Pro plan" with **"Switch back to Free"** (`POST /api/billing/cancel`). Then the workspace's Studio plan card
   (client-side, as before): "Change plan" (link to `/#pricing`), "Cancel subscription" (opens a Radix AlertDialog;
   destructive, so Run Hound must not click it by default).
@@ -373,8 +374,9 @@ Bug ids never change clean-mode behaviour of anything else.
 ## V2 planted bugs (`FERNWAY_BUGS`, docs/v2-spec.md "Fernway V2" and "Fernway (0.5.0 planned bugs)")
 
 Caught by the V2 checks with Run Hound signed in as Alex (account A) and Sam as account B (`isolated: true`): V01-V05
-by the 0.4.0 checks, V06-V09 by the 0.5.0 write-side checks (`write-access`, `csrf`, `paywall-trust`), which write
-only to the test record they create and re-read it as Alex.
+by the 0.4.0 checks, V08 by the 0.5.0 `csrf` check, which writes only to the test record it creates and re-reads it as
+Alex. V06, V07 and V09 are for `write-access` and `paywall-trust`, which are still planned (the same write rules
+apply); the acceptance suite skips them until those checks are built.
 
 | Id | Bug | Caught by (page) |
 |---|---|---|
@@ -383,10 +385,10 @@ only to the test record they create and re-read it as Alex.
 | V03 | The workspace APIs answer without a session (only the SPA redirects) | `access-control:signed-out` (`/app`, `/app/settings`) |
 | V04 | `PUT /api/users/:id/profile` stores any key it is sent, including `role` and `plan` | `mass-assignment` (`/app/settings`) |
 | V05 | Opening `/app/help` directly answers `404` (no SPA fallback for that path) | `deep-links` (`/app`) |
-| V06 | `PATCH /api/tasks/:id` updates another user's task | `write-access:other-account` (`/app`) |
-| V07 | Writes to `/api/tasks/:id` work without a session | `write-access:signed-out` (`/app`) |
+| V06 | `PATCH /api/tasks/:id` updates another user's task | `write-access:other-account` (`/app`, planned) |
+| V07 | Writes to `/api/tasks/:id` work without a session | `write-access:signed-out` (`/app`, planned) |
 | V08 | Session cookie set `SameSite=None; Secure` (Chromium accepts Secure on `http://localhost` and `http://127.0.0.1`), and the task save accepts a form-encoded body with no CSRF token or Origin check | `csrf` (`/app`) |
-| V09 | `/app/upgraded` sets `plan: "pro"` on load (a fake local checkout, no provider) | `paywall-trust` (`/app/settings`) |
+| V09 | `/app/upgraded` sets `plan: "pro"` on load (a fake local checkout, no provider) | `paywall-trust` (`/app/settings`, planned) |
 
 Details (each changes only what it names):
 

@@ -40,14 +40,12 @@ const labels: Record<string, string> = {
   "source-maps": "No public source maps",
   "access-control": "Another account, or a visitor who isn't signed in, can't read your data",
   "mass-assignment": "The server ignores role and plan fields the form never sends",
-  "write-access": "Another account, or a visitor who isn't signed in, can't change your data",
   csrf: "A page on another site can't change your data",
-  "paywall-trust": "A paid plan needs a real payment",
 };
 
 /**
  * The built-in checks in their three groups, in run order, from the same data the checks page and docs use (V0's
- * form checks, V1's page-wide checks and the V2 preview's checks). The V2 preview's checks are tagged; five of them
+ * form checks, V1's page-wide checks and the V2 preview's checks). The V2 preview's checks are tagged; three of them
  * run only signed in.
  */
 export const checkGroups = previewGroups.map((g) => ({

@@ -14,20 +14,21 @@
  * The public routes (/, /signup, /login, /onboarding) run signed out, exactly as in 0.3.0. /app, /app/settings,
  * /app/help and /app/upgraded need a session (V2, docs/v2-spec.md "Fernway V2"): they run signed in as Alex (test
  * account A, RunOptions.signInAs "a") with Sam as account B (isolated), every scenario approved including
- * mass-assignment and the 0.5.0 write-side checks (unticked by default), and both access-control scenarios
+ * mass-assignment and the 0.5.0 csrf check (unticked by default), and both access-control scenarios
  * (other-account, signed-out) must pass.
  *
- * The write-side checks (0.5.0, docs/v2-spec.md "Acceptance (0.5.0 additions)") also run on their own on clean
- * Fernway: every write-access, csrf and paywall-trust scenario of /app and /app/settings approved, no confirmed
- * finding, and a re-read through Fernway's API shows Alex's and Sam's pre-existing records and plan as they were.
+ * csrf (0.5.0, docs/v2-spec.md "Acceptance (0.5.0 additions)") also runs on its own on clean Fernway: its scenario on
+ * /app approved, no confirmed finding, and a re-read through Fernway's API shows Alex's and Sam's pre-existing records
+ * and plan as they were.
  * `csrf` on Fernway reached at a non-loopback address (no localhost/127.0.0.1 twin) reports inconclusive, never a
  * finding and never a pass.
  *
  * Then each planted bug alone (FERNWAY_BUGS=<id>, fixtures/fernway/bugs.json): only the scenarios of the bug's
  * `detectedBy` check run on its page ("*" = every page, tested on /; V03 also on its `alsoOn` page), signed in on /app
  * pages, and that check must report a confirmed finding (from `scenario` when the bug names one, while the check's
- * other scenarios stay clean). For the write-side bugs (V06-V09), Alex's and Sam's data is re-read afterwards and must
- * be as it was: the check restored Alex's test record and plan.
+ * other scenarios stay clean). For V08 (csrf), Alex's and Sam's data is re-read afterwards and must be as it
+ * was: the check restored Alex's test record. Bugs whose `detectedBy` check isn't built yet (V06, V07, V09: planned
+ * write-access and paywall-trust) are listed and skipped.
  *
  * Last, no run folder, log line, Plan or Report of any signed-in run holds either account's password, a session
  * cookie value of the run (every secret the engine registered while it ran: sign-in's cookies and tokens) or a CSRF
@@ -35,7 +36,7 @@
  *
  * Env:
  *   ACCEPTANCE_FERNWAY=/,/app,W01   run only these routes and bugs (default: all); "clean" = every route, "bugs" = every bug,
- *                                   "write-side" = the write-side clean runs and the inconclusive csrf run
+ *                                   "write-side" = the clean csrf run and the inconclusive csrf run
  *   FERNWAY_SKIP_BUILD=1            reuse fixtures/fernway/dist instead of running `vite build`
  *   ACCEPTANCE_FERNWAY_DIR=<dir>    build and start Fernway from a copy of fixtures/fernway instead
  *   KEEP_RUNS=1                     keep the runs/ directories (paths are printed)
@@ -126,21 +127,22 @@ const ROUTES: RouteSpec[] = [
 /** The two access-control scenarios (docs/v2-spec.md "access-control"). */
 const ACCESS_SCENARIOS = ["access-control:other-account", "access-control:signed-out"] as const;
 
-/** The 0.5.0 write-side checks (docs/v2-spec.md "Checks (0.5.0)"): unticked by default, they change Account A's data. */
-const WRITE_SIDE: readonly CheckId[] = ["write-access", "csrf", "paywall-trust"];
+/** The 0.5.0 check (docs/v2-spec.md "Checks (0.5.0)"): unticked by default, it changes Account A's data. */
+const WRITE_SIDE: readonly CheckId[] = ["csrf"];
 const isWriteSide = (checkId: string) => (WRITE_SIDE as readonly string[]).includes(checkId);
 
 /**
- * Where each write-side check must plan on clean Fernway, signed in as Alex with Sam as B (docs/v2-spec.md "Checks
- * (0.5.0)"): write-access and csrf on /app (Quick add saves a task), paywall-trust on /app/settings (the profile
- * holds Alex's plan). The profile form changes the account's email, so csrf and write-access don't use it.
+ * Where csrf must plan on clean Fernway, signed in as Alex with Sam as B (docs/v2-spec.md "Checks (0.5.0)"): /app
+ * (Quick add saves a task). The profile form changes the account's email, so csrf doesn't use it.
  */
-const WRITE_SIDE_PAGES: { route: string; checks: CheckId[] }[] = [
-  { route: "/app", checks: ["write-access", "csrf"] },
-  { route: "/app/settings", checks: ["paywall-trust"] },
-];
+const WRITE_SIDE_PAGES: { route: string; checks: CheckId[] }[] = [{ route: "/app", checks: ["csrf"] }];
 
-const bugs = await loadFernwayBugs();
+/** Checks this build has: a bug whose detectedBy check is still planned (docs/v2-spec.md) is skipped, and listed. */
+const built = new Set<string>(checks.map((c) => c.id));
+const allBugs = await loadFernwayBugs();
+const bugs = allBugs.filter((b) => built.has(b.detectedBy));
+const planned = allBugs.filter((b) => !built.has(b.detectedBy));
+if (planned.length > 0) console.log(`[fernway] skipped, their check is planned: ${planned.map((b) => `${b.id} (${b.detectedBy})`).join(", ")}`);
 
 /** One (bug, page) pair: a bug is tested on its page and on every `alsoOn` page. */
 interface BugCase {
@@ -435,7 +437,7 @@ describe.skipIf(selectedBugs.length === 0).concurrent("Run Hound catches each Fe
 });
 
 describe.skipIf(!writeSide).concurrent("the write-side checks on clean Fernway (0.5.0)", () => {
-  it.for(WRITE_SIDE_PAGES)("$route: all three ticked, no confirmed finding, Alex's and Sam's data unchanged", async (spec, { expect }) => {
+  it.for(WRITE_SIDE_PAGES)("$route: the write-side checks ticked, no confirmed finding, Alex's and Sam's data unchanged", async (spec, { expect }) => {
     const fw = await startFernway("none");
     const logs: string[] = [];
     try {

@@ -214,8 +214,8 @@ describe("checks that need a test account (added with the V2 checks)", () => {
     expect(unplanned(report(undefined, { runHoundVersion: "0.4.0-rc.1" }))).toContain("- deep-links");
   });
 
-  it("the 0.5.0 write-side checks need a test account, and are not listed in a report written before 0.5.0", () => {
-    const WRITE_SIDE = ["write-access", "csrf", "paywall-trust"];
+  it("the 0.5.0 check (csrf) needs a test account, and are not listed in a report written before 0.5.0", () => {
+    const WRITE_SIDE = ["csrf"];
     const signedOut = unplanned(report(undefined, { runHoundVersion: "0.5.0" }));
     for (const id of WRITE_SIDE) expect(signedOut).not.toContain(id);
     const signedIn = unplanned(report({ signedInAs: A, other: null }, { runHoundVersion: "0.5.0" }));

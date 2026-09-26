@@ -3,7 +3,7 @@ import type { Severity } from "@/components/finding";
 /**
  * Roadmap stage a check is in or planned for. V0 = single form on localhost (shipped, 0.1.0); V1 = single page
  * (current; page-wide checks since 0.2.0, optional AI since 0.3.0); V2 = single feature (a preview since 0.4.0:
- * signed-in runs, access checks, mass assignment and deep links, plus the write-side checks since 0.5.0; the rest is
+ * signed-in runs, access checks, mass assignment and deep links, plus the CSRF check since 0.5.0; the rest is
  * planned); V4 = live staging behind domain verification.
  */
 export type Version = "V0" | "V1" | "V2" | "V3" | "V4";
@@ -39,7 +39,7 @@ export type CheckCategory = {
 export const versionMeaning: Record<Version, string> = {
   V0: "One form on localhost: shipped",
   V1: "One page: available now, more to come",
-  V2: "One feature, end to end: a preview is available now (signed-in runs, access checks and write-side checks)",
+  V2: "One feature, end to end: a preview is available now (signed-in runs, access checks and a CSRF check)",
   V3: "The whole app",
   V4: "Live staging, domain verified",
 };
@@ -403,7 +403,7 @@ export const categories: CheckCategory[] = [
       },
       {
         name: "Other users' data exposed",
-        line: "One account can read, change or delete another account's records.",
+        line: "One account can read another account's records. Checking that it can't change or delete them is planned.",
         severity: "critical",
         version: "V2",
         shipped: true,
@@ -411,7 +411,7 @@ export const categories: CheckCategory[] = [
       },
       {
         name: "Auth only in the frontend",
-        line: "Pages hide things from logged-out users, but the server hands them over, or accepts their changes, anyway.",
+        line: "Pages hide things from logged-out users, but the server hands them over anyway. Checking that it refuses their changes is planned.",
         severity: "critical",
         version: "V2",
         shipped: true,
@@ -422,7 +422,6 @@ export const categories: CheckCategory[] = [
         line: "The paid state can be reached without a confirmed payment, for example by trusting the success page.",
         severity: "critical",
         version: "V2",
-        shipped: true,
         signal: "payment state check, no provider called",
       },
       {
@@ -446,13 +445,6 @@ export const categories: CheckCategory[] = [
         severity: "high",
         version: "V2",
         signal: "small, bounded burst",
-      },
-      {
-        name: "Cross-site request forgery",
-        line: "Another site can make a signed-in user's browser take actions in your app.",
-        severity: "high",
-        version: "V2",
-        signal: "second local origin",
       },
       {
         name: "Chatbot prompt injection",
@@ -843,28 +835,10 @@ export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = 
         offByDefault: true,
       },
       {
-        id: "write-access",
-        name: "Write access",
-        line: "Saves a test record as Account A, then sends the update and delete requests the app itself uses for it as Account B and as a visitor who isn't signed in. A change that shows when Account A reads the record again is a critical finding. Only that test record is ever written, and Run Hound puts it back.",
-        records: "1 per scenario, in Account A",
-        since: "V2",
-        signedIn: true,
-        offByDefault: true,
-      },
-      {
         id: "csrf",
         name: "Cross-site requests (CSRF)",
         line: "Saves a test record as Account A, then sends the same save from a page on another site (localhost vs 127.0.0.1) in Account A's browser, as any website could. A forged value that shows when Account A reads the record again is a finding. Inconclusive, never a pass, when no cross-site address can be set up.",
         records: "up to 2, in Account A",
-        since: "V2",
-        signedIn: true,
-        offByDefault: true,
-      },
-      {
-        id: "paywall-trust",
-        name: "Paywall trust",
-        line: "Reads Account A's plan, opens the app's own upgrade success pages and replays its own upgrade request with a zero price, then reads the plan again. A paid plan without paying is a critical finding. Never enters payment details or calls a payment provider, and puts the plan back.",
-        records: "0",
         since: "V2",
         signedIn: true,
         offByDefault: true,

@@ -298,8 +298,7 @@ export default function DocsPage() {
                   New in 0.4.0, as a preview of V2: <strong>test accounts and signed-in runs</strong>. Run Hound
                   signs in with an account you own before it tests, so pages behind a login get every check, and the
                   access checks ask whether another account, or a visitor who isn&apos;t signed in, can read your data.
-                  New in 0.5.0: the <strong>write-side checks</strong> ask whether they, or another website, can change
-                  it, and whether a paid plan can be had without paying. See <a href="#accounts">Test accounts</a>. Also new: discovery that handles the widgets, dialogs and
+                  New in 0.5.0: the <strong>CSRF check</strong> asks whether another website can change it. See <a href="#accounts">Test accounts</a>. Also new: discovery that handles the widgets, dialogs and
                   form libraries of apps built with Lovable, Bolt and v0 (see{" "}
                   <a href="#ai-built">Apps from AI builders</a>), and a Docker image about a quarter of its old size.
                 </p>
@@ -757,21 +756,16 @@ export default function DocsPage() {
                     invitation.
                   </li>
                 </ul>
-                <h3>The write-side checks (0.5.0)</h3>
+                <h3>The CSRF check (0.5.0)</h3>
                 <p>
-                  Three checks test writes, not reads. They change account A&apos;s data on purpose, so they are
-                  unticked until you tick them, and they follow the same rules: they write only the test record Run Hound
-                  just created as account A (never one of A&apos;s own records, never an id it guessed), they decide
-                  from a re-read as account A rather than a status code, and they put the record back and say what
-                  they couldn&apos;t. They never touch sign-out, password, email, account deletion, payment or
-                  invitation endpoints, even with <code>--allow-destructive</code>.
+                  <code>csrf</code> tests a write, not a read. It changes account A&apos;s data on purpose, so it is
+                  unticked until you tick it, and it follows strict rules: it writes only the test record Run Hound
+                  just created as account A (never one of A&apos;s own records, never an id it guessed), it decides
+                  from a re-read as account A rather than a status code, and it puts the record back and says what it
+                  couldn&apos;t. It never touches sign-out, password, email, account deletion, payment or invitation
+                  endpoints, even with <code>--allow-destructive</code>.
                 </p>
                 <ul>
-                  <li>
-                    <code>write-access</code> (Security, signed in): it sends the update and delete requests the app
-                    itself used for the test record as account B and as a visitor who isn&apos;t signed in. A change that
-                    shows when account A reads the record again is a critical finding.
-                  </li>
                   <li>
                     <code>csrf</code> (Security, signed in): a page on another site (<code>127.0.0.1</code> for a{" "}
                     <code>localhost</code> app, and the other way round) sends the form&apos;s save from account A&apos;s
@@ -779,12 +773,11 @@ export default function DocsPage() {
                     is a high finding. When no cross-site address can be set up (a private host name), the result is
                     inconclusive, never a pass.
                   </li>
-                  <li>
-                    <code>paywall-trust</code> (Security, signed in): with account A on a free plan, it opens the
-                    app&apos;s own upgrade success pages and replays the app&apos;s own upgrade request with a zero
-                    price, then reads the plan again. It never enters payment details or calls a payment provider.
-                  </li>
                 </ul>
+                <p>
+                  Still planned: checks that account B, or a visitor who isn&apos;t signed in, can&apos;t change or
+                  delete account A&apos;s data, and that a paid plan needs a real payment.
+                </p>
               </div>
               <Figures items={accessFigures} />
               <div className="prose-night">
@@ -816,8 +809,8 @@ export default function DocsPage() {
                   <code>http://fernway-bugs:4110/login</code> (their emails and passwords are in{" "}
                   <a href={site.fernwayGuide}>Fernway&apos;s README</a>), then plan{" "}
                   <code>http://fernway-bugs:4110/app</code> signed in as Account A, with every scenario ticked. The
-                  planted access bugs show up as access-control and deep-links findings (tick the write-side checks too
-                  to see Fernway&apos;s write bugs): deep-links reports{" "}
+                  planted access bugs show up as access-control and deep-links findings (csrf is inconclusive on that
+                  address; it catches Fernway&apos;s CSRF bug on a <code>localhost</code> one): deep-links reports{" "}
                   <code>/app/help</code>, the help page in the sidebar, which answers 404 when opened directly. Then
                   plan <code>http://fernway-bugs:4110/app/settings</code> the same way to see mass-assignment catch
                   Fernway&apos;s bug there. On clean Fernway, <code>http://fernway:4110</code>{" "}
@@ -1102,8 +1095,8 @@ export default function DocsPage() {
                 <p>
                   The plan, the run, the progress and the report all follow the same three groups. Form checks are
                   planned once for each form on the page; page-wide checks are planned once for the whole page. The
-                  checks tagged {site.preview} arrived in 0.4.0 and 0.5.0; access-control, mass-assignment and the
-                  write-side checks (write-access, csrf, paywall-trust) are planned only on a{" "}
+                  checks tagged {site.preview} arrived in 0.4.0 and 0.5.0; access-control, mass-assignment and csrf
+                  are planned only on a{" "}
                   <a href="#accounts">signed-in run</a>. Scenarios that don&apos;t apply to your page (no
                   form, no password field, no JSON save request) are <strong>skipped with a plain reason</strong>, never
                   silently dropped.
@@ -1213,7 +1206,7 @@ export default function DocsPage() {
                     and never submits a form that sets a password, even then.
                   </li>
                   <li>
-                    <code>mass-assignment</code> and the write-side checks change account A&apos;s data on purpose, so
+                    <code>mass-assignment</code> and <code>csrf</code> change account A&apos;s data on purpose, so
                     they are unticked until you tick them. They put back what they changed and say in the report what
                     they couldn&apos;t (a field that wasn&apos;t there before can&apos;t be removed).
                   </li>

@@ -64,7 +64,7 @@ const roadmap: RoadmapStage[] = [
     status: "preview",
     release: site.version,
     summary: "Give it a feature such as signup or checkout and it tests that feature end to end across pages.",
-    adds: `A preview ships in 0.4.0: test accounts and signed-in runs, access checks (can another account, or a visitor who isn't signed in, read your data?), mass assignment and deep links. 0.5.0 adds the write-side checks: can another account or a visitor change your data, can another website (CSRF), and can a paid plan be had without paying? Still planned: testing a feature across pages, rate limits, file uploads and prompt injection.`,
+    adds: `A preview ships in 0.4.0: test accounts and signed-in runs, access checks (can another account, or a visitor who isn't signed in, read your data?), mass assignment and deep links. 0.5.0 adds the CSRF check: can another website change your data? Still planned: checks that another account or a visitor can't change your data and that a paid plan needs a payment, testing a feature across pages, rate limits, file uploads and prompt injection.`,
   },
   {
     version: "V3",
@@ -192,7 +192,7 @@ export default function OpenSourcePage() {
       <Section
         id="roadmap"
         title="Roadmap"
-        intro={`Each stage widens what Run Hound can test, from one form to a whole app. V0 has shipped, V1 is current, and 0.4.0 and 0.5.0 add a preview of V2: signed-in runs, access checks and write-side checks. The rest of V2, the whole app and live staging are planned.`}
+        intro={`Each stage widens what Run Hound can test, from one form to a whole app. V0 has shipped, V1 is current, and 0.4.0 and 0.5.0 add a preview of V2: signed-in runs, access checks and a CSRF check. The rest of V2, the whole app and live staging are planned.`}
       >
         <RoadmapList stages={roadmap} />
       </Section>

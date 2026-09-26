@@ -180,10 +180,10 @@ function notApproved(report: Report): { id: string; checkId: string; title: stri
 }
 
 /** Checks that plan scenarios only on a signed-in run (docs/v2-spec.md "Checks" and "Checks (0.5.0)"). */
-const SIGNED_IN_CHECK_IDS: readonly CheckId[] = ["access-control", "mass-assignment", "write-access", "csrf", "paywall-trust"];
+const SIGNED_IN_CHECK_IDS: readonly CheckId[] = ["access-control", "mass-assignment", "csrf"];
 
-/** The V2 checks added in 0.5.0 (the write-side checks); every other V2 check shipped in 0.4.0. */
-const V2_050_CHECK_IDS: readonly CheckId[] = ["write-access", "csrf", "paywall-trust"];
+/** The V2 check added in 0.5.0 (csrf); every other V2 check shipped in 0.4.0. */
+const V2_050_CHECK_IDS: readonly CheckId[] = ["csrf"];
 
 /**
  * The minor version of Run Hound 0.x that wrote `report` (a pre-release counts as its release), or Infinity when the
