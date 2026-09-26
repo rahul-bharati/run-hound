@@ -524,6 +524,11 @@ export interface Check {
    * RunOptions.scenarioTimeoutMs, when given, applies as it is. Absent = the default limit.
    */
   timeLimitMs?(scenario: Scenario, form: DiscoveredForm, page?: DiscoveredPage): number;
+  /**
+   * Added to the notes of a scenario the runner abandoned mid-run (stopped, or over its time limit): what the check may
+   * have left changed on the target, since it had no chance to put it back. Absent = nothing to say.
+   */
+  interruptedNote?: string;
 }
 
 /** A group's scenarios within a plan, in run order. */

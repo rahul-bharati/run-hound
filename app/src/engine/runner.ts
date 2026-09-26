@@ -905,12 +905,14 @@ async function runPlanWith(plan: Plan, options: RunOptions, secrets: SecretRegis
       running.catch(() => undefined);
       const outcome = await Promise.race([running, whenStopped, timedOut]);
       if (outcome === "stopped" || outcome === "timed-out") abandoned = running;
+      // A check abandoned mid-run had no chance to undo what it changed: its interruptedNote says what to check.
+      const interrupted = (note: string) => (check.interruptedNote ? `${note.replace(/\.?$/, ".")} ${check.interruptedNote}` : note);
       if (outcome === "stopped") {
         wasStopped = true;
-        return withSteps({ ...skipped(scenario, STOPPED_NOTE), durationMs: Date.now() - started });
+        return withSteps({ ...skipped(scenario, interrupted(STOPPED_NOTE)), durationMs: Date.now() - started });
       }
       if (outcome === "timed-out") {
-        return withSteps({ ...base, status: "error", findings: [], durationMs: Date.now() - started, notes: scenarioTimeoutNote(limitMs) });
+        return withSteps({ ...base, status: "error", findings: [], durationMs: Date.now() - started, notes: interrupted(scenarioTimeoutNote(limitMs)) });
       }
       const result = outcome;
       // A scenario that left the allowed targets never produces findings: whatever it saw was not the target.

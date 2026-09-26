@@ -54,11 +54,14 @@ interface ProfileOptions {
   members?: boolean;
   /** PUT stores every key; "sticky" keeps a role once it is "admin" (a restore can't take it back). */
   store?: "displayName" | "everything" | "sticky";
+  /** Once a save carries a role, GET /api/profile answers 500 (the re-read after the replay fails). */
+  failReadAfterRole?: boolean;
 }
 
 /** A profile page: GET /api/profile loads the record, PUT /api/profile saves the form's one field. */
 async function profileApp(o: ProfileOptions = {}): Promise<FixtureServer> {
   const record: Record<string, unknown> = { id: "u1", displayName: "Alice", ...(o.extras ?? {}) };
+  let sawRole = false;
   const server = await startFixtureServer({
     pages: {
       "/profile": `<!doctype html><html lang="en"><head><title>Profile</title></head><body><main><h1>Profile</h1>
@@ -76,11 +79,13 @@ document.getElementById("profile").addEventListener("submit", function (e) {
     routes: {
       "GET /api/profile": (req, res) => {
         if (!signedIn(req)) return send(res, 401, { error: "Sign in first" });
+        if (o.failReadAfterRole && sawRole) return send(res, 500, { error: "Something went wrong" });
         return send(res, 200, { profile: record, ...(o.members ? { members: [{ name: "Owner", role: "admin", plan: "pro" }] } : {}) });
       },
       "PUT /api/profile": (req, res) => {
         if (!signedIn(req)) return send(res, 401, { error: "Sign in first" });
         const body = JSON.parse(req.body) as Record<string, unknown>;
+        if ("role" in body) sawRole = true;
         if (typeof body.displayName === "string") record.displayName = body.displayName;
         if (o.store === "everything" || o.store === "sticky") {
           for (const [k, v] of Object.entries(body)) {
@@ -207,6 +212,19 @@ describe("mass-assignment on a vulnerable server", () => {
     expect(writes(server).map((r) => `${r.method} ${r.url}`)).toEqual(["POST /api/notes", "POST /api/notes"]);
     expect(result.notes).not.toMatch(/Restored/);
     expect(result.notes).toMatch(/new (test )?record/);
+  });
+
+  it("when the record can't be read back after the replay: an error, not a pass, and the previous values are sent back", async () => {
+    const server = await profileApp({ extras: { role: "member", plan: "free" }, store: "everything", failReadAfterRole: true });
+    const result = await run(server, "/profile", "Profile");
+    expect(result.status).toBe("error");
+    expect(result.notes).toMatch(/couldn't read Account A's record back/);
+    expect(result.notes).not.toMatch(/kept only the fields the form sends/);
+    // The form's own save, the replay, then the put-back with the values the record held before.
+    const saves = writes(server);
+    expect(saves).toHaveLength(3);
+    expect(JSON.parse(saves[2]!.body)).toMatchObject({ role: "member", plan: "free" });
+    expect(result.notes).toMatch(/check Account A/);
   });
 
   it("says a field was restored only when a re-read shows it; a field the server kept is named", async () => {

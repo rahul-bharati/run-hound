@@ -186,6 +186,8 @@ export const check: Check = {
   title: "The server ignores fields the form never sends (role, plan)",
   category: "security",
   scope: "form",
+  interruptedNote:
+    "If Run Hound had already replayed the save, Account A may still hold the privilege fields it injected (role, plan, isAdmin, …): check Account A.",
 
   plan(form, _page, env?: PlanEnv): Scenario[] {
     if (!env?.signedIn) return [];
@@ -238,49 +240,66 @@ export const check: Check = {
       const recordGet = await findRecord(ctx, capture, testValues);
       const beforeChains = recordGet ? recordChains(parseJson(recordGet.body), testValues) : [];
 
-      // Replay the save with the privilege fields added.
+      // Replay the save with the privilege fields added. From here on Account A's record may hold injected values, so a
+      // failure first puts back what the record held before (putBack). A stop or the time limit ends the scenario from
+      // outside, with no chance to do that: the runner adds interruptedNote to its notes instead.
       const injectedBody = { ...saveBody, ...INJECTED };
-      ctx.step("Replaying the save with privilege fields added", page);
-      const replay = await ctx.request("self", { method: save.method, url: save.url, headers: { "content-type": "application/json" }, body: JSON.stringify(injectedBody) });
-
       const injectedKeys = Object.keys(INJECTED);
       let accepted: string[] = [];
       const notes: string[] = [];
       const make = findings(scenario);
       const found: Finding[] = [];
+      // Re-reads the record (null when it can't): a field it didn't hold with the injected value before, and holds
+      // now, was accepted.
+      const readRecord = async (): Promise<JsonObject[][] | null> => {
+        if (!recordGet) return null;
+        const answer = await ctx.request("self", { method: "GET", url: recordGet.url }).catch(() => null);
+        return answer && answer.status >= 200 && answer.status < 300 ? recordChains(parseJson(answer.body), testValues) : null;
+      };
+      let settled = false;
+      try {
+        ctx.step("Replaying the save with privilege fields added", page);
+        const replay = await ctx.request("self", { method: save.method, url: save.url, headers: { "content-type": "application/json" }, body: JSON.stringify(injectedBody) });
 
-      if (recordGet) {
-        // Re-read the record: a field it didn't hold with the injected value before, and holds now, was accepted.
-        const readRecord = async () => {
-          const answer = await ctx.request("self", { method: "GET", url: recordGet.url }).catch(() => null);
-          return answer ? recordChains(parseJson(answer.body), testValues) : [];
-        };
-        const afterChains = await readRecord();
-        const already = injectedKeys.filter((k) => holds(beforeChains, k, INJECTED[k]));
-        accepted = injectedKeys.filter((k) => !already.includes(k) && holds(afterChains, k, INJECTED[k]));
-        if (already.length > 0) {
+        if (recordGet) {
+          const afterChains = await readRecord();
+          if (afterChains === null) {
+            settled = true;
+            const put = await putBack(ctx, { save, saveBody, beforeChains });
+            return errorResult(ID, scenario, started, `Run Hound couldn't read Account A's record back after the replay, so it can't tell which privilege fields the server kept. ${put}`);
+          }
+          const already = injectedKeys.filter((k) => holds(beforeChains, k, INJECTED[k]));
+          accepted = injectedKeys.filter((k) => !already.includes(k) && holds(afterChains, k, INJECTED[k]));
+          if (already.length > 0) {
+            notes.push(
+              `Account A's record already held ${listOf(already)} with the value${already.length === 1 ? "" : "s"} Run Hound injects, so the replay can't show whether the server accepts ${already.length === 1 ? "it" : "them"}.`,
+            );
+          }
+
+          if (accepted.length === 0) {
+            notes.push("The server kept only the fields the form sends; every other injected privilege field was ignored.");
+          } else if (afterChains.length > beforeChains.length) {
+            // The replay made a new record (a save that creates): the injected fields are on that test record.
+            notes.push("The replay created a new test record rather than changing one, so there is nothing to restore: the injected fields are on that test record, which carries the run's test values.");
+          } else {
+            notes.push(...(await restore(ctx, { save, saveBody, accepted, beforeChains, readRecord, page })));
+          }
+        } else {
+          // No record endpoint: an echo of the injected values in the replay's own answer is an advisory finding.
+          const echo = recordsOrTop(parseJson(replay.body), testValues);
+          accepted = injectedKeys.filter((k) => holds(echo, k, INJECTED[k]));
           notes.push(
-            `Account A's record already held ${listOf(already)} with the value${already.length === 1 ? "" : "s"} Run Hound injects, so the replay can't show whether the server accepts ${already.length === 1 ? "it" : "them"}.`,
+            accepted.length > 0
+              ? "No endpoint reads this record back, so this is advisory: the server echoed the injected fields, which suggests it stored them."
+              : "The server's answer did not echo the injected fields, and no endpoint reads this record back.",
           );
         }
-
-        if (accepted.length === 0) {
-          notes.push("The server kept only the fields the form sends; every other injected privilege field was ignored.");
-        } else if (afterChains.length > beforeChains.length) {
-          // The replay made a new record (a save that creates): the injected fields are on that test record.
-          notes.push("The replay created a new test record rather than changing one, so there is nothing to restore: the injected fields are on that test record, which carries the run's test values.");
-        } else {
-          notes.push(...(await restore(ctx, { save, saveBody, accepted, beforeChains, readRecord, page })));
-        }
-      } else {
-        // No record endpoint: an echo of the injected values in the replay's own answer is an advisory finding.
-        const echo = recordsOrTop(parseJson(replay.body), testValues);
-        accepted = injectedKeys.filter((k) => holds(echo, k, INJECTED[k]));
-        notes.push(
-          accepted.length > 0
-            ? "No endpoint reads this record back, so this is advisory: the server echoed the injected fields, which suggests it stored them."
-            : "The server's answer did not echo the injected fields, and no endpoint reads this record back.",
-        );
+        settled = true;
+      } catch (error) {
+        if (settled) throw error;
+        settled = true;
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`${message.replace(/\.?$/, ".")} ${await putBack(ctx, { save, saveBody, beforeChains })}`);
       }
 
       if (accepted.length === 0) {
@@ -389,6 +408,30 @@ async function findRecord(ctx: CheckContext, capture: Capture, testValues: strin
 }
 
 /**
+ * After a failure part-way through, when which injected fields the server kept is unknown: sends the save again with
+ * every injected field the record held before set back to that value, and says what Account A may still hold.
+ */
+async function putBack(
+  ctx: CheckContext,
+  o: { save: Capture["requests"][number]; saveBody: Record<string, unknown>; beforeChains: JsonObject[][] },
+): Promise<string> {
+  const before = o.beforeChains[0] ?? [];
+  const present = Object.keys(INJECTED).filter((k) => nearest(before, k).found);
+  const check = "check Account A for injected privilege fields (role, plan, isAdmin, …).";
+  if (present.length === 0) return `Run Hound has nothing to put back (the record held none of them before): ${check}`;
+  const restoreBody = { ...o.saveBody, ...Object.fromEntries(present.map((k) => [k, nearest(before, k).value])) };
+  const sent = await ctx
+    .request("self", { method: o.save.method, url: o.save.url, headers: { "content-type": "application/json" }, body: JSON.stringify(restoreBody) })
+    .then(
+      (answer) => answer.status >= 200 && answer.status < 300,
+      () => false,
+    );
+  return sent
+    ? `Run Hound sent ${listOf(present)} back to ${present.length === 1 ? "its previous value" : "their previous values"}; ${check}`
+    : `Run Hound couldn't put the previous values back: ${check}`;
+}
+
+/**
  * Puts back the accepted fields the record held before (a save that changes a record), re-reads it, and says what
  * happened: what is back to its previous value, what the server kept, and what was not there before (Run Hound can't
  * remove a field).
@@ -400,7 +443,7 @@ async function restore(
     saveBody: Record<string, unknown>;
     accepted: string[];
     beforeChains: JsonObject[][];
-    readRecord: () => Promise<JsonObject[][]>;
+    readRecord: () => Promise<JsonObject[][] | null>;
     page: import("playwright").Page;
   },
 ): Promise<string[]> {
@@ -412,7 +455,7 @@ async function restore(
     const restoreBody = { ...o.saveBody, ...Object.fromEntries(present.map((k) => [k, nearest(before, k).value])) };
     ctx.step("Restoring the fields Run Hound changed", o.page);
     await ctx.request("self", { method: o.save.method, url: o.save.url, headers: { "content-type": "application/json" }, body: JSON.stringify(restoreBody) }).catch(() => undefined);
-    const now = await o.readRecord();
+    const now = (await o.readRecord()) ?? [];
     const back = present.filter((k) => now.some((chain) => { const n = nearest(chain, k); return n.found && n.value === nearest(before, k).value; }));
     const kept = present.filter((k) => !back.includes(k));
     if (back.length > 0) notes.push(`Restored ${listOf(back)} to ${back.length === 1 ? "its previous value" : "their previous values"}.`);

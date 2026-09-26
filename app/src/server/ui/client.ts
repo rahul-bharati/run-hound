@@ -1713,7 +1713,7 @@ export const CLIENT = String.raw`
       if (r.status === "error") n.error++;
       else if (isIssue(r)) n.fail++;
       else if (r.status === "pass") n.pass++;
-      else if (r.status === "skipped") { n.skipped++; if (r.notes === STOPPED_NOTE) n.stopped++; }
+      else if (r.status === "skipped") { n.skipped++; if ((r.notes || "").indexOf(STOPPED_NOTE) === 0) n.stopped++; }
     }
     n.issues = n.fail + n.error;
     const confirmed = (report.findings || []).filter((f) => f.confidence === "confirmed").length;

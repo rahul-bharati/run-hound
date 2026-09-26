@@ -296,7 +296,7 @@ function allowedDestructive(report: Report): boolean {
   const recorded: unknown = report.options?.allowDestructive;
   if (typeof recorded === "boolean") return recorded;
   const destructive = new Set(report.plan.scenarios.filter((s) => s.destructive).map((s) => s.id));
-  return report.results.some((r) => destructive.has(r.scenarioId) && !(r.status === "skipped" && (r.notes === STOPPED_NOTE || /^Destructive scenario\b/.test(r.notes ?? ""))));
+  return report.results.some((r) => destructive.has(r.scenarioId) && !(r.status === "skipped" && ((r.notes ?? "").startsWith(STOPPED_NOTE) || /^Destructive scenario\b/.test(r.notes ?? ""))));
 }
 
 /** A redacted secret in a URL, as redactSecrets writes it: "[REDACTED:github-token]". */

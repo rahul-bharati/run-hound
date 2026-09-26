@@ -176,6 +176,15 @@ describe("the per-scenario time limit", () => {
     expect(ends.map((e) => e.scenarioId)).toEqual(["dc:1", "bs:1"]);
   }, 60_000);
 
+  it("adds the check's interruptedNote to an abandoned scenario's notes, and to no other result", async () => {
+    const checks = fakeChecks().map((c) => (c.id === "dead-control" ? { ...c, interruptedNote: "Check the fake widget." } : c));
+    const plan = buildPlan(target(), form(), checks);
+    const { report } = await runPlan(plan, { checks, approved: ["dc:1", "bs:1"], runsDir, log: () => undefined, scenarioTimeoutMs: 1_000 });
+
+    expect(report.results.find((r) => r.scenarioId === "dc:1")?.notes).toBe(`${scenarioTimeoutNote(1_000)} Check the fake widget.`);
+    expect(report.results.find((r) => r.scenarioId === "bs:1")?.notes ?? "").not.toMatch(/fake widget/);
+  }, 60_000);
+
   it("an abandoned check that carries on reports nothing more, and a page it opens late is closed when it ends", async () => {
     const checks = fakeChecks({ releaseHang: true });
     const plan = buildPlan(target(), form(), checks);
