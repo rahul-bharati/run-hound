@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Fragment } from "react";
 import { ArrowIcon, ButtonLink } from "@/components/button-link";
 import { EvidenceFigure } from "@/components/demo/evidence-figure";
 import { CodeBlock } from "@/components/docs/code-block";
@@ -19,10 +20,10 @@ export const metadata = pageMetadata({
 // Planted bugs per test app and stage: fixtures/kennel/bugs.json and fixtures/fernway/bugs.json.
 const planted = [
   {
-    label: "KENNEL · V0",
+    label: "KENNEL · STAGE V0",
     count: 19,
     title: "Booking form bugs",
-    body: "Defects in a single form on localhost, the ones V0 was scored against. In clean mode the target is zero confirmed findings.",
+    body: "Defects in a single form on localhost, the ones the V0 stage was scored against. In clean mode the target is zero confirmed findings.",
     groups: [
       { name: "Broken features", count: 5 },
       { name: "Validation", count: 1 },
@@ -31,10 +32,10 @@ const planted = [
     ],
   },
   {
-    label: "KENNEL · V1",
+    label: "KENNEL · STAGE V1",
     count: 5,
     title: "Whole-page bugs",
-    body: "Defects outside the form and in how the server answers, the ones V1 is scored against. Clean Kennel sends proper headers and cookies, so the target is still zero confirmed findings.",
+    body: "Defects outside the form and in how the server answers, the ones the V1 stage is scored against. Clean Kennel sends proper headers and cookies, so the target is still zero confirmed findings.",
     groups: [
       { name: "Button outside the form", count: 1 },
       { name: "Security headers", count: 1 },
@@ -44,10 +45,10 @@ const planted = [
     ],
   },
   {
-    label: "FERNWAY · W01–W10",
+    label: "FERNWAY · BUGS W01–W10",
     count: 10,
     title: "Bugs AI builders ship",
-    body: "The usual defects, planted in an app built like the ones Lovable, Bolt and v0 generate: custom selects, toasts, dialogs and a dashboard behind a sign-in. Each is caught by one of the V0 and V1 checks.",
+    body: "The usual defects, planted in an app built like the ones Lovable, Bolt and v0 generate: custom selects, toasts, dialogs and a dashboard behind a sign-in. Each is caught by one of the checks of the V0 and V1 stages.",
     groups: [
       { name: "Accessibility", count: 4 },
       { name: "Broken features", count: 3 },
@@ -55,7 +56,7 @@ const planted = [
     ],
   },
   {
-    label: `FERNWAY · V01–V05 · ${site.preview.toUpperCase()}`,
+    label: `FERNWAY · BUGS V01–V05 · ${site.preview.toUpperCase()}`,
     count: 5,
     title: "Access bugs",
     body: "Caught by the checks of the V2 preview, with Run Hound signed in as one Fernway account (A) and a second one (B): who can read whose data, extra fields the server stores, and pages that break when opened directly.",
@@ -67,6 +68,22 @@ const planted = [
     ],
   },
 ];
+
+// A planted-bug label, its parts kept whole with their separators, so on a phone it wraps as balanced lines and never
+// splits a part ("V2 PREVIEW") or starts a line with a separator.
+function PlantedLabel({ label }: { label: string }) {
+  const parts = label.split(" · ");
+  return (
+    <Eyebrow className="text-balance">
+      {parts.map((part, i) => (
+        <Fragment key={part}>
+          <span className="whitespace-nowrap">{i < parts.length - 1 ? `${part} ·` : part}</span>
+          {i < parts.length - 1 ? " " : null}
+        </Fragment>
+      ))}
+    </Eyebrow>
+  );
+}
 
 // Two screenshots side by side from lg: half the 1136 px container, full width below.
 const halfShotSizes =
@@ -100,8 +117,8 @@ export default function DemoPage() {
         lede={
           <>
             Everything on this page was captured from a real run of Run Hound against Kennel, our deliberately broken
-            pet-sitting booking app, with all 24 of its V0 and V1 bugs switched on, and AI off. The keys and email
-            addresses are fake test values.
+            pet-sitting booking app, with all 24 of its bugs for the V0 and V1 stages switched on, and AI off. The keys
+            and email addresses are fake test values.
           </>
         }
       />
@@ -185,7 +202,7 @@ export default function DemoPage() {
       <Section
         id="whole-page"
         title="The page as a whole"
-        intro="Since V1, Run Hound also looks past the form, at how the server answers and who may read it. These checks run once for the whole page."
+        intro="Since 0.2.0 (the V1 stage), Run Hound also looks past the form, at how the server answers and who may read it. These checks run once for the whole page."
       >
         <div className="grid items-start gap-5 lg:grid-cols-2">
           <EvidenceFigure
@@ -319,7 +336,7 @@ export default function DemoPage() {
           {planted.map((set) => (
             <Card key={set.label} className="flex flex-col gap-5">
               <div className="flex items-baseline justify-between gap-4">
-                <Eyebrow>{set.label}</Eyebrow>
+                <PlantedLabel label={set.label} />
                 <p className="font-display text-4xl font-extrabold tracking-tight">
                   {set.count}
                   <span className="sr-only"> planted bugs</span>

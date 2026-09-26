@@ -57,3 +57,4 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-09-26: [Every decision goes in an append-only log, one file per month, indexed in DECISIONS.md](docs/decisions/09-2026.md#2026-09-26-append-only-decisions-log)
 - 2026-09-26: [npx run-hound ships as 0.9.9, the last release before 1.0.0](docs/decisions/09-2026.md#2026-09-26-npx-release-is-0-9-9)
 - 2026-09-21: [The roadmap's V0 to V4 are feature stages, not version numbers, and 1.0.0 is the release that completes V4](docs/decisions/09-2026.md#2026-09-21-stages-are-feature-sets)
+- 2026-09-27: [Where the site shows a version it shows the release number, and it names V0 to V4 only as stages](docs/decisions/09-2026.md#2026-09-27-site-shows-release-not-stage)

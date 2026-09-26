@@ -21,12 +21,12 @@ export const site = {
   // Default meta description: at most about 155 characters, so search results show it whole.
   description:
     "Open-source, AI-assisted UI testing for AI-built apps. Real checks in a real browser, with evidence and a Playwright test for every finding.",
-  // Current stage: V1 ("Single page"), open source under MIT, with optional AI since 0.3.0. V0 ("Single form",
-  // 0.1.0) shipped before it. 0.4.0 adds the first slice of V2 as a preview (docs/v2-spec.md): test accounts and
-  // signed-in runs, access checks, mass assignment and deep links; 0.5.0 adds the CSRF check
-  // (csrf). The web UI and reports call it "V2 preview".
-  release: "V1",
-  releaseName: "Single page",
+  // The release is `version`. V0 to V4 are stages of what Run Hound can test, not releases: V0 (single form) shipped
+  // in 0.1.0, V1 (single page) in 0.2.0 to 0.4.0, V2 is in preview since 0.4.0, V3 is planned, and V4 is planned as
+  // 1.0.0, with 0.9.9, right before it, the `npx run-hound` release. The open-source page and docs/roadmap.md list
+  // them. `preview` is the stage in preview, named as the web UI and reports name it: test accounts and signed-in
+  // runs, access checks, mass assignment and deep links since 0.4.0 (docs/v2-spec.md), and the CSRF check (csrf)
+  // since 0.5.0.
   preview: "V2 preview",
   previewName: "Signed-in runs and access checks",
   version,

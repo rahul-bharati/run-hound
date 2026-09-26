@@ -41,33 +41,33 @@ const openCore: { core: string; later: string }[] = [
 
 const roadmap: RoadmapStage[] = [
   {
-    version: "V0",
+    stage: "V0",
     name: "Single form",
     status: "shipped",
-    release: "0.1.0",
+    release: "Release 0.1.0",
     summary:
       "Point it at a form on localhost. It plans golden- and danger-path scenarios, you approve them, it runs them and reports with evidence and exported Playwright tests.",
     adds: "15 checks. Shipped as 0.1.0.",
   },
   {
-    version: "V1",
+    stage: "V1",
     name: "Single page",
     status: "shipped",
-    release: "0.2.0 – 0.4.0",
+    release: "Releases 0.2.0–0.4.0",
     summary:
       "Point it at a page. It finds the forms and controls on it, plans form checks for each form plus page-wide checks, you approve, and it runs them in a real browser. Local only.",
     adds: `0.2.0 adds security headers, cookie flags, CORS, public source maps and dead controls across the whole page, and one Docker or Podman command starts it with the test apps. 0.3.0 adds optional AI with your own model: plan review, up to 5 suggested flows and explanations, off by default and never the judge of pass or fail. 0.4.0 finds and fills the custom widgets and dialog forms of AI-built apps.`,
   },
   {
-    version: "V2",
+    stage: "V2",
     name: "Single feature",
     status: "preview",
-    release: "since 0.4.0",
+    release: "Since 0.4.0",
     summary: "Give it a feature such as signup or checkout and it tests that feature end to end across pages.",
     adds: `A preview ships in 0.4.0: test accounts and signed-in runs, access checks (can another account, or a visitor who isn't signed in, read your data?), mass assignment and deep links. 0.5.0 adds the CSRF check: can another website change your data? Still planned: checks that another account or a visitor can't change your data and that a paid plan needs a payment, testing a feature across pages, rate limits, file uploads and prompt injection.`,
   },
   {
-    version: "V3",
+    stage: "V3",
     name: "Whole app",
     status: "planned",
     summary:
@@ -75,10 +75,10 @@ const roadmap: RoadmapStage[] = [
     adds: "Adds a dead-link crawl, cross-browser runs, Core Web Vitals, SEO and social previews.",
   },
   {
-    version: "V4",
+    stage: "V4",
     name: "Live staging",
     status: "planned",
-    release: "1.0.0",
+    release: "Release 1.0.0",
     summary:
       "Support for testing live staging and dev sites behind ownership verification. Completing it is the 1.0.0 release.",
     adds: "Adds checks for live hosts, such as mixed content and email DNS records.",

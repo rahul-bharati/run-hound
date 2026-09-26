@@ -2,8 +2,8 @@ import { EyeOff, Info, KeyRound, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { ArrowIcon, ButtonLink } from "@/components/button-link";
 import { Icon, groupIcons } from "@/components/icon";
-import { AdvisoryBadge, CheckCard, VersionBadge, isShipped } from "@/components/checks/check-card";
-import { aiFlowCheck, categories, notVisible, previewGroups, versionMeaning, type Version } from "@/components/checks/data";
+import { AdvisoryBadge, CheckCard, StageBadge, isShipped } from "@/components/checks/check-card";
+import { aiFlowCheck, categories, notVisible, previewGroups, stageMeaning, type Stage } from "@/components/checks/data";
 import { Container, Eyebrow, NewTag, PageHeader, Section } from "@/components/layout";
 import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
@@ -11,6 +11,7 @@ import { SeverityLabel } from "@/components/finding";
 
 const previewTotal = previewGroups.reduce((sum, g) => sum + g.checks.length, 0);
 const v2Total = previewGroups.reduce((sum, g) => sum + g.checks.filter((c) => c.since === "V2").length, 0);
+const signedInTotal = previewGroups.reduce((sum, g) => sum + g.checks.filter((c) => c.signedIn).length, 0);
 
 export const metadata = pageMetadata({
   path: "/checks/",
@@ -18,7 +19,7 @@ export const metadata = pageMetadata({
   description: `The ${previewTotal} built-in checks in Run Hound ${site.version}, in three groups, and the full catalog of gaps in AI-built apps it hunts for, with severity and roadmap stage.`,
 });
 
-const versions = Object.keys(versionMeaning) as Version[];
+const stages = Object.keys(stageMeaning) as Stage[];
 
 const linkClass = "text-accent underline underline-offset-4 hover:text-accent-strong";
 
@@ -65,7 +66,7 @@ export default function ChecksPage() {
 
       <Section
         id="preview"
-        eyebrow={`TODAY · ${site.version}`}
+        eyebrow={`TODAY · RELEASE ${site.version}`}
         className="border-t border-line-soft bg-band"
         title={
           <>
@@ -75,7 +76,7 @@ export default function ChecksPage() {
             </span>
           </>
         }
-        intro={`Run Hound tests one page of your local app. It finds the forms and controls on it, plans the form checks for each form plus the page-wide checks, and the plan, the run and the report all follow the same three groups. The ${v2Total} checks tagged V2 preview arrived in 0.4.0; two of them need a signed-in run. With AI on, one optional check joins them: AI-suggested flows. Every pass and fail comes from a real check in a real browser, with evidence.`}
+        intro={`Run Hound tests one page of your local app. It finds the forms and controls on it, plans the form checks for each form plus the page-wide checks, and the plan, the run and the report all follow the same three groups. The ${v2Total} checks tagged V2 preview arrived in 0.4.0 and 0.5.0; ${signedInTotal} of them need a signed-in run. With AI on, one optional check joins them: AI-suggested flows. Every pass and fail comes from a real check in a real browser, with evidence.`}
       >
         <div className="grid gap-5 lg:grid-cols-3">
           {previewGroups.map((g) => (
@@ -197,13 +198,13 @@ export default function ChecksPage() {
             <dl className="flex flex-col gap-3">
               <div className="flex items-center gap-3">
                 <dt>
-                  <VersionBadge version="V1" shipped />
+                  <StageBadge stage="V1" shipped />
                 </dt>
                 <dd className="text-sm text-muted">Lit: runs in {site.version} today</dd>
               </div>
               <div className="flex items-center gap-3">
                 <dt>
-                  <VersionBadge version="V2" />
+                  <StageBadge stage="V2" />
                 </dt>
                 <dd className="text-sm text-muted">Plain: planned for that stage</dd>
               </div>
@@ -218,10 +219,10 @@ export default function ChecksPage() {
           <div className="flex flex-col gap-4">
             <p className="font-mono text-xs tracking-widest text-dim">ROADMAP STAGES</p>
             <dl className="flex flex-col divide-y divide-line-soft border-y border-line-soft">
-              {versions.map((v) => (
-                <div key={v} className="flex items-baseline gap-4 py-2.5">
-                  <dt className="w-8 shrink-0 font-mono text-sm text-fg">{v}</dt>
-                  <dd className="text-sm leading-relaxed text-muted">{versionMeaning[v]}</dd>
+              {stages.map((stage) => (
+                <div key={stage} className="flex items-baseline gap-4 py-2.5">
+                  <dt className="w-8 shrink-0 font-mono text-sm text-fg">{stage}</dt>
+                  <dd className="text-sm leading-relaxed text-muted">{stageMeaning[stage]}</dd>
                 </div>
               ))}
             </dl>

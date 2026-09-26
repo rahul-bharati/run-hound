@@ -52,8 +52,12 @@ export function Hero() {
             <span className="text-dim max-sm:hidden" aria-hidden="true">
               ·
             </span>
-            <span className="text-muted">
-              {site.release} · {site.releaseName.toUpperCase()} · {site.preview.toUpperCase()} · {site.version}
+            {/* Each part stays on one line with its separator; on a phone the parts wrap as balanced lines, never one
+                word alone and never a line that starts with a separator. */}
+            <span className="text-balance text-muted">
+              <span className="whitespace-nowrap">RELEASE {site.version} ·</span>{" "}
+              <span className="whitespace-nowrap">SINGLE PAGE ·</span>{" "}
+              <span className="whitespace-nowrap">{site.preview.toUpperCase()}</span>
             </span>
           </p>
 

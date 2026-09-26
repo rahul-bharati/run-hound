@@ -44,9 +44,9 @@ const labels: Record<string, string> = {
 };
 
 /**
- * The built-in checks in their three groups, in run order, from the same data the checks page and docs use (V0's
- * form checks, V1's page-wide checks and the V2 preview's checks). The V2 preview's checks are tagged; three of them
- * run only signed in.
+ * The built-in checks in their three groups, in run order, from the same data the checks page and docs use (the form
+ * checks of the V0 stage, the page-wide checks of the V1 stage and the V2 preview's checks). The V2 preview's checks
+ * are tagged; three of them run only signed in.
  */
 export const checkGroups = previewGroups.map((g) => ({
   id: g.group.toLowerCase(),
@@ -62,3 +62,4 @@ export const checkGroups = previewGroups.map((g) => ({
 
 export const totalChecks = checkGroups.reduce((sum, g) => sum + g.checks.length, 0);
 export const previewChecks = checkGroups.reduce((sum, g) => sum + g.checks.filter((c) => c.preview).length, 0);
+export const signedInChecks = checkGroups.reduce((sum, g) => sum + g.checks.filter((c) => c.signedIn).length, 0);

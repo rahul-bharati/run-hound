@@ -1,10 +1,11 @@
 export type RoadmapStatus = "shipped" | "current" | "preview" | "planned";
 
 export type RoadmapStage = {
-  version: string;
+  /** The stage label ("V0"): a stage of what Run Hound can test, never a release number. */
+  stage: string;
   name: string;
   status: RoadmapStatus;
-  /** Release number, for stages that have one ("0.1.0"). */
+  /** The releases that built the stage, or will, as a label that says so ("Release 0.1.0", "Since 0.4.0"). */
   release?: string;
   summary: string;
   adds?: string;
@@ -27,13 +28,14 @@ export function RoadmapList({ stages }: { stages: readonly RoadmapStage[] }) {
         const current = stage.status === "current";
         return (
           <li
-            key={stage.version}
+            key={stage.stage}
             aria-current={current ? "step" : undefined}
-            className={`grid gap-4 rounded-2xl border bg-surface p-6 sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-8 sm:p-7 ${style.card}`}
+            className={`grid gap-4 rounded-2xl border bg-surface p-6 sm:grid-cols-[160px_minmax(0,1fr)] sm:gap-8 sm:p-7 ${style.card}`}
           >
             <div className="flex flex-wrap items-center gap-3 sm:flex-col sm:items-start">
               <span className={`font-display text-3xl font-extrabold tracking-tight ${current ? "text-accent" : ""}`}>
-                {stage.version}
+                <span className="sr-only">Stage </span>
+                {stage.stage}
               </span>
               <span
                 className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] tracking-widest ${style.pill}`}

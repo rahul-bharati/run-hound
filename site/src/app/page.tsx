@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { ButtonLink } from "@/components/button-link";
 import { Container, Section } from "@/components/layout";
-import { links, previewChecks, totalChecks } from "@/components/home/data";
+import { links, previewChecks, signedInChecks, totalChecks } from "@/components/home/data";
 import { AiSection } from "@/components/home/ai";
 import { Evidence } from "@/components/home/evidence";
 import { Groups } from "@/components/home/groups";
@@ -182,7 +182,7 @@ export default function Home() {
             Signed-in runs <span className="text-accent">and access checks.</span>
           </>
         }
-        intro="Add two test accounts you own on your app, A and B. Run Hound signs in before it tests, so pages behind a login get every check, and four checks look for what AI-built backends often get wrong: three from 0.4.0 and one that writes (0.5.0). They are the first parts of V2, released as a preview."
+        intro="Add two test accounts you own on your app, A and B. Run Hound signs in before it tests, so pages behind a login get every check, and four checks look for what AI-built backends often get wrong: three from 0.4.0 and one that writes (0.5.0). They are the first parts of the V2 stage, released as a preview."
         className="border-t border-line-soft"
       >
         <ul className="grid gap-5 md:grid-cols-2">
@@ -220,7 +220,7 @@ export default function Home() {
               customer&apos;s.
             </p>
             <p>
-              Still planned for V2: checks that another account or a signed-out visitor can&apos;t change your data and that a paid
+              Still planned for the V2 stage: checks that another account or a signed-out visitor can&apos;t change your data and that a paid
               plan needs a real payment, testing a feature across pages, rate limits, file uploads and prompt injection.
             </p>
             <ArrowLink href="/docs#accounts">Signed-in runs in the docs</ArrowLink>
@@ -288,7 +288,7 @@ export default function Home() {
       <Section
         title={`${totalChecks} checks in three groups`}
         eyebrow="WHAT IT CHECKS"
-        intro={`What the plan holds for a page, in run order: the form checks for each form and the page-wide checks. The ${previewChecks} checks of the V2 preview are tagged; two of them run only signed in. Checks that have nothing to test on your page are skipped and listed as such in the report. With AI on, suggested flows you tick run as one more, optional check.`}
+        intro={`What the plan holds for a page, in run order: the form checks for each form and the page-wide checks. The ${previewChecks} checks of the V2 preview are tagged; ${signedInChecks} of them run only signed in. Checks that have nothing to test on your page are skipped and listed as such in the report. With AI on, suggested flows you tick run as one more, optional check.`}
         className="border-y border-line-soft bg-band"
       >
         <Groups />

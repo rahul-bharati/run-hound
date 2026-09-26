@@ -251,7 +251,7 @@ export default function DocsPage() {
   return (
     <>
       <PageHeader
-        eyebrow={`DOCS · ${site.version}`}
+        eyebrow={`DOCS · RELEASE ${site.version}`}
         title={
           <>
             Run it <span className="text-accent">on your machine.</span>
@@ -286,7 +286,7 @@ export default function DocsPage() {
             <DocSection id="overview" step="01" title="What it does">
               <div className="prose-night">
                 <p>
-                  Run Hound {site.version} ({site.release}, {site.releaseName.toLowerCase()}, with a {site.preview})
+                  Run Hound {site.version} (single page, with the {site.preview})
                   opens one page of your local app in a headless Chromium and finds the <strong>forms and controls</strong>{" "}
                   on it, including the custom widgets and dialog forms of apps from AI builders. It plans the form checks
                   for each form, plus page-wide checks (security headers, cookie flags, CORS, public source maps, controls
@@ -295,7 +295,7 @@ export default function DocsPage() {
                   and response cards) and a Playwright test for each finding.
                 </p>
                 <p>
-                  New in 0.4.0, as a preview of V2: <strong>test accounts and signed-in runs</strong>. Run Hound
+                  New in 0.4.0, as a preview of the V2 stage: <strong>test accounts and signed-in runs</strong>. Run Hound
                   signs in with an account you own before it tests, so pages behind a login get every check, and the
                   access checks ask whether another account, or a visitor who isn&apos;t signed in, can read your data.
                   New in 0.5.0: the <strong>CSRF check</strong> asks whether another website can change it. See <a href="#accounts">Test accounts</a>. Also new: discovery that handles the widgets, dialogs and
@@ -311,7 +311,7 @@ export default function DocsPage() {
                 <ul>
                   <li>
                     test a feature across pages: it opens the page&apos;s own links only to check they load (the rest
-                    of V2 is planned);
+                    of the V2 stage is planned);
                   </li>
                   <li>
                     sign in with Google or another provider, a magic link, a code or a captcha: only the app&apos;s own

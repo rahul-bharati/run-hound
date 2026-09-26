@@ -29,7 +29,7 @@ export function Icon({ icon: Glyph, size = 20, className = "", ...rest }: IconPr
   );
 }
 
-/** One icon per V0 check group, shared wherever the groups are shown. */
+/** One icon per check group of the V0 stage, shared wherever the groups are shown. */
 export const groupIcons: Record<string, LucideIcon> = {
   accessibility: Accessibility,
   features: Bug,

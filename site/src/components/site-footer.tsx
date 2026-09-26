@@ -23,7 +23,8 @@ export function SiteFooter() {
           </Link>
           <p className="max-w-xs text-sm leading-relaxed text-dim">
             AI-assisted UI testing for AI-built apps, open source under the MIT license. Runs on your machine.{" "}
-            {site.version}: {site.release} with a {site.preview} and optional AI; the repository is public.
+            Release {site.version} tests one page, with signed-in runs ({site.preview}) and optional AI; the repository
+            is public.
           </p>
           <p className="text-sm text-dim">
             Found a bug?{" "}
@@ -79,13 +80,18 @@ export function SiteFooter() {
         </nav>
       </div>
       <div className="border-t border-line-soft">
-        <p className="mx-auto flex max-w-7xl flex-wrap gap-x-3 gap-y-1 px-4 py-6 font-mono text-xs text-dim sm:px-6 lg:px-[72px]">
+        {/* Stacked on a phone (no separator left at a line end), one wrapping row from sm up. */}
+        <p className="mx-auto flex max-w-7xl flex-col items-start gap-y-1 px-4 py-6 font-mono text-xs text-dim sm:flex-row sm:flex-wrap sm:gap-x-3 sm:px-6 lg:px-[72px]">
           <span>{site.name}</span>
-          <span aria-hidden="true">·</span>
-          <span>
-            {site.version} · {site.release} ({site.releaseName}) · {site.preview}
+          <span aria-hidden="true" className="max-sm:hidden">
+            ·
           </span>
-          <span aria-hidden="true">·</span>
+          <span>
+            Release {site.version} · Single page · {site.preview}
+          </span>
+          <span aria-hidden="true" className="max-sm:hidden">
+            ·
+          </span>
           <a href={site.licenseUrl} className="underline underline-offset-4 hover:text-accent">
             {site.license} license
           </a>
