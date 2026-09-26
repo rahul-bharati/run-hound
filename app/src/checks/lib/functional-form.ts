@@ -3,8 +3,8 @@
  * and recognising the create request. Everything works from the DiscoveredForm, never from app-specific names.
  */
 import type { Page, Request } from "playwright";
-import { isSameOrigin as sameOriginCore, isSaveRequest } from "../../core/saves.js";
-import { SIMULATED_RESPONSE_HEADER, type Capture, type DiscoveredForm, type FormControl, type FormField } from "../../core/types.js";
+import { isPagePost, isSameOrigin as sameOriginCore, isSaveRequest } from "../../core/saves.js";
+import { SIMULATED_RESPONSE_HEADER, type Capture, type CheckContext, type DiscoveredForm, type FormControl, type FormField } from "../../core/types.js";
 import { fieldKind, firstChoice, isConsentCheckbox, meansYes, setField, showsLabel, type FieldSetting } from "./widgets.js";
 
 /** What the checks put into one field. Choice fields record the option they picked. */
@@ -46,9 +46,44 @@ export function controlName(control: FormControl): string {
   return control.accessibleName ?? (control.text || `unnamed ${control.role === "button" || control.tag === "button" ? "button" : control.tag}`);
 }
 
-function fit(value: string, field: FormField): string {
-  const max = field.constraints?.maxLength;
-  return max && max > 0 && value.length > max ? value.slice(0, max) : value;
+/**
+ * `value` made to fit the field's length limits: padded with "x" up to its minLength (a word apart, so the value
+ * itself stays findable), then cut to its maxLength.
+ */
+export function fitLength(value: string, field: FormField): string {
+  const { minLength: min, maxLength: max } = field.constraints ?? {};
+  let fitted = min && min > value.length ? `${value} ${"x".repeat(Math.max(1, min - value.length - 1))}` : value;
+  if (max && max > 0 && fitted.length > max) fitted = fitted.slice(0, max);
+  return fitted;
+}
+
+const fit = (value: string, field: FormField) => fitLength(value, field);
+
+/**
+ * Whether `value` passes the field's pattern attribute (true without one, or when the pattern doesn't compile). Browsers
+ * match the whole value with the "v" flag.
+ */
+export function fitsPattern(field: FormField, value: string): boolean {
+  const pattern = field.constraints?.pattern;
+  if (!pattern || value === "") return true;
+  for (const flags of ["v", "u"]) {
+    try {
+      return new RegExp(`^(?:${pattern})$`, flags).test(value);
+    } catch {
+      // try the next flag
+    }
+  }
+  return true;
+}
+
+/** A field that takes a handle rather than words: a slug (often labelled "Workspace URL"), a username, a handle. */
+export function isHandleField(field: FormField): boolean {
+  return /slug|handle|user-?name|subdomain/i.test(field.key) || /\b(?:slug|handle|user ?name|subdomain)\b/i.test(`${field.label ?? ""} ${field.accessibleName ?? ""}`);
+}
+
+/** A text field that takes a web address ("Website", "Homepage", "Link"), when it isn't a handle. */
+export function isWebsiteField(field: FormField): boolean {
+  return !isHandleField(field) && /\b(?:website|homepage|home page|url|link)\b/i.test(`${field.key} ${field.label ?? ""} ${field.accessibleName ?? ""}`);
 }
 
 /** Small stable number from a string, used to make phone canaries differ between checks. */
@@ -128,13 +163,18 @@ export function canaryValues(form: DiscoveredForm, token: string, salt: string):
           values.push({ field, value: fit(`owner.${tag}@example.test`, field), canary: true });
         } else if (/phone|mobile|tel/i.test(text)) {
           values.push({ field, value: `555 01${hashDigits(tag, 2)} ${hashDigits(salt, 3)}`, canary: true });
+        } else if (isHandleField(field)) {
+          values.push({ field, value: fit(`rh-${tag}`, field), canary: true });
+        } else if (isWebsiteField(field)) {
+          values.push({ field, value: `https://example.test/${tag}`, canary: true });
         } else {
           values.push({ field, value: fit(`${nameWord(field)} ${tag}`, field), canary: true });
         }
       }
     }
   }
-  return values;
+  // An optional field whose own pattern the made-up value breaks is left empty: empty is valid there, the value isn't.
+  return values.map((v) => (v.value && !v.field.required && fieldKind(v.field) === "text" && !fitsPattern(v.field, v.value) ? { ...v, value: "", canary: false } : v));
 }
 
 /**
@@ -358,6 +398,201 @@ export async function watchNextStep(page: Page, capture: Capture, pageUrl: strin
 export const MULTI_STEP_NOTE =
   "Skipped: this is a multi-step form. Submitting its first step showed the next step without saving anything, and Run Hound tests the first step only, so there was no saved record to check.";
 
+// ---------- Field errors and the empty submit (LOV-6, RH-08, RH-10) ----------
+
+/**
+ * Wording that makes text next to a field a validation message ("Task is required", "Enter a valid email", "Choose a
+ * plan"), and not a hint or a character count.
+ */
+const FIELD_ERROR_WORDS = String.raw`\b(?:required|invalid|must|please|enter|provide|missing|empty|at least|at most|too (?:short|long)|valid|choose|select|pick|agree|accept|can'?t|cannot|isn'?t|not allowed|should|needs?)\b`;
+
+/** Whether text next to a field reads like a validation message (FIELD_ERROR_WORDS), not a hint or a counter. */
+export function looksLikeFieldError(text: string | null | undefined): boolean {
+  return !!text && new RegExp(FIELD_ERROR_WORDS, "i").test(text);
+}
+
+/** Remembers what every element shows before a submit, so a message that appears afterwards can be told apart. */
+const ARM_FIELD_ERRORS = `(() => {
+  const seen = new WeakMap();
+  for (const el of document.querySelectorAll("body *")) seen.set(el, (el.textContent || "").replace(/\\s+/g, " ").trim());
+  window.__rhFieldErrors = seen;
+  return true;
+})()`;
+
+/**
+ * For each field ({ sel, native }): whether it shows a validation error now. aria-invalid="true" on it, a control
+ * inside it or its hidden native input; the browser's own validation failing (only in a form without novalidate,
+ * where it blocks the submit); or a message with error wording that appeared (since ARM_FIELD_ERRORS) in the field's
+ * own wrapper: up to three levels up, never a container that also holds another field, whose messages may be that
+ * field's.
+ */
+const FIELD_ERRORS_SCRIPT = `(args) => {
+  const words = new RegExp(args.words, "i");
+  const seen = window.__rhFieldErrors;
+  const fieldSel = "input:not([type=hidden]),select,textarea,[role=combobox],[role=checkbox],[role=switch],[role=radiogroup],[role=slider],[role=textbox],[contenteditable=true]";
+  const flat = (t) => (t || "").replace(/\\s+/g, " ").trim();
+  const own = (el) => flat(Array.from(el.childNodes).filter((n) => n.nodeType === 3).map((n) => n.textContent).join(" "));
+  const shown = (el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden";
+  const isNew = (el) => !seen || seen.get(el) !== flat(el.textContent);
+  return args.fields.map((f) => {
+    const el = document.querySelector(f.sel);
+    if (!el) return false;
+    const native = f.native ? document.querySelector(f.native) : null;
+    const controls = [el, ...el.querySelectorAll("input,select,textarea,[role=radio],[role=checkbox],[role=option]"), ...(native ? [native] : [])];
+    if (controls.some((c) => c.getAttribute("aria-invalid") === "true")) return true;
+    if (controls.some((c) => c.form && !c.form.noValidate && c.willValidate && c.validity && !c.validity.valid)) return true;
+    // The field's own parts: its hidden native input, and a widget's aria-hidden "bubble" input next to it.
+    const mine = (c) => c === el || el.contains(c) || c === native || (c.getAttribute("aria-hidden") === "true" && c.parentElement === el.parentElement);
+    let node = el.parentElement;
+    for (let depth = 0; node && depth < 3; depth++, node = node.parentElement) {
+      if (Array.from(node.querySelectorAll(fieldSel)).some((c) => !mine(c))) break;
+      const message = Array.from(node.querySelectorAll("*")).find((m) =>
+        !el.contains(m) && !m.matches("input,select,textarea,option,label,button,script,style") && own(m) && words.test(own(m)) && isNew(m) && shown(m));
+      if (message) return true;
+    }
+    return false;
+  });
+}`;
+
+/** Remembers what the page shows now, so fieldsShowingErrors only counts messages that appear after it. */
+export async function armFieldErrors(page: Page): Promise<void> {
+  await page.evaluate(ARM_FIELD_ERRORS).catch(() => undefined);
+}
+
+/**
+ * The form's fields that show a validation error now, in form order (see FIELD_ERRORS_SCRIPT). Call armFieldErrors
+ * before the submit, or every message already on the page counts. A page that can't be read shows none.
+ */
+export async function fieldsShowingErrors(page: Page, form: DiscoveredForm): Promise<FormField[]> {
+  const args = { words: FIELD_ERROR_WORDS, fields: form.fields.map((f) => ({ sel: f.selector, native: f.nativeSelector ?? null })) };
+  const flags = ((await page.evaluate(`(${FIELD_ERRORS_SCRIPT})(${JSON.stringify(args)})`).catch(() => null)) as boolean[] | null) ?? [];
+  return form.fields.filter((_, i) => flags[i] === true);
+}
+
+/** "\"Task\"", "\"Task\" and \"Email\"", "\"A\", \"B\" and 2 more". */
+function quotedNames(fields: FormField[]): string {
+  const names = fields.map((f) => `"${fieldName(f)}"`);
+  const shown = names.slice(0, 4);
+  const more = names.length - shown.length;
+  if (more > 0) return `${shown.join(", ")} and ${more} more`;
+  return shown.length > 1 ? `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}` : (shown[0] ?? "");
+}
+
+/**
+ * Why a submit sent nothing, for a skipped scenario's note, never blaming the app for what Run Hound didn't do (RH-10):
+ * the fields Run Hound could not set (`unset`), and the fields that showed a validation error (`flagged`), told apart
+ * by whether Run Hound filled them in (`filled`) or left them empty. One or more full sentences.
+ */
+export function noSaveReason(filled: FormField[], unset: FillProblem[], flagged: FormField[]): string {
+  const sentences: string[] = [];
+  const unsetFields = new Set(unset.map((p) => p.field));
+  if (unset.length > 0) {
+    const note = fillProblemsNote(unset).replace(/\.$/, "");
+    const shownOn = unset.filter((p) => flagged.includes(p.field)).map((p) => p.field);
+    const one = unset.length === 1;
+    if (shownOn.length === unset.length) sentences.push(`${note}, and the form showed an error on ${one ? "it" : "them"}.`);
+    else if (shownOn.length > 0) sentences.push(`${note}; the form showed an error on ${quotedNames(shownOn)}.`);
+    else sentences.push(`${note}; the form may need ${one ? "it" : "them"}.`);
+  }
+  const refused = flagged.filter((f) => !unsetFields.has(f) && filled.includes(f));
+  if (refused.length > 0) {
+    const one = refused.length === 1;
+    sentences.push(`The form showed an error on ${quotedNames(refused)} after Run Hound filled ${one ? "it" : "them"} in, so one of its rules refused the test ${one ? "value" : "values"} there.`);
+  }
+  const leftEmpty = flagged.filter((f) => !unsetFields.has(f) && !filled.includes(f));
+  if (leftEmpty.length > 0) {
+    sentences.push(`The form showed an error on ${quotedNames(leftEmpty)}, which Run Hound left empty because nothing marks ${leftEmpty.length === 1 ? "it" : "them"} as required.`);
+  }
+  if (sentences.length === 0) sentences.push("No field showed an error, so Run Hound can't tell why the form sent nothing.");
+  return sentences.join(" ");
+}
+
+/**
+ * noSaveReason for a submit of `values` (fillForm) that sent nothing, reading the fields that show an error from the
+ * page now. Call armFieldErrors before the submit.
+ */
+export async function whyNothingSent(page: Page, form: DiscoveredForm, values: FieldValue[], unset: FillProblem[]): Promise<string> {
+  const filled = values.filter((v) => settingFor(v) !== null).map((v) => v.field);
+  return noSaveReason(filled, unset, await fieldsShowingErrors(page, form));
+}
+
+/** The answer Run Hound gives a write it stops (stopWrites): a refusal, so the page shows no success state. */
+const STOPPED_WRITE_BODY = JSON.stringify({ error: "Run Hound stopped this request, so nothing was saved." });
+
+/**
+ * Answers every write the page sends from now on (any method but GET, HEAD and OPTIONS, to any origin) itself, so
+ * nothing reaches an app: a classic page post with a small stand-in page, anything else with a simulated 400.
+ * `sent()` says whether one of them was the form's own save (core/saves.ts) or a page post.
+ */
+export async function stopWrites(page: Page, targetUrl: string, runToken = ""): Promise<{ sent(): boolean }> {
+  let sent = false;
+  await page.route("**/*", async (route, request) => {
+    if (["GET", "HEAD", "OPTIONS"].includes(request.method())) return route.fallback();
+    const pagePost = isPagePost({ resourceType: request.resourceType() });
+    if (pagePost || isCreatePlaywrightRequest(request, targetUrl, runToken)) sent = true;
+    if (pagePost) return route.fulfill(simulatedResponse(request, 200, STOPPED_PAGE_POST_HTML, "text/html; charset=utf-8"));
+    return route.fulfill(simulatedResponse(request, 400, STOPPED_WRITE_BODY));
+  });
+  return { sent: () => sent };
+}
+
+/** A field a person can empty by deleting its text: a text-like input or text area (not a range, color or widget). */
+export function isEmptiableText(field: FormField): boolean {
+  return fieldKind(field) === "text" && !field.widget && !["range", "color"].includes(field.type);
+}
+
+/**
+ * Empties every text field of `form` that holds a value (a settings form loads with the saved record in its fields),
+ * so a submit that follows is really an empty one. Choices, checkboxes, sliders and widgets are left as they are.
+ */
+export async function emptyTextFields(page: Page, form: DiscoveredForm): Promise<void> {
+  for (const field of form.fields) {
+    if (!isEmptiableText(field)) continue;
+    const input = page.locator(field.selector).first();
+    const value = await input.inputValue({ timeout: 1_000 }).catch(() => "");
+    if (value !== "") await input.fill("", { timeout: 2_000 }).catch(() => undefined);
+  }
+}
+
+/** What an empty submit showed (probeEmptySubmit). */
+export interface EmptySubmit {
+  /** The fields that showed a validation error after the empty submit, in form order: the fields the app refuses empty. */
+  refused: FormField[];
+  /** True when the empty form was sent anyway (Run Hound answered it itself) or the page went elsewhere. */
+  sent: boolean;
+}
+
+/** How long a probe waits after the empty submit for the page to show its errors (validation is often async). */
+const EMPTY_SUBMIT_WAIT_MS = 800;
+
+/**
+ * Submits `form` empty on a fresh page (text fields that load with a value are emptied first), with every write
+ * answered by Run Hound (stopWrites: nothing reaches the app), and returns the fields the page then marks as needing a
+ * value (fieldsShowingErrors). Schema-validated forms (react-hook-form + zod) mark nothing in their markup; this is how
+ * Run Hound learns which fields they require. A submit button that stays disabled while the form is empty refuses the
+ * submit without naming a field: none.
+ */
+export async function probeEmptySubmit(ctx: CheckContext, form: DiscoveredForm = ctx.form): Promise<EmptySubmit> {
+  const { page } = await ctx.openPage();
+  try {
+    const writes = await stopWrites(page, ctx.targetUrl, ctx.runToken);
+    const startUrl = page.url();
+    await emptyTextFields(page, form);
+    await armFieldErrors(page);
+    const submit = submitControl(form);
+    const clicked = submit
+      ? await page.locator(submit.selector).first().click({ timeout: 5_000 }).then(() => true, () => false)
+      : await submitForm(page, form).then(() => true, () => false);
+    if (!clicked) return { refused: [], sent: false };
+    await sleep(EMPTY_SUBMIT_WAIT_MS);
+    await settle(page, 2_000);
+    const moved = page.url() !== startUrl;
+    return { refused: moved ? [] : await fieldsShowingErrors(page, form), sent: writes.sent() || moved };
+  } finally {
+    await page.unrouteAll({ behavior: "ignoreErrors" }).catch(() => undefined);
+  }
+}
+
 /** Same origin as the target page. */
 export function isSameOrigin(url: string, pageUrl: string): boolean {
   return sameOriginCore(url, pageUrl);
@@ -406,6 +641,23 @@ export function isSignInForm(form: DiscoveredForm): boolean {
   const words = `${form.name ?? ""} ${submit?.accessibleName ?? ""} ${submit?.text ?? ""}`;
   const others = form.fields.filter((f) => !["password", "checkbox", "hidden"].includes(f.type));
   return others.length <= 2 && /\b(sign|log)[\s-]?in\b|\blogin\b/i.test(words);
+}
+
+/**
+ * A form that sets a password (change password, sign up, "confirm with your password"): not a sign-in form, but it has
+ * a password field. On a signed-in run (0.4.0) submitting it could change the test account's password, which the run
+ * and the next ones sign in with, so its submitting scenarios never run there.
+ */
+export function changesCredentials(form: DiscoveredForm): boolean {
+  return form.fields.some((f) => f.type === "password") && !isSignInForm(form);
+}
+
+/** Form-scoped checks that never submit their form: they still run on a form that changes credentials. */
+export const NEVER_SUBMITS: ReadonlySet<string> = new Set(["credential-fields"]);
+
+/** Why a scenario on a form that sets a password is not run while signed in (its notes). */
+export function credentialFormNote(label: string): string {
+  return `Not run while signed in: this form sets a password, so submitting it could change ${label}'s password, which this run and the next ones sign in with.`;
 }
 
 /** Statuses a sign-in form answers made-up credentials with. */

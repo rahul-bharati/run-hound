@@ -5,7 +5,8 @@
  * covers (a cookie banner) is skipped with the reason, and a scenario in which no control could be tried is skipped.
  */
 import type { Page } from "playwright";
-import type { Check, CheckContext, DiscoveredForm, Evidence, FormControl, Scenario } from "../core/types.js";
+import { isLocalOrigin, isWrite } from "../core/saves.js";
+import type { Capture, Check, CheckContext, DiscoveredForm, Evidence, FormControl, PlanEnv, Scenario } from "../core/types.js";
 import { openForm } from "../engine/open-form.js";
 import { clip, controlLocator, evidence, fillLines, findingFactory, guarded, recordFlow, result, specSource } from "./lib/functional-finding.js";
 import { listOf } from "./lib/a11y-common.js";
@@ -69,6 +70,15 @@ const SENDING_NAME = /\b(re-?send|send|notify|broadcast|e-?mail\s+(the\s+)?(invo
 const SESSION_ENDING_NAME =
   /\b(log\s?-?out|sign\s?-?out|logoff|log\s+off|disconnect|unlink|clear\s+all|empty\s+(the\s+)?(cart|basket|trash|bin)|reset\s+(all|everything|data|account|settings)|cancel\s+(my\s+|the\s+)?(subscription|plan|order|booking|membership|account|reservation)|close\s+(my\s+)?account)\b/i;
 
+/**
+ * Controls that sign the user out. On a signed-in run (0.4.0) they are never clicked, even with --allow-destructive: a
+ * sign-out on the server ends the session every later scenario of the run uses.
+ */
+const SIGN_OUT_NAME = /\b(log\s?-?out|sign\s?-?out|logoff|log\s+off|end\s+(the\s+|my\s+|this\s+)?session)\b/i;
+
+/** Words in an unnamed icon button's own id, test id or icon that say it signs out ("lucide-log-out", "#signout"). */
+const SIGN_OUT_HINT = /\b(log\s?out|sign\s?out|logoff)\b/i;
+
 /** Words in an unnamed icon button's own id, test id or icon that say what it does. */
 const DESTRUCTIVE_HINT = /\b(delete|remove|trash|destroy|erase|discard|bin)\b/i;
 
@@ -101,7 +111,33 @@ export function isDestructiveControl(control: FormControl): boolean {
     const id = ownIdentifier(control.selector);
     if (id && DESTRUCTIVE_HINT.test(hintWords(id))) return true;
   }
-  return false;
+  return isSessionEndingControl(control);
+}
+
+/**
+ * True when clicking this control signs out ("Log out", "Sign out", an unnamed button whose own id says logout). Such a
+ * control is destructive too (isDestructiveControl); on a signed-in run it is never clicked, even with
+ * --allow-destructive, because it would end the run's session.
+ */
+export function isSessionEndingControl(control: FormControl): boolean {
+  const name = `${control.accessibleName ?? ""} ${control.text}`;
+  if (SIGN_OUT_NAME.test(name)) return true;
+  if (name.trim() !== "") return false;
+  const id = ownIdentifier(control.selector);
+  return id !== null && SIGN_OUT_HINT.test(hintWords(id));
+}
+
+/** Why a sign-out control is left alone on a signed-in run (a note, after the control's name). */
+export function sessionNote(label: string): string {
+  return `not clicked while signed in: it would end ${label}'s session, which the rest of the run needs`;
+}
+
+/** A plan sentence naming the sign-out controls a signed-in run never clicks, or "" when there are none. */
+export function sessionPlanNote(controls: FormControl[], env: PlanEnv | undefined, max = 8): string {
+  if (!env?.signedIn) return "";
+  const ending = controls.filter(isSessionEndingControl);
+  if (ending.length === 0) return "";
+  return ` Never clicked while signed in, since it would end the session: ${listOf(ending.map(controlName), max)}.`;
 }
 
 /**
@@ -127,6 +163,71 @@ export async function destructiveIconHint(page: Page, selector: string): Promise
   const text = String((await page.evaluate(`(${ICON_HINT_SCRIPT})(${JSON.stringify(selector)})`).catch(() => "")) ?? "");
   const hit = DESTRUCTIVE_HINT.exec(hintWords(text));
   return hit ? hit[1]!.toLowerCase() : null;
+}
+
+/** For an unnamed control: true when its icon, id, test id or title says it signs out ("lucide-log-out"). */
+async function signOutIconHint(page: Page, selector: string): Promise<boolean> {
+  const text = String((await page.evaluate(`(${ICON_HINT_SCRIPT})(${JSON.stringify(selector)})`).catch(() => "")) ?? "");
+  return SIGN_OUT_HINT.test(hintWords(text));
+}
+
+/**
+ * The on/off state of a toggle: "true", "false" or "mixed" from aria-checked (role checkbox or switch) or aria-pressed
+ * (a toggle button), or a native checkbox's checked. Null for a control that is not a toggle, or is gone.
+ */
+const TOGGLE_STATE_SCRIPT = `(sel) => {
+  const el = document.querySelector(sel);
+  if (!el) return null;
+  const role = el.getAttribute("role") || "";
+  const aria = ["checkbox", "switch", "menuitemcheckbox"].includes(role) ? el.getAttribute("aria-checked") : el.getAttribute("aria-pressed");
+  if (aria === "true" || aria === "false" || aria === "mixed") return aria;
+  if (el.matches("input[type=checkbox]")) return String(el.checked);
+  return null;
+}`;
+
+async function toggleState(page: Page, selector: string): Promise<string | null> {
+  const state = await page.evaluate(`(${TOGGLE_STATE_SCRIPT})(${JSON.stringify(selector)})`).catch(() => null);
+  return typeof state === "string" ? state : null;
+}
+
+/** "checked", "off", "not pressed": how a toggle's state reads in a note. */
+function toggleWord(control: FormControl, state: string): string {
+  if (state === "mixed") return "partly checked";
+  const on = state === "true";
+  if (control.role === "switch") return on ? "on" : "off";
+  if (control.role === "checkbox" || control.role === "menuitemcheckbox" || control.tag === "input") return on ? "checked" : "unchecked";
+  return on ? "pressed" : "not pressed";
+}
+
+/** How long to wait for a toggle's save, and for it to show its old state again after the second click. */
+const SET_BACK_MS = 3_000;
+
+/**
+ * After a probe toggled a checkbox, switch or toggle button: when the click sent a write to the app (a save, not just a
+ * page change) and the toggle now shows another state, clicks it once more and waits for that save too. Returns the
+ * note to add ("it saves when clicked, so Run Hound set it back to unchecked"), or null when it saved nothing.
+ */
+async function setToggleBack(page: Page, capture: Capture, from: number, control: FormControl, label: string | null, before: string): Promise<string | null> {
+  const writesSince = (start: number) => capture.requests.slice(start).filter((r) => isWrite(r) && isLocalOrigin(r.url, page.url()));
+  const answered = (start: number) => {
+    const writes = writesSince(start);
+    return writes.length > 0 && writes.every((r) => r.status !== null || r.failure !== null);
+  };
+  // A toggle that saves sends its write right after the click (or after a short debounce).
+  await waitFor(() => answered(from), REACTION_MS + SET_BACK_MS);
+  if (writesSince(from).length === 0) return null;
+  const now = await toggleState(page, control.selector);
+  if (now === null || now === before) return null;
+  const was = toggleWord(control, before);
+  const second = capture.requests.length;
+  const problem = await clickLikeAUser(page, control, label);
+  if (problem) return `it saves when clicked, and Run Hound could not set it back to ${was} (${problem}): check it in the app`;
+  const back = await waitFor(async () => (await toggleState(page, control.selector)) === before, SET_BACK_MS);
+  await waitFor(() => answered(second), SET_BACK_MS);
+  await settle(page, SET_BACK_MS);
+  return back
+    ? `it saves when clicked, so Run Hound set it back to ${was}`
+    : `it saves when clicked, and it did not go back to ${was} when clicked again: check it in the app`;
 }
 
 /**
@@ -285,13 +386,15 @@ async function invisibleCover(page: Page, selector: string): Promise<string | nu
  */
 async function probe(
   page: Page,
-  capture: { requests: unknown[] },
+  capture: Capture,
   target: string,
   control: FormControl,
   values: FieldValue[],
   allowDestructive: boolean,
   form?: DiscoveredForm,
-): Promise<{ reaction: Reaction | null; skipped?: string; covered?: string }> {
+  /** The signed-in account's label on a signed-in run, else null. */
+  signedInAs: string | null = null,
+): Promise<{ reaction: Reaction | null; skipped?: string; covered?: string; setBack?: string }> {
   await page.goto(target, { waitUntil: "load" });
   await settle(page);
   if (form) await openForm(page, form);
@@ -300,15 +403,20 @@ async function probe(
   const locator = page.locator(control.selector).first();
   if (!(await locator.isVisible().catch(() => false))) return { reaction: null, skipped: "not visible" };
   if (await locator.isDisabled().catch(() => false)) return { reaction: null, skipped: "disabled" };
-  if (!allowDestructive && `${control.accessibleName ?? ""}${control.text}`.trim() === "") {
-    const hint = await destructiveIconHint(page, control.selector);
-    if (hint) return { reaction: null, skipped: `looks destructive: its icon or id says "${hint}"; run again with --allow-destructive to include it` };
+  if (`${control.accessibleName ?? ""}${control.text}`.trim() === "") {
+    // An unnamed icon button: its icon says what it does.
+    if (signedInAs !== null && (await signOutIconHint(page, control.selector))) return { reaction: null, skipped: `its icon or id says it signs out; ${sessionNote(signedInAs)}` };
+    if (!allowDestructive) {
+      const hint = await destructiveIconHint(page, control.selector);
+      if (hint) return { reaction: null, skipped: `looks destructive: its icon or id says "${hint}"; run again with --allow-destructive to include it` };
+    }
   }
   const facts = ((await page.evaluate(`(${BEFORE_CLICK_SCRIPT})(${JSON.stringify(control.selector)})`).catch(() => null)) ?? { selected: false, label: null }) as {
     selected: boolean;
     label: string | null;
   };
   if (facts.selected) return { reaction: null, skipped: "already selected, so choosing it again changes nothing" };
+  const toggledFrom = await toggleState(page, control.selector);
 
   let navigated = false;
   const onNav = (frame: { parentFrame(): unknown }) => {
@@ -345,7 +453,15 @@ async function probe(
       }
       return reaction !== null;
     }, REACTION_MS);
-    return { reaction };
+    const got = reaction as Reaction | null;
+    // A checkbox or switch that saves as soon as it is toggled (a task's "done" box) changed the app's data: toggle it
+    // back, so probing it leaves the app as it was (RH-13). Every probe loads a fresh page, so one that saves nothing
+    // needs no undoing.
+    if (got && toggledFrom !== null && !navigated && page.url() === urlBefore && opened.length === 0) {
+      const setBack = await setToggleBack(page, capture, requestsBefore, control, facts.label, toggledFrom);
+      if (setBack) return { reaction: got, setBack };
+    }
+    return { reaction: got };
   } finally {
     page.off("framenavigated", onNav);
     page.context().off("page", onPage);
@@ -454,11 +570,12 @@ export const check: Check = {
   title: "Every button does something",
   category: "broken-feature",
 
-  plan(form): Scenario[] {
+  plan(form, _page, env): Scenario[] {
     const controls = form.controls.filter((c) => !c.isSubmit);
     if (controls.length === 0) return [];
     const safe = controls.filter((c) => !isDestructiveControl(c));
-    const risky = controls.filter(isDestructiveControl);
+    // Signed in, a sign-out control is never clicked (sessionPlanNote), so it is not offered with the destructive ones.
+    const risky = controls.filter((c) => isDestructiveControl(c) && !(env?.signedIn && isSessionEndingControl(c)));
     if (safe.length === 0) return [];
     return [
       {
@@ -470,7 +587,8 @@ export const check: Check = {
             ? `Click ${listOf(safe.map(controlName))} and check that it causes`
             : `Click ${listOf(safe.map(controlName), Infinity)} one at a time and check that each causes`) +
           " a request, a page change, navigation (or a new tab), a storage change or a focus change. The submit button is never clicked; a button that saves something (a draft, for example) may create test records." +
-          (risky.length > 0 ? ` Left out unless you allow destructive scenarios: ${listOf(risky.map(controlName), Infinity)}.` : ""),
+          (risky.length > 0 ? ` Left out unless you allow destructive scenarios: ${listOf(risky.map(controlName), Infinity)}.` : "") +
+          sessionPlanNote(controls, env, Infinity),
         kind: "golden",
         priority: "high",
         destructive: false,
@@ -511,17 +629,23 @@ export function clickEach(
       const covered: { control: FormControl; name: string; cover: string; shots: Evidence[] }[] = [];
       /** Controls clicked (or found covered): with none, the scenario tested nothing. */
       let tried = 0;
+      /** On a signed-in run (0.4.0), the account's label: sign-out controls are never clicked, whatever the options. */
+      const signedInAs = ctx.accounts?.self?.label ?? null;
 
       for (const control of controls) {
         const name = controlName(control);
+        if (signedInAs !== null && isSessionEndingControl(control)) {
+          notes.push(`"${name}": skipped (${sessionNote(signedInAs)})`);
+          continue;
+        }
         if (isDestructiveControl(control) && !ctx.allowDestructive) {
           notes.push(`"${name}": skipped (looks destructive; run again with --allow-destructive to include it)`);
           continue;
         }
         ctx.step(`Clicking "${name}" and watching for a reaction`, page);
         // One control that can't be probed (a page error, a click Playwright refuses) never ends the scenario.
-        const { reaction, skipped, covered: cover } = await probe(page, capture, ctx.targetUrl, control, values, ctx.allowDestructive, form).catch(
-          (err: unknown): { reaction: null; skipped: string; covered?: string } => ({
+        const { reaction, skipped, covered: cover, setBack } = await probe(page, capture, ctx.targetUrl, control, values, ctx.allowDestructive, form, signedInAs).catch(
+          (err: unknown): { reaction: null; skipped: string; covered?: string; setBack?: string } => ({
             reaction: null,
             skipped: `could not be tested: ${clip(err instanceof Error ? err.message.split("\n")[0]! : String(err), 100)}`,
           }),
@@ -540,7 +664,7 @@ export function clickEach(
           continue;
         }
         if (reaction) {
-          notes.push(`"${name}": ${reaction}`);
+          notes.push(`"${name}": ${reaction}${setBack ? ` (${setBack})` : ""}`);
           continue;
         }
         notes.push(`"${name}": no reaction`);

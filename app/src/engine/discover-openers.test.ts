@@ -16,7 +16,8 @@ import { closeBrowser, getBrowser } from "../../test-support/harness.js";
 import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
 import type { Check, CheckId, DiscoveredForm, DiscoveredPage } from "../core/types.js";
 import { check as persistence } from "../checks/persistence.js";
-import { discoverPage } from "./discover.js";
+import { isDestructiveControl } from "../checks/dead-control.js";
+import { discoverPage, safeToProbe } from "./discover.js";
 import { OPEN_FORM_TIMEOUT_MS, openForm } from "./open-form.js";
 import { discoverAndPlan, runPlan } from "./runner.js";
 
@@ -149,6 +150,17 @@ describe("discoverPage with openers: limits", () => {
     const { found, clicked } = await discover(openersPage(0, ["Add task", "New list", "Create tag", "Edit profile"]));
     expect(found.forms.map((f) => f.name)).toEqual(["Add task", "New list", "Create tag"]);
     expect(clicked.sort()).toEqual(["0", "1", "2"]);
+  });
+
+  it("tries an \"Invite …\" control (writes are blocked while it looks), but still never a destructive one", async () => {
+    const { found, clicked } = await discover(openersPage(0, ["Invite member", "Delete list", "Log out"]));
+    expect(found.forms.map((f) => [f.name, f.opener?.name])).toEqual([["Invite member", "Invite member"]]);
+    expect(clicked).toEqual(["0"]);
+    // Checks still treat "Invite" as destructive: only discovery may click it, to look.
+    const invite = found.controls.find((c) => c.text === "Invite member")!;
+    expect(isDestructiveControl(invite)).toBe(true);
+    expect(safeToProbe(invite)).toBe(true);
+    expect(safeToProbe({ ...invite, accessibleName: "Invite and delete", text: "Invite and delete" })).toBe(false);
   });
 
   it("keeps the 5-form cap, on-load forms first, and stops clicking once it is reached", async () => {

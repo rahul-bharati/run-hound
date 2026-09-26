@@ -3,7 +3,21 @@ import { basename, join, posix } from "node:path";
 import { BRAND, FONT_MONO, FONT_SANS, MARK_DATA_URI } from "../core/brand.js";
 import { formatDuration } from "../core/format.js";
 import { flowStepWords } from "../ai/describe.js";
-import { AI_CHECK_IDS, CHECK_GROUPS, CHECK_IDS, type CheckResult, type Evidence, type Finding, type Report, type ReportGroup, type Scenario, type Severity } from "../core/types.js";
+import {
+  AI_CHECK_IDS,
+  CHECK_GROUPS,
+  CHECK_IDS,
+  V2_CHECK_IDS,
+  type AccountRef,
+  type CheckId,
+  type CheckResult,
+  type Evidence,
+  type Finding,
+  type Report,
+  type ReportGroup,
+  type Scenario,
+  type Severity,
+} from "../core/types.js";
 import { formOfScenario } from "./plan.js";
 import { redactSecrets } from "./redact.js";
 
@@ -165,10 +179,65 @@ function notApproved(report: Report): { id: string; checkId: string; title: stri
     });
 }
 
-/** Checks that proposed nothing for this page (e.g. no password field for credential-fields, no buttons outside forms). */
+/** Checks that plan scenarios only on a signed-in run (docs/v2-spec.md "Checks"). */
+const SIGNED_IN_CHECK_IDS: readonly CheckId[] = ["access-control", "mass-assignment"];
+
+/** True for a report written by Run Hound 0.4.0 or later (a pre-release of 0.4.0 counts), which has the V2 checks. */
+function hasV2Checks(report: Report): boolean {
+  const m = /^(\d+)\.(\d+)/.exec(report.runHoundVersion ?? "");
+  if (!m) return true;
+  const [major, minor] = [Number(m[1]), Number(m[2])];
+  return major > 0 || minor >= 4;
+}
+
+/**
+ * Checks that proposed nothing for this page (e.g. no password field for credential-fields, no buttons outside forms).
+ * Leaves out checks the run could not have planned for another reason: AI-only checks, the checks that need a test
+ * account on a signed-out run, and the V2 checks in a report written before they existed.
+ */
 function notPlanned(report: Report): string[] {
   const planned = new Set(report.plan.scenarios.map((s) => s.checkId));
-  return CHECK_IDS.filter((id) => !planned.has(id) && !AI_CHECK_IDS.includes(id));
+  const signedIn = reportAccounts(report).signedInAs !== null;
+  const v2 = hasV2Checks(report);
+  return CHECK_IDS.filter(
+    (id) => !planned.has(id) && !AI_CHECK_IDS.includes(id) && (v2 || !V2_CHECK_IDS.includes(id)) && (signedIn || !SIGNED_IN_CHECK_IDS.includes(id)),
+  );
+}
+
+/**
+ * Who the run signed in as and, when a scenario used it, the other account, by label only. Both null for a signed-out
+ * run and for a report written before 0.4.0 (no `accounts`).
+ */
+export function reportAccounts(report: Report): { signedInAs: AccountRef | null; other: AccountRef | null } {
+  const signedInAs = (report.accounts ? report.accounts.signedInAs : report.plan?.account) ?? null;
+  const other = signedInAs ? (report.accounts?.other ?? null) : null;
+  return { signedInAs, other };
+}
+
+/** An account's label on one line, for the report header. */
+function accountLabel(account: AccountRef): string {
+  return oneLine(account.label) || (account.id === "b" ? "Account B" : "Account A");
+}
+
+/**
+ * The report header's account lines, e.g. "Signed in as **Account A**" and "Other account: **Account B** (…)", in
+ * Markdown; nothing for a signed-out run.
+ */
+function accountsMarkdown(report: Report): string[] {
+  const { signedInAs, other } = reportAccounts(report);
+  if (!signedInAs) return [];
+  const lines = [`- Signed in as **${accountLabel(signedInAs)}**`];
+  if (other) lines.push(`- Other account: **${accountLabel(other)}** (used to check that it can't read ${accountLabel(signedInAs)}'s data)`);
+  return lines;
+}
+
+/** The same account lines as one HTML paragraph; "" for a signed-out run. */
+function accountsHtml(report: Report): string {
+  const { signedInAs, other } = reportAccounts(report);
+  if (!signedInAs) return "";
+  const self = esc(accountLabel(signedInAs));
+  const also = other ? `<span class="muted"> · other account <strong>${esc(accountLabel(other))}</strong>, used to check that it can't read ${self}'s data</span>` : "";
+  return `<p class="account">Signed in as <strong>${self}</strong>${also}</p>\n`;
 }
 
 /** "checkId: note (scenario id)" for each errored or skipped result of a check, so the reason is in every format. */
@@ -271,14 +340,20 @@ export function findingPlaces(f: Finding): string[] {
 /**
  * One sentence on the test data the run left behind, e.g. "This run sent 2 save requests that your app accepted, so
  * it may have created 2 test records. Run Hound does not delete them." Null for reports written before the count existed.
+ * A signed-in run (0.4.0) says which account the records belong to, by label (the same rule as the header:
+ * reportAccounts).
  */
 export function testDataSentence(report: Report): string | null {
   const n = report.testRecordsCreated;
   if (n === undefined) return null;
   if (n === 0) return "This run sent no save requests that your app accepted, so it created no test records.";
-  return `This run sent ${n} save ${n === 1 ? "request" : "requests"} that your app accepted, so it may have created ${n} test ${
+  const signedInAs = reportAccounts(report).signedInAs;
+  const account = signedInAs ? accountLabel(signedInAs) : null;
+  const owner = account ? `, signed in as ${account},` : "";
+  const theirs = account ? ` They belong to ${account}.` : "";
+  return `This run sent ${n} save ${n === 1 ? "request" : "requests"} that your app accepted${owner} so it may have created ${n} test ${
     n === 1 ? "record" : "records"
-  } (fewer if your app merges repeats). Run Hound does not delete them; they hold made-up values (emails end in @example.test).`;
+  } (fewer if your app merges repeats).${theirs} Run Hound does not delete them; they hold made-up values (emails end in @example.test).`;
 }
 
 /** "3 findings (2 confirmed, 1 advisory)". */
@@ -300,6 +375,7 @@ export function renderMarkdown(report: Report): string {
     `# Run Hound report`,
     "",
     `- Target: ${report.target}`,
+    ...accountsMarkdown(report),
     `- Run: ${report.runId} (${report.startedAt} to ${report.finishedAt})${finished ? ` · ${finished}` : ""}`,
     `- Run Hound ${report.runHoundVersion}`,
     ...(report.browser ? [`- Browser: ${report.browser}`] : []),
@@ -560,6 +636,7 @@ h1 { margin:.1rem 0 .2rem; font-size:clamp(1.6rem, 4vw, 2.2rem); line-height:1.1
 h1 .accent { color:var(--accent); }
 .target { margin:0; font:.9rem/1.5 var(--mono); color:var(--muted); overflow-wrap:anywhere; }
 .runmeta { margin:.35rem 0 0; color:var(--muted); font-size:.95rem; }
+p.account { margin:.35rem 0 0; font-size:.95rem; overflow-wrap:anywhere; }
 section { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:1rem 1.25rem 1.1rem; margin:1rem 0; overflow-x:auto; }
 h2 { margin:0 0 .75rem; font-size:1.15rem; font-weight:800; letter-spacing:-.02em; }
 section[aria-labelledby="findings"] h2:not(#findings) { font:600 .75rem/1.4 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--dim); margin:1.25rem 0 .5rem; }
@@ -631,7 +708,7 @@ footer { max-width:64rem; margin:0 auto; padding:0 1rem 2.5rem; color:var(--dim)
 <p class="eyebrow">Report · ${esc(report.startedAt)}</p>
 <h1>Run Hound report</h1>
 <p class="target"><span class="visually-hidden">Target: </span>${esc(report.target)}</p>
-<p class="runmeta">${report.results.length} ${report.results.length === 1 ? "scenario" : "scenarios"} run · ${s.passed} passed · ${esc(findingCounts(report.findings))}</p>
+${accountsHtml(report)}<p class="runmeta">${report.results.length} ${report.results.length === 1 ? "scenario" : "scenarios"} run · ${s.passed} passed · ${esc(findingCounts(report.findings))}</p>
 </div></div>
 <p class="muted">Run ${esc(report.runId)} · ${esc(report.startedAt)} to ${esc(report.finishedAt)}${finished ? ` · ${esc(finished)}` : ""} · Run Hound ${esc(report.runHoundVersion)}${report.browser ? ` · ${esc(report.browser)}` : ""}</p>
 ${aiHeaderHtml}${report.stopped ? '<p class="stopped"><strong>Run stopped.</strong> You stopped this run; scenarios it did not finish are listed as skipped.</p>\n' : ""}<section aria-labelledby="summary"><h2 id="summary">Summary</h2>${finished ? `<p class="finished">${esc(finished)}.</p>` : ""}<div class="stats">
@@ -649,7 +726,7 @@ ${unapprovedHtml}${unplannedHtml}
 <section aria-labelledby="skipped"><h2 id="skipped">Skipped checks</h2>${list(reasons(report, "skipped"))}</section>
 ${aiNotesHtml}<section aria-labelledby="not-visible"><h2 id="not-visible">What a browser can't see</h2>${list(report.notVisible)}</section>
 </main>
-<footer>Run Hound ${esc(report.runHoundVersion)} · V1 preview · real checks in a real browser, on local and private addresses only</footer>
+<footer>Run Hound ${esc(report.runHoundVersion)} · V2 preview · real checks in a real browser, on local and private addresses only</footer>
 </body>
 </html>
 `;

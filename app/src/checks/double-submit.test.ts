@@ -6,6 +6,7 @@ import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectP
 import { startModernApp, type ModernApp } from "../../test/fixtures/checks/modern-apps.js";
 import { check } from "./double-submit.js";
 import { MULTI_STEP_NOTE } from "./lib/functional-form.js";
+import { startSchemaFormApp } from "../../test/fixtures/checks/schema-form.js";
 
 const ID = "double-submit" as const;
 const servers: BookingServer[] = [];
@@ -156,6 +157,20 @@ describe("double-submit: the first step of a wizard (LOV-12)", () => {
       const { results } = await runCheck(check, a.formUrl);
       expect(results[0]!.status).toBe("skipped");
       expect(results[0]!.notes).toBe(MULTI_STEP_NOTE);
+    } finally {
+      await a.close();
+    }
+  });
+});
+
+describe("double-submit: skip notes never blame the app for what Run Hound didn't do (RH-10)", () => {
+  it("names the field whose rule refused Run Hound's value", async () => {
+    const a = await startSchemaFormApp({ taskMinLength: 80 });
+    try {
+      const { results } = await runCheck(check, a.formUrl);
+      expect(results[0]!.status).toBe("skipped");
+      expect(results[0]!.notes).toMatch(/showed an error on "Task"/);
+      expect(results[0]!.notes).not.toMatch(/may have refused/);
     } finally {
       await a.close();
     }

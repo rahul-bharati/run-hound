@@ -219,6 +219,40 @@ input[type=checkbox][role=switch]:checked::before { left:calc(100% - 1.02rem); b
 .ai-panel .ask-text { color:var(--fg); font-family:var(--mono); font-size:.84rem; white-space:pre-wrap; background:var(--bg-deep); border:1px solid var(--line-soft); border-radius:var(--r-sm); padding:.6rem .75rem; }
 .ai-panel .note { margin-top:.7rem; font-size:.82rem; }
 
+/* Test accounts (0.4.0): New Run's "Sign in as", the plan's account line, the Settings card, runs and reports. */
+.signin-row { display:flex; flex-direction:column; align-items:flex-start; margin-top:1rem; min-width:0; }
+.signin-row select.input { flex:none; width:min(100%, 24rem); }
+.signin-row .field-hint { margin-top:.45rem; }
+.signin-row .field-hint:empty { display:none; }
+.plan-account, .report-account { display:flex; align-items:flex-start; gap:.55rem; color:var(--muted); overflow-wrap:anywhere; min-width:0; }
+.plan-account { margin:-.35rem 0 1rem; font-size:.92rem; }
+.report-account { margin-top:.45rem; font-size:.95rem; }
+.plan-account b, .report-account b { color:var(--fg); font-weight:600; }
+.plan-account .dot, .report-account .dot { flex:none; width:.5rem; height:.5rem; margin-top:.5em; border-radius:50%; background:var(--accent); box-shadow:0 0 0 3px rgb(94 230 163 / .15); }
+.warning .warn-action { display:block; width:fit-content; margin:.3rem 0 0; min-height:0; font-size:inherit; }
+.accounts-card .acct-intro { font-size:.92rem; margin:-.25rem 0 .75rem; max-width:48rem; }
+.acct-note { max-width:48rem; margin:0 0 1.1rem; padding:.6rem .85rem; border-left:2px solid var(--accent-edge); background:var(--accent-tint); border-radius:0 var(--r-sm) var(--r-sm) 0; color:var(--muted); font-size:.9rem; }
+.acct-note b { color:var(--fg); font-weight:600; }
+.acct-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap:1rem; }
+fieldset.acct { display:grid; gap:.85rem; min-width:0; margin:0; padding:.35rem 1rem 1rem; border:1px solid var(--line); border-radius:var(--r-md); background:var(--bg); }
+fieldset.acct legend { max-width:100%; padding:0 .4rem; font-weight:700; font-size:.98rem; overflow-wrap:anywhere; }
+fieldset.acct legend .slot { color:var(--dim); font-weight:500; font-size:.85rem; }
+.acct-field { display:flex; flex-direction:column; min-width:0; }
+.acct-field .input { flex:none; width:100%; }
+.acct-field .field-hint { margin-top:.35rem; }
+.pw-line { display:flex; flex-wrap:wrap; align-items:baseline; gap:0 .8rem; }
+.pw-line .link-btn { margin-top:.35rem; }
+.warn-note { color:var(--warn); }
+.warn-note:empty, .acct-test:empty, fieldset.acct .saved:empty { display:none; }
+.acct-actions { display:flex; flex-wrap:wrap; gap:.5rem; }
+fieldset.acct .error, fieldset.acct .saved, fieldset.acct .acct-test { margin-top:0; overflow-wrap:anywhere; }
+.acct-problem { margin:0; }
+.acct-ok { color:var(--accent); font-size:.9rem; }
+.acct-isolated { margin-top:1.1rem; }
+.accounts-card .note { overflow-wrap:anywhere; }
+.run-row .acct, .run-sub .acct { display:block; color:var(--accent); font-size:.8rem; overflow-wrap:anywhere; }
+.run-sub .acct { margin-top:.2rem; }
+
 /* Running view (mockup 1) */
 .run-grid { display:grid; grid-template-columns: minmax(22rem, 31rem) minmax(0, 1fr); gap:1.75rem; align-items:start; max-width: 92rem; }
 .run-col { display:grid; grid-template-columns: minmax(0, 1fr); gap:1rem; min-width:0; align-content:start; }

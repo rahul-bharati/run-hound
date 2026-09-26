@@ -35,9 +35,18 @@ access checks (B changing A's records), rate limits, CSRF, file upload, prompt i
 - A login URL must pass the safety gate (localhost, private addresses, `RUNHOUND_ALLOWED_HOSTS`), like any target.
 - Passwords are **write-only**: never returned by the API, shown in the UI, written to reports, logs, step labels,
   evidence, specs or AI prompts. The engine registers each configured password (and the session cookie values and
-  bearer tokens sign-in produces) as literal secrets, so `redactSecrets` replaces them wherever they appear
-  (`[REDACTED:account-secret]`). Usernames appear only in Settings and `accounts status`; reports name accounts by
-  label.
+  bearer tokens sign-in produces, IndexedDB included) as literal secrets, so `redactSecrets` replaces them wherever
+  they appear (`[REDACTED:account-secret]`): as typed, URL-encoded, form-encoded (`!'()~` as `%21 %27 %28 %29 %7E`,
+  either hex case), JSON-escaped or HTML-escaped. Usernames appear only in Settings and `accounts status`; reports name
+  accounts by label. While a signed-in plan or run is going, every configured username of 3 characters or more is
+  registered too (`registerAccountUsernames`) and hidden in any letter case (`[REDACTED:account-username]`, the same
+  rule as the server's last layer). A plan's address fields (selectors, URLs, link targets) lose only the passwords
+  and session values (`redactAccountSecrets`), so the plan still runs.
+- Evidence images: while a frame, a screenshot or a recording step is taken, page text, field values and placeholders
+  that hold a registered username or secret are replaced with dots of the same length and put back right after. The
+  live view's screencast frames are not masked (pixels can't be redacted afterwards; the live view is local).
+- A password that is a very common word or a plain number ("password", "admin123", "123456") gets a warning in the
+  slot's status (Settings, `accounts status`): hiding it everywhere would give it away.
 
 ### CLI
 
@@ -75,18 +84,24 @@ access checks (B changing A's records), rate limits, CSRF, file upload, prompt i
 `signIn(browser, account, safety) → { storageState, landedOn }` or throws `SignInError` (plain-language message):
 
 1. A fresh, guarded browser context; open `loginUrl`; wait for load plus up to 5 s of network idle.
-2. Discover the page; pick the form with exactly one `type="password"` field (else the first with any). None → "No
-   sign-in form (a form with a password field) was found on <loginUrl>."
+2. Discover the page; pick the sign-in form among the forms with a `type="password"` field: never one that creates an
+   account (its name or submit control says sign up / create account / register, or every password field is a
+   `new-password`); then the best by a password with `autocomplete=current-password`, sign-in words, exactly one
+   password field; the first wins a tie. None → "No sign-in form (a form with a password field) was found on
+   <loginUrl>."
 3. Identifier field: in that form, the field with `autocomplete` `username` or `email`, else `type="email"`, else a
    field whose name, label or placeholder matches e-mail/user/login/account, else the first text-like field before
    the password field.
-4. Fill identifier and password; activate the form's submit control (else press Enter in the password field).
+4. Fill identifier and password; activate the form's submit control (else press Enter in the password field). A
+   request whose query carries the password (a GET form) is stopped before it leaves the browser and sign-in fails:
+   "…sends the password in the page address (a GET form)…".
 5. Wait up to 15 s for the URL to change or the password field to disappear, then up to 5 s of network idle.
 6. Success: the password field is gone (detached or hidden). Otherwise fail with the visible `role="alert"`/error text
    near the form (redacted), or "The sign-in form was still shown after submitting." Multi-factor codes, captchas and
    third-party (OAuth) sign-in are not supported; the message says so when the page shows a code or captcha field.
-7. `storageState` = the context's cookies and localStorage (Playwright `storageState()`), kept in memory only, never
-   written to disk. No evidence is captured during sign-in.
+7. `storageState` = the context's cookies, localStorage and IndexedDB (Playwright `storageState({ indexedDB: true })`;
+   Firebase Auth keeps its session there), kept in memory only, never written to disk. No evidence is captured during
+   sign-in.
 
 `discoverAndPlan` signs in first when `RunOptions.signInAs` is set, so discovery sees the signed-in page. `runPlan`
 signs in again at the start of the run (a fresh session per run) as the plan's account, and also as the other account
@@ -103,7 +118,13 @@ API 400), before any scenario runs.
 - `planWarnings`: a target that redirects to a sign-in page while signed out suggests "Sign in as a test account
   (Settings → Test accounts, or `--as a`)" instead of "pages behind a login aren't supported yet". When signed in and
   the page still lands on the sign-in form, the plan fails with "Signed in as Account A, but <target> still shows the
-  sign-in page. Check the account in Settings → Test accounts."
+  sign-in page. Check the account in Settings → Test accounts." That includes an app that renders its sign-in form in
+  place at the target's own address (a visible form with one password field that isn't a new password, one or two
+  username fields and sign-in words). When the sign-in page is on another host name than the target (localhost vs
+  127.0.0.1), the message says the browser keeps their cookies apart.
+- A form that sets a password (a password field, and not a sign-in form: change password, sign up) would change the
+  test account's password: signed in, its form scenarios are destructive in the plan (credential-fields, which never
+  submits, excepted) and are skipped at run time even with `--allow-destructive`, with the reason.
 - Test records created while signed in belong to account A; the report's test-record note says which account.
 
 ## Types (additions to `app/src/core/types.ts`)
@@ -146,12 +167,17 @@ access checks (another account or a signed-out visitor reading your data)."
 
 Both scenarios first establish **account A's data** on this page:
 
-1. As A (the run account), open the page. If the page has a form that saves (the main non-search form), fill it with
-   valid test values carrying the run token and submit (the usual test record, counted in `testRecordsCreated`); then
-   reload.
-2. A's data requests: the GETs the page made (same origin or the app's API on another local origin; not third
-   parties) that answered 2xx with a JSON or text body containing a **marker**: the run token's test value, else A's
-   username (`accountMarkers()`). At most 10, de-duplicated by URL.
+1. As A (the run account), open the page. If the page has a form that saves a record (the scenario's form, else the
+   page's first that does: fields and a submit control, not a search, no password or email field, a submit control
+   that isn't destructive, a name that doesn't say it changes the account), fill it with valid test values carrying the
+   run token and submit (the usual test record, counted in `testRecordsCreated`); then reload. When the page shows the
+   sign-in form instead, the scenario ends "error" saying Account A's session has ended.
+2. A's data requests: the GETs the page made (same origin or the app's API on another local origin, whose reads are
+   read again as A since the capture keeps no body for them; not third parties; API reads and the page's HTML, never
+   scripts or styles; never a path that acts) that answered 2xx with a body containing a **marker**: a test-record
+   value (anywhere, any case), else A's username (`accountMarkers()`), which counts only in a JSON answer as a whole
+   value, or a whole address inside one for an email (never inside another name, never in HTML or script text). At
+   most 10, de-duplicated by endpoint.
 3. None → skipped: "Account A has no data on this page that Run Hound can recognise (no form saved a record, and no
    response names Account A)."
 
@@ -165,7 +191,8 @@ Both scenarios first establish **account A's data** on this page:
   marker marked; values redacted, the marker shown only as "Account A's test record" / "Account A's email"), and a
   frame of B's page with the marker highlighted when it is visible. Spec: two `request.newContext` identities
   (credentials from environment variables, never inlined), the replay and the assertion.
-- Pass notes: "Checked <n> of Account A's requests as Account B; none returned Account A's data."
+- Pass notes: "Checked <n> of Account A's requests as Account B; none returned Account A's data." (one request: "Checked
+  Account A's only data request as Account B; it didn't return Account A's data.")
 
 **`access-control:signed-out`** ("Signed-out visitors can't read Account A's data"):
 
@@ -184,17 +211,24 @@ Both are read-only (GET replays only; never a path that acts, such as `/logout` 
 3. Replay the save request as A with the same method, URL and body plus the privilege fields the form didn't send:
    `role: "admin"`, `isAdmin: true`, `is_admin: true`, `admin: true`, `plan: "pro"`, `tier: "pro"`, `credits: 999999`,
    `verified: true`, `emailVerified: true`.
-4. Read the record endpoint again. An injected field now holding the injected value → finding, confirmed: **critical**
+4. Read the record endpoint again. An injected field that the record (the object holding the test values, and its
+   parents; never a list of other records) did not hold with the injected value before and holds now → finding
+   (a field it already held is named in the notes: the replay can't tell), confirmed: **critical**
    for `role`/`admin` fields, **high** for plan/tier/credits/verified: "The server accepted `role: admin` from the
    browser (mass assignment)". Without a record endpoint, an echo of the injected value in the replay's response is an
    **advisory** finding.
-5. Restore: replay once more with the fields' original values (when they were present) and say in the notes what
-   could not be restored ("`isAdmin` was not there before; Run Hound can't remove it: check Account A").
+5. Restore: replay once more with the fields' original values (when they were present), re-read, and say in the notes
+   what is back, what the server kept, and what could not be restored ("`isAdmin` was not there before; Run Hound
+   can't remove it: check Account A"). A save that creates a record (the replay made a new one) is not replayed again:
+   the injected fields are on that test record.
 
 ### `deep-links`
 
-- Links: `a[href]` on the page to the same origin, other paths than the page's own, not hash-only, not downloads,
-  names and paths not matching the destructive words (log out, delete, unsubscribe, …); at most 10, by path.
+- Links: `a[href]` on the page to the same origin, other paths than the page's own, not hash-only, not downloads, and
+  never a link that acts when loaded: its name, path or query words on the lists of controls Run Hound never clicks
+  (log out / log off, disconnect, delete, unsubscribe, …), a path segment or query value that acts on its own
+  (`/invites/7/accept`, `?action=delete`), or words that end a session (the same rule leaves them out of
+  `DiscoveredPage.linkTargets`); at most 10, by path.
 - Each is opened **directly** in a fresh context (signed in as the run account when there is one): the document answer
   must be < 400, and the page must not render a not-found view (an `<h1>` or title saying "404"/"not found"/"page
   doesn't exist") when following the same link from the page does not.

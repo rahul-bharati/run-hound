@@ -83,6 +83,9 @@ interface Stub {
   test: (body: Json) => unknown;
   plan: (body: Json) => unknown;
   report?: Report;
+  /** What GET /api/runs lists (default: no runs), and GET /api/runs/r1/live (Back to test plan reads it). */
+  runs?: unknown[];
+  live?: unknown;
 }
 
 interface Opened {
@@ -150,10 +153,13 @@ async function open(hash: string, stub: Partial<Stub>, width = 1280): Promise<Op
     }
     if (url.pathname === "/api/accounts/test" && req.method() === "POST") return json(s.test(body ?? {}));
     if (url.pathname === "/api/ai") return json(AI_OFF);
+    // The Settings page's AI card lists the models of the configured provider (0.3.0), AI on or off.
+    if (url.pathname === "/api/ai/models") return json({ models: [] });
     if (url.pathname === "/api/settings") return json({ version: "0.4.0", runsDir: "/runs", allowedHosts: [], serverHosts: [], ai: AI_OFF });
     if (url.pathname === "/api/plan") return json(s.plan(body ?? {}));
-    if (url.pathname === "/api/runs") return json({ runs: [] });
+    if (url.pathname === "/api/runs") return json({ runs: s.runs ?? [] });
     if (url.pathname === "/api/runs/r1") return json({ status: "done", report: s.report });
+    if (url.pathname === "/api/runs/r1/live") return json(s.live ?? { scenarios: [] });
     return json({ error: "not stubbed" }, 404);
   });
   await page.goto(`${ORIGIN}/${hash}`);
@@ -448,5 +454,205 @@ describe("Report view", () => {
       expect(o.errors).toEqual([]);
       await o.page.close();
     }
+  });
+});
+
+// ---------- Beyond the spec's list: what the UI does around the pinned pieces ----------
+
+const READY_B = slot("b", { loginUrl: LOGIN_URL, username: "sam@fernway.test", hasPassword: true, ready: true, sources: { label: "default", loginUrl: "file", username: "file", password: "file" } });
+const ENV_A = slot("a", {
+  loginUrl: LOGIN_URL,
+  username: "alex@fernway.test",
+  hasPassword: true,
+  ready: true,
+  sources: { label: "default", loginUrl: "env", username: "env", password: "env" },
+});
+
+describe("Settings → Test accounts, details", () => {
+  it("disables what the environment sets, sends only the rest, and offers no Remove for an env password", async () => {
+    const o = await open("#/settings", { accounts: { ...accounts(ENV_A, slot("b"), true), isolatedSource: "env" } });
+    const a = card(o.page, /Account A/);
+    await expect.poll(() => a.getByLabel("Sign-in page URL").inputValue()).toBe(LOGIN_URL);
+    expect(await a.getByLabel("Sign-in page URL").isDisabled()).toBe(true);
+    expect(await a.getByLabel("Username").isDisabled()).toBe(true);
+    expect(await a.getByLabel("Password", { exact: true }).isDisabled()).toBe(true);
+    expect(await a.getByLabel("Label").isDisabled()).toBe(false);
+    expect(await a.innerText()).toMatch(/Set by environment/);
+    expect(await removeControl(a).count()).toBe(0);
+    expect(await section(o.page).getByLabel(/must not see each other's data/).isDisabled()).toBe(true);
+    await a.getByLabel("Label").fill("Owner");
+    await a.getByRole("button", { name: /^Save/ }).click();
+    await expect.poll(() => puts(o).length).toBe(1);
+    expect(slotPatch(puts(o)[0]!, "a")).toEqual({ label: "Owner" });
+    // The card is drawn again with the saved label.
+    await card(o.page, /Owner/).waitFor();
+    expect(o.errors).toEqual([]);
+    await o.page.close();
+  });
+
+  it("Remove can be undone before Save, and then nothing is removed", async () => {
+    const o = await open("#/settings", {});
+    const a = card(o.page, /Account A/);
+    await removeControl(a).waitFor();
+    await removeControl(a).click();
+    expect(await a.innerText()).toMatch(/will be removed when you save/);
+    await a.getByRole("button", { name: /Undo remove/ }).click();
+    expect(await a.innerText()).toMatch(/Password saved/);
+    await a.getByRole("button", { name: /^Save/ }).click();
+    await expect.poll(() => puts(o).length).toBe(1);
+    expect(slotPatch(puts(o)[0]!, "a")).not.toHaveProperty("password");
+    await o.page.close();
+  });
+
+  it("warns that a new sign-in site drops the saved password unless it is typed again", async () => {
+    const o = await open("#/settings", {});
+    const a = card(o.page, /Account A/);
+    await expect.poll(() => a.getByLabel("Sign-in page URL").inputValue()).toBe(LOGIN_URL);
+    await a.getByLabel("Sign-in page URL").fill("http://127.0.0.1:5174/login");
+    await expect.poll(() => a.innerText()).toMatch(/removes it/);
+    await a.getByLabel("Password", { exact: true }).fill("again-1234");
+    await expect.poll(() => a.innerText()).not.toMatch(/removes it/);
+    await a.getByLabel("Password", { exact: true }).fill("");
+    await a.getByLabel("Sign-in page URL").fill("http://127.0.0.1:5173/sign-in");
+    await expect.poll(() => a.innerText()).not.toMatch(/removes it/);
+    await o.page.close();
+  });
+
+  it("puts the isolated box back and says why when saving it fails", async () => {
+    const o = await open("#/settings", { put: () => ({ status: 500, body: { error: "Could not write accounts.json: disk full" } }) });
+    const isolated = section(o.page).getByLabel(/must not see each other's data/);
+    await isolated.waitFor();
+    await isolated.uncheck();
+    await expect.poll(() => section(o.page).innerText()).toContain("disk full");
+    expect(await isolated.isChecked()).toBe(true);
+    await o.page.close();
+  });
+
+  it("names a slot by its own label, with the slot beside it", async () => {
+    const o = await open("#/settings", { accounts: accounts({ ...READY_A, label: "Owner" }) });
+    const owner = card(o.page, "Owner · Account A");
+    await owner.waitFor();
+    expect(await owner.getByLabel("Label").inputValue()).toBe("Owner");
+    await o.page.close();
+  });
+});
+
+describe("New Run, details", () => {
+  const select = (page: Page) => page.getByLabel("Sign in as");
+
+  it("points to Settings when no account is set up", async () => {
+    const o = await open("#/new", { accounts: accounts(slot("a"), slot("b")) });
+    await expect.poll(() => select(o.page).locator("option").count()).toBe(3);
+    expect(await select(o.page).locator("option").nth(1).isDisabled()).toBe(true);
+    expect(await o.page.locator("#sign-in-hint a").getAttribute("href")).toBe("#/settings");
+    await o.page.close();
+  });
+
+  it("names a labelled account with its slot", async () => {
+    const o = await open("#/new", { accounts: accounts({ ...READY_A, label: "Owner" }, READY_B) });
+    await expect.poll(() => select(o.page).locator("option").allTextContents()).toEqual(["Not signed in", "Owner (Account A)", "Account B"]);
+    await o.page.close();
+  });
+
+  it("offers to plan again signed in when the plan says the access checks need an account", async () => {
+    const hint = "Sign in as a test account to run the access checks (another account or a signed-out visitor reading your data).";
+    const o = await open("#/new", {
+      plan: (body) => ({ planId: "p1", plan: notesPlan(body.signInAs === "a" ? A : undefined), checks: {}, warnings: body.signInAs ? [] : [hint, "Sign in as a test account (Settings → Test accounts, or --as a)."] }),
+    });
+    const { page } = o;
+    await expect.poll(() => select(page).locator("option").count()).toBe(3);
+    await page.getByLabel("Page URL").fill("http://127.0.0.1:5173/notes");
+    await page.getByRole("button", { name: "Plan checks" }).click();
+    await expect.poll(() => page.locator("#plan-warnings").innerText()).toContain(hint);
+    // One way to do it, however many hints say so.
+    expect(await page.locator("#plan-warnings").getByRole("button").count()).toBe(1);
+    await page.locator("#plan-warnings").getByRole("button", { name: "Plan again signed in as Account A" }).click();
+    await expect.poll(() => page.locator("#plan-section").innerText()).toContain("Signed in as Account A");
+    const plans = o.calls.filter((c) => c.path === "/api/plan").map((c) => c.body);
+    expect(plans).toEqual([{ url: "http://127.0.0.1:5173/notes" }, { url: "http://127.0.0.1:5173/notes", signInAs: "a" }]);
+    expect((await select(page).locator("option:checked").textContent())!.trim()).toBe("Account A");
+    expect(await page.locator("#plan-warnings").isVisible()).toBe(false);
+    expect(o.errors).toEqual([]);
+    await page.close();
+  });
+
+  it("says the plan shown was made as someone else when the choice changes", async () => {
+    const o = await open("#/new", {});
+    const { page } = o;
+    await expect.poll(() => select(page).locator("option").count()).toBe(3);
+    await page.getByLabel("Page URL").fill("http://127.0.0.1:5173/notes");
+    await page.getByRole("button", { name: "Plan checks" }).click();
+    await page.locator("#plan-section").waitFor({ state: "visible" });
+    await select(page).selectOption("a");
+    await expect.poll(() => page.locator("#sign-in-hint").innerText()).toMatch(/made signed out.*Plan the checks again/);
+    await select(page).selectOption("");
+    await expect.poll(() => page.locator("#sign-in-hint").innerText()).not.toMatch(/Plan the checks again/);
+    await page.close();
+  });
+
+  it("Back to test plan plans the page as the account the run signed in as", async () => {
+    const o = await open("#/new?from=r1", {
+      runs: [{ runId: "r1", target: "http://127.0.0.1:5173/notes", status: "done", account: A, startedAt: "2026-09-26T10:00:00Z", completed: 1, total: 1 }],
+      report: report({ signedInAs: A, other: null }),
+      plan: (body) => ({ planId: "p2", plan: notesPlan(body.signInAs === "a" ? A : undefined), checks: {}, warnings: [] }),
+    });
+    await expect.poll(() => o.calls.filter((c) => c.path === "/api/plan").map((c) => c.body)).toEqual([{ url: "http://127.0.0.1:5173/notes", signInAs: "a" }]);
+    await expect.poll(() => o.page.locator("#plan-section").innerText()).toContain("Signed in as Account A");
+    expect((await o.page.getByLabel("Sign in as").locator("option:checked").textContent())!.trim()).toBe("Account A");
+    expect(o.errors).toEqual([]);
+    await o.page.close();
+  });
+
+  it("Back to test plan doesn't quietly plan signed out when the run's account isn't set up any more", async () => {
+    const o = await open("#/new?from=r1", {
+      accounts: accounts(READY_A, slot("b")),
+      runs: [{ runId: "r1", target: "http://127.0.0.1:5173/notes", status: "done", account: B, startedAt: "2026-09-26T10:00:00Z", completed: 1, total: 1 }],
+      report: report({ signedInAs: B, other: null }),
+    });
+    await expect.poll(() => o.page.locator("#target-error").innerText()).toMatch(/signed in as Account B, which isn't set up now/);
+    expect(o.calls.some((c) => c.path === "/api/plan")).toBe(false);
+    await o.page.close();
+  });
+});
+
+describe("Runs list and report details", () => {
+  const run = (runId: string, account?: AccountRef) => ({
+    runId,
+    target: "http://127.0.0.1:5173/notes",
+    formName: "New note",
+    status: "done",
+    startedAt: "2026-09-26T10:00:00Z",
+    finishedAt: "2026-09-26T10:01:00Z",
+    durationMs: 60_000,
+    summary: { critical: 0, high: 0, medium: 0, low: 0, passed: 1, failed: 0, errored: 0, skipped: 0 },
+    completed: 1,
+    total: 1,
+    ...(account ? { account } : {}),
+  });
+
+  it("shows who a run signed in as, and nothing for a signed-out run", async () => {
+    const o = await open("#/runs", { runs: [run("r2", { id: "a", label: "Owner" }), run("r3")] });
+    const rows = o.page.locator("#runs-list a.run-row");
+    await expect.poll(() => rows.count()).toBe(2);
+    expect(await rows.nth(0).innerText()).toContain("Signed in as Owner");
+    expect(await rows.nth(1).innerText()).not.toContain("Signed in as");
+    expect(o.errors).toEqual([]);
+    await o.page.close();
+  });
+
+  it("says which account the report's test records belong to", async () => {
+    const r = { ...report({ signedInAs: { id: "a", label: "Owner" }, other: null }), testRecordsCreated: 2 };
+    const o = await open("#/runs/r1", { report: r });
+    await o.page.locator("#report").waitFor({ timeout: 15_000 });
+    await expect.poll(() => o.page.locator("#report").innerText()).toMatch(/2 test records in your app, as Owner/);
+    await o.page.close();
+  });
+
+  it("fits a 360 px screen with both accounts named", async () => {
+    const o = await open("#/runs/r1", { report: report({ signedInAs: { id: "a", label: "A very long account label for the owner" }, other: B }) }, 360);
+    await o.page.locator("#report h1").waitFor({ timeout: 15_000 });
+    const overflow = await o.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+    await o.page.close();
   });
 });

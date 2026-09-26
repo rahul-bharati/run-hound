@@ -8,9 +8,11 @@ import { startBookingApp, sampleForm, type BookingServer, type ClientOptions } f
 import { expectCheckShape, expectCleanPass, expectFailure, expectPlan } from "../../test/fixtures/checks/_behavior/expectations.js";
 import { startModernApp } from "../../test/fixtures/checks/modern-apps.js";
 import { projectForm, startWidgetApp } from "../../test/fixtures/widgets/widget-app.js";
+import type { DiscoveredForm } from "../core/types.js";
 import { createCheckContext } from "../engine/context.js";
 import { MULTI_STEP_NOTE } from "./lib/functional-form.js";
 import { check } from "./silent-failure.js";
+import { startSchemaFormApp } from "../../test/fixtures/checks/schema-form.js";
 
 const ID = "silent-failure" as const;
 const servers: BookingServer[] = [];
@@ -203,6 +205,102 @@ describe("silent-failure: widgets keep their values after the error (Radix Selec
       await ctx.dispose();
       await rm(artifactsDir, { recursive: true, force: true });
       await app.close();
+    }
+  });
+});
+
+describe("silent-failure: skip notes never blame the app for what Run Hound didn't do (RH-10)", () => {
+  it("names the field whose rule refused Run Hound's value", async () => {
+    const a = await startSchemaFormApp({ taskMinLength: 80 });
+    try {
+      const { results } = await runCheck(check, a.formUrl);
+      expect(results[0]!.status).toBe("skipped");
+      expect(results[0]!.notes).toMatch(/^Skipped: submitting the form sent no save request/);
+      expect(results[0]!.notes).toMatch(/showed an error on "Task"/);
+      expect(results[0]!.notes).not.toMatch(/may have refused/);
+    } finally {
+      await a.close();
+    }
+  });
+});
+
+/**
+ * A form whose fields are found by position (a widget with no id or name, as discovery reports Radix controls), and
+ * whose error message is inserted at the top of the form: every position below it shifts by one.
+ */
+const SHIFTING = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Settings</title><link rel="icon" href="data:,"></head><body><main>
+<h1>Settings</h1>
+<form id="f" novalidate>
+  <div><label for="name">Name</label> <input id="name" name="name"></div>
+  <div><button type="button" role="checkbox" aria-checked="false" aria-labelledby="t-label"></button> <span id="t-label">Email me product news</span></div>
+  <div><span id="plan-label">Plan</span> <button type="button" role="combobox" aria-labelledby="plan-label">Pro</button><select aria-hidden="true" tabindex="-1"><option value=""></option><option value="pro" selected>Pro</option><option value="team">Team</option></select></div>
+  <button type="submit">Save</button>
+</form>
+<script>
+const box = document.querySelector("[role=checkbox]");
+box.addEventListener("click", () => box.setAttribute("aria-checked", String(box.getAttribute("aria-checked") !== "true")));
+document.getElementById("f").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const r = await fetch("/api/settings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: document.getElementById("name").value, news: box.getAttribute("aria-checked") === "true" }) });
+  if (!r.ok) {
+    const alert = document.createElement("div");
+    alert.setAttribute("role", "alert");
+    alert.textContent = "Could not save your settings. Please try again.";
+    e.target.prepend(alert);
+  }
+});
+</script></main></body></html>`;
+
+describe("silent-failure: fields found by position after the page inserts an error above them", () => {
+  it("reads back the same fields it filled, so a shifted position is not reported as a wiped field", async () => {
+    const server = await startFixtureServer({ pages: { "/settings": SHIFTING }, routes: { "POST /api/settings": (_req, res) => json(res, 200, {}) } });
+    const url = `${server.url}/settings`;
+    const artifactsDir = await mkdtemp(join(tmpdir(), "rh-silent-shift-"));
+    const form: DiscoveredForm = {
+      url,
+      index: 0,
+      selector: "#f",
+      name: "Settings",
+      fields: [
+        { key: "name", accessibleName: "Name", label: "Name", placeholder: null, type: "text", role: "textbox", required: true, selector: "#name" },
+        {
+          key: "news",
+          accessibleName: "Email me product news",
+          label: "Email me product news",
+          placeholder: null,
+          type: "checkbox",
+          role: "checkbox",
+          required: true,
+          selector: "#f > div:nth-of-type(2) > button",
+          widget: "aria-checkbox",
+        },
+        {
+          // A Radix Select: the visible trigger, and the hidden native <select> it mirrors its value into.
+          key: "plan",
+          accessibleName: "Plan",
+          label: "Plan",
+          placeholder: null,
+          type: "select",
+          role: "combobox",
+          required: false,
+          selector: "#f > div:nth-of-type(3) > button",
+          nativeSelector: "#f > div:nth-of-type(3) > select",
+          widget: "aria-select",
+          options: [{ label: "Pro", selector: "#f > div:nth-of-type(3) > select > option:nth-child(2)" }],
+        },
+      ],
+      controls: [{ accessibleName: "Save", text: "Save", role: "button", tag: "button", selector: "#f > button", isSubmit: true }],
+    };
+    const ctx = createCheckContext({ browser: await getBrowser(), form, targetUrl: url, artifactsDir, runToken: "t3st" });
+    try {
+      const [scenario] = check.plan(form);
+      const result = await check.run(ctx, scenario!);
+      expect(result.findings.map((f) => f.title), result.notes).toEqual([]);
+      expect(result.status).toBe("pass");
+    } finally {
+      await ctx.dispose();
+      await rm(artifactsDir, { recursive: true, force: true });
+      await server.close();
     }
   });
 });

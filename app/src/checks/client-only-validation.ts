@@ -1,7 +1,10 @@
 /**
  * client-only-validation: capture the form's save request (answered by the check, so the valid record is
  * never stored), then replay it to the real server with the end date moved before the start date (or, when
- * the form has no date range, a required field emptied). Pass when the server rejects it with 4xx (or answers
+ * the form has no date range, a field the form refuses when empty, emptied). Which fields those are is learnt by
+ * submitting the form empty with every write answered by Run Hound (probeEmptySubmit: nothing reaches the app), so a
+ * schema-validated form that marks nothing as required is covered, and an optional field is never emptied (the server
+ * rightly accepts it empty); fields marked required come after them. Pass when the server rejects it with 4xx (or answers
  * with a redirect, which is not followed and counts as "not accepted"); fail on 2xx (accepted) and on 5xx (the
  * server broke instead of rejecting it). Localhost targets only: on any other target the scenario is still planned,
  * so the plan and the report say why it did not run, and it is skipped. Creates at most one test record.
@@ -13,20 +16,26 @@ import { isPagePost, isSameOrigin } from "../core/saves.js";
 import type { Check, DiscoveredForm, Scenario } from "../core/types.js";
 import { bodyLines, clip, endpointOf, errorResult, evidence, findingFactory, guarded, result, specSource, tryCard } from "./lib/functional-finding.js";
 import {
+  armFieldErrors,
   canaryValues,
   fieldName,
   fillForm,
-  fillProblemsNote,
   isCreatePlaywrightRequest,
+  isSearchForm,
   MULTI_STEP_NOTE,
   PAGE_POST_NOTE,
+  probeEmptySubmit,
   shiftDay,
   simulatedResponse,
   STOPPED_PAGE_POST_HTML,
   submitForm,
   waitFor,
   watchNextStep,
-  type FieldValue, isSearchForm } from "./lib/functional-form.js";
+  whyNothingSent,
+  type EmptySubmit,
+  type FieldValue,
+} from "./lib/functional-form.js";
+import { fieldKind } from "./lib/widgets.js";
 
 const ID = "client-only-validation" as const;
 
@@ -87,46 +96,83 @@ interface Mutation {
 /** Headers whose values are credentials: shown on evidence as masked. */
 const SECRET_HEADERS = /csrf|xsrf|cookie|authorization|token|api-?key|session/i;
 
-/** Makes the captured body invalid in one way. JSON and urlencoded bodies are supported. */
-function invalidate(body: string, values: FieldValue[]): Mutation | null {
-  let fields: Record<string, unknown>;
-  let encode: (f: Record<string, unknown>) => string;
+/** A captured body as fields, and how to turn changed fields back into a body. JSON objects and urlencoded bodies. */
+interface ParsedBody {
+  fields: Record<string, unknown>;
+  encode(fields: Record<string, unknown>): string;
+}
+
+function parseBody(body: string): ParsedBody | null {
   try {
     const parsed: unknown = JSON.parse(body);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    fields = { ...(parsed as Record<string, unknown>) };
-    encode = (f) => JSON.stringify(f);
+    return { fields: { ...(parsed as Record<string, unknown>) }, encode: (f) => JSON.stringify(f) };
   } catch {
     const params = new URLSearchParams(body);
     if ([...params.keys()].length === 0) return null;
-    fields = Object.fromEntries(params.entries());
-    encode = (f) => new URLSearchParams(f as Record<string, string>).toString();
+    return { fields: Object.fromEntries(params.entries()), encode: (f) => new URLSearchParams(f as Record<string, string>).toString() };
   }
-  const keyFor = (value: string) => Object.keys(fields).find((k) => fields[k] === value);
+}
 
+/** The key of `body` holding `value` exactly, if any. */
+function keyFor(body: ParsedBody, value: string): string | undefined {
+  return Object.keys(body.fields).find((k) => body.fields[k] === value);
+}
+
+/** The end date moved before the start date, when the form has a date range the body carries. */
+function dateMutation(body: ParsedBody, values: FieldValue[]): Mutation | null {
   const dates = values.filter((v) => v.field.type === "date");
   const start = dates[0];
   const end = dates.find((d) => d.value !== start?.value);
-  if (start && end) {
-    const startKey = keyFor(start.value);
-    const endKey = keyFor(end.value);
-    if (startKey && endKey) {
-      const before = shiftDay(start.value, -3);
-      return {
-        describe: `${fieldName(end.field)} (${before}) set before ${fieldName(start.field)} (${start.value})`,
-        field: fieldName(end.field),
-        key: endKey,
-        value: before,
-        body: encode({ ...fields, [endKey]: before }),
-      };
+  if (!start || !end) return null;
+  const startKey = keyFor(body, start.value);
+  const endKey = keyFor(body, end.value);
+  if (!startKey || !endKey) return null;
+  const before = shiftDay(start.value, -3);
+  return {
+    describe: `${fieldName(end.field)} (${before}) set before ${fieldName(start.field)} (${start.value})`,
+    field: fieldName(end.field),
+    key: endKey,
+    value: before,
+    body: body.encode({ ...body.fields, [endKey]: before }),
+  };
+}
+
+/**
+ * The first of `candidates` (fields the form refuses empty) that the body carries, emptied: a text field by its typed
+ * value, a choice by its name when the body holds a non-empty string under it.
+ */
+function emptyMutation(body: ParsedBody, candidates: FieldValue[]): Mutation | null {
+  for (const v of candidates) {
+    const kind = fieldKind(v.field);
+    let key: string | undefined;
+    if (kind === "text" && v.value) key = keyFor(body, v.value);
+    else if (kind === "select" || kind === "radio" || kind === "combobox" || kind === "custom") {
+      const held = body.fields[v.field.key];
+      if (typeof held === "string" && held !== "") key = v.field.key;
     }
-  }
-  // No date range: empty the first required free-text field the body carries.
-  for (const v of values) {
-    const key = v.field.required && v.value ? keyFor(v.value) : undefined;
-    if (key) return { describe: `required ${fieldName(v.field)} left empty`, field: fieldName(v.field), key, value: "", body: encode({ ...fields, [key]: "" }) };
+    if (key) return { describe: `required ${fieldName(v.field)} left empty`, field: fieldName(v.field), key, value: "", body: body.encode({ ...body.fields, [key]: "" }) };
   }
   return null;
+}
+
+/** The fields to try emptying: the ones the form refused when empty, then the ones marked required, in form order. */
+function emptyCandidates(values: FieldValue[], empty: EmptySubmit): FieldValue[] {
+  const refused = values.filter((v) => empty.refused.includes(v.field));
+  return [...refused, ...values.filter((v) => v.field.required && !refused.includes(v))];
+}
+
+/** Why no field could be made invalid (a skipped scenario's note). */
+function noRuleNote(values: FieldValue[], empty: EmptySubmit): string {
+  const candidates = emptyCandidates(values, empty);
+  if (candidates.length > 0) {
+    const names = candidates.slice(0, 4).map((v) => `"${fieldName(v.field)}"`);
+    const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0]!;
+    const one = candidates.length === 1;
+    return `Skipped: the form needs ${list}${candidates.length > 4 ? " and more" : ""}, but its save request doesn't carry ${one ? "that field" : "those fields"} as typed, so Run Hound couldn't send the request with ${one ? "it" : "one of them"} left empty. The form has no date range to break either.`;
+  }
+  const sent = empty.sent ? " (the page sent it as it was; Run Hound answered that request itself, so nothing was saved)" : "";
+  return `Skipped: submitting the form empty showed no error on any field${sent}, and the form has no date range, so there was no rule of the form's own to break when sending its save request straight to the server.`;
 }
 
 export const check: Check = {
@@ -189,6 +235,7 @@ export const check: Check = {
       ctx.step("Filling the form and capturing its save request (answered by Run Hound)", page);
       const unset = await fillForm(page, values);
       const step = await watchNextStep(page, capture, ctx.targetUrl, ctx.runToken);
+      await armFieldErrors(page);
       await submitForm(page, ctx.form);
       await waitFor(() => captured !== null || pagePost, 5000);
 
@@ -202,12 +249,12 @@ export const check: Check = {
         const moved = await step.moved();
         await page.unrouteAll({ behavior: "ignoreErrors" });
         if (moved) return errorResult(ID, scenario, started, MULTI_STEP_NOTE, "skipped");
-        const why = fillProblemsNote(unset);
+        const why = await whyNothingSent(page, ctx.form, values, unset);
         return errorResult(
           ID,
           scenario,
           started,
-          `Skipped: submitting the form sent no save request (nothing carrying the typed values reached a server), so there was nothing to replay. ${why ? `${why} The page may need ${unset.length === 1 ? "that field" : "those fields"}.` : "The page may have refused Run Hound's test values."}`,
+          `Skipped: submitting the form sent no save request (nothing carrying the typed values reached a server), so there was nothing to replay. ${why}`,
           "skipped",
         );
       }
@@ -215,8 +262,19 @@ export const check: Check = {
       if (!isLocalTarget(request.url())) {
         return errorResult(ID, scenario, started, `Skipped: the form saves to ${safeHost(request.url())}, which is not on this machine; replaying requests only runs against localhost.`, "skipped");
       }
-      const mutation = invalidate(request.postData() ?? "", values);
-      if (!mutation) return errorResult(ID, scenario, started, "The save request body could not be changed (not JSON or form data, or no field to make invalid).", "skipped");
+      const body = parseBody(request.postData() ?? "");
+      if (!body) {
+        return errorResult(ID, scenario, started, "Skipped: the save request's body is neither JSON nor form data, so Run Hound can't make one of its fields invalid.", "skipped");
+      }
+      let mutation = dateMutation(body, values);
+      if (!mutation) {
+        // Which fields does the form itself refuse empty? Submitting it empty (every write answered by Run Hound, so
+        // nothing reaches the app) says so; an optional field is never emptied, since the server may rightly accept it.
+        ctx.step("Submitting the form empty to learn which fields it refuses (answered by Run Hound, nothing is saved)", page);
+        const empty = await probeEmptySubmit(ctx);
+        mutation = emptyMutation(body, emptyCandidates(values, empty));
+        if (!mutation) return errorResult(ID, scenario, started, noRuleNote(values, empty), "skipped");
+      }
 
       const headers = Object.fromEntries(Object.entries(await request.allHeaders()).filter(([k]) => !DROP_HEADERS.test(k)));
       ctx.step(`Sending ${endpointOf(request.method(), request.url())} to the server with ${mutation.describe}`, page);

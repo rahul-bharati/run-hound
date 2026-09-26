@@ -7,7 +7,7 @@ import { openFormSpec } from "../../engine/open-form.js";
 import { redactSecrets } from "../../engine/redact.js";
 import type { Page } from "playwright";
 import type { Capture, Category, CheckContext, CheckId, CheckResult, DiscoveredForm, Evidence, EvidenceCard, Finding, FrameOptions, Scenario, Severity } from "../../core/types.js";
-import { settingFor, type FieldValue } from "./functional-form.js";
+import { isEmptiableText, settingFor, type FieldValue } from "./functional-form.js";
 import { fieldLocator, setFieldSpec } from "./widgets.js";
 
 export { fieldLocator };
@@ -271,6 +271,11 @@ export function controlLocator(control: { accessibleName: string | null; role: s
   const role = CONTROL_ROLES.has(control.role) ? control.role : "button";
   if (control.accessibleName) return `page.getByRole(${q(role)}, { name: ${q(control.accessibleName)}, exact: true })`;
   return `page.locator(${q(control.selector)})`;
+}
+
+/** Spec lines that empty the form's text fields, as emptyTextFields does before an empty submit (a settings form). */
+export function emptyTextSpec(form: DiscoveredForm): string[] {
+  return form.fields.filter(isEmptiableText).map((f) => `await ${fieldLocator(f)}.fill("");`);
 }
 
 /** Spec lines that fill the form the way the check did (fillForm): the same settings, through setFieldSpec. */

@@ -1,10 +1,12 @@
 /**
  * page-controls (V1): click every button and button-like control outside the page's forms (toolbars, list actions,
  * toggles, href="#" links) on a freshly loaded page, and fail when a click causes no request, DOM change, navigation,
- * storage change, value change or focus change. The same probe as dead-control, without typing anything first.
+ * storage change, value change or focus change. The same probe as dead-control, without typing anything first. A
+ * checkbox or switch that saves when clicked (a task's "done" box) is set back afterwards, and a signed-in run never
+ * clicks a sign-out control (0.4.0).
  */
 import type { Check, Scenario } from "../core/types.js";
-import { clickEach, clickingTimeLimitMs, isDestructiveControl } from "./dead-control.js";
+import { clickEach, clickingTimeLimitMs, isDestructiveControl, isSessionEndingControl, sessionPlanNote } from "./dead-control.js";
 import { listOf } from "./lib/a11y-common.js";
 import { controlName } from "./lib/functional-form.js";
 
@@ -19,10 +21,11 @@ export const check: Check = {
   category: "broken-feature",
   scope: "page",
 
-  plan(_form, page): Scenario[] {
+  plan(_form, page, env): Scenario[] {
     const controls = page?.controls ?? [];
     const safe = controls.filter((c) => !isDestructiveControl(c)).slice(0, MAX_PAGE_CONTROLS);
-    const risky = controls.filter(isDestructiveControl);
+    // Signed in, a sign-out control is never clicked (sessionPlanNote), so it is not offered with the destructive ones.
+    const risky = controls.filter((c) => isDestructiveControl(c) && !(env?.signedIn && isSessionEndingControl(c)));
     if (safe.length === 0) return [];
     return [
       {
@@ -35,7 +38,8 @@ export const check: Check = {
             : `Click ${listOf(safe.map(controlName), 12)} one at a time, each on a freshly loaded page, and check that each causes`) +
           " a request, a page change, navigation (or a new tab), a storage change or a focus change." +
           (risky.length > 0 ? ` Left out unless you allow destructive scenarios: ${listOf(risky.map(controlName), 8)}.` : "") +
-          " A button that saves something may create test records.",
+          sessionPlanNote(controls, env) +
+          " A button that saves something may create test records; a checkbox or switch that saves when clicked is set back afterwards.",
         kind: "golden",
         priority: "high",
         destructive: false,

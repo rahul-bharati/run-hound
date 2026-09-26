@@ -84,13 +84,25 @@ export function isConsentCheckbox(field: FormField): boolean {
   return CONSENT.test(`${field.accessibleName ?? ""} ${field.label ?? ""} ${field.key}`);
 }
 
-/** The option of `field` whose label matches `wanted`: exactly, then ignoring case and spacing. */
+/**
+ * `s` lower-cased with every space removed. An option drawn on two lines (a name over a role) reads as "Alex
+ * RiveraStudio lead" in its text but "Alex Rivera Studio lead" on screen; both squash to the same key.
+ */
+const squash = (s: string | null | undefined) => lower(s).replace(/\s+/g, "");
+
+/** The option of `field` whose label matches `wanted`: exactly, then ignoring case and spacing, then ignoring spaces. */
 function matchOption(field: FormField, wanted: string): { label: string; selector: string } | undefined {
   const options = field.options ?? [];
-  return options.find((o) => o.label === wanted) ?? options.find((o) => lower(o.label) === lower(wanted));
+  const exact = options.find((o) => o.label === wanted) ?? options.find((o) => lower(o.label) === lower(wanted));
+  if (exact) return exact;
+  const squashed = options.filter((o) => squash(o.label) === squash(wanted));
+  return squashed.length === 1 ? squashed[0] : undefined;
 }
 
-/** Index of the text that matches `wanted` (exact, then a unique prefix, then a unique substring), or -1. */
+/**
+ * Index of the text that matches `wanted` (exact, then a unique prefix, then a unique substring, then a unique match
+ * ignoring spaces), or -1.
+ */
 function pickIndex(texts: string[], wanted: string): number {
   const keys = texts.map(lower);
   const w = lower(wanted);
@@ -100,7 +112,8 @@ function pickIndex(texts: string[], wanted: string): number {
     const hits = keys.flatMap((k, i) => (test(k) ? [i] : []));
     if (hits.length === 1) return hits[0]!;
   }
-  return -1;
+  const hits = texts.flatMap((t, i) => (squash(t) === squash(wanted) ? [i] : []));
+  return hits.length === 1 ? hits[0]! : -1;
 }
 
 /**
@@ -262,10 +275,14 @@ async function chooseShown(page: Page, field: FormField, opener: Locator, wanted
   let texts = (await options.allInnerTexts()).map(norm);
   let index = wanted === "first" ? Math.max(0, texts.findIndex((t) => !EMPTY_CHOICE.test(t))) : pickIndex(texts, wanted);
   if (index < 0) {
-    const search = page.locator(":focus:is([role=combobox], [type=search], [cmdk-input])");
+    // Only a box that takes typing: a trigger button can itself be a focused [role=combobox].
+    const search = page.locator(":is(input, textarea):focus:is([role=combobox], [type=search], [cmdk-input])");
     if ((await search.count().catch(() => 0)) > 0) {
-      await search.first().fill(wanted, { timeout: budget(deadline, 1_000) });
-      const filtered = await openOptions(page, opener, budget(deadline, 1_000));
+      const typed = await search.first().fill(wanted, { timeout: budget(deadline, 1_000) }).then(
+        () => true,
+        () => false,
+      );
+      const filtered = typed ? await openOptions(page, opener, budget(deadline, 1_000)) : null;
       if (filtered) {
         options = filtered;
         texts = (await options.allInnerTexts()).map(norm);
@@ -302,7 +319,9 @@ async function setAriaSelect(page: Page, field: FormField, option: string, deadl
         (el, w) => {
           const options = Array.from((el as HTMLSelectElement).options).filter((o) => o.value !== "" && !o.disabled);
           const k = w.replace(/\s+/g, " ").trim().toLowerCase();
-          const hit = w === "first" ? options[0] : options.find((o) => (o.label || o.text).replace(/\s+/g, " ").trim().toLowerCase() === k);
+          const key = (o: HTMLOptionElement) => (o.label || o.text).replace(/\s+/g, " ").trim().toLowerCase();
+          const spaceless = options.filter((o) => key(o).replace(/ /g, "") === k.replace(/ /g, ""));
+          const hit = w === "first" ? options[0] : (options.find((o) => key(o) === k) ?? (spaceless.length === 1 ? spaceless[0] : undefined));
           return hit ? { value: hit.value, label: (hit.label || hit.text).replace(/\s+/g, " ").trim() } : null;
         },
         wanted,

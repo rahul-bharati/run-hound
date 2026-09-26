@@ -8,6 +8,7 @@ import { discoverAndPlan, runPlan } from "../engine/runner.js";
 import { startBookingApp, sampleForm, type ApiOptions, type BookingServer, type ClientOptions } from "../../test/fixtures/checks/_behavior/booking-app.js";
 import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectPlan } from "../../test/fixtures/checks/_behavior/expectations.js";
 import { check, DEV_SERVER_NOISE } from "./console-network-errors.js";
+import { startSchemaFormApp } from "../../test/fixtures/checks/schema-form.js";
 
 const ID = "console-network-errors" as const;
 const servers: BookingServer[] = [];
@@ -235,4 +236,30 @@ $("news").addEventListener("submit", async (e) => {
     expect(report.findings[0]!.id).toMatch(/golden-path@form-2/);
     expect(evidenceText(report.findings)).toContain("/api/subscribe");
   }, 120_000);
+});
+
+describe("console-network-errors: the golden path never says 'submitted' when nothing was sent (RH-10)", () => {
+  it("says no save request was sent, and names the field that showed an error", async () => {
+    const a = await startSchemaFormApp({ taskMinLength: 80 });
+    try {
+      const { results } = await runCheck(check, a.formUrl);
+      expect(results[0]!.status).toBe("pass");
+      expect(results[0]!.notes).not.toMatch(/submitted/i);
+      expect(results[0]!.notes).toMatch(/no save request was sent/);
+      expect(results[0]!.notes).toMatch(/showed an error on "Task"/);
+    } finally {
+      await a.close();
+    }
+  });
+
+  it("still says it submitted the form when the save went through", async () => {
+    const a = await startSchemaFormApp({});
+    try {
+      const { results } = await runCheck(check, a.formUrl);
+      expect(results[0]!.status).toBe("pass");
+      expect(results[0]!.notes).toMatch(/^Loaded and submitted the form/);
+    } finally {
+      await a.close();
+    }
+  });
 });

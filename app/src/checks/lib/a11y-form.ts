@@ -8,7 +8,7 @@ import { isSaveRequest } from "../../core/saves.js";
 import type { DiscoveredForm, FormField } from "../../core/types.js";
 import { submitControl } from "./a11y-common.js";
 import { controlLocator } from "./functional-finding.js";
-import type { FillProblem } from "./functional-form.js";
+import { fitLength, fitsPattern, isHandleField, isWebsiteField, type FillProblem } from "./functional-form.js";
 import { fieldKind, hasEmptyChoice, isConsentCheckbox, setField, setFieldSpec, type FieldSetting } from "./widgets.js";
 
 /** Test values that carry the run token, so they can be recognised in any request. */
@@ -18,6 +18,8 @@ export interface Canaries {
   name: string;
   text: string;
   password: string;
+  /** For fields that take a handle (a slug, a username): lowercase letters, digits and dashes only. */
+  handle: string;
 }
 
 /** Canary values for a run. The email is lowercase so its normalised SHA-256 matches what trackers send. */
@@ -30,6 +32,7 @@ export function canaries(runToken: string, variant = ""): Canaries {
     name: `Rh ${token}${variant}`.slice(0, 40),
     text: `Run Hound test ${token}${variant}`,
     password: `Rh-${token}-Passw0rd!`,
+    handle: `rh-${token}${variant}`.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 40),
   };
 }
 
@@ -43,6 +46,14 @@ function isEndDate(field: FormField): boolean {
   return /end|to\b|until|check-?out|return/i.test(`${field.key} ${field.label ?? ""} ${field.accessibleName ?? ""}`);
 }
 
+/** A YYYY-MM-DD date moved inside the field's min and max, when it has them. */
+function clampDate(date: string, field: FormField): string {
+  const { min, max } = field.constraints ?? {};
+  if (min && /^\d{4}-\d{2}-\d{2}$/.test(min) && date < min) return min;
+  if (max && /^\d{4}-\d{2}-\d{2}$/.test(max) && date > max) return max;
+  return date;
+}
+
 /**
  * A valid-looking value for a text-like field, or null when the field is not text-like. Widgets are never typed into,
  * except an autocomplete (aria-combobox), which takes text.
@@ -50,15 +61,20 @@ function isEndDate(field: FormField): boolean {
 export function textValueFor(field: FormField, values: Canaries): string | null {
   if (field.widget && field.widget !== "aria-combobox") return null;
   if (field.widget === "aria-combobox") return values.text;
-  const max = field.constraints?.maxLength;
-  const fit = (v: string) => (max && max > 0 ? v.slice(0, max) : v);
+  const fit = (v: string) => fitLength(v, field);
   switch (field.type) {
     case "email":
       return values.email;
     case "tel":
       return values.phone;
     case "date":
-      return isEndDate(field) ? isoDate(33) : isoDate(30);
+      return clampDate(isEndDate(field) ? isoDate(33) : isoDate(30), field);
+    case "time":
+      return "12:00";
+    case "datetime-local":
+      return `${clampDate(isoDate(30), field)}T12:00`;
+    case "month":
+      return isoDate(30).slice(0, 7);
     case "number":
     case "range":
       return field.constraints?.min ?? "1";
@@ -71,6 +87,8 @@ export function textValueFor(field: FormField, values: Canaries): string | null 
     case "textarea":
       if (/mail/i.test(field.key)) return values.email;
       if (/phone|tel/i.test(field.key)) return values.phone;
+      if (isHandleField(field)) return fit(values.handle);
+      if (isWebsiteField(field)) return "https://example.com";
       return fit(/name/i.test(`${field.key} ${field.label ?? ""}`) ? values.name : values.text);
     default:
       return null;
@@ -78,14 +96,16 @@ export function textValueFor(field: FormField, values: Canaries): string | null 
 }
 
 /**
- * Which fields fillValid fills: required ones (by attribute or by label), email/phone fields (canary carriers), custom
- * pickers, choices a form can't be sent without (a select or radio group, native or widget, that offers no empty
- * choice such as "None") and consent checkboxes (terms, privacy). Passwords only when one is required.
+ * Which fields fillValid fills: every text-like field and autocomplete, required or not (react-hook-form + zod forms
+ * mark nothing as required, and a valid value in an optional field harms nothing), required fields of any kind,
+ * custom pickers, choices a form can't be sent without (a select or radio group, native or widget, that offers no
+ * empty choice such as "None") and consent checkboxes (terms, privacy). Passwords only when one is required. Switches,
+ * sliders and other checkboxes keep what the page gave them.
  */
 function shouldFill(field: FormField): boolean {
   if (field.type === "password") return field.required;
-  if (field.required || field.type === "email" || field.type === "tel" || field.type === "custom") return true;
   const kind = fieldKind(field);
+  if (field.required || kind === "text" || kind === "combobox" || field.type === "custom") return true;
   if (kind === "select" || kind === "radio") return !hasEmptyChoice(field);
   return isConsentCheckbox(field);
 }
@@ -116,14 +136,19 @@ function settingOf(field: FormField, values: Canaries): FieldSetting | null {
   }
 }
 
-/** The steps fillValid takes. Passwords are only filled when one is required (all with the same value). */
+/**
+ * The steps fillValid takes. Passwords are only filled when one is required (all with the same value). An optional
+ * field whose pattern the made-up value breaks is left empty: empty is valid there, the value isn't.
+ */
 export function fillActions(form: DiscoveredForm, values: Canaries): FillAction[] {
   const anyPasswordRequired = form.fields.some((f) => f.type === "password" && f.required);
   const actions: FillAction[] = [];
   for (const field of form.fields) {
     if (!shouldFill(field) && !(anyPasswordRequired && field.type === "password")) continue;
     const setting = settingOf(field, values);
-    if (setting) actions.push({ field, setting });
+    if (!setting) continue;
+    if ("text" in setting && !field.required && !fitsPattern(field, setting.text)) continue;
+    actions.push({ field, setting });
   }
   return actions;
 }
@@ -190,8 +215,9 @@ export async function submitAndWait(
       { timeout: options.timeoutMs ?? 10_000 },
     )
     .catch(() => null);
-  await page.locator(submit.selector).first().click();
-  const res = await response;
+  // A submit button that stays disabled (the form refused its values) is not waited for: nothing was sent.
+  const clicked = await page.locator(submit.selector).first().click({ timeout: 10_000 }).then(() => true, () => false);
+  const res = clicked ? await response : null;
   await settle(page);
   return res;
 }

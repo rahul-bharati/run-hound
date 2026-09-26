@@ -427,6 +427,61 @@ describe("dead-control: unnamed icon buttons whose icon says delete (CHK-3)", ()
   });
 });
 
+describe("dead-control: signed-in runs keep their session", () => {
+  const page = modernPage({
+    form: `<button type="button" id="signout">Sign out</button>
+      <button type="button" id="recommend">Recommend a plan</button>`,
+    script: [
+      'document.getElementById("signout").addEventListener("click", function () { fetch("/api/logout", { method: "POST" }).then(function () { location.href = "/plan?signed-out"; }); });',
+      'document.getElementById("recommend").addEventListener("click", function () { document.getElementById("out").textContent = "Team plan recommended"; });',
+    ].join("\n"),
+  });
+
+  async function runWith(signedIn: boolean) {
+    const s = await startFixtureServer({ pages: { "/plan": page }, fallback: (_req, res) => json(res, 200, {}) });
+    fixtureServers.push(s);
+    const url = `${s.url}/plan`;
+    const browser = await getBrowser();
+    const discovery = await browser.newPage();
+    await discovery.goto(url, { waitUntil: "networkidle" });
+    const found = await discoverPage(discovery);
+    await discovery.close();
+    const form = found.forms[0]!;
+    const artifactsDir = await mkdtemp(join(tmpdir(), "rh-dead-session-"));
+    const ctx = createCheckContext({
+      browser,
+      form,
+      discoveredPage: found,
+      targetUrl: url,
+      artifactsDir,
+      allowDestructive: true,
+      runToken: "t3st",
+      ...(signedIn ? { accounts: { self: { id: "a" as const, label: "Account A" }, other: null } } : {}),
+    });
+    try {
+      const [scenario] = check.plan(form, found);
+      return { s, result: await check.run(ctx, scenario!) };
+    } finally {
+      await ctx.dispose();
+      await rm(artifactsDir, { recursive: true, force: true });
+    }
+  }
+
+  it("never clicks Sign out on a signed-in run, even with --allow-destructive, and says why", async () => {
+    const { s, result } = await runWith(true);
+    const notes = result.notes ?? "";
+    expect(s.requests.filter((r) => r.method === "POST").map((r) => r.url)).toEqual([]);
+    expect(result.status, notes).toBe("pass");
+    expect(notes).toMatch(/"Sign out": skipped \([^)]*session/);
+    expect(notes).toMatch(/"Recommend a plan": DOM change/);
+  });
+
+  it("clicks it on a signed-out run with --allow-destructive, as before", async () => {
+    const { s } = await runWith(false);
+    expect(s.requests.filter((r) => r.method === "POST").map((r) => r.url)).toEqual(["/api/logout"]);
+  });
+});
+
 describe("dead-control: a form in a dialog (LOV-8)", () => {
   it("opens the dialog on every fresh page before clicking, and the spec opens it too", async () => {
     const members: unknown[] = [];

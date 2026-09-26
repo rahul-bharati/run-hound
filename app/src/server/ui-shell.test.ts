@@ -271,7 +271,8 @@ const scenarioBox = (page: Page, id: string) => page.locator(`#view input[type="
 const startButton = (page: Page) => page.getByRole("button", { name: /^Start run/ });
 
 async function planInUi(page: Page): Promise<void> {
-  await page.getByLabel("Page URL").fill(`${site.url}/book`);
+  // Exact: Settings has "Sign-in page URL" fields (test accounts, 0.4.0), still on screen right after a click on New Run.
+  await page.getByLabel("Page URL", { exact: true }).fill(`${site.url}/book`);
   await page.getByRole("button", { name: "Plan checks" }).click();
   await startButton(page).waitFor({ state: "visible", timeout: 30_000 });
 }
@@ -640,7 +641,8 @@ describe("app shell UI", () => {
 
     await destructive.check();
     await headed.check();
-    const save = page.getByRole("button", { name: /save/i });
+    // The Defaults card's own Save, if it has one (the test-accounts cards below have theirs).
+    const save = page.getByRole("region", { name: "Defaults" }).getByRole("button", { name: /save/i });
     if (await save.count()) await save.first().click();
     await expect.poll(() => page.evaluate(() => Object.keys(localStorage).length)).toBeGreaterThan(0);
 

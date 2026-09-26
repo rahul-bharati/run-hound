@@ -1,5 +1,6 @@
 import type { Page, Route } from "playwright";
 import { isDestructiveControl } from "../checks/dead-control.js";
+import { linkActs } from "../checks/lib/acting-links.js";
 import type { DiscoveredForm, DiscoveredPage, FormControl, FormField } from "../core/types.js";
 import { NoFormFoundError } from "./errors.js";
 
@@ -957,21 +958,90 @@ export async function discoverPage(page: Page, options: DiscoverOptions = {}): P
   const outside = (await page.evaluate(scan({ mode: "controls", exclude: used }))) as { controls: RawControl[]; links: number };
   const title = (await page.title().catch(() => "")).replace(/\s+/g, " ").trim();
   const controls = await finishControls(page, outside.controls);
+  const linkTargets = await findLinkTargets(page);
   if (options.openers && forms.length < MAX_FORMS) {
     const hints = outside.controls.map((c) => c.opens ?? null);
     await addFormsBehindOpeners(page, url, forms, openerCandidates(controls, hints));
   }
-  return { url, title: title || null, forms, controls, links: outside.links };
+  return { url, title: title || null, forms, controls, links: outside.links, linkTargets };
+}
+
+/** At most this many link targets per page (DiscoveredPage.linkTargets). */
+export const MAX_LINK_TARGETS = 50;
+
+/** Every a[href] to the page's own origin: its URL without the hash, and its name. In page order. Runs in the page. */
+const LINKS_SCRIPT = String.raw`(() => {
+  const out = [];
+  for (const a of document.querySelectorAll("a[href]")) {
+    const href = (a.getAttribute("href") || "").trim();
+    if (!href || href.startsWith("#") || /^javascript:/i.test(href) || a.hasAttribute("download")) continue;
+    let url;
+    try { url = new URL(a.href, location.href); } catch { continue; }
+    if (url.origin !== location.origin || (url.protocol !== "http:" && url.protocol !== "https:")) continue;
+    url.hash = "";
+    const name = (a.getAttribute("aria-label") || a.innerText || a.textContent || a.getAttribute("title") || "").replace(/\s+/g, " ").trim();
+    out.push({ url: url.href, name: name.slice(0, 200) });
+    if (out.length >= 400) break;
+  }
+  return out;
+})()`;
+
+/**
+ * DiscoveredPage.linkTargets: where the page's own links go, one per path and query, at most MAX_LINK_TARGETS. A link
+ * whose name or path says it acts (log out, delete, unsubscribe…) is left out, like a destructive button: opening it
+ * directly could end the session or change data.
+ */
+async function findLinkTargets(page: Page): Promise<string[]> {
+  const links = ((await page.evaluate(LINKS_SCRIPT).catch(() => [])) ?? []) as { url: string; name: string }[];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const { url, name } of links) {
+    let key: string;
+    try {
+      const parsed = new URL(url);
+      key = parsed.pathname + parsed.search;
+    } catch {
+      continue;
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (linkActs(name, url)) continue;
+    out.push(url);
+    if (out.length >= MAX_LINK_TARGETS) break;
+  }
+  return out;
+}
+
+/**
+ * Words that make a control destructive to click for real (isDestructiveControl), but that only open a form while
+ * discovery looks with every write blocked: "Invite member" shows the invite form, and sending the invite is the
+ * form's own submit, which discovery never clicks.
+ */
+const OPENS_A_FORM_WORDS = /\binvite\b/gi;
+
+/**
+ * True when discovery may click `control` to look for a form behind it: not destructive, or destructive only because
+ * of a word that opens a form (OPENS_A_FORM_WORDS). isDestructiveControl itself is unchanged: checks still never click
+ * "Invite" without --allow-destructive.
+ */
+export function safeToProbe(control: FormControl): boolean {
+  if (!isDestructiveControl(control)) return true;
+  const strip = (text: string) => text.replace(OPENS_A_FORM_WORDS, " ");
+  const name = `${control.accessibleName ?? ""} ${control.text}`;
+  if (strip(name) === name) return false;
+  // Judged by the rest of its name; with nothing left, by its own id (a "#delete-row" icon button stays out).
+  return !isDestructiveControl({ ...control, accessibleName: control.accessibleName === null ? null : strip(control.accessibleName), text: strip(control.text) });
 }
 
 /**
  * The controls worth clicking to find a hidden form, best first: aria-haspopup="dialog", then an opener-like name
- * ("New", "Add", "Create"...), then aria-expanded/aria-controls. Never a destructive control (isDestructiveControl),
- * a menu, tab, switch or toggle button, nor a link to another page (unless it says it opens a dialog).
+ * ("New", "Add", "Create", "Invite"...), then aria-expanded/aria-controls. Never a destructive control (safeToProbe:
+ * isDestructiveControl, except "Invite …"), a menu, tab, switch or toggle button, nor a link to another page (unless
+ * it says it opens a dialog).
  */
 function openerCandidates(controls: FormControl[], hints: RawControl["opens"][]): FormControl[] {
   const rank = (control: FormControl, hint: RawControl["opens"]): number => {
-    if (hint === "other" || isDestructiveControl(control)) return 0;
+    if (hint === "other" || !safeToProbe(control)) return 0;
     if (hint === "dialog") return 3;
     if (OPENER_NAME.test(`${control.accessibleName ?? ""} ${control.text}`)) return 2;
     return hint === "expands" ? 1 : 0;

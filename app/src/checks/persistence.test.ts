@@ -1,9 +1,15 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser, runCheck } from "../../test-support/harness.js";
+import { closeBrowser, getBrowser, runCheck } from "../../test-support/harness.js";
 import { json, startFixtureServer } from "../../test-support/server.js";
 import { startBookingApp, sampleForm, type ApiOptions, type BookingServer } from "../../test/fixtures/checks/_behavior/booking-app.js";
 import { expectCheckShape, expectCleanPass, expectFailure, expectPlan, findingText } from "../../test/fixtures/checks/_behavior/expectations.js";
 import { CONTACT_FIELDS, SIGNUP_FIELDS, startModernApp, type ModernApp, type ModernAppOptions } from "../../test/fixtures/checks/modern-apps.js";
+import { startSchemaFormApp } from "../../test/fixtures/checks/schema-form.js";
+import { createCheckContext } from "../engine/context.js";
+import { discoverPage } from "../engine/discover.js";
 import { check } from "./persistence.js";
 
 const ID = "persistence" as const;
@@ -428,5 +434,154 @@ document.getElementById("f").addEventListener("submit", async (e) => {
     expect(results[0]!.findings.map((f) => f.title)).toEqual([]);
     expect(results[0]!.status).toBe("skipped");
     expect(results[0]!.notes).toMatch(/doesn't show saved values/);
+  });
+});
+
+describe("persistence: the server answered with the value, but the page doesn't show it after reload", () => {
+  it("titles it 'saved but no longer shown after reload', not 'not saved'", async () => {
+    const a = await startSchemaFormApp({ list: false, response: "echo" });
+    closers.push(() => a.close());
+    const { results } = await runCheck(check, a.formUrl);
+    const findings = expectFailure(results, ID, "broken-feature", ["high"]);
+    expect(findings[0]!.title).toBe("3 fields are saved but no longer shown after reload (Task, Email, Notes)");
+    expect(findings[0]!.meaning).toMatch(/response/);
+  });
+
+  it("a list that shows a summary of each record is not a loss: a value the server's answer carried and the page never showed passes", async () => {
+    const a = await startSchemaFormApp({ listFields: ["title", "email"], response: "echo" });
+    closers.push(() => a.close());
+    const { results } = await runCheck(check, a.formUrl);
+    expectCleanPass(results, ID);
+    expect(results[0]!.notes).toMatch(/Notes/);
+    expect(results[0]!.notes).toMatch(/response/);
+  });
+
+  it("a text area's own text (React mirrors a controlled textarea's value into it) is not a listed record", async () => {
+    const a = await startSchemaFormApp({ listFields: ["title", "email"], response: "echo", reactTextarea: true });
+    closers.push(() => a.close());
+    const { results } = await runCheck(check, a.formUrl);
+    expectCleanPass(results, ID);
+  });
+
+  it("but the same list is still reported when the server's answer doesn't carry the value", async () => {
+    const a = await startSchemaFormApp({ listFields: ["title", "email"], response: "id" });
+    closers.push(() => a.close());
+    const { results } = await runCheck(check, a.formUrl);
+    const findings = expectFailure(results, ID, "broken-feature", ["critical"]);
+    expect(findings[0]!.title).toBe('"Notes" is not saved');
+  });
+
+  it("still says 'not saved' when the server's answer doesn't carry the value", async () => {
+    const a = await startSchemaFormApp({ list: false, response: "id" });
+    closers.push(() => a.close());
+    const { results } = await runCheck(check, a.formUrl);
+    const findings = expectFailure(results, ID, "broken-feature", ["critical"]);
+    expect(findings[0]!.title).toBe("3 fields are not saved (Task, Email, Notes)");
+  });
+});
+
+describe("persistence: skip notes never blame the app for what Run Hound didn't do (RH-10)", () => {
+  it("names the field whose rule refused Run Hound's value", async () => {
+    const a = await startSchemaFormApp({ taskMinLength: 80 });
+    closers.push(() => a.close());
+    const { results } = await runCheck(check, a.formUrl);
+    expect(results[0]!.status).toBe("skipped");
+    expect(results[0]!.notes).toMatch(/^Skipped: /);
+    expect(results[0]!.notes).toMatch(/showed an error on "Task"/);
+    expect(results[0]!.notes).not.toMatch(/may have refused/);
+  });
+});
+
+/**
+ * A profile edited in a dialog ("Edit profile"): the saved values only show in the dialog's own fields, loaded from
+ * GET /api/profile when it opens. `dropBio`: the server never stores the bio (and doesn't send it back).
+ */
+function profilePage(): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Settings</title><link rel="icon" href="data:,">
+<style>body { font-family: system-ui, sans-serif; margin: 2rem; } [role=dialog] { position: fixed; inset: 10% 25%; background: #fff; border: 1px solid #333; padding: 1.5rem; }</style></head>
+<body><main><h1>Settings</h1>
+<button type="button" id="edit" aria-haspopup="dialog" aria-expanded="false">Edit profile</button>
+<p id="toast" role="status"></p></main>
+<script>
+const edit = document.getElementById("edit");
+edit.addEventListener("click", async () => {
+  if (document.querySelector("[role=dialog]")) return;
+  const profile = await fetch("/api/profile").then((r) => r.json());
+  const dialog = document.createElement("div");
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-labelledby", "dialog-title");
+  dialog.innerHTML = '<h2 id="dialog-title">Edit profile</h2><form id="profile-form">' +
+    '<p><label for="display-name">Display name</label> <input id="display-name" name="displayName" required></p>' +
+    '<p><label for="bio">Bio</label> <textarea id="bio" name="bio" required></textarea></p>' +
+    '<button type="submit">Save profile</button></form>';
+  document.body.append(dialog);
+  dialog.querySelector("#display-name").value = profile.displayName || "";
+  dialog.querySelector("#bio").value = profile.bio || "";
+  edit.setAttribute("aria-expanded", "true");
+  dialog.querySelector("form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    const res = await fetch("/api/profile", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(data) });
+    if (!res.ok) return;
+    dialog.remove();
+    edit.setAttribute("aria-expanded", "false");
+    document.getElementById("toast").textContent = "Profile saved";
+  });
+});
+</script></body></html>`;
+}
+
+describe("persistence: a form in a dialog (LOV-8)", () => {
+  async function runOnProfile(dropBio: boolean) {
+    let profile: Record<string, unknown> = { displayName: "", bio: "" };
+    const s = await fixture({
+      pages: { "/settings": profilePage() },
+      routes: {
+        "GET /api/profile": (_req, res) => json(res, 200, profile),
+        "PUT /api/profile": (req, res) => {
+          const body = JSON.parse(req.body) as Record<string, unknown>;
+          if (dropBio) delete body["bio"];
+          profile = { ...profile, ...body };
+          json(res, 200, body);
+        },
+      },
+    });
+    const url = `${s.url}/settings`;
+    const browser = await getBrowser();
+    const discovery = await browser.newPage();
+    await discovery.goto(url, { waitUntil: "networkidle" });
+    const found = await discoverPage(discovery, { openers: true });
+    await discovery.close();
+    const form = found.forms[0]!;
+    expect(form.opener?.name).toBe("Edit profile");
+    const artifactsDir = await mkdtemp(join(tmpdir(), "rh-persist-dialog-"));
+    const ctx = createCheckContext({ browser, form, discoveredPage: found, targetUrl: url, artifactsDir, runToken: "t3st" });
+    try {
+      const [scenario] = check.plan(form, found);
+      return await check.run(ctx, scenario!);
+    } finally {
+      await ctx.dispose();
+      await rm(artifactsDir, { recursive: true, force: true });
+    }
+  }
+
+  it("opens the dialog again after the reload, where the saved values are shown", async () => {
+    const result = await runOnProfile(false);
+    expect(result.status, result.notes).toBe("pass");
+    expect(result.notes).toMatch(/visible after reload/);
+  });
+
+  it("reports a field the dialog no longer shows, with a spec that opens the dialog again after reloading", async () => {
+    const result = await runOnProfile(true);
+    expect(result.status, result.notes).toBe("fail");
+    const finding = result.findings[0]!;
+    expect(finding.title).toBe('"Bio" is not saved');
+    const spec = finding.spec!.source;
+    const reload = spec.indexOf("await page.reload();");
+    expect(reload).toBeGreaterThan(0);
+    // The opener is clicked once after page.goto and once again after the reload.
+    expect(spec.slice(reload)).toContain('await page.locator("#edit").first().click();');
+    expect(spec.slice(0, reload)).toContain('await page.locator("#edit").first().click();');
   });
 });

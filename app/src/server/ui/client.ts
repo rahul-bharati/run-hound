@@ -125,7 +125,19 @@ export const CLIENT = String.raw`
   }
   const enc = encodeURIComponent;
 
-  // Every API call carries X-Run-Hound: 1; the server requires it on /api/ai* (another site's page can't send it).
+  // Test accounts (0.4.0). Plans, reports and runs name an account by its label only, never its username.
+  const ACCOUNT_SLOTS = ["a", "b"];
+  const defaultAccountLabel = (id) => "Account " + (id === "b" ? "B" : "A");
+  /** An AccountRef's name: its label, or "Account A" / "Account B" when it has none. */
+  const accountName = (ref) => (ref && typeof ref.label === "string" && ref.label.trim() ? ref.label.trim() : defaultAccountLabel(ref && ref.id));
+  /** Who a report ran as, and the other account it used: Report.accounts, else the plan's account; null when signed out (and in 0.3.0 reports). */
+  function reportAccountsOf(report) {
+    const self = (report.accounts ? report.accounts.signedInAs : report.plan && report.plan.account) || null;
+    return { self, other: self && report.accounts ? report.accounts.other || null : null };
+  }
+
+  // Every API call carries X-Run-Hound: 1; the server requires it on /api/ai* and /api/accounts* (another site's page
+  // can't send it).
   async function api(path, body, method) {
     const init = body === undefined
       ? { cache: "no-store", headers: { "x-run-hound": "1" } }
@@ -264,7 +276,7 @@ export const CLIENT = String.raw`
   // ---------- New Run ----------
 
   /** Kept across views, so going to Runs and back keeps the plan you were looking at. */
-  const newState = { url: "", resp: null, selected: null, options: null, aiReview: null };
+  const newState = { url: "", resp: null, selected: null, options: null, aiReview: null, signInAs: "" };
 
   /** A form field's name as a person reads it on the page. */
   function fieldName(form, key) {
@@ -317,7 +329,53 @@ export const CLIENT = String.raw`
     let aiName = "";
     const aiRow = h("div", { class: "option ai-option", id: "ai-review-row", hidden: true });
     const planProgress = h("p", { class: "field-hint plan-progress", id: "plan-progress", hidden: true });
-    $("target-hint").after(aiRow, planProgress);
+
+    // "Sign in as" (0.4.0): plan, and so run, as a test account. A slot that isn't set up is listed but disabled.
+    const signIn = h("select", { id: "sign-in-as", class: "input", "aria-describedby": "sign-in-hint" }, h("option", { value: "", text: "Not signed in" }));
+    const signInHint = h("p", { class: "field-hint", id: "sign-in-hint" });
+    const signInRow = h("div", { class: "signin-row" }, h("label", { class: "field-label", for: "sign-in-as", text: "Sign in as" }), signIn, signInHint);
+    $("target-hint").after(signInRow, aiRow, planProgress);
+    let accounts = null;
+    const slotOf = (id) => (accounts && accounts.accounts && accounts.accounts[id]) || null;
+    const slotReady = (id) => Boolean(slotOf(id) && slotOf(id).ready);
+    const slotName = (id) => accountName({ id, label: slotOf(id) ? slotOf(id).label : "" });
+    function fillSignIn() {
+      fill(signIn, h("option", { value: "", text: "Not signed in" }), ACCOUNT_SLOTS.map((id) => {
+        const name = slotName(id) === defaultAccountLabel(id) ? slotName(id) : slotName(id) + " (" + defaultAccountLabel(id) + ")";
+        return h("option", { value: id, disabled: !slotReady(id), text: slotReady(id) ? name : name + " · Set it up in Settings" });
+      }));
+      signIn.value = slotReady(newState.signInAs) ? newState.signInAs : "";
+      newState.signInAs = signIn.value;
+      updateSignInHint();
+    }
+    function updateSignInHint() {
+      const who = signIn.value;
+      if (accounts && !who && !ACCOUNT_SLOTS.some(slotReady)) {
+        fill(signInHint, "Testing pages behind a sign-in? Add test accounts in ", h("a", { href: "#/settings", text: "Settings" }), ".");
+        return;
+      }
+      const bits = [];
+      if (who) bits.push("Run Hound signs in as " + slotName(who) + " first, and every check runs signed in.");
+      else if (accounts) bits.push("Opens the page signed out. Choose an account to test pages behind a sign-in and to run the access checks.");
+      const shown = newState.resp && !planSection.hidden ? newState.resp.plan : null;
+      if (shown && ((shown.account && shown.account.id) || "") !== who) {
+        bits.push("The plan below was made " + (shown.account ? "signed in as " + accountName(shown.account) : "signed out") + ". Plan the checks again to use this choice.");
+      }
+      fill(signInHint, bits.join(" "));
+    }
+    signIn.addEventListener("change", () => {
+      newState.signInAs = signIn.value;
+      updateSignInHint();
+    });
+    const accountsLoaded = api("/api/accounts").then((st) => {
+      if (my !== gen) return null;
+      accounts = st && st.accounts ? st : null;
+      fillSignIn();
+      return accounts;
+    }).catch((err) => {
+      if (my === gen) signInHint.textContent = "Could not load the test accounts: " + err.message;
+      return null;
+    });
     api("/api/ai").then((st) => {
       if (my !== gen || !st || !st.enabled || st.problem) return;
       aiName = st.provider + "/" + st.model;
@@ -364,16 +422,21 @@ export const CLIENT = String.raw`
         input.focus();
         return;
       }
+      // "Not signed in" sends no account at all.
+      const who = signIn.value;
+      const body = aiBox ? { url, ai: aiBox.checked } : { url };
+      if (who) body.signInAs = who;
       planButton.disabled = true;
       planButton.classList.add("busy");
-      planButton.textContent = "Opening the page…";
+      planButton.textContent = who ? "Signing in…" : "Opening the page…";
+      const opening = who ? "Signing in as " + slotName(who) + ", opening the page" : "Opening the page";
       const useAi = aiBox !== null && aiBox.checked;
       if (useAi) {
-        planProgress.textContent = "Opening the page, then asking " + aiName + " to review the plan. The model can take a while (a minute or more for a small local model).";
+        planProgress.textContent = opening + ", then asking " + aiName + " to review the plan. The model can take a while (a minute or more for a small local model).";
         planProgress.hidden = false;
       }
       try {
-        const resp = await api("/api/plan", aiBox ? { url, ai: aiBox.checked } : { url });
+        const resp = await api("/api/plan", body);
         if (my !== gen) return;
         newState.resp = resp;
         showPlan(resp, preselect || null, null, true);
@@ -421,8 +484,23 @@ export const CLIENT = String.raw`
       const warn = $("plan-warnings");
       const warnings = (resp.warnings || []).slice();
       for (const w of (p.ai && p.ai.warnings) || []) if (!warnings.includes(w)) warnings.push(w);
-      fill(warn, ...warnings.map((w) => h("p", { text: w })));
+      // The first "Sign in as a test account…" hint gets the way to do it (a plan can carry two such hints).
+      let offered = false;
+      fill(warn, ...warnings.map((w) => {
+        const action = offered ? null : signInAction(w, p);
+        offered = offered || action !== null;
+        return h("p", {}, w, action);
+      }));
       warn.hidden = warnings.length === 0;
+      // Who the page was planned as (0.4.0); the run signs in as the same account.
+      let acctLine = $("plan-account");
+      if (!acctLine) {
+        acctLine = h("p", { id: "plan-account", class: "plan-account" });
+        summary.parentNode.after(acctLine);
+      }
+      if (p.account) fill(acctLine, h("span", { class: "dot", "aria-hidden": "true" }), h("span", {}, "Signed in as ", h("b", { text: accountName(p.account) })));
+      else fill(acctLine);
+      acctLine.hidden = !p.account;
       let aiLine = $("plan-ai");
       if (!aiLine) {
         aiLine = h("p", { id: "plan-ai", class: "plan-ai" });
@@ -503,7 +581,25 @@ export const CLIENT = String.raw`
       planSection.hidden = false;
       setStep(2);
       updateStart();
+      updateSignInHint();
       if (focus) $("plan-h").focus();
+    }
+
+    /**
+     * For the plan's "Sign in as a test account…" hint: a button that plans the page again signed in as the first
+     * account that is set up, else a link to Settings. Nothing for other warnings or a signed-in plan.
+     */
+    function signInAction(w, p) {
+      if (p.account || !accounts || !/^Sign in as a test account/.test(w)) return null;
+      const ready = ACCOUNT_SLOTS.find(slotReady);
+      if (!ready) return h("a", { class: "warn-action", href: "#/settings", text: "Set up test accounts" });
+      const again = h("button", { type: "button", class: "link-btn warn-action", text: "Plan again signed in as " + slotName(ready) });
+      again.addEventListener("click", () => {
+        signIn.value = ready;
+        newState.signInAs = ready;
+        plan(input.value.trim() || newState.url);
+      });
+      return again;
     }
 
     $("target-form").addEventListener("submit", (e) => {
@@ -556,6 +652,23 @@ export const CLIENT = String.raw`
           showError("This address had a secret in it (a token or key), which Run Hound hides. Enter the full address again to plan it.");
           input.focus();
           return;
+        }
+        // Plan as the account the run signed in as (or signed out, as it was).
+        const ranAs = (entry && entry.account) || (st.report && st.report.plan ? reportAccountsOf(st.report).self : null);
+        await accountsLoaded;
+        if (my !== gen) return;
+        if (ranAs && !slotReady(ranAs.id)) {
+          newState.url = url;
+          showError(accounts
+            ? "This run was signed in as " + accountName(ranAs) + ", which isn't set up now. Set it up in Settings → Test accounts, or plan the page signed out."
+            : "This run was signed in as " + accountName(ranAs) + ", but the test accounts could not be loaded. Reload the page to try again, or plan the page signed out.");
+          input.focus();
+          return;
+        }
+        if (accounts) {
+          signIn.value = ranAs ? ranAs.id : "";
+          newState.signInAs = signIn.value;
+          updateSignInHint();
         }
         plan(url, ids.length ? ids : null);
       } catch (err) {
@@ -626,7 +739,8 @@ export const CLIENT = String.raw`
     if (run.status !== "running" && typeof run.durationMs === "number") counts.append(h("span", { class: "dur", text: formatDuration(run.durationMs) }));
     return h("li", {}, h("a", { class: "run-row", href: "#/runs/" + run.runId },
       runRing(run),
-      h("span", { class: "what" }, h("span", { class: "target", text: hostPath(run.target) }), h("span", { class: "form", text: run.formName ? run.formName : "Page without a form name" })),
+      h("span", { class: "what" }, h("span", { class: "target", text: hostPath(run.target) }), h("span", { class: "form", text: run.formName ? run.formName : "Page without a form name" }),
+        run.account ? h("span", { class: "acct", text: "Signed in as " + accountName(run.account) }) : null),
       h("time", { class: "when", datetime: run.startedAt, text: dateTime(run.startedAt) }),
       counts,
       icon("chevronRight")));
@@ -662,6 +776,7 @@ export const CLIENT = String.raw`
           h("div", { class: "option" }, destructive, h("label", { for: "default-destructive" }, "Allow destructive scenarios", h("span", { class: "desc", text: "They may change or delete data beyond creating test records. Leave off unless this is a throwaway environment." }))),
           h("div", { class: "option" }, headed, h("label", { for: "default-headed" }, "Show the browser window", h("span", { class: "desc", text: CONFIG.headedDesc })))),
         saved),
+      accountsCard(my),
       aiCard(my),
       h("section", { class: "card", "aria-labelledby": "server-h" },
         h("h2", { id: "server-h", class: "card-title" }, "This server"),
@@ -682,6 +797,194 @@ export const CLIENT = String.raw`
       if (my !== gen) return;
       info.append(h("dt", { text: "Server settings" }), h("dd", { class: "error", text: "Could not load them: " + err.message }));
     });
+  }
+
+  // ---------- Settings: test accounts (0.4.0) ----------
+
+  /**
+   * Two cards (Account A and B: label, sign-in page URL, username, a write-only password), the "must not see each
+   * other's data" setting and what the access checks do. The page never holds a saved password: GET /api/accounts
+   * only says whether one is saved, and a typed one is cleared from the field once it is saved.
+   */
+  function accountsCard(my) {
+    const card = h("section", { class: "card accounts-card", id: "accounts-card", "aria-labelledby": "accounts-h" },
+      h("h2", { id: "accounts-h", class: "card-title", text: "Test accounts" }),
+      h("p", { class: "loading", text: "Loading…" }));
+    api("/api/accounts").then((st) => {
+      if (my !== gen) return;
+      if (!st || !st.accounts) throw new Error("The server sent no test accounts.");
+      drawAccounts(card, st, my);
+    }).catch((err) => {
+      if (my !== gen) return;
+      fill(card, card.firstChild, h("p", { class: "error", text: "Could not load the test accounts: " + err.message }));
+    });
+    return card;
+  }
+
+  function drawAccounts(card, st, my) {
+    const lockedIsolated = st.isolatedSource === "env";
+    const isolated = h("input", { type: "checkbox", id: "acct-isolated", disabled: lockedIsolated });
+    isolated.checked = st.isolated !== false;
+    const isolatedMsg = h("p", { class: "saved", id: "acct-isolated-msg" });
+    isolated.addEventListener("change", async () => {
+      const want = isolated.checked;
+      isolated.disabled = true;
+      isolatedMsg.className = "saved";
+      isolatedMsg.textContent = "Saving…";
+      try {
+        const next = await api("/api/accounts", { isolated: want }, "PUT");
+        if (my !== gen) return;
+        isolated.checked = next.isolated !== false;
+        isolatedMsg.textContent = "Saved at " + hms(new Date().toISOString()) + ".";
+      } catch (err) {
+        if (my !== gen) return;
+        isolated.checked = !want;
+        isolatedMsg.className = "error";
+        isolatedMsg.textContent = err.message;
+      }
+      isolated.disabled = false;
+    });
+    const slots = ACCOUNT_SLOTS.map((id) => accountSlot(id, st.accounts[id] || { id, label: defaultAccountLabel(id) }, my));
+    fill(card,
+      h("h2", { id: "accounts-h", class: "card-title", text: "Test accounts" }),
+      h("p", { class: "muted acct-intro", text: "Two accounts on your app, so Run Hound can test pages behind a sign-in: choose one under New Run → Sign in as. Run Hound signs in with them in its own browser and never shows a saved password again." }),
+      h("p", { class: "acct-note" },
+        h("b", { text: "Access checks: " }),
+        "signed in as Account A, Run Hound checks that Account B, and a visitor who isn't signed in, can't read Account A's data. Use accounts you own, made for testing: never a real customer's. Runs create test records in Account A."),
+      h("div", { class: "acct-grid" }, slots),
+      h("div", { class: "option acct-isolated" }, isolated,
+        h("label", { for: "acct-isolated" }, "A and B must not see each other's data",
+          h("span", { class: "desc", text: "Tick when they are different users, not teammates in one workspace. Run Hound only checks that Account B can't read Account A's data when this is ticked." })),
+        lockedIsolated ? h("span", { class: "locked", text: "Set by environment" }) : null),
+      isolatedMsg,
+      st.file ? h("p", { class: "note" }, "Saved to ", h("code", { class: "mono", text: st.file }), ", readable only by you.") : null);
+  }
+
+  /** One account's card: a fieldset named by the account's label. Save and Test sign-in act on this account only. */
+  function accountSlot(id, initial, my) {
+    const fs = h("fieldset", { class: "acct", id: "acct-" + id });
+    const pre = "acct-" + id + "-";
+    const draw = (s, message) => {
+      const sources = s.sources || {};
+      const locked = (k) => sources[k] === "env";
+      const lockNote = (k) => (locked(k) ? h("span", { class: "locked", text: "Set by environment" }) : null);
+      const name = accountName({ id, label: s.label });
+      const hasPassword = s.hasPassword === true;
+      let removePassword = false;
+
+      const field = (key, label, type, attrs, hint) => {
+        const input = h("input", Object.assign({ id: pre + key, class: "input", type, spellcheck: "false", autocomplete: "off", disabled: locked(key) }, attrs));
+        const hintEl = hint ? h("span", { class: "field-hint", id: pre + key + "-hint", text: hint }) : null;
+        if (hintEl) input.setAttribute("aria-describedby", hintEl.id);
+        return { input, row: h("div", { class: "acct-field" }, h("label", { class: "field-label", for: pre + key, text: label }), input, lockNote(key), hintEl) };
+      };
+      const label = field("label", "Label", "text", { placeholder: defaultAccountLabel(id), maxlength: "60" }, "How plans and reports name this account.");
+      label.input.value = typeof s.label === "string" ? s.label : "";
+      const loginUrl = field("loginUrl", "Sign-in page URL", "url", { placeholder: "http://localhost:5173/login" }, null);
+      loginUrl.input.value = s.loginUrl || "";
+      const username = field("username", "Username", "text", { autocomplete: "off", placeholder: "you@example.test" }, "What the sign-in form's email or username field takes.");
+      username.input.value = s.username || "";
+
+      // The password is write-only: the field starts empty, and a typed one is sent once, on Save.
+      const password = h("input", { id: pre + "password", class: "input", type: "password", autocomplete: "new-password", spellcheck: "false", disabled: locked("password"),
+        placeholder: hasPassword ? "Saved: type a new one to replace it" : "Not set", "aria-describedby": pre + "password-state" });
+      password.value = "";
+      const pwState = h("span", { class: "field-hint pw-state", id: pre + "password-state" });
+      const originNote = h("span", { class: "field-hint warn-note", id: pre + "origin-note" });
+      const setPwState = () => {
+        pwState.textContent = locked("password") ? "" : removePassword ? "The saved password will be removed when you save." : hasPassword ? "Password saved" : "No password yet";
+      };
+      setPwState();
+      let remove = null;
+      if (hasPassword && !locked("password")) {
+        const removeText = h("span", { text: "Remove" });
+        remove = h("button", { type: "button", class: "link-btn", id: pre + "password-remove" }, removeText, h("span", { class: "visually-hidden", text: " the saved password of " + name }));
+        remove.addEventListener("click", () => {
+          removePassword = !removePassword;
+          removeText.textContent = removePassword ? "Undo remove" : "Remove";
+          password.placeholder = removePassword ? "Will be removed" : "Saved: type a new one to replace it";
+          setPwState();
+        });
+      }
+      // A saved password is only sent to the sign-in page's origin it was saved for: warn before a new origin drops it.
+      const originOf = (u) => { try { return new URL(u).origin; } catch (e) { return null; } };
+      const savedOrigin = originOf(s.loginUrl || "");
+      const checkOrigin = () => {
+        const moved = hasPassword && !removePassword && !password.value && savedOrigin !== null && originOf(loginUrl.input.value.trim()) !== savedOrigin;
+        originNote.textContent = moved ? "A different site's sign-in page: the saved password is only sent where it was saved, so saving this removes it. Type the password again to keep one." : "";
+      };
+      loginUrl.input.addEventListener("input", checkOrigin);
+      password.addEventListener("input", checkOrigin);
+
+      const saveText = h("span", { text: "Save" });
+      const save = h("button", { type: "button", class: "btn primary small", id: pre + "save" }, saveText, h("span", { class: "visually-hidden", text: " " + name }));
+      const testText = h("span", { text: "Test sign-in" });
+      const test = h("button", { type: "button", class: "btn small", id: pre + "test" }, testText, h("span", { class: "visually-hidden", text: " as " + name }));
+      const error = h("p", { class: "error", id: pre + "error" });
+      const saved = h("p", { class: "saved", id: pre + "saved", text: message || "" });
+      const testOut = h("p", { class: "field-hint acct-test", id: pre + "test-result" });
+
+      save.addEventListener("click", async () => {
+        error.textContent = "";
+        saved.textContent = "";
+        const patch = {};
+        if (!locked("label")) patch.label = label.input.value.trim();
+        if (!locked("loginUrl")) patch.loginUrl = loginUrl.input.value.trim();
+        if (!locked("username")) patch.username = username.input.value.trim();
+        if (!locked("password")) {
+          if (password.value) patch.password = password.value;
+          else if (removePassword) patch.password = "";
+        }
+        save.disabled = true;
+        saveText.textContent = "Saving…";
+        try {
+          const next = await api("/api/accounts", { accounts: { [id]: patch } }, "PUT");
+          if (my !== gen) return;
+          password.value = "";
+          draw((next.accounts && next.accounts[id]) || s, "Saved at " + hms(new Date().toISOString()) + ".");
+          announce(accountName({ id, label: next.accounts && next.accounts[id] ? next.accounts[id].label : name }) + " saved.");
+          const again = document.getElementById(pre + "save");
+          if (again) again.focus();
+        } catch (err) {
+          if (my !== gen) return;
+          save.disabled = false;
+          saveText.textContent = "Save";
+          error.textContent = err.message;
+        }
+      });
+      test.addEventListener("click", async () => {
+        test.disabled = true;
+        testText.textContent = "Signing in…";
+        testOut.className = "field-hint acct-test";
+        testOut.textContent = "Signing in with the saved details. This can take a few seconds.";
+        try {
+          const r = await api("/api/accounts/test", { id });
+          if (my !== gen) return;
+          testOut.className = r.ok ? "acct-ok acct-test" : "error acct-test";
+          testOut.textContent = r.message || (r.ok ? "Signed in." : "Could not sign in.");
+        } catch (err) {
+          if (my !== gen) return;
+          testOut.className = "error acct-test";
+          testOut.textContent = err.message;
+        }
+        test.disabled = false;
+        testText.textContent = "Test sign-in";
+        announce(testOut.textContent);
+      });
+
+      const custom = name !== defaultAccountLabel(id);
+      fill(fs,
+        h("legend", {}, name, custom ? h("span", { class: "slot", text: " · " + defaultAccountLabel(id) }) : null),
+        s.problem ? h("p", { class: "warning acct-problem", id: pre + "problem", text: s.problem }) : null,
+        label.row, loginUrl.row, username.row,
+        h("div", { class: "acct-field" },
+          h("label", { class: "field-label", for: pre + "password", text: "Password" }), password, lockNote("password"),
+          h("span", { class: "pw-line" }, pwState, remove), originNote),
+        h("div", { class: "acct-actions" }, save, test),
+        error, saved, testOut);
+    };
+    draw(initial, "");
+    return fs;
   }
 
   // ---------- Settings: AI (0.3.0) ----------
@@ -1115,7 +1418,8 @@ export const CLIENT = String.raw`
       h("div", { class: "run-title" }, h("h1", { text: "Running tests…" }), h("p", {}, h("span", { class: "visually-hidden", text: "Scenario " }), ui.counter)),
       h("div", { class: "run-sub" },
         h("p", { class: "form", text: meta && meta.formName ? "Testing “" + meta.formName + "”" : "Testing this page" }),
-        h("p", { class: "target", text: ui.target })),
+        h("p", { class: "target", text: ui.target }),
+        meta && meta.account ? h("p", { class: "acct", text: "Signed in as " + accountName(meta.account) }) : null),
       ui.bar,
       h("div", { class: "stats" },
         h("div", { class: "stat", id: "elapsed-card" }, icon("clock"), h("div", {}, h("span", { class: "label", text: "Elapsed time" }), ui.elapsed)),
@@ -1451,7 +1755,7 @@ export const CLIENT = String.raw`
           nothingChecked
             ? ring("skipped", { cls: "big", shape: "bigSkipped", label: "Nothing was checked" })
             : ring(clean ? "pass" : "fail", { cls: "big", shape: clean ? "bigPass" : "bigFail", label: clean ? "No confirmed findings" : plural(confirmed, "confirmed finding") }),
-          h("div", {}, h("h1", { text: title }), summary)),
+          h("div", {}, h("h1", { text: title }), summary, reportAccountLine(report))),
         h("div", { class: "head-actions" },
           rerunButton(id, headError),
           h("a", { class: "btn", href: base + "report.html", target: "_blank", rel: "noopener" }, icon("external"), "Open HTML report", h("span", { class: "visually-hidden", text: " (opens in a new tab)" })),
@@ -1571,6 +1875,16 @@ export const CLIENT = String.raw`
       entries.length ? detail : h("div", { id: "detail", class: "card" }, h("p", { class: "muted", text: "This run has no results." })));
 
     return h("div", { id: "report", class: "report" }, head, grid, reportExtras(report));
+  }
+
+  /** "Signed in as Account A · other account Account B, …" under the report's summary; null for a signed-out run. */
+  function reportAccountLine(report) {
+    const { self, other } = reportAccountsOf(report);
+    if (!self) return null;
+    return h("p", { class: "report-account" },
+      h("span", { class: "dot", "aria-hidden": "true" }),
+      h("span", {}, "Signed in as ", h("b", { text: accountName(self) }),
+        other ? h("span", { class: "muted" }, " · other account ", h("b", { text: accountName(other) }), ", used to check that it can't read " + accountName(self) + "'s data") : null));
   }
 
   function tagList(items) {
@@ -1745,9 +2059,10 @@ export const CLIENT = String.raw`
         ? h("ul", { class: "plain-list" }, pages.map((p) => h("li", {}, h("span", { class: "mono", text: p.url }), " · " + plural(p.scenarioIds.length, "scenario"))))
         : h("p", { class: "muted", text: "No pages were recorded." }));
     if (typeof report.testRecordsCreated === "number") {
+      const as = reportAccountsOf(report).self;
       pagesCard.append(h("p", { class: "note", text: report.testRecordsCreated === 0
         ? "This run created no test records in your app."
-        : "This run may have created " + plural(report.testRecordsCreated, "test record") + " in your app. Run Hound does not delete them." }));
+        : "This run may have created " + plural(report.testRecordsCreated, "test record") + " in your app" + (as ? ", as " + accountName(as) : "") + ". Run Hound does not delete them." }));
     }
     cards.push(pagesCard);
     if (report.notVisible && report.notVisible.length) {

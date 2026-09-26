@@ -8,10 +8,10 @@ import { isPagePost } from "../core/saves.js";
 import type { Check, Fact, FormField, Highlight, Scenario } from "../core/types.js";
 import { controlLocator, endpointOf, fieldLocator, evidence, fillLines, findingFactory, guarded, markText, recordFlow, result, specSource } from "./lib/functional-finding.js";
 import {
+  armFieldErrors,
   canaryValues,
   fieldName,
   fillForm,
-  fillProblemsNote,
   isCreatePlaywrightRequest,
   MULTI_STEP_NOTE,
   PAGE_POST_NOTE,
@@ -22,6 +22,7 @@ import {
   submitForm,
   waitFor,
   watchNextStep,
+  whyNothingSent,
   type FieldValue, isSearchForm } from "./lib/functional-form.js";
 
 const ID = "silent-failure" as const;
@@ -76,16 +77,32 @@ interface Probe {
 
 /**
  * What a field shows now, whatever kind it is: a text field's or select's value, the checked radio of a group, a
- * checkbox's or switch widget's aria-checked, a slider's aria-valuenow, a widget's hidden native input, else the
- * control's text (a select widget's trigger shows the chosen option). Null when the field isn't on the page.
+ * checkbox's or switch widget's aria-checked, a slider's aria-valuenow, a widget's hidden native input (a radio group
+ * has one per item: the checked one's value), else the control's text (a select widget's trigger shows the chosen
+ * option). Null when the field isn't on the page.
+ *
+ * The field is found by the mark snapshot() put on it (`i`) before the submit, else by its selector: a message the page
+ * inserts above the fields shifts every position, and a positional selector (#f > div:nth-of-type(2) > button) would
+ * then point at another field, or at none, and a kept value would read as wiped.
  */
 const READ_SCRIPT = `(args) => {
-  const el = document.querySelector(args.sel);
+  const mark = args.mark === null ? [] : [document.querySelector('[data-rh-field="' + args.mark + '"]')];
+  const el = mark[0] || document.querySelector(args.sel);
   if (!el) return null;
+  if (args.mark !== null && !mark[0]) el.setAttribute("data-rh-field", String(args.mark));
   if (el.getAttribute("role") === "slider") return el.getAttribute("aria-valuenow");
   if (el.hasAttribute("aria-checked")) return el.getAttribute("aria-checked");
-  const native = args.native ? document.querySelector(args.native) : null;
-  if (native) return native.matches("input[type=checkbox], input[type=radio]") ? String(native.checked) : native.value;
+  // A widget's hidden native inputs are marked the same way (their selector is often positional too).
+  let natives = args.mark === null ? [] : Array.from(document.querySelectorAll('[data-rh-native="' + args.mark + '"]'));
+  if (natives.length === 0 && args.native) {
+    natives = Array.from(document.querySelectorAll(args.native));
+    if (args.mark !== null) for (const n of natives) n.setAttribute("data-rh-native", String(args.mark));
+  }
+  if (natives.length > 0) {
+    const native = natives[0];
+    if (native.matches("input[type=radio]")) { const on = natives.find((n) => n.checked); return on ? on.value : ""; }
+    return native.matches("input[type=checkbox]") ? String(native.checked) : native.value;
+  }
   if (el.matches("input[type=radio]")) {
     const on = el.form ? Array.from(el.form.elements).find((i) => i.type === "radio" && i.name === el.name && i.checked) : el.checked ? el : null;
     return on ? on.value : "";
@@ -97,25 +114,31 @@ const READ_SCRIPT = `(args) => {
   return (el.textContent || "").trim();
 }`;
 
-async function readField(page: Page, field: FormField): Promise<string | null> {
-  return (await page.evaluate(`(${READ_SCRIPT})(${JSON.stringify({ sel: field.selector, native: field.nativeSelector ?? null })})`).catch(() => null)) as string | null;
+/** What `field` shows now (READ_SCRIPT); `mark` is its index in the snapshot, or null to find it by selector only. */
+async function readField(page: Page, field: FormField, mark: number | null = null): Promise<string | null> {
+  const args = { sel: field.selector, native: field.nativeSelector ?? null, mark };
+  return (await page.evaluate(`(${READ_SCRIPT})(${JSON.stringify(args)})`).catch(() => null)) as string | null;
 }
 
-/** What every filled field shows, just before submitting. */
+/** What every filled field shows, just before submitting; each field found is marked, so lostInputs reads the same one. */
 async function snapshot(page: Page, values: FieldValue[]): Promise<(string | null)[]> {
   const shown: (string | null)[] = [];
-  for (const { field } of values) shown.push(["file", "hidden"].includes(field.type) ? null : await readField(page, field));
+  for (const [i, { field }] of values.entries()) shown.push(["file", "hidden"].includes(field.type) ? null : await readField(page, field, i));
   return shown;
 }
 
-/** Fields that no longer show what they showed before submitting (the form was cleared after the error). */
+/**
+ * Fields that no longer show what they showed before submitting (the form was cleared after the error). A field that
+ * can't be found any more (its mark and its selector both gone) is not counted: whether it was emptied is unknown.
+ */
 async function lostInputs(page: Page, values: FieldValue[], before: (string | null)[]): Promise<string[]> {
   const lost: string[] = [];
   for (const [i, { field }] of values.entries()) {
     const was = before[i];
     // Nothing to lose in a field that was empty (or unreadable) before the submit.
     if (was === null || was === undefined || was === "" || was === "false") continue;
-    if ((await readField(page, field)) !== was) lost.push(fieldName(field));
+    const now = await readField(page, field, i);
+    if (now !== null && now !== was) lost.push(fieldName(field));
   }
   return lost;
 }
@@ -174,6 +197,7 @@ export const check: Check = {
       const typed = await snapshot(page, values);
       await page.evaluate(ARM_SCRIPT);
       const step = await watchNextStep(page, capture, ctx.targetUrl, ctx.runToken);
+      await armFieldErrors(page);
       await submitForm(page, ctx.form);
       const submittedAt = Date.now();
       await waitFor(() => (intercepted as unknown) !== null || pagePost, 2000);
@@ -199,13 +223,12 @@ export const check: Check = {
       const hit = intercepted as { method: string; url: string } | null;
       if (!hit) {
         // The first step of a wizard saves nothing: it shows the next step. That is not a refusal.
-        const why = fillProblemsNote(unset);
         return {
           ...result(ID, scenario, started, []),
           status: "skipped",
           notes: (await step.moved())
             ? MULTI_STEP_NOTE
-            : `Skipped: submitting the form sent no save request (${why ? `${why.replace(/\.$/, "")}, and the page may need it` : "the page may have refused Run Hound's test values"}), so there was no server answer to turn into an error.`,
+            : `Skipped: submitting the form sent no save request, so there was no server answer to turn into an error. ${await whyNothingSent(page, ctx.form, values, unset)}`,
         };
       }
       const seenAfterMs = Date.now() - submittedAt;

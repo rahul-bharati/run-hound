@@ -10,10 +10,10 @@ import { carriesTestValues } from "../core/saves.js";
 import type { Capture, Check, CheckContext, Scenario } from "../core/types.js";
 import { RECORD_CREATES, bodyLines, clip, controlLocator, endpointOf, evidence, fillLines, findingFactory, guarded, markText, recordFlow, requestSummary, result, specSource, tryCard } from "./lib/functional-finding.js";
 import {
+  armFieldErrors,
   canaryValues,
   createRequests,
   fillForm,
-  fillProblemsNote,
   isCreatePlaywrightRequest,
   isSearchForm,
   isSignInForm,
@@ -24,6 +24,7 @@ import {
   submitForm,
   waitForCreates,
   watchNextStep,
+  whyNothingSent,
   type FieldValue,
 } from "./lib/functional-form.js";
 
@@ -135,6 +136,7 @@ export const check: Check = {
         facts: [{ label: "Save requests so far", value: "0" }],
       });
       const step = await watchNextStep(page, capture, ctx.targetUrl, ctx.runToken);
+      await armFieldErrors(page);
       // Set together, in one synchronous step: the capture and the timing listener see the same requests from here.
       const from = capture.requests.length;
       clickedAt = performance.now();
@@ -151,13 +153,13 @@ export const check: Check = {
       const { saves: creates, key: endpointKey, byBody } = savesAfterClick(capture, from, ctx.targetUrl, ctx.runToken);
       if (creates.length === 0) {
         // The first step of a wizard saves nothing: it shows the next step. That is not a refusal.
-        const why = fillProblemsNote(unset);
+        const why = await whyNothingSent(page, ctx.form, values, unset);
         return {
           ...result(ID, scenario, started, []),
           status: "skipped",
           notes: (await step.moved()) || (await firstStepOfWizard(ctx, values))
             ? MULTI_STEP_NOTE
-            : `Skipped: double-clicking submit sent nothing to the server (${why ? `${why.replace(/\.$/, "")}, and the page may need it` : "the page may have refused Run Hound's test values"}), so there were no save requests to count.`,
+            : `Skipped: double-clicking submit sent nothing to the server, so there were no save requests to count. ${why}`,
         };
       }
       // Group by endpoint: two posts to the same method+path are a double submit, one post each to two

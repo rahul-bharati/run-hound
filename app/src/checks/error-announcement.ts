@@ -1,15 +1,29 @@
 /**
- * error-announcement: submit the form with every field empty and check that each required field is
+ * error-announcement: submit the form with every field empty and check that each field the form requires is
  * marked invalid (aria-invalid="true") and has an associated message: a new aria-describedby /
  * aria-errormessage target with text, or an announcement in a live region / alert. Native browser
  * validation bubbles (form without novalidate) count as announced.
+ *
+ * The fields the form requires are the ones marked required, and the ones the page itself refuses when empty (LOV-6):
+ * react-hook-form + zod forms mark nothing, and only show it after a submit, with aria-invalid or a message next to
+ * the field. Every write the empty submit sends is answered by Run Hound (nothing reaches the app). A form that
+ * refuses nothing when empty has no errors to announce: the scenario is skipped with the reason.
  */
 import type { Check, CheckContext, DiscoveredForm, Evidence, Fact, FormField, Highlight, Scenario } from "../core/types.js";
 import { checkResult, clip, evalIn, fieldName, FindingList, guarded, listOf, playwrightSpec, scenarioFor, submitControl, uniquePlaces } from "./lib/a11y-common.js";
+import { settle } from "./lib/a11y-form.js";
+import { emptyTextSpec } from "./lib/functional-finding.js";
+import { emptyTextFields, isSearchForm, looksLikeFieldError, stopWrites } from "./lib/functional-form.js";
+import { fieldKind } from "./lib/widgets.js";
 
 /** At most this many fields get their own evidence frame (the finding still lists every field). */
 const MAX_FRAMES = 6;
-import { settle } from "./lib/a11y-form.js";
+
+/** Fields an empty submit can leave empty: not hidden or file inputs, and not sliders (they always hold a value). */
+function emptiable(field: FormField): boolean {
+  const kind = fieldKind(field);
+  return kind !== "none" && kind !== "slider";
+}
 
 interface FieldState {
   selector: string;
@@ -62,13 +76,21 @@ const READ = `(args) => {
 }`;
 
 /**
- * For each selector: whether the field already holds a value (a default such as "1 guest", a preselected option).
- * Submitting "empty" leaves such a field as it is, so it is valid and rightly shows no error.
+ * For each field ({ sel, native }): whether it already holds a value (a default such as "1 guest", a preselected
+ * option, a checked widget). Submitting "empty" leaves such a field as it is, so it is valid and rightly shows no error.
  */
-const HAS_VALUE = `(selectors) => selectors.map((sel) => {
-  const el = document.querySelector(sel);
+const HAS_VALUE = `(items) => items.map((item) => {
+  const el = document.querySelector(item.sel);
   if (!el) return false;
-  const controls = el.matches("input,select,textarea") ? [el] : [...el.querySelectorAll("input,select,textarea")];
+  if (el.getAttribute("aria-checked") === "true" || el.querySelector('[role=radio][aria-checked="true"]')) return true;
+  // A select widget's trigger shows the chosen option; Radix marks its placeholder data-placeholder.
+  if (item.widget === "aria-select") {
+    const text = (el.textContent || "").trim();
+    if (!el.hasAttribute("data-placeholder") && text !== "" && !/^(select|choose|pick|search|none)\\b/i.test(text)) return true;
+  }
+  // A widget's hidden native inputs: a radio group has one per item, so any checked one counts.
+  const natives = item.native ? Array.from(document.querySelectorAll(item.native)) : [];
+  const controls = [...(el.matches("input,select,textarea") ? [el] : el.querySelectorAll("input,select,textarea")), ...natives];
   return controls.some((c) => (c.type === "radio" || c.type === "checkbox" ? c.checked : c.type !== "hidden" && c.value !== ""));
 })`;
 
@@ -110,11 +132,14 @@ export const check: Check = {
   category: "accessibility",
 
   plan(form: DiscoveredForm): Scenario[] {
-    if (!submitControl(form) || !form.fields.some((f) => f.required)) return [];
+    // Planned for any form that saves and has fields: a schema-validated form (react-hook-form + zod) marks nothing as
+    // required, so which fields it refuses is only known after the empty submit.
+    if (isSearchForm(form) || !submitControl(form) || !form.fields.some(emptiable)) return [];
     return [
       scenarioFor("error-announcement", "empty-submit", {
         title: "Submit the form empty and check errors are announced",
-        description: "Presses the submit button with every field empty (nothing is created) and checks each required field is marked invalid with an announced message.",
+        description:
+          "Presses the submit button with every field empty (any request it sends is answered by Run Hound, so nothing is created) and checks each field the form refuses is marked invalid with an announced message.",
         kind: "danger",
         priority: "high",
       }),
@@ -126,32 +151,68 @@ export const check: Check = {
       const findings = new FindingList("error-announcement", "accessibility");
       const submit = submitControl(ctx.form)!;
       const { page } = await ctx.openPage();
-      // Only required fields that are empty when the form is submitted must show an error.
-      const allRequired = ctx.form.fields.filter((f) => f.required);
-      const prefilled = await evalIn<boolean[]>(page, HAS_VALUE, allRequired.map((f) => f.selector));
-      const required = allRequired.filter((_, i) => !prefilled[i]);
-      const skippedNames = allRequired.filter((_, i) => prefilled[i]).map(fieldName);
-      const selectors = required.map((f) => f.selector);
-      if (required.length === 0) {
-        return {
-          ...checkResult("error-announcement", scenario, startedAt, []),
-          status: "skipped",
-          notes: `Skipped: every required field (${listOf(skippedNames)}) already has a value when the page loads, so submitting the form empty can't trigger an error.`,
-        };
+      // Only fields that are empty when the form is submitted can show an error.
+      const fields = ctx.form.fields.filter(emptiable);
+      const hasValue = () => evalIn<boolean[]>(page, HAS_VALUE, fields.map((f) => ({ sel: f.selector, native: f.nativeSelector ?? null, widget: f.widget ?? null })));
+      let prefilled = await hasValue();
+      // A settings form loads with every field holding the saved record: its text fields are emptied, as a person
+      // clearing them would, so the submit can show their errors.
+      const emptied = fields.every((_, i) => prefilled[i]);
+      if (emptied) {
+        await emptyTextFields(page, ctx.form);
+        prefilled = await hasValue();
+      }
+      const candidates = fields.filter((_, i) => !prefilled[i]);
+      const skippedNames = fields.filter((f, i) => prefilled[i] && f.required).map(fieldName);
+      const selectors = candidates.map((f) => f.selector);
+      const skipped = (notes: string) => ({ ...checkResult("error-announcement", scenario, startedAt, []), status: "skipped" as const, notes });
+      if (candidates.length === 0) {
+        return skipped(
+          skippedNames.length > 0
+            ? `Skipped: every required field (${listOf(skippedNames)}) already has a value when the page loads, so submitting the form empty can't trigger an error.`
+            : "Skipped: every field already has a value when the page loads, so submitting the form empty can't trigger an error.",
+        );
       }
 
+      // Whatever the empty submit sends is answered by Run Hound: an app that saves an empty form saves nothing here.
+      const writes = await stopWrites(page, ctx.targetUrl, ctx.runToken);
       const before = await evalIn<Snapshot>(page, READ, { selectors });
       const beforeBySelector = Object.fromEntries(before.fields.map((f) => [f.selector, f.describedBy]));
       await evalIn(page, REMEMBER_VISIBLE_TEXT);
+      const startUrl = page.url();
       ctx.step("Submitting the form with every field empty", page);
-      await page.locator(submit.selector).first().click();
+      const clicked = await page.locator(submit.selector).first().click({ timeout: 5_000 }).then(() => true, () => false);
+      if (!clicked) {
+        return skipped("Skipped: the submit button can't be pressed while the form is empty (it stays disabled), so an empty submit shows no errors to check.");
+      }
       await settle(page, 1_000);
+      const sent = writes.sent() || page.url() !== startUrl;
+      if (page.url() !== startUrl) {
+        return skipped(
+          "Skipped: submitting the form empty showed no error on any field: the page sent it as it was (Run Hound answered that request itself, so nothing was saved). Its errors, if any, come from the server, which this check doesn't reach.",
+        );
+      }
       ctx.step("Reading aria-invalid, aria-describedby and live regions", page);
       const after = await evalIn<Snapshot>(page, READ, { selectors, before: beforeBySelector });
       const visibleErrors = await evalIn<({ selector: string; text: string } | null)[]>(page, VISIBLE_ERRORS, selectors);
 
       const announced = after.live.filter((text, i) => text && text !== before.live[i]);
       const liveAnnounced = announced.length > 0;
+
+      // The fields the form requires: the ones that show an error now (the page's own rules), and the ones marked
+      // required unless the page sent the empty form anyway (then its errors come from the server, not reached here).
+      const showsError = (i: number) => {
+        const state = after.fields[i]!;
+        return state.ariaInvalid || state.nativeInvalid || state.describedBy.some((d) => d.isNew && d.visible && d.text) || looksLikeFieldError(visibleErrors[i]?.text);
+      };
+      const required = candidates.flatMap((field, i) => (showsError(i) || (field.required && !sent) ? [{ field, i }] : []));
+      if (required.length === 0) {
+        return skipped(
+          sent
+            ? "Skipped: submitting the form empty showed no error on any field: the page sent it as it was (Run Hound answered that request itself, so nothing was saved). Its errors, if any, come from the server, which this check doesn't reach."
+            : "Skipped: submitting the form empty showed no error on any field, and none is marked required, so there were no field errors to check.",
+        );
+      }
 
       interface Unannounced {
         field: FormField;
@@ -162,7 +223,7 @@ export const check: Check = {
         visible: { selector: string; text: string } | null;
       }
       const failing: Unannounced[] = [];
-      for (const [i, field] of required.entries()) {
+      for (const { field, i } of required) {
         const state = after.fields[i]!;
         const message = state.describedBy.find((d) => d.isNew && d.visible && d.text);
         const marked = state.ariaInvalid || state.nativeInvalid;
@@ -242,7 +303,7 @@ export const check: Check = {
             findings.items.length + 1,
             many ? "empty required fields are announced as errors" : `empty ${failing[0]!.name} is announced as an error`,
             ctx.targetUrl,
-            `await page.locator(${JSON.stringify(submit.selector)}).click();
+            `${emptied ? `${emptyTextSpec(ctx.form).join("\n")}\n` : ""}await page.locator(${JSON.stringify(submit.selector)}).click();
 for (const selector of ${JSON.stringify(failing.map((f) => f.field.selector))}) {
   const field = page.locator(selector);
   const control = (await field.evaluate((e) => e.matches("input,select,textarea"))) ? field : field.locator("input,select,textarea").first();
@@ -255,7 +316,11 @@ for (const selector of ${JSON.stringify(failing.map((f) => f.field.selector))}) 
         });
       }
       const prefilledNote = skippedNames.length > 0 ? `; left out ${listOf(skippedNames)}, which already had a value` : "";
-      return checkResult("error-announcement", scenario, startedAt, findings.items, `Checked ${required.length} required field(s) after an empty submit${prefilledNote}`);
+      const unmarked = required.filter(({ field }) => !field.required).length;
+      const unmarkedNote =
+        unmarked > 0 ? ` (${unmarked === required.length ? "all" : unmarked} found by the errors the form showed; nothing marks ${unmarked === 1 ? "it" : "them"} as required)` : "";
+      const how = emptied ? "after a submit with the form's text fields emptied (they load with values)" : "after an empty submit";
+      return checkResult("error-announcement", scenario, startedAt, findings.items, `Checked ${required.length} required field(s) ${how}${unmarkedNote}${prefilledNote}`);
     });
   },
 };

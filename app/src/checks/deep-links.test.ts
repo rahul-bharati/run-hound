@@ -124,7 +124,7 @@ describe("deep-links on the accounts app (signed in)", () => {
     const f = result.findings[0]!;
     expectWellFormedFinding(f, { checkId: "deep-links", category: "broken-feature", severity: "high", confidence: "confirmed" });
     expect(f.title).toMatch(/\b1 page/);
-    expect(f.title).toMatch(/when opened directly/);
+    expect(f.title).toMatch(/^1 page shows an error when opened directly/);
     expect(f.locations).toHaveLength(1);
     expect(f.locations![0]).toContain("/settings");
     expect(f.locations![0]).toContain("404");
