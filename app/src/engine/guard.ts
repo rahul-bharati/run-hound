@@ -45,13 +45,21 @@ export function rememberCredentials(url: string, credentials: TargetCredentials)
   credentialsByOrigin.set(new URL(url).origin, credentials);
 }
 
+/**
+ * The remembered credentials with the origin each was given for, in the shape Playwright's httpCredentials takes: the
+ * requests a check sends outside a page (CheckContext.request) answer the same HTTP authentication as its pages.
+ */
+export function rememberedCredentials(): { username: string; password: string; origin: string }[] {
+  return [...credentialsByOrigin].map(([origin, credentials]) => ({ username: credentials.username, password: credentials.password, origin }));
+}
+
 export async function guardContext(context: BrowserContext, options: SafetyOptions = {}): Promise<NavigationGuard> {
   const blocked: string[] = [];
   const escaped: string[] = [];
   const decisions = new Map<string, Promise<TargetCheck | null>>();
 
   // Sent only to the origin they were given for, and only when it asks (a 401 with WWW-Authenticate).
-  const known = [...credentialsByOrigin].map(([origin, credentials]) => ({ ...credentials, origin }));
+  const known = rememberedCredentials();
   if (known.length > 0) await context.setHTTPCredentials(known);
 
   /** How the gate approved the URL's host (asked once per origin), or null when it refuses it. */

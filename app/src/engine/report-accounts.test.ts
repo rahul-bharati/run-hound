@@ -176,4 +176,41 @@ describe("reports without accounts (0.3.0, or signed out)", () => {
       expect(testDataSentence(r)).toBe(testDataSentence(old));
     }
   });
+
+  it("follow the run's own record over the plan: a run recorded as signed out names no account anywhere", () => {
+    const r = report({ signedInAs: null, other: null });
+    r.plan.account = { id: "a", label: "Owner" };
+    expect(testDataSentence(r)).not.toContain("Owner");
+    for (const text of [renderHtml(r), renderMarkdown(r)]) expect(text).not.toContain("Signed in as");
+  });
+});
+
+describe("checks that need a test account (added with the V2 checks)", () => {
+  /** The report's "Checks with nothing to test on this page" list, from the Markdown. */
+  const unplanned = (r: Report) => /## Checks with nothing to test on this page\n\n((?:- .*\n)*)/.exec(renderMarkdown(r))?.[1] ?? "";
+
+  it("are not listed as having nothing to test on a signed-out run: they need an account, not a different page", () => {
+    for (const r of [report(undefined), report({ signedInAs: null, other: null })]) {
+      const list = unplanned(r);
+      expect(list).toContain("- pii-leak");
+      expect(list).toContain("- deep-links");
+      expect(list).not.toContain("access-control");
+      expect(list).not.toContain("mass-assignment");
+      expect(renderHtml(r)).not.toMatch(/nothing to test on this page[\s\S]*<li>mass-assignment<\/li>/);
+    }
+  });
+
+  it("are listed when the run was signed in and they planned nothing", () => {
+    const r = report({ signedInAs: A, other: null });
+    expect(unplanned(r)).toContain("- mass-assignment");
+    expect(renderHtml(r)).toMatch(/nothing to test on this page[\s\S]*<li>mass-assignment<\/li>/);
+  });
+
+  it("are not listed at all in a report written before 0.4.0, which didn't have them", () => {
+    const old = report(undefined, { runHoundVersion: "0.3.0" });
+    const list = unplanned(old);
+    expect(list).toContain("- pii-leak");
+    for (const id of ["access-control", "mass-assignment", "deep-links"]) expect(list).not.toContain(id);
+    expect(unplanned(report(undefined, { runHoundVersion: "0.4.0-rc.1" }))).toContain("- deep-links");
+  });
 });

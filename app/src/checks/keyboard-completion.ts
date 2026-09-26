@@ -17,7 +17,7 @@ import { isAcceptedStatus, isSaveRequest } from "../core/saves.js";
 import { openFormSpec } from "../engine/open-form.js";
 import { canaries, settle, textValueFor, type Canaries } from "./lib/a11y-form.js";
 import { controlLocator, fieldLocator } from "./lib/functional-finding.js";
-import { canaryValues, isRefusedSignIn, MULTI_STEP_NOTE, settingFor, watchNextStep } from "./lib/functional-form.js";
+import { armFieldErrors, canaryValues, fieldsShowingErrors, isRefusedSignIn, MULTI_STEP_NOTE, settingFor, watchNextStep } from "./lib/functional-form.js";
 import { fieldKind } from "./lib/widgets.js";
 
 const MAX_TABS = 200;
@@ -59,15 +59,17 @@ const WHERE = `(args) => {
 }`;
 
 /**
- * Whether a field now holds a value: a checked radio or checkbox (native, or aria-checked on the widget), a non-empty
- * input or select, a widget's hidden native input (`native`), or a select widget whose trigger shows a choice rather
- * than its placeholder (Radix marks a placeholder data-placeholder; others read "Select …", "Choose …").
+ * Whether a field now holds a value: a checked radio or checkbox (native, or aria-checked on the widget or one of its
+ * radio items), a non-empty input or select, a widget's hidden native inputs (`native`: a radio group has one per item,
+ * so any checked one counts), or a select widget whose trigger shows a choice rather than its placeholder (Radix
+ * marks a placeholder data-placeholder; others read "Select …", "Choose …").
  */
 const HAS_VALUE = `(args) => {
   const el = document.querySelector(args.sel);
   if (!el) return false;
-  const native = args.native ? document.querySelector(args.native) : null;
-  if (native) return native.matches("input[type=radio],input[type=checkbox]") ? native.checked : native.value !== "";
+  if (args.widget === "aria-radio" && el.querySelector('[role=radio][aria-checked="true"]')) return true;
+  const natives = args.native ? Array.from(document.querySelectorAll(args.native)) : [];
+  if (natives.length) return natives.some((n) => (n.matches("input[type=radio],input[type=checkbox]") ? n.checked : n.value !== ""));
   if (el.getAttribute("aria-checked") === "true") return true;
   if (args.widget === "aria-checkbox" || args.widget === "aria-switch") return false;
   if (el.matches("input[type=radio],input[type=checkbox]")) return el.checked;
@@ -288,8 +290,15 @@ async function tabThrough(
       const preset = field.widget !== undefined && field.widget !== "aria-combobox" && (await hasValue(page, field));
       if (!preset) await operate(page, field, values);
       if (preset || (await hasValue(page, field))) walk.set.add(at.field);
+      // A list that closes gives focus back to its trigger a moment later (Radix Select does it in a timer). Pressing
+      // Tab before that starts from the page's body, which in a dialog wraps to its first field and ends the walk early.
+      let now = await evalIn<Focus>(page, WHERE, args);
+      for (let wait = 0; !preset && now.field !== at.field && wait < 10; wait++) {
+        await page.waitForTimeout(100);
+        now = await evalIn<Focus>(page, WHERE, args);
+      }
       // Typing can move focus inside a widget; re-read so the next Tab starts from here.
-      previous = (await evalIn<Focus>(page, WHERE, args)).index;
+      previous = now.index;
     }
     await onStop?.(stop, field);
   }
@@ -500,6 +509,8 @@ export const check: Check = {
 
       let status: number | null = null;
       let signInRefused = false;
+      /** Fields that showed a validation error after the keyboard submit was refused (RH-10). */
+      let flagged: FormField[] = [];
       if (problems.length === 0) {
         // Second pass: Tab to the submit button and press Enter. The save request is the one core/saves.ts
         // recognises: a JSON API on this origin or another one, or a classic page post.
@@ -525,9 +536,11 @@ export const check: Check = {
           if ((await evalIn<Focus>(page, WHERE, args)).isSubmit) break;
         }
         const step = await watchNextStep(page, capture, ctx.targetUrl, ctx.runToken);
+        await armFieldErrors(page);
         await page.keyboard.press("Enter");
         status = (await response)?.status() ?? null;
         await settle(page);
+        if (!isAcceptedStatus(status)) flagged = await fieldsShowingErrors(page, ctx.form);
         // A sign-in form refuses made-up credentials: the answer proves the keyboard sent the form.
         signInRefused = isRefusedSignIn(ctx.form, status);
         if (!isAcceptedStatus(status) && !signInRefused) {
@@ -564,6 +577,7 @@ export const check: Check = {
           ...(unset.length > 0 ? [{ label: "Field not set by keyboard", value: unset.join(", ") }] : []),
           { label: "Submit button reached", value: submitReachable ? "yes" : "no" },
           { label: "Submit status", value: status === null ? "not sent" : String(status) },
+          ...(flagged.length > 0 ? [{ label: "Fields showing an error", value: flagged.map(fieldName).join(", ") }] : []),
         ];
         const marks: Highlight[] = problems.flatMap((p): Highlight[] => {
           if (p.kind === "unreachable") return [{ selector: p.field!.selector, label: "Never reached by Tab" }];
@@ -646,7 +660,11 @@ export const check: Check = {
               set.size === targets.length
                 ? `Every field Run Hound fills (${targets.length}) was filled in with the keyboard`
                 : `${set.size} of the ${targets.length} fields Run Hound fills ${set.size === 1 ? "was" : "were"} filled in with the keyboard (${listOf(targets.filter((_, i) => !set.has(i)).map(fieldName), 4)} ${targets.length - set.size === 1 ? "was" : "were"} ${targets.some((_, i) => !reached.has(i)) ? "not reached by Tab or " : ""}left empty)`
-            } and the form was submitted with Enter, but nothing was saved (${status === null ? "no request was sent" : `the server answered ${status}`}). Run Hound's made-up test values may break one of the form's own rules, so check whether the same values are accepted when entered with a mouse.`,
+            } and the form was submitted with Enter, but nothing was saved (${status === null ? "no request was sent" : `the server answered ${status}`}). ${
+              flagged.length > 0
+                ? `The form then showed an error on ${listOf(flagged.map(fieldName), 4)}, so one of its rules refused what was typed there, and that may be Run Hound's made-up test value rather than the keyboard. Check whether the same values are accepted when entered with a mouse.`
+                : "Run Hound's made-up test values may break one of the form's own rules, so check whether the same values are accepted when entered with a mouse."
+            }`,
             impact: "Keyboard-only users can't complete the form.",
             fix: "Check which fields don't take keyboard input and make them keyboard-operable; make sure pressing Enter on the submit button submits the form.",
           },

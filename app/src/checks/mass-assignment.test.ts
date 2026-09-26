@@ -142,6 +142,8 @@ describe("mass-assignment on the accounts app", () => {
     expect(critical!.title).toMatch(/role/);
     // plan (and tier, credits, verified) were accepted too: high, reported alongside.
     expect(result.findings.map(findingText).join(" ")).toMatch(/\bplan\b/);
+    // Its title names every kind it lists: verified and emailVerified are not billing fields.
+    expect(result.findings.find((f) => f.severity === "high")?.title).toMatch(/plan, billing or verification fields/);
     // Usernames and passwords never appear, even though the record holds alice's email.
     const text = JSON.stringify(result);
     for (const value of [app.users.alice.email, app.users.alice.password, alice]) expect(text).not.toContain(value);

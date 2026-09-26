@@ -109,6 +109,43 @@ describe("setField: shadcn Combobox (Popover + cmdk) behind a button[role=combob
     await setField(page, F.owner!, { text: "Sam Lee" });
     expect(await text(page, "#f-owner")).toBe("Sam Lee");
   });
+
+  it("picks an option shown on two lines (a name over a role) by the label discovery read, which runs the lines together", async () => {
+    // Fernway's New project "Owner": each option is <span>Alex Rivera</span><span>Studio lead</span> in a column, so
+    // its text is "Alex RiveraStudio lead" while the page shows "Alex Rivera Studio lead".
+    const page = await (await getBrowser()).newPage();
+    pages.push(page);
+    await page.setContent(`<!doctype html><html lang="en"><body>
+      <label for="owner">Owner</label>
+      <button type="button" role="combobox" aria-expanded="false" aria-controls="owners" id="owner">Choose an owner</button>
+      <div role="listbox" id="owners" hidden></div>
+      <script>
+        const people = [["Alex Rivera", "Studio lead"], ["Sam Okafor", "Designer"]];
+        const owner = document.getElementById("owner");
+        const list = document.getElementById("owners");
+        for (const [name, role] of people) {
+          const item = document.createElement("div");
+          item.setAttribute("role", "option");
+          item.style.cssText = "display:flex;flex-direction:column";
+          item.innerHTML = "<span>" + name + "</span><span>" + role + "</span>";
+          item.addEventListener("click", () => { owner.textContent = name; list.hidden = true; owner.setAttribute("aria-expanded", "false"); });
+          list.appendChild(item);
+        }
+        owner.addEventListener("click", () => { list.hidden = !list.hidden; owner.setAttribute("aria-expanded", String(!list.hidden)); });
+      </script></body></html>`);
+    const field: FormField = {
+      ...F.owner!,
+      selector: "#owner",
+      options: [
+        { label: "Alex RiveraStudio lead", selector: "#owners > :nth-child(1)" },
+        { label: "Sam OkaforDesigner", selector: "#owners > :nth-child(2)" },
+      ],
+    };
+    await setField(page, field, { option: "Sam OkaforDesigner" });
+    expect(await text(page, "#owner")).toBe("Sam Okafor");
+    await setField(page, field, { option: "first" });
+    expect(await text(page, "#owner")).toBe("Alex Rivera");
+  });
 });
 
 describe("setField: autocomplete input (aria-combobox)", () => {

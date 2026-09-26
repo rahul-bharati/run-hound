@@ -10,6 +10,7 @@ import {
   expectWellFormedFinding,
 } from "../../test/fixtures/checks/assert-finding.js";
 import * as fixtures from "../../test/fixtures/checks/error-announcement/variants.js";
+import { startSchemaFormApp, type SchemaFormOptions } from "../../test/fixtures/checks/schema-form.js";
 import { check } from "./error-announcement.js";
 
 const servers: FixtureServer[] = [];
@@ -129,5 +130,91 @@ describe("error-announcement on forms it was not built for", () => {
     expect(allFindings(results)).toEqual([]);
     expect(overallStatus(results)).toBe("pass");
     expect(results[0]!.notes).toMatch(/Checked 1 required field.*left out "Guests", which already had a value/);
+  });
+});
+
+describe("error-announcement on schema-validated forms that mark nothing as required (LOV-6, RH-08)", () => {
+  async function schema(options: SchemaFormOptions) {
+    const a = await startSchemaFormApp(options);
+    servers.push(a);
+    return a;
+  }
+
+  it("is planned for a form with fields and a submit button even when no field is marked required", async () => {
+    const a = await schema({});
+    const { scenarios } = await runCheck(check, a.formUrl);
+    expect(scenarios.map((s) => s.id)).toEqual(["error-announcement:empty-submit"]);
+  });
+
+  it("GOOD: the fields the page refuses when empty are marked aria-invalid with their message: pass", async () => {
+    const a = await schema({});
+    const { results } = await runCheck(check, a.formUrl);
+    expect(allFindings(results)).toEqual([]);
+    expect(overallStatus(results)).toBe("pass");
+    expect(results[0]!.notes).toMatch(/Checked 2 required field/);
+    expect(a.posts()).toEqual([]);
+  });
+
+  it("BAD (W10-style): red text only is reported for the fields the page refuses, never for the optional one", async () => {
+    const a = await schema({ errors: "text" });
+    const { results } = await runCheck(check, a.formUrl);
+    expect(overallStatus(results)).toBe("fail");
+    const findings = allFindings(results);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.severity).toBe("high");
+    expect(findings[0]!.locations ?? [findings[0]!.location]).toEqual(["Task", "Email"]);
+    expect(JSON.stringify(findings[0])).not.toMatch(/Notes/);
+  });
+
+  it("skips with a plain reason when the page refuses nothing, and the empty form never reaches the app", async () => {
+    const a = await schema({ validate: false, serverChecks: false });
+    const { results } = await runCheck(check, a.formUrl);
+    expect(results[0]!.status).toBe("skipped");
+    expect(results[0]!.notes).toMatch(/^Skipped: /);
+    expect(results[0]!.notes).toMatch(/no error/);
+    expect(a.posts()).toEqual([]);
+    expect(a.tasks).toEqual([]);
+  });
+});
+
+/** A settings form that loads with the saved values; red text only when a field is emptied (W10-style). */
+const SETTINGS = (accessible: boolean) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Profile</title><link rel="icon" href="data:,"></head><body><main>
+<form id="profile" novalidate><h1>Profile</h1>
+<div><label for="name">Display name</label><input id="name" name="displayName" value="Alex Rivera"><p id="name-msg" style="color:#b00020"></p></div>
+<div><label for="email">Email</label><input id="email" name="email" type="email" value="alex@example.test"><p id="email-msg" style="color:#b00020"></p></div>
+<button type="submit">Save changes</button>
+</form>
+<script>
+document.getElementById("profile").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  let bad = false;
+  for (const [id, text] of [["name", "Enter a display name"], ["email", "Enter your email"]]) {
+    const el = document.getElementById(id);
+    if (el.value.trim()) continue;
+    bad = true;
+    document.getElementById(id + "-msg").textContent = text;
+    ${accessible ? 'el.setAttribute("aria-invalid", "true"); el.setAttribute("aria-describedby", id + "-msg");' : ""}
+  }
+  if (!bad) await fetch("/api/profile", { method: "PUT", headers: { "content-type": "application/json" }, body: "{}" });
+});
+</script></main></body></html>`;
+
+describe("error-announcement on a settings form whose fields all load with values", () => {
+  it("empties its text fields first, then checks the errors: pass when they are announced", async () => {
+    const server = await startFixtureServer({ pages: { "/profile": SETTINGS(true) } });
+    servers.push(server);
+    const { results } = await runCheck(check, `${server.url}/profile`);
+    expect(allFindings(results)).toEqual([]);
+    expect(overallStatus(results), results[0]!.notes).toBe("pass");
+    expect(results[0]!.notes).toMatch(/Checked 2 required field.*emptied/);
+  });
+
+  it("reports red text only on the emptied fields", async () => {
+    const server = await startFixtureServer({ pages: { "/profile": SETTINGS(false) } });
+    servers.push(server);
+    const { results } = await runCheck(check, `${server.url}/profile`);
+    const findings = allFindings(results);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.locations).toEqual(["Display name", "Email"]);
   });
 });

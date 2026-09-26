@@ -19,7 +19,10 @@ import { STYLES } from "./styles.js";
  *                      "Select all <Group>" checkbox, scenario checkboxes whose value is the scenario id), options
  *                      #allow-destructive ("Allow destructive scenarios") and #headed ("Show the browser window"), and
  *                      #run-button "Start run (N scenarios)". #/new?from=<runId> plans that run's target again with its
- *                      scenarios selected ("Back to test plan").
+ *                      scenarios selected ("Back to test plan"), as the run's account. Under the URL, a <select
+ *                      id="sign-in-as"> labelled "Sign in as" ("Not signed in", then Account A and B; a slot that isn't
+ *                      set up is disabled) with #sign-in-hint under it; a signed-in plan shows #plan-account ("Signed in
+ *                      as <label>") after .plan-head.
  *     #/runs          Runs list (#runs-list): one link per run, href="#/runs/<id>", newest first.
  *     #/runs/<id>     Running view while running (#running: "Running tests…", #counter "3 / 15", #elapsed (mm:ss, not a
  *                      live region) in the elapsed card, #browser-card, <ol id="scenario-list"> numbered rows with
@@ -32,7 +35,10 @@ import { STYLES } from "./styles.js";
  *                      viewer (main image + thumbnail strip, served from /api/runs/<id>/artifacts/), "Reproduction steps",
  *                      "Key facts", "Why it matters", "What to ask your AI", "Generated Playwright test" with a Copy button;
  *                      then a "Results by group" table, "Pages tested" and "Not visible from outside").
- *     #/settings      Defaults (saved in localStorage) and read-only settings from GET /api/settings.
+ *     #/settings      Defaults (saved in localStorage) and read-only settings from GET /api/settings; a region "Test
+ *                      accounts" (#accounts-card) with the checkbox #acct-isolated and one fieldset per slot, #acct-a and
+ *                      #acct-b (inputs #acct-<id>-label, -loginUrl, -username and the write-only -password; buttons
+ *                      #acct-<id>-save and #acct-<id>-test).
  * - Unknown hashes fall back to #/new; the old "#run=<id>" links open #/runs/<id>. Everything works at 360 px (the
  *   sidebar becomes a top bar with a "Menu" button).
  * - One polite live region (#announcer) announces scenario and group changes and the end of a run; nothing else is live.
@@ -90,7 +96,7 @@ export function renderUi(options: UiOptions): string {
 <li><a href="#/settings"><span class="ic" aria-hidden="true">${ICONS.gear}</span><span>Settings</span></a></li>
 </ul>
 </nav>
-<footer class="side-foot"><span class="dot" aria-hidden="true"></span><div><b>Local · this machine</b><span>Run Hound ${version}</span><span>V1 preview</span></div></footer>
+<footer class="side-foot"><span class="dot" aria-hidden="true"></span><div><b>Local · this machine</b><span>Run Hound ${version}</span><span>V2 preview</span></div></footer>
 </aside>
 <main id="view" tabindex="-1"></main>
 </div>

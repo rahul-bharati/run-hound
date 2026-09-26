@@ -13,17 +13,22 @@
  * the other page showed two or more right after saving and no longer does (kept only in memory, never stored). One
  * value there is a greeting ("Welcome aboard, Alex"), which says nothing about the rest: the scenario is skipped with
  * what was found where.
+ *
+ * A form in a dialog (DiscoveredForm.opener) is opened again after a reload when a value is missing, since an edit
+ * dialog shows the saved record in its own fields (LOV-8). A value the server's answer carried but the page no longer
+ * shows is reported as "saved but no longer shown after reload", not as "not saved".
  */
 import type { Page } from "playwright";
 import type { Check, Evidence, Finding, Scenario } from "../core/types.js";
+import { openForm, openFormSpec } from "../engine/open-form.js";
 import { bodyLines, clip, controlLocator, endpointOf, evidence, fillLines, findingFactory, guarded, markText, recordFlow, requestSummary, result, specSource, tryCard } from "./lib/functional-finding.js";
 import { isAcceptedStatus, isPagePost } from "../core/saves.js";
 import {
+  armFieldErrors,
   canaryValues,
   createRequests,
   fieldName,
   fillForm,
-  fillProblemsNote,
   isRefusedSignIn,
   isSearchForm,
   isSignInForm,
@@ -34,6 +39,7 @@ import {
   submitForm,
   waitForCreates,
   watchNextStep,
+  whyNothingSent,
   type FieldValue,
 } from "./lib/functional-form.js";
 
@@ -57,7 +63,7 @@ const LISTS = "ul, ol, dl, table, [role=list], [role=table], [role=grid], [role=
 
 /**
  * The text a user can read, as written in the page (not as CSS shows it: text-transform is not applied), from every
- * rendered element outside scripts and styles. With `record`, only what can show a saved record: toasts and messages
+ * rendered element outside scripts, styles and form fields (text areas and selects: their values are fields'). With `record`, only what can show a saved record: toasts and messages
  * (see TOASTS) are left out, and so is the page's banner (a page-level <header>, role=banner), where an app shows who
  * is signed in ("Alex · alex@example.com") on every page; with `fields`, the values of the fields outside those are
  * added (a settings form shows the saved record in its fields).
@@ -82,7 +88,9 @@ const PAGE_TEXT_SCRIPT = `((opts) => {
   const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const el = node.parentElement;
-    if (!el || el.closest("script, style, noscript, template")) continue;
+    // A text area's or select's own text is a field's value, not text on the page: React mirrors a controlled
+    // <textarea>'s value into it (defaultValue), so what was just typed would read as a listed record.
+    if (!el || el.closest("script, style, noscript, template, textarea, select")) continue;
     if (left(el)) continue;
     if (el.checkVisibility && !el.checkVisibility()) continue;
     parts.push(node.textContent);
@@ -180,6 +188,7 @@ export const check: Check = {
       });
       ctx.step("Submitting the form", page);
       const step = await watchNextStep(page, capture, ctx.targetUrl, ctx.runToken);
+      await armFieldErrors(page);
       await submitForm(page, ctx.form);
       await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
 
@@ -193,8 +202,7 @@ export const check: Check = {
         if (creates.length === 0) {
           // The first step of a wizard saves nothing: it shows the next step. That is not a refusal.
           if (await step.moved()) return skip(MULTI_STEP_NOTE);
-          const why = fillProblemsNote(unset);
-          return skip(`Skipped: submitting the form sent nothing to the server (${why ? `${why.replace(/\.$/, "")}, and the page may need it` : "the page may have refused Run Hound's test values"}), so there was no saved record to look for.`);
+          return skip(`Skipped: submitting the form sent nothing to the server, so there was no saved record to look for. ${await whyNothingSent(page, ctx.form, values, unset)}`);
         }
         if (refused && isRefusedSignIn(ctx.form, refused.status)) return skip(SIGN_IN_NOTE);
         if (refused) {
@@ -213,6 +221,18 @@ export const check: Check = {
         facts: [{ label: "Save request", value: `${endpointOf(saved.method, saved.url)} → ${saved.status}` }],
       });
 
+      /**
+       * What a user can read on the page now. With a form in a dialog, the dialog is opened again when a value is
+       * missing, since an edit dialog shows the saved record in its own fields (LOV-8); both views count.
+       */
+      const readPage = async () => {
+        let text = await visibleText(page);
+        if (ctx.form.opener && canaries.some((v) => !showsValue(text, v.value)) && (await openForm(page, ctx.form).then(() => true, () => false))) {
+          await settle(page);
+          text = `${text}\n${await visibleText(page)}`;
+        }
+        return text;
+      };
       const landedUrl = page.url();
       const moved = pathOf(landedUrl) !== pathOf(ctx.targetUrl);
       const formPath = pathOf(ctx.targetUrl);
@@ -228,7 +248,7 @@ export const check: Check = {
         ctx.step("Reloading the page and looking for every test value", page);
         await page.reload({ waitUntil: "load" });
         await settle(page);
-        text = await visibleText(page);
+        text = await readPage();
         missing = canaries.filter((v) => !showsValue(text, v.value));
         if (missing.length === 0) {
           return result(ID, scenario, started, [], `All ${canaries.length} test values were visible after reload.`);
@@ -274,7 +294,7 @@ export const check: Check = {
         ctx.step(`Loading ${formPath} (the form's page) and looking for the rest`, page);
         await page.goto(ctx.targetUrl, { waitUntil: "load" });
         await settle(page);
-        text = await visibleText(page);
+        text = await readPage();
         const onForm = canaries.filter((v) => showsValue(text, v.value));
         missing = canaries.filter((v) => !onLanded.includes(v) && !onForm.includes(v));
         if (missing.length === 0) {
@@ -314,6 +334,23 @@ export const check: Check = {
         }
       }
 
+      // A value the server's answer to the save carried, that the page didn't show even right after saving, was saved
+      // and is simply not part of what this page shows (a list of cards with a summary of each record): not a loss.
+      const echoed = (v: FieldValue) => bodyLines(saved.responseBody).some((l) => l.includes(v.value));
+      const summaryOnly = missing.filter((v) => echoed(v) && !listedThen.includes(v));
+      if (summaryOnly.length > 0) {
+        missing = missing.filter((v) => !summaryOnly.includes(v));
+        if (missing.length === 0) {
+          const one = summaryOnly.length === 1;
+          return result(
+            ID,
+            scenario,
+            started,
+            [],
+            `The saved record was shown again after reload. ${names(summaryOnly)} ${one ? "is" : "are"} not shown on this page at all, not even right after saving, and the server's response (${endpointOf(saved.method, saved.url)} → ${saved.status}) carried ${one ? "it" : "them"}, so ${one ? "it was" : "they were"} saved; this page just doesn't show ${one ? "that field" : "those fields"}.`,
+          );
+        }
+      }
       const record = anchor ? (await markText(page, anchor.value, "rh-saved", 1))[0] : undefined;
       // The record's full text: CSS may cut it off on screen, so the data shows what is really there.
       const recordText = record ? await page.locator(record).innerText().catch(() => "") : "";
@@ -379,21 +416,38 @@ export const check: Check = {
       const many = missing.length > 1;
       const first = perField[0]!;
       const quoted = perField.map((f) => `"${f.name}"`).join(", ");
+      const fieldList = clip(perField.map((f) => f.name).join(", "), 60);
+      // The server's answer to the save carried every missing value: it was saved (as far as the browser can tell), and
+      // it is the page that no longer shows it. Still a real loss for the user, but not "not saved".
+      const savedNotShown = perField.every((f) => f.inResponse);
+      const endpoint = endpointOf(saved.method, saved.url);
       findings.push(
         make({
-          title: many ? `${missing.length} fields are not saved (${clip(perField.map((f) => f.name).join(", "), 60)})` : `"${first.name}" is not saved`,
-          severity: "critical",
+          title: savedNotShown
+            ? many
+              ? `${missing.length} fields are saved but no longer shown after reload (${fieldList})`
+              : `"${first.name}" is saved but no longer shown after reload`
+            : many
+              ? `${missing.length} fields are not saved (${fieldList})`
+              : `"${first.name}" is not saved`,
+          severity: savedNotShown ? "high" : "critical",
           location: `"${first.name}" field`,
           locations: perField.map((f) => `"${f.name}" field`),
-          meaning: many
-            ? `The form accepted values in ${quoted} and reported success, but after reloading the page those values are nowhere to be found. They were never saved (or are saved and not shown).`
-            : `The form accepted a value in "${first.name}" and reported success, but after reloading the page that value is nowhere to be found. It was never saved (or is saved and not shown).`,
-          impact: many
-            ? `Anything people type into ${quoted} is silently lost, so they rely on information that does not exist.`
-            : `Anything people type into "${first.name}" is silently lost, so they rely on information that does not exist, for example a note or instruction that nobody ever sees.`,
-          fix: many
-            ? `Ask your AI or developer: "These fields are dropped between the form and the database: ${perField.map((f) => `${f.name} (${f.m.field.key})`).join(", ")}. Make sure each is sent in the request, stored by the server and shown again after reload."`
-            : `Ask your AI or developer: "The ${first.name} field (${first.m.field.key}) is dropped between the form and the database. Make sure it is sent in the request, stored by the server and shown again after reload."`,
+          meaning: savedNotShown
+            ? `The form sent ${many ? `values in ${quoted}` : `a value in "${first.name}"`} and the server's response (${endpoint} → ${saved.status}) carried ${many ? "them" : "it"} back, so ${many ? "they were" : "it was"} most likely saved. But after reloading the page, ${many ? "those values are" : "that value is"} nowhere to be found: the page doesn't load ${many ? "them" : "it"} again.`
+            : many
+              ? `The form accepted values in ${quoted} and reported success, but after reloading the page those values are nowhere to be found. They were never saved (or are saved and not shown).`
+              : `The form accepted a value in "${first.name}" and reported success, but after reloading the page that value is nowhere to be found. It was never saved (or is saved and not shown).`,
+          impact: savedNotShown
+            ? `People who come back to the page don't see what they entered in ${quoted}, so they think it was lost and enter it again, or rely on information they can't find.`
+            : many
+              ? `Anything people type into ${quoted} is silently lost, so they rely on information that does not exist.`
+              : `Anything people type into "${first.name}" is silently lost, so they rely on information that does not exist, for example a note or instruction that nobody ever sees.`,
+          fix: savedNotShown
+            ? `Ask your AI or developer: "After a reload, this page no longer shows ${perField.map((f) => `${f.name} (${f.m.field.key})`).join(", ")}, although ${endpoint} saves ${many ? "them" : "it"}. Load the saved records from the server when the page opens (not only from what was added since), and show ${many ? "each field" : "the field"}."`
+            : many
+              ? `Ask your AI or developer: "These fields are dropped between the form and the database: ${perField.map((f) => `${f.name} (${f.m.field.key})`).join(", ")}. Make sure each is sent in the request, stored by the server and shown again after reload."`
+              : `Ask your AI or developer: "The ${first.name} field (${first.m.field.key}) is dropped between the form and the database. Make sure it is sent in the request, stored by the server and shown again after reload."`,
           evidence: [
             ...gif,
             ...cards,
@@ -411,7 +465,16 @@ export const check: Check = {
               submit ? `await ${controlLocator(submit)}.click();` : `await page.keyboard.press("Enter");`,
               `await page.waitForLoadState("networkidle");`,
               `await page.reload();`,
-              ...missing.map((m) => `await expect(page.getByText(${JSON.stringify(m.value)}).first()).toBeVisible();`),
+              `await page.waitForLoadState("networkidle");`,
+              ...openFormSpec(ctx.form),
+              `// Shown as text on the page, or as a field's value (a settings form shows the saved record in its fields).`,
+              `const shown = (value: string) =>`,
+              `  page.evaluate((v) => {`,
+              `    const norm = (s: string) => s.toLowerCase().replace(/\\s+/g, " ").trim();`,
+              `    const fields = [...document.querySelectorAll("input, textarea, select")].map((f) => (f as HTMLInputElement).value);`,
+              `    return [document.body.innerText, ...fields].some((text) => norm(text).includes(norm(v)));`,
+              `  }, value);`,
+              ...missing.map((m) => `expect(await shown(${JSON.stringify(m.value)}), ${JSON.stringify(fieldName(m.field))}).toBe(true);`),
             ], ctx.form),
           },
         }),

@@ -1,21 +1,21 @@
 #!/bin/sh
 # Entrypoint for the Run Hound image.
 #
-# 1. Arguments that are Run Hound commands (serve, run, ai, help, --version) go to the CLI, so
+# 1. Arguments that are Run Hound commands (serve, run, ai, accounts, help, --version) go to the CLI, so
 #      docker run ... run-hound run http://localhost:5173/signup --approve all
 #    works. Anything else (e.g. `bash`) is run as given.
 # 2. Reports go to /repo/app/runs. When that folder is bind-mounted from your machine, the CLI runs as the
 #    folder's owner, so the reports on your machine belong to you and you can delete them without sudo.
 #    Without a mount it runs as the image's non-root user (pwuser). It never stays root on a rootful engine
-#    except when it can't drop privileges at all. The AI settings the compose files keep in runs/.config
-#    belong to that same user, and nothing is written world-writable.
+#    except when it can't drop privileges at all. The AI settings and test accounts the compose files keep in
+#    runs/.config belong to that same user, and nothing is written world-writable.
 set -eu
 
 RUNS=/repo/app/runs
 CLI="/repo/node_modules/.bin/tsx src/cli.ts"
 
 case "${1:-}" in
-  serve | run | ai | help | version | --help | -h | --version | -v)
+  serve | run | ai | accounts | help | version | --help | -h | --version | -v)
     if [ "$1" = serve ] && [ -n "${RUNHOUND_PUBLIC_URL:-}" ]; then
       echo "Run Hound UI: open ${RUNHOUND_PUBLIC_URL} in your browser. (The 0.0.0.0 address below is inside the container; on your machine the port is bound to 127.0.0.1 only.)" >&2
     fi
@@ -49,9 +49,10 @@ as_user() {
   exec setpriv --reuid="$uid" --regid="$gid" --clear-groups env HOME="$home" "$@"
 }
 
-# The AI settings folder, when it lives in the runs folder (both compose files set RUNHOUND_CONFIG_DIR to
-# runs/.config): give it to the user the CLI runs as, the runs folder's owner. An earlier start may have left
-# it owned by another uid, and ai.json (0600 in a 0700 folder) would then be neither readable nor writable.
+# The settings folder (ai.json, accounts.json), when it lives in the runs folder (both compose files set
+# RUNHOUND_CONFIG_DIR to runs/.config): give it to the user the CLI runs as, the runs folder's owner. An earlier
+# start may have left it owned by another uid, and the files (0600 in a 0700 folder) would then be neither readable
+# nor writable.
 take_config() {
   config=${RUNHOUND_CONFIG_DIR:-$RUNS/.config}
   case "$config" in

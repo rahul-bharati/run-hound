@@ -110,7 +110,7 @@ docker compose -f run-hound.compose.yml run --rm run-hound run http://kennel:300
 
 From source, the same commands start with `pnpm exec tsx src/cli.ts` in `app/` instead (`pnpm exec tsx src/cli.ts run http://localhost:5310/book --approve all`), and `--headed` runs them in a visible browser window.
 
-The plan lists each scenario with what it tests (`[Book a sitter form]`, `[Whole page]`). Options: `--approve all|default|<id,id>`, `--plan-only`, `--allow-destructive`, `--headed`, `--runs-dir <dir>`, `--json` (report on stdout; progress and the run folder on stderr). Progress lines on stderr name each group (`== Accessibility (6 scenarios; group 1 of 3) ==`), each step and each page as it loads (`> page http://…`); each scenario's result line ends with its duration, and the summary starts with `Finished in <duration>` and a line per group. `run-hound help` prints the usage, `--version` the version. `run` exits 0 with no confirmed findings (advisory findings are reported but don't fail the run), 1 with at least one confirmed finding, and 2 on an error: a refused or unreachable target, an error page (such as a 404), an approval that names no scenarios, or a run that tested nothing because every approved scenario errored or was skipped (for example the app stopped answering after the plan; the report says why). A page without a form is planned with the page-wide checks only, with a warning.
+The plan lists each scenario with what it tests (`[Book a sitter form]`, `[Whole page]`). Options: `--approve all|default|<id,id>`, `--plan-only`, `--allow-destructive`, `--headed`, `--runs-dir <dir>`, `--as a|b` (sign in as a test account first, see below), `--json` (report on stdout; progress and the run folder on stderr). Progress lines on stderr name each group (`== Accessibility (6 scenarios; group 1 of 3) ==`), each step and each page as it loads (`> page http://…`); each scenario's result line ends with its duration, and the summary starts with `Finished in <duration>` and a line per group. `run-hound help` prints the usage, `--version` the version. `run` exits 0 with no confirmed findings (advisory findings are reported but don't fail the run), 1 with at least one confirmed finding, and 2 on an error: a refused or unreachable target, an error page (such as a 404), an approval that names no scenarios, or a run that tested nothing because every approved scenario errored or was skipped (for example the app stopped answering after the plan; the report says why). A page without a form is planned with the page-wide checks only, with a warning.
 
 ### Reports and evidence
 
@@ -149,6 +149,23 @@ Settings come from the Settings page (saved to `~/.config/run-hound/ai.json`, mo
 **Privacy:** only redacted page structure is sent (the page title and path, field labels and types, option labels, button names, the scenario list; the full page address only to a local model; for explanations, the finding text and its evidence facts), never typed values, cookies, response bodies or screenshots. A local endpoint (localhost or a private address) needs nothing more; a remote one (OpenAI, OpenRouter, Bedrock, …) is refused until you consent (the Settings checkbox, `--ai-allow-remote` or `RUNHOUND_AI_ALLOW_REMOTE=1`). API keys stay on the server and never appear in the UI or reports. Bedrock takes a Bedrock API key, AWS access keys, or an AWS profile from `~/.aws` (`RUNHOUND_AI_AWS_PROFILE` or `AWS_PROFILE`; static keys, `credential_process` or IAM Identity Center after `aws sso login`; assume-role profiles aren't supported yet).
 
 **Models:** small local models work (tested with a 9B model on Ollama). Ollama is called through its native API with thinking turned off, so reasoning models answer without spending their output on thinking, and asked to keep the model loaded for 15 minutes so it is still there for the explanations after the run. An explanation that times out is retried once; after two timeouts in a row the rest are skipped with a warning (raise `RUNHOUND_AI_TIMEOUT_MS` for a slow model). With other servers, prefer a non-reasoning model or turn reasoning off.
+
+### Test accounts and signed-in runs (0.4.0 preview)
+
+Pages behind a login can be tested signed in, as one of two test accounts **you own** on your app (A and B). Every check then runs signed in, and three V2 checks join the plan: `access-control` (can account B, or a signed-out visitor, read account A's data?), `mass-assignment` (does the server accept `role`, `plan` or `isAdmin` fields the form never sends? unticked by default: it changes account A and restores what it can) and `deep-links` (do the app's own pages load when opened directly?). Contract: [docs/v2-spec.md](docs/v2-spec.md).
+
+**Web UI:** **Settings → Test accounts**: the sign-in page URL, username and password per account, **Save**, then **Test sign-in**. Leave "A and B must not see each other's data" ticked when they are different users (the other-account check only runs then). New Run → **Sign in as**.
+
+**Command line** (from source, in `app/`):
+
+```sh
+pnpm exec tsx src/cli.ts accounts set a --login-url http://localhost:5173/login --username alex@example.test --password-stdin
+pnpm exec tsx src/cli.ts accounts test          # signs in as each account and says where it landed
+pnpm exec tsx src/cli.ts accounts status        # label, sign-in page, username, whether a password is saved, and where each comes from
+pnpm exec tsx src/cli.ts run http://localhost:5173/app --as a --approve all
+```
+
+The password is read from stdin (typed without echo, or piped), never from a flag. Accounts are saved next to the AI settings (`accounts.json`, mode 0600); `RUNHOUND_ACCOUNT_A_LOGIN_URL`, `…_USERNAME`, `…_PASSWORD`, `…_LABEL` (and `_B_`) and `RUNHOUND_ACCOUNTS_ISOLATED` override them. A saved password is only sent to the site it was saved for. Passwords, session cookies and tokens never appear in reports, evidence, specs, logs or the UI; reports name accounts by their label. Sign-in needs a form with a password field on one page: verification codes, captchas and "Sign in with …" providers aren't supported.
 
 ### Containers
 

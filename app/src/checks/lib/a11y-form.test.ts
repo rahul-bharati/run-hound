@@ -13,24 +13,28 @@ import { canaries, fillActions, fillAndSubmitSpec, fillValid, submitAndWait, tex
 const URL_ = "http://127.0.0.1:4100/projects";
 const F = projectFields();
 
-describe("fillActions: which fields get a valid value (LOV-1)", () => {
-  it("required fields (by attribute or label), choices without an empty choice and consent checkboxes", () => {
+describe("fillActions: which fields get a valid value (LOV-1, LOV-6)", () => {
+  it("every text-like field (autocompletes too), choices without an empty choice and consent checkboxes", () => {
     const actions = fillActions(projectForm(URL_), canaries("tok1"));
     expect(actions.map((a) => [a.field.key, a.setting])).toEqual([
       ["name", { text: "Rh tok1" }],
       ["teamSize", { option: "first" }],
       ["priority", { option: "first" }],
       ["owner", { option: "first" }],
+      ["city", { option: "first" }],
       ["region", { option: "first" }],
       ["terms", { checked: true }],
     ]);
   });
 
-  it("leaves optional text, switches, sliders, comboboxes and choices that offer 'None' alone", () => {
+  it("fills optional text too (react-hook-form + zod forms mark nothing), but leaves switches, sliders and choices that offer 'None' alone", () => {
     const optionalName: FormField = { ...F.name!, required: false, requiredBy: undefined, label: "Project name", accessibleName: "Project name" };
     const withNone: FormField = { ...F.region!, options: [...F.region!.options!, { label: "None", selector: "#none" }] };
     const form: DiscoveredForm = { ...projectForm(URL_), fields: [optionalName, F.notify!, F.budget!, F.city!, withNone] };
-    expect(fillActions(form, canaries("tok1"))).toEqual([]);
+    expect(fillActions(form, canaries("tok1")).map((a) => [a.field.key, a.setting])).toEqual([
+      ["name", { text: "Rh tok1" }],
+      ["city", { option: "first" }],
+    ]);
     // Unless they are required.
     const required = form.fields.map((f) => ({ ...f, required: true, requiredBy: "label" as const }));
     expect(fillActions({ ...form, fields: required }, canaries("tok1")).map((a) => [a.field.key, a.setting])).toEqual([
@@ -39,6 +43,34 @@ describe("fillActions: which fields get a valid value (LOV-1)", () => {
       ["city", { option: "first" }],
       ["region", { option: "first" }],
     ]);
+  });
+
+  it("leaves an optional field empty when its pattern refuses the test value, and fills minimum lengths", () => {
+    const text = (key: string, extra: Partial<FormField>): FormField => ({ key, accessibleName: key, label: key, placeholder: null, type: "text", role: "textbox", required: false, selector: `#${key}`, ...extra });
+    const form: DiscoveredForm = {
+      ...projectForm(URL_),
+      fields: [
+        text("code", { constraints: { pattern: "[A-Z]{3}-[0-9]{4}" } }),
+        text("ref", { required: true, constraints: { pattern: "[A-Z]{3}-[0-9]{4}" } }),
+        text("summary", { constraints: { minLength: 30 } }),
+      ],
+    };
+    const actions = fillActions(form, canaries("tok1"));
+    // An optional field whose rule the made-up value breaks is left empty (empty is valid); a required one is filled anyway.
+    expect(actions.map((a) => a.field.key)).toEqual(["ref", "summary"]);
+    const summary = actions.find((a) => a.field.key === "summary")!.setting as { text: string };
+    expect(summary.text.length).toBeGreaterThanOrEqual(30);
+    expect(summary.text).toMatch(/^Run Hound test tok1/);
+  });
+
+  it("gives website and handle fields values their rules accept", () => {
+    const c = canaries("tok1");
+    const text = (key: string, label: string): FormField => ({ key, accessibleName: label, label, placeholder: null, type: "text", role: "textbox", required: false, selector: `#${key}` });
+    expect(textValueFor(text("website", "Website"), c)).toBe("https://example.com");
+    expect(textValueFor(text("url", "Link"), c)).toBe("https://example.com");
+    // A slug field is often labelled "… URL" (the app shows its prefix next to it): the key wins.
+    expect(textValueFor(text("slug", "Workspace URL"), c)).toBe("rh-tok1");
+    expect(textValueFor(text("handle", "Username"), c)).toBe("rh-tok1");
   });
 
   it("keeps the password rule: every password gets the same value when one is required, none otherwise", () => {
@@ -71,6 +103,8 @@ describe("fillAndSubmitSpec (LOV-14)", () => {
       `await page.getByRole("radio", { name: "low", exact: true }).check();`,
       `await page.getByRole("combobox", { name: "Owner", exact: true }).click();`,
       `await page.getByRole("option").first().click();`,
+      `await page.getByRole("combobox", { name: "City", exact: true }).click();`,
+      `await page.getByRole("option").first().click();`,
       `await page.getByLabel("Region", { exact: true }).selectOption({ label: "Europe" });`,
       `await page.getByRole("checkbox", { name: "I accept the terms", exact: true }).check();`,
       `await page.getByRole("button", { name: "Create project", exact: true }).click();`,
@@ -100,6 +134,6 @@ describe("fillValid on a Radix/shadcn form (LOV-1)", () => {
     expect(await fillValid(page, form, canaries("tok1"))).toEqual([]);
     const response = await submitAndWait(page, form, { targetUrl: url, runToken: "tok1" });
     expect(response?.status()).toBe(201);
-    expect(app.posts("/api/projects").at(-1)).toMatchObject({ name: "Rh tok1", teamSize: "1-5", priority: "low", owner: "Alex Rivera", region: "eu", terms: true, notify: false, city: "" });
+    expect(app.posts("/api/projects").at(-1)).toMatchObject({ name: "Rh tok1", teamSize: "1-5", priority: "low", owner: "Alex Rivera", region: "eu", terms: true, notify: false, city: "Lisbon" });
   });
 });

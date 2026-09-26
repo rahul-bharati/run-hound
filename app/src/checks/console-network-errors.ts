@@ -5,7 +5,21 @@
 import type { Check, Scenario } from "../core/types.js";
 import type { Fact } from "../core/types.js";
 import { clip, controlLocator, endpointOf, evidence, fillLines, findingFactory, guarded, requestSummary, result, specSource, tryCapture, tryCard } from "./lib/functional-finding.js";
-import { canaryValues, createRequests, fillForm, isRefusedSignIn, settle, sleep, submitControl, submitForm, waitForCreates } from "./lib/functional-form.js";
+import {
+  armFieldErrors,
+  canaryValues,
+  createRequests,
+  fillForm,
+  isRefusedSignIn,
+  isSearchForm,
+  settle,
+  sleep,
+  submitControl,
+  submitForm,
+  waitForCreates,
+  watchNextStep,
+  whyNothingSent,
+} from "./lib/functional-form.js";
 
 const ID = "console-network-errors" as const;
 
@@ -61,8 +75,11 @@ export const check: Check = {
       const phase = (index: number, end: number) => (index < end ? "while loading" : "after submitting");
       const values = canaryValues(ctx.form, ctx.runToken, "cne");
       ctx.step("Filling every field with valid test values", page);
-      await fillForm(page, values);
+      const unset = await fillForm(page, values);
       ctx.step("Submitting the form", page);
+      const step = await watchNextStep(page, capture, ctx.targetUrl, ctx.runToken);
+      const startUrl = page.url();
+      await armFieldErrors(page);
       await submitForm(page, ctx.form);
       await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
       // Follow-up requests (list refresh, analytics) start after the create response.
@@ -116,7 +133,14 @@ export const check: Check = {
       const saves = creates.map((r) => `${endpointOf(r.method, r.url)} → ${r.status ?? r.failure ?? "no answer"}`);
       if (failed.length === 0 && consoleErrors.length === 0 && pageErrors.length === 0) {
         const signIn = refusedSignIns.length > 0 ? ` The sign-in was refused (${refusedSignIns[0]!.status}), as expected for made-up credentials.` : "";
-        return result(ID, scenario, started, [], [`Loaded and submitted the form; ${capture.requests.length} requests, no errors.${signIn}`, ...notes].join(" "));
+        // Never "submitted" when nothing was sent (RH-10): a search form sends itself by loading its results page.
+        const sentSomething = creates.length > 0 || page.url() !== startUrl || isSearchForm(ctx.form);
+        const what = sentSomething
+          ? "Loaded and submitted the form"
+          : (await step.moved())
+            ? "Loaded the form and pressed submit, which showed the form's next step (a multi-step form sends nothing until its last step)"
+            : `Loaded the form and pressed submit, but no save request was sent. ${(await whyNothingSent(page, ctx.form, values, unset)).replace(/\.$/, "")}`;
+        return result(ID, scenario, started, [], [`${what}; ${capture.requests.length} requests, no errors.${signIn}`, ...notes].join(" "));
       }
       const failedLines = ownPhase(failedAt);
       const pageErrorLines = ownPhase(pageErrorsAt);

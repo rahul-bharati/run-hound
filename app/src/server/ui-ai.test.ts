@@ -11,6 +11,7 @@
  */
 import { chromium, type Browser, type Page, type Request, type Route } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { AccountsStatus, AccountStatus } from "../accounts/types.js";
 import type { AiModelList, AiStatus } from "../ai/types.js";
 import type { Finding, Plan, Report } from "../core/types.js";
 import { renderUi } from "./ui/index.js";
@@ -19,6 +20,18 @@ const ORIGIN = "http://rh.test";
 const HTML = renderUi({ version: "0.3.0", canShowBrowser: false });
 const OLLAMA_URL = "http://127.0.0.1:11434/v1";
 const LMSTUDIO_URL = "http://127.0.0.1:1234/v1";
+
+const unsetSlot = (id: "a" | "b"): AccountStatus => ({
+  id,
+  label: id === "a" ? "Account A" : "Account B",
+  loginUrl: "",
+  username: "",
+  hasPassword: false,
+  ready: false,
+  sources: { label: "default", loginUrl: "default", username: "default", password: "default" },
+  problem: null,
+});
+const NO_ACCOUNTS: AccountsStatus = { isolated: true, isolatedSource: "default", accounts: { a: unsetSlot("a"), b: unsetSlot("b") }, file: "/home/me/.config/run-hound/accounts.json" };
 
 function status(extra: Partial<AiStatus> = {}): AiStatus {
   return {
@@ -107,6 +120,8 @@ async function open(hash: string, stub: Partial<Stub>, width = 1280): Promise<Op
     if (url.pathname === "/api/ai/models") return json(s.models(url.searchParams.get("provider") ?? "", url.searchParams.get("baseUrl") ?? "", url.searchParams.get("allowRemote")));
     if (url.pathname === "/api/ai/test") return json(s.test());
     if (url.pathname === "/api/settings") return json({ version: "0.3.0", runsDir: "/runs", allowedHosts: [], serverHosts: [], ai: s.ai });
+    // New Run and Settings also read the test accounts (0.4.0); none are set up here.
+    if (url.pathname === "/api/accounts") return json(NO_ACCOUNTS);
     if (url.pathname === "/api/plan") {
       if (s.planDelayMs) await new Promise((r) => setTimeout(r, s.planDelayMs));
       return json(s.plan(body ?? {}));
@@ -135,7 +150,7 @@ describe("no stray 'null' or 'undefined' text", () => {
     await page.getByRole("button", { name: "Test connection" }).click();
     await expect.poll(() => page.locator("#ai-test-result").textContent()).toMatch(/Connected/);
     expect(await page.locator("#view").innerText()).not.toMatch(stray);
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.locator("#ai-card").getByRole("button", { name: "Save" }).click();
     await expect.poll(() => page.locator("#ai-saved").textContent()).toMatch(/Saved/);
     expect(await page.locator("#view").innerText()).not.toMatch(stray);
     expect(o.errors).toEqual([]);
@@ -220,7 +235,7 @@ describe("Settings → AI card: the model dropdown", () => {
     const other = page.getByLabel("Other model id");
     expect(await other.isVisible()).toBe(true);
     await other.fill("my-finetune:7b");
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.locator("#ai-card").getByRole("button", { name: "Save" }).click();
     await expect.poll(() => page.locator("#ai-saved").textContent()).toMatch(/^Saved at/);
     const put = o.calls.find((c) => c.method === "PUT")!;
     expect(put.body).toMatchObject({ enabled: true, provider: "ollama", baseUrl: OLLAMA_URL, model: "my-finetune:7b", features: { review: true, suggest: true, explain: true } });
@@ -243,7 +258,7 @@ describe("Settings → AI card: the model dropdown", () => {
     await page.getByLabel("Region").fill("eu-west-1");
     await page.waitForTimeout(600);
     expect(modelCalls(o).length).toBe(n);
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.locator("#ai-card").getByRole("button", { name: "Save" }).click();
     await expect.poll(() => o.calls.some((c) => c.method === "PUT")).toBe(true);
     expect(o.calls.find((c) => c.method === "PUT")!.body).toMatchObject({ provider: "bedrock", baseUrl: "", model: "anthropic.claude-x-v1:0", region: "eu-west-1" });
     await page.close();
@@ -265,12 +280,12 @@ describe("Settings → AI card: AWS profile for Bedrock", () => {
       "Uses ~/.aws on the machine running Run Hound: static keys, credential_process or SSO (run `aws sso login` first)",
     );
     await profile.fill("dev");
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.locator("#ai-card").getByRole("button", { name: "Save" }).click();
     await expect.poll(() => o.calls.some((c) => c.method === "PUT")).toBe(true);
     expect(o.calls.find((c) => c.method === "PUT")!.body).toMatchObject({ provider: "bedrock", awsProfile: "dev" });
     await expect.poll(() => page.locator("#ai-saved").textContent()).toMatch(/^Saved at/);
     await page.getByLabel("AWS profile").fill("");
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.locator("#ai-card").getByRole("button", { name: "Save" }).click();
     await expect.poll(() => o.calls.filter((c) => c.method === "PUT").length).toBe(2);
     expect(o.calls.filter((c) => c.method === "PUT")[1]!.body).toMatchObject({ awsProfile: null });
     // Another provider hides the field and never sends it.
@@ -287,7 +302,7 @@ describe("Settings → AI card: AWS profile for Bedrock", () => {
     expect(await profile.isDisabled()).toBe(true);
     expect(await profile.inputValue()).toBe("env-profile");
     expect(await page.locator(".ai-aws-profile-field").innerText()).toContain("Set by environment");
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.locator("#ai-card").getByRole("button", { name: "Save" }).click();
     await expect.poll(() => o.calls.some((c) => c.method === "PUT")).toBe(true);
     expect(o.calls.find((c) => c.method === "PUT")!.body).not.toHaveProperty("awsProfile");
     await page.close();
@@ -297,7 +312,7 @@ describe("Settings → AI card: AWS profile for Bedrock", () => {
     const o = await open("#/settings", {});
     await o.page.locator("#ai-enabled").waitFor();
     expect(await o.page.locator("#ai-aws-profile").isVisible()).toBe(false);
-    await o.page.getByRole("button", { name: "Save" }).click();
+    await o.page.locator("#ai-card").getByRole("button", { name: "Save" }).click();
     await expect.poll(() => o.calls.some((c) => c.method === "PUT")).toBe(true);
     expect(o.calls.find((c) => c.method === "PUT")!.body).not.toHaveProperty("awsProfile");
     await o.page.close();
@@ -357,14 +372,14 @@ describe("Settings → AI card: key, locks, consent, save and test", () => {
     await page.getByLabel(/Send redacted page structure/).check();
     await page.getByRole("button", { name: "Remove key" }).click();
     expect(await page.locator(".key-note").textContent()).toMatch(/removed when you save/);
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.locator("#ai-card").getByRole("button", { name: "Save" }).click();
     await expect.poll(() => page.locator("#ai-error").textContent()).toBe("RUNHOUND_AI_MODEL is set in the environment");
     const put = o.calls.find((c) => c.method === "PUT")!;
     expect(put.body).toMatchObject({ allowRemote: true, apiKey: null, provider: "openai-compatible" });
     expect(put.body).not.toHaveProperty("model");
 
     refuse = false;
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.locator("#ai-card").getByRole("button", { name: "Save" }).click();
     await expect.poll(() => page.locator("#ai-saved").textContent()).toMatch(/^Saved at/);
     expect(await page.locator("#ai-problem").count()).toBe(0);
     expect(await page.getByLabel("API key").getAttribute("placeholder")).toBe("Not set");
@@ -389,7 +404,7 @@ describe("Settings → AI card: key, locks, consent, save and test", () => {
     const o = await open("#/settings", {});
     const { page } = o;
     await expect.poll(() => modelCalls(o).length).toBeGreaterThan(0);
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.locator("#ai-card").getByRole("button", { name: "Save" }).click();
     await expect.poll(() => page.locator("#ai-saved").textContent()).toMatch(/^Saved at/);
     await page.getByRole("button", { name: "Test connection" }).click();
     await expect.poll(() => o.calls.some((c) => c.path === "/api/ai/test")).toBe(true);
@@ -484,7 +499,7 @@ describe("Settings → AI card: key, locks, consent, save and test", () => {
     });
     const { page } = o;
     await page.getByLabel("Base URL").fill("https://api.other.example/v1");
-    await page.getByRole("button", { name: "Save" }).click();
+    await page.locator("#ai-card").getByRole("button", { name: "Save" }).click();
     await expect.poll(() => page.locator("#ai-notice").textContent()).toBe(notice);
     expect(await page.getByLabel("API key").getAttribute("placeholder")).toBe("Not set");
     await page.close();

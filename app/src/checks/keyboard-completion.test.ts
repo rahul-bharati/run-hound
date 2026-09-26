@@ -17,6 +17,7 @@ import { startWidgetForm, widgetForm } from "../../test/fixtures/checks/keyboard
 import { CONTACT_FIELDS, startModernApp } from "../../test/fixtures/checks/modern-apps.js";
 import type { DiscoveredForm } from "../core/types.js";
 import { createCheckContext } from "../engine/context.js";
+import { startSchemaFormApp } from "../../test/fixtures/checks/schema-form.js";
 import { check } from "./keyboard-completion.js";
 import { MULTI_STEP_NOTE } from "./lib/functional-form.js";
 
@@ -128,6 +129,23 @@ describe("keyboard-completion on forms built with AI app builders (LOV-2)", () =
     expect(a.saved[0]!.notify).toBe(false);
   });
 
+  it("GOOD: a RadioGroup that already has a choice (a default, with a bubble radio per item) is left as it is", async () => {
+    const a = await startWidgetForm({ priorityDefault: "high" });
+    apps.push(a);
+    const { results, findings } = await runWithForm(a.formUrl, widgetForm(a.formUrl, { priorityDefault: "high" }));
+    expect(findings.map((f) => `${f.title}: ${f.meaning}`), results[0]!.notes).toEqual([]);
+    expect(results[0]!.status).toBe("pass");
+    expect(a.saved[0]).toMatchObject({ priority: "high" });
+  });
+
+  it("GOOD: a Select that gives focus back to its trigger a moment after closing doesn't cut the Tab walk short", async () => {
+    const a = await startWidgetForm({ slowFocusReturn: true });
+    apps.push(a);
+    const { results, findings } = await runWithForm(a.formUrl, widgetForm(a.formUrl));
+    expect(findings.map((f) => `${f.title}: ${f.meaning}`), results[0]!.notes).toEqual([]);
+    expect(results[0]!.status).toBe("pass");
+  });
+
   it("BAD: a Select that opens only on click is reported as not settable with the keyboard", async () => {
     const a = await startWidgetForm({ mouseOnlySelect: true });
     apps.push(a);
@@ -173,5 +191,18 @@ describe("keyboard-completion on forms built with AI app builders (LOV-2)", () =
     expect(allFindings(results).map((f) => f.title)).toEqual([]);
     expect(results[0]!.status).toBe("skipped");
     expect(results[0]!.notes).toBe(MULTI_STEP_NOTE);
+  });
+});
+
+describe("keyboard-completion: a refused keyboard submit names the fields that showed an error (RH-07, RH-10)", () => {
+  it("says which field the form refused, so the advisory doesn't read as a keyboard problem it can't prove", async () => {
+    const a = await startSchemaFormApp({ taskMinLength: 80 });
+    servers.push(a);
+    const { results } = await runCheck(check, a.formUrl);
+    const finding = results[0]!.findings.find((f) => f.title === "Form can't be completed with the keyboard");
+    expect(finding, results[0]!.notes).toBeDefined();
+    expect(finding!.confidence).toBe("advisory");
+    expect(finding!.meaning).toMatch(/showed an error on "Task"/);
+    expect(a.posts()).toEqual([]);
   });
 });

@@ -206,6 +206,12 @@ export interface DiscoveredPage {
   controls: FormControl[];
   /** How many links with a real href the page has (not tested one by one in V1; a crawl is V3). */
   links: number;
+  /**
+   * Where the page's own links go (0.4.0, for deep-links): absolute URLs of a[href] links to the page's origin, without
+   * the hash, one per path and query, in page order, at most 50. Never an in-page anchor ("#…"), a download, or a link
+   * whose name or path says it acts (log out, delete, unsubscribe…: isDestructiveControl). Absent in older plans.
+   */
+  linkTargets?: string[];
 }
 
 /**
@@ -541,6 +547,11 @@ export interface Plan {
   ai?: PlanAi;
   /** The test account the page was discovered as (0.4.0); a run of this plan signs in as the same account. Absent = signed out. */
   account?: AccountRef;
+  /**
+   * True when the plan was made signed out on a page with a form that saves, and the access checks were among the
+   * checks (0.4.0): they plan nothing signed out, so planWarnings shows one hint to sign in as a test account instead.
+   */
+  signInHint?: boolean;
 }
 
 /** Which model looked at a plan or report, and what went wrong. */

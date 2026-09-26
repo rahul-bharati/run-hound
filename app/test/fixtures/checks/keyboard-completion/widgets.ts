@@ -11,7 +11,9 @@
  * - Combobox (Owner): a shadcn Popover + cmdk list; Enter or Space opens it with focus in the search input, the first
  *   match is highlighted and Enter picks it.
  * Nothing is marked required in the markup: the rules live in the script (zod-like), as in most AI-built apps.
- * `mouseOnlySelect` removes the keyboard handling of the Select.
+ * `mouseOnlySelect` removes the keyboard handling of the Select. `priorityDefault` checks that Priority item when the
+ * page loads (react-hook-form defaultValues) and gives each item Radix's aria-hidden "bubble" radio, so the group's
+ * native selector matches one input per item.
  */
 import type { DiscoveredForm, FormField } from "../../../../src/core/types.js";
 import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
@@ -19,6 +21,10 @@ import { json, startFixtureServer, type FixtureServer } from "../../../../test-s
 export interface WidgetFormOptions {
   /** The Select opens on mouse down only (no key handler), like a hand-made dropdown. */
   mouseOnlySelect?: boolean;
+  /** Priority starts with this item checked, and every item has a bubble radio input. */
+  priorityDefault?: "low" | "high";
+  /** The Select gives focus back to its trigger 300 ms after it closes (Radix does it in a timer). */
+  slowFocusReturn?: boolean;
 }
 
 function html(options: WidgetFormOptions): string {
@@ -59,9 +65,14 @@ function html(options: WidgetFormOptions): string {
   </div>
   <div class="item">
     <span id="priority-label">Priority</span>
-    <div role="radiogroup" aria-labelledby="priority-label" id="f-priority" tabindex="0">
-      <span><button type="button" role="radio" aria-checked="false" data-state="unchecked" value="low" id="f-p-low" tabindex="-1"></button> <label for="f-p-low">Low</label></span>
-      <span><button type="button" role="radio" aria-checked="false" data-state="unchecked" value="high" id="f-p-high" tabindex="-1"></button> <label for="f-p-high">High</label></span>
+    <div role="radiogroup" aria-labelledby="priority-label" id="f-priority" tabindex="${options.priorityDefault ? "-1" : "0"}">
+${["low", "high"]
+  .map((v) => {
+    const on = options.priorityDefault === v;
+    const bubble = options.priorityDefault ? `<input type="radio" aria-hidden="true" tabindex="-1" class="bubble" value="${v}"${on ? " checked" : ""}>` : "";
+    return `      <span><button type="button" role="radio" aria-checked="${on}" data-state="${on ? "checked" : "unchecked"}" value="${v}" id="f-p-${v}" tabindex="${on ? "0" : "-1"}"></button>${bubble} <label for="f-p-${v}">${v === "low" ? "Low" : "High"}</label></span>`;
+  })
+  .join("\n")}
     </div>
     <p class="msg" id="m-priority"></p>
   </div>
@@ -82,7 +93,7 @@ function html(options: WidgetFormOptions): string {
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
-  var state = { teamSize: "", priority: "", notify: false, owner: "", terms: false };
+  var state = { teamSize: "", priority: ${JSON.stringify(options.priorityDefault ?? "")}, notify: false, owner: "", terms: false };
   function popper(trigger) {
     var wrap = document.createElement("div");
     wrap.className = "popper";
@@ -96,7 +107,7 @@ function html(options: WidgetFormOptions): string {
   // Radix Select
   var team = $("f-team"), bubble = team.nextElementSibling, labels = { "1-5": "1–5", "6-20": "6–20" }, open = null;
   function setTeam(v) { state.teamSize = v; team.firstElementChild.textContent = labels[v]; team.removeAttribute("data-placeholder"); bubble.value = v; }
-  function closeSelect() { if (!open) return; open.remove(); open = null; team.setAttribute("aria-expanded", "false"); team.focus(); }
+  function closeSelect() { if (!open) return; open.remove(); open = null; team.setAttribute("aria-expanded", "false"); ${options.slowFocusReturn ? "setTimeout(function () { team.focus(); }, 300);" : "team.focus();"} }
   function openSelect() {
     if (open) return;
     open = popper(team);
@@ -133,7 +144,7 @@ function html(options: WidgetFormOptions): string {
   // Radix RadioGroup (roving focus)
   var group = $("f-priority"), radios = Array.prototype.slice.call(group.querySelectorAll("[role=radio]"));
   function check(r) {
-    radios.forEach(function (x) { var on = x === r; x.setAttribute("aria-checked", String(on)); x.setAttribute("data-state", on ? "checked" : "unchecked"); x.tabIndex = on ? 0 : -1; });
+    radios.forEach(function (x) { var on = x === r; x.setAttribute("aria-checked", String(on)); x.setAttribute("data-state", on ? "checked" : "unchecked"); x.tabIndex = on ? 0 : -1; if (x.nextElementSibling && x.nextElementSibling.matches("input")) x.nextElementSibling.checked = on; });
     group.tabIndex = -1;
     state.priority = r.value;
   }
@@ -239,8 +250,11 @@ const field = (f: Partial<FormField> & Pick<FormField, "key" | "selector" | "typ
   ...f,
 });
 
-/** The form as discovery reports it under the 0.4.0 contract, written by hand so the test doesn't depend on discovery. */
-export function widgetForm(url: string): DiscoveredForm {
+/**
+ * The form as discovery reports it under the 0.4.0 contract, written by hand so the test doesn't depend on discovery.
+ * With `priorityDefault`, Priority's native selector matches the bubble radio of every item, as discovery reports it.
+ */
+export function widgetForm(url: string, options: WidgetFormOptions = {}): DiscoveredForm {
   return {
     url,
     index: 0,
@@ -270,6 +284,7 @@ export function widgetForm(url: string): DiscoveredForm {
         role: "radiogroup",
         selector: "#f-priority",
         widget: "aria-radio",
+        ...(options.priorityDefault ? { nativeSelector: '#f-priority input[type="radio"]' } : {}),
         options: [
           { label: "Low", selector: "#f-p-low" },
           { label: "High", selector: "#f-p-high" },

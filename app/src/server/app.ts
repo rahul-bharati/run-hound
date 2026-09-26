@@ -5,7 +5,9 @@ import { createRequire } from "node:module";
 import { BlockList, isIP } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { Hono, type Context, type Next } from "hono";
-import { CHECK_GROUPS, type Check, type CheckGroup, type CheckResult, type Plan, type Report } from "../core/types.js";
+import { CHECK_GROUPS, type AccountId, type AccountRef, type Check, type CheckGroup, type CheckResult, type Plan, type Report } from "../core/types.js";
+import { checkAccountsPatch, notReadyMessage, resolveAccounts, saveAccounts } from "../accounts/config.js";
+import type { AccountsConfig } from "../accounts/types.js";
 import { cleanErrorMessage, NoFormFoundError, TargetNotAllowedError, TargetUnreachableError } from "../engine/errors.js";
 import { redactSecrets } from "../engine/redact.js";
 import { renderUi } from "./ui/index.js";
@@ -15,6 +17,7 @@ import { listModels } from "../ai/models.js";
 import { AI_PLAN_BUDGET_MS, aiSession, boundSession, type AiSession } from "../ai/session.js";
 import { AI_PROVIDERS, type AiConfigPatch, type AiProvider } from "../ai/types.js";
 import { canShowBrowser, discoverAndPlan, newRunId, NO_DISPLAY_MESSAGE, planWarnings, RUN_HOUND_VERSION, runPlan, STOPPED_NOTE, type ProgressEvent, type RunOptions } from "../engine/runner.js";
+import { checkLoginUrls, hideInJson, isAccountId, isSignInFailure, planAccount, registerPasswords, testSignIn, usernameHider } from "./accounts.js";
 
 export interface ServerOptions extends Pick<RunOptions, "checks" | "runsDir" | "allowedHosts"> {
   /** Runs allowed at the same time (each one drives its own Chromium). Default 2; more are refused with 409. */
@@ -83,6 +86,8 @@ interface RunSummary {
   summary?: Report["summary"];
   completed: number;
   total: number;
+  /** The test account the run signed in as (0.4.0); absent for signed-out runs. Never a username. */
+  account?: AccountRef;
 }
 
 /** What GET /api/runs/:id/live returns, plus the latest frame (served separately as live.jpg). */
@@ -300,6 +305,7 @@ const REDACTED = /\[REDACTED:[\w-]*\]/;
 /** Errors caused by the user's input (bad or refused URL, no form, page won't load) rather than by Run Hound. */
 function isUserError(err: unknown): boolean {
   return (
+    isSignInFailure(err) ||
     err instanceof TargetNotAllowedError ||
     err instanceof NoFormFoundError ||
     err instanceof TargetUnreachableError ||
@@ -331,6 +337,25 @@ async function aiForRequest(wanted: boolean | undefined): Promise<{ ai?: AiSessi
   return wanted ? { warning: `AI was not used: ${out.problem}.` } : {};
 }
 
+/** A request to sign in as a test account: the slot and the accounts resolved for it. */
+interface SignedInAs {
+  id: AccountId;
+  accounts: AccountsConfig;
+}
+
+/**
+ * The accounts as they are now (saved file + RUNHOUND_ACCOUNT_* env) for signing in as `id`, or why that can't be
+ * done (the slot isn't set up), naming the account by its label. Nothing is sent to the app.
+ */
+async function accountsFor(id: AccountId): Promise<SignedInAs | { error: string }> {
+  const { config, status } = await resolveAccounts();
+  const why = notReadyMessage(status.accounts[id]);
+  return why ? { error: redactSecrets(why) } : { id, accounts: config };
+}
+
+/** Sign-in tests (POST /api/accounts/test) allowed at the same time. */
+const MAX_SIGN_IN_TESTS = 2;
+
 /** Origin of a URL, or null when it doesn't parse. */
 function originOf(url: string): string | null {
   try {
@@ -350,16 +375,22 @@ async function checkTitles(checks: Check[] | undefined): Promise<Record<string, 
  * Local UI + JSON API (served on port 4000 by the CLI):
  *   GET  /                          HTML UI (ui/index.ts renderUi): the app shell with hash routes #/new (target -> plan),
  *                                   #/runs, #/runs/<id> (running view, then the report) and #/settings
- *   POST /api/plan  {url, ai?: boolean}  200 {planId, plan, checks: {checkId: title}, warnings: string[]} | 400 {error}
- *                                   (bad URL, not allowed, unreachable, no form, non-boolean ai). "localhost:3000/book"
+ *   POST /api/plan  {url, ai?: boolean, signInAs?: "a" | "b" | null}  200 {planId, plan, checks: {checkId: title},
+ *                                   warnings: string[]} | 400 {error} (bad URL, not allowed, unreachable, no form,
+ *                                   non-boolean ai, another signInAs, an account that isn't set up (named, before
+ *                                   anything is sent to the app), a failed sign-in (the SignInError message)).
+ *                                   signInAs signs in as that test account before discovery (docs/v2-spec.md) and the
+ *                                   plan records it (plan.account = {id, label}). "localhost:3000/book"
  *                                   is read as http://localhost:3000/book. `ai` defaults to on when AI is enabled and
  *                                   usable (AiStatus.problem null); with AI the model reviews the plan (Scenario.ai) and
  *                                   suggests "ai-flow:<n>" scenarios (never ticked), and plan.ai says which model and
  *                                   lists its warnings. ai: true while AI can't be used still plans, and the reason is
  *                                   one of `warnings`. A plan made with AI gets AI explanations when it runs.
  *   POST /api/runs  {planId, approved: string[], allowDestructive?: boolean, headed?: boolean}  202 {runId}
- *                                   | 404 unknown plan | 400 empty approval, unknown scenario ids or a non-boolean flag
- *                                   | 409 too many runs in progress (maxConcurrentRuns)
+ *                                   | 404 unknown plan | 400 empty approval, unknown scenario ids, a non-boolean flag or
+ *                                   the plan's account no longer set up | 409 too many runs in progress
+ *                                   (maxConcurrentRuns). A plan made signed in runs signed in again as that account
+ *                                   (a fresh session), with the accounts as they are when the run starts.
  *   GET  /api/runs/:runId           {status: "running"|"done"|"error", completed, total, startedAt, durationMs? (once
  *                                   ended), report?, error?}
  *   GET  /api/runs/:runId/report.json | report.md | report.html
@@ -371,7 +402,8 @@ async function checkTitles(checks: Check[] | undefined): Promise<Record<string, 
  *                                     scenarios: [{id, title, group, groupLabel}] (approved, in run order)}
  *   GET  /api/runs/:runId/live.jpg   latest frame of the browser under test (image/jpeg, no-store); 404 before the first frame
  *   GET  /api/runs                   {runs: [{runId, target, formName, status, startedAt, finishedAt?, durationMs?, summary?,
- *                                     completed, total}]}: runs in memory and finished runs in runsDir, newest first
+ *                                     completed, total, account?: {id, label}}]}: runs in memory and finished runs in
+ *                                     runsDir, newest first
  *   POST /api/runs/:runId/stop       202 {runId} (the run ends "done" with report.stopped) | 409 already ended or stopping | 404
  *   POST /api/runs/:runId/rerun      202 {runId}: plans the same target again (with AI when the run used it) and runs it
  *                                   approving the previous run's scenario ids that are still in the new plan | 400 none
@@ -390,9 +422,20 @@ async function checkTitles(checks: Check[] | undefined): Promise<Record<string, 
  *                                   ones (another provider without baseUrl: its default URL). The saved key is sent only
  *                                   to the saved endpoint's origin. A remote endpoint is contacted only with consent:
  *                                   the saved allowRemote for the same host, or allowRemote=true (the unsaved consent box).
- * The AI config is resolved per request ($RUNHOUND_CONFIG_DIR, else $XDG_CONFIG_HOME/run-hound, else
- * ~/.config/run-hound, plus RUNHOUND_AI_* env). /api/ai routes require the header X-Run-Hound: 1 (403 without it) and
- * refuse browser requests from other sites (Sec-Fetch-Site cross-site/same-site) as well as cross-site Origins.
+ *   GET  /api/accounts               AccountsStatus (accounts/types.ts): {isolated, isolatedSource, file, accounts: {a, b:
+ *                                   {id, label, loginUrl, username, hasPassword, ready, sources, problem}}}. Never a password.
+ *   PUT  /api/accounts  AccountsPatch 200 AccountsStatus | 400 {error} (not a patch, a login URL that isn't http(s) or that
+ *                                   the safety gate refuses (the host named), a password with no sign-in page) | 403 |
+ *                                   415. Omitted fields are kept; password "" removes the saved one. Saves
+ *                                   <configDir>/accounts.json (0600).
+ *   POST /api/accounts/test  {id: "a" | "b"}  200 SignInCheck {id, ok, landedOn?, message}: signs in with a fresh browser;
+ *                                   a slot that isn't set up answers ok: false naming it, without contacting the app |
+ *                                   400 another id | 409 two sign-in tests already running
+ * The AI config and the test accounts are resolved per request ($RUNHOUND_CONFIG_DIR, else $XDG_CONFIG_HOME/run-hound, else
+ * ~/.config/run-hound, plus RUNHOUND_AI_* and RUNHOUND_ACCOUNT* env). /api/ai and /api/accounts routes require the header
+ * X-Run-Hound: 1 (403 without it) and refuse browser requests from other sites (Sec-Fetch-Site cross-site/same-site) as
+ * well as cross-site Origins. Account passwords are registered as literal secrets (redactSecrets hides them) while a
+ * signed-in plan is made and while a signed-in run runs.
  * POST /api/plan and rerun bound the AI steps by the request's abort signal and aiPlanBudgetMs (default 4 minutes).
  * The live state also carries `browser` ("Chromium 153..."): null until the first scenario starts, then the Chromium
  * build Playwright launches (bundledChromium), replaced by report.browser (what the browser itself reported) at the end.
@@ -432,14 +475,22 @@ export function createApp(options: ServerOptions = {}): Hono {
   const hostAllowed = (host: string) => isDefaultHost(host) || extraHosts.includes(hostKey(host));
   const maxRuns = options.maxConcurrentRuns ?? 2;
   const aiPlanBudgetMs = options.aiPlanBudgetMs ?? AI_PLAN_BUDGET_MS;
+  const allowedHosts = (): string[] => options.allowedHosts ?? (process.env.RUNHOUND_ALLOWED_HOSTS ?? "").split(",").map((h) => h.trim()).filter(Boolean);
+  // Sign-in tests (POST /api/accounts/test) in progress: each drives its own Chromium.
+  let signInTests = 0;
 
   /**
    * discoverAndPlan with the AI steps bounded: they stop when the HTTP request is aborted and after aiPlanBudgetMs in
    * all. Either way the built-in plan comes back with the runner's warnings; a spent budget adds `warning`.
    */
-  async function planBounded(target: string, ai: AiSession | undefined, signal: AbortSignal): Promise<{ plan: Plan; warning?: string }> {
+  async function planBounded(target: string, ai: AiSession | undefined, signal: AbortSignal, signedIn?: SignedInAs): Promise<{ plan: Plan; warning?: string }> {
     const bound = ai ? boundSession(ai, { signal, budgetMs: aiPlanBudgetMs }) : undefined;
-    const plan = await discoverAndPlan(target, { checks: options.checks, allowedHosts: options.allowedHosts, ...(bound ? { ai: bound.session } : {}) });
+    const plan = await discoverAndPlan(target, {
+      checks: options.checks,
+      allowedHosts: options.allowedHosts,
+      ...(bound ? { ai: bound.session } : {}),
+      ...(signedIn ? { signInAs: signedIn.id, accounts: signedIn.accounts } : {}),
+    });
     if (!bound?.timedOut()) return { plan };
     const limit = aiPlanBudgetMs >= 60_000 ? `${Math.round(aiPlanBudgetMs / 60_000)} minutes` : `${Math.round(aiPlanBudgetMs / 100) / 10} s`;
     return { plan, warning: `AI planning was stopped after ${limit}, so the plan has only what the model finished in time.` };
@@ -502,6 +553,8 @@ export function createApp(options: ServerOptions = {}): Hono {
       completed: state.completed,
       total: state.total,
     };
+    const account = planAccount(report?.plan ?? state.plan);
+    if (account) out.account = account;
     if (state.status !== "running") {
       out.finishedAt = report?.finishedAt ?? new Date(Date.parse(state.startedAt) + (state.durationMs ?? 0)).toISOString();
       if (state.durationMs !== undefined) out.durationMs = state.durationMs;
@@ -550,7 +603,7 @@ export function createApp(options: ServerOptions = {}): Hono {
   function startRun(
     plan: Plan,
     approved: string[],
-    flags: { allowDestructive: boolean; headed: boolean; ai: boolean; session?: AiSession },
+    flags: { allowDestructive: boolean; headed: boolean; ai: boolean; session?: AiSession; accounts?: AccountsConfig },
   ): { runId: string } | { error: string; code: 409 } {
     const running = [...runs.values()].filter((r) => r.status === "running").length;
     if (running >= maxRuns) {
@@ -559,13 +612,16 @@ export function createApp(options: ServerOptions = {}): Hono {
     const approvedSet = new Set(approved);
     const runId = newRunId();
     const controller = new AbortController();
+    // What the live view shows of a signed-in run never names an account's username (nor any secret).
+    const hide = usernameHider(flags.accounts);
+    const shown = hideInJson(redactPlan(plan), hide);
     const state: RunState = {
       status: "running",
       completed: 0,
       total: plan.scenarios.filter((s) => approvedSet.has(s.id)).length,
       dir: join(runsDir, runId),
       startedAt: new Date().toISOString(),
-      live: newLiveState(runOrder(redactPlan(plan), approvedSet)),
+      live: newLiveState(runOrder(shown, approvedSet)),
       plan,
       approved: [...approvedSet],
       allowDestructive: flags.allowDestructive,
@@ -576,6 +632,8 @@ export function createApp(options: ServerOptions = {}): Hono {
     runs.set(runId, state);
     prune();
 
+    // The accounts' passwords stay redacted from everything the run reports until it has ended.
+    const unregister = flags.accounts ? registerPasswords(flags.accounts) : () => undefined;
     runPlan(plan, {
       checks: options.checks,
       allowedHosts: options.allowedHosts,
@@ -586,6 +644,7 @@ export function createApp(options: ServerOptions = {}): Hono {
       headed: flags.headed,
       signal: controller.signal,
       ...(flags.session ? { ai: flags.session } : {}),
+      ...(flags.accounts ? { accounts: flags.accounts } : {}),
       // The UI always shows the live view, so the server always asks for the screencast.
       live: true,
       onProgress: (e) => {
@@ -594,25 +653,29 @@ export function createApp(options: ServerOptions = {}): Hono {
         // installed Playwright ships.
         if (e.type === "browser") state.live.browser = e.name;
         if (e.type === "scenario-start" && state.live.browser === null) state.live.browser = bundledChromium();
-        applyProgress(state.live, plan, e);
+        const event = e.type === "step" ? { ...e, label: hide(e.label), url: hide(e.url) } : e.type === "page" ? { ...e, url: hide(e.url) } : e;
+        applyProgress(state.live, shown, event);
       },
     }).then(
-      ({ report, dir }) => {
+      ({ report: raw, dir }) => {
+        const report = flags.accounts ? hideInJson(raw, hide) : raw;
         const durationMs = report.durationMs ?? Date.parse(report.finishedAt) - Date.parse(report.startedAt);
         Object.assign(state, { status: "done", report, dir, durationMs, controller: undefined });
         // The report is authoritative once written (it also covers pages seen before a frame or step).
         if (report.pagesVisited) state.live.pagesVisited = report.pagesVisited.map((p) => p.url);
         state.live.browser = report.browser ?? null;
         state.live.updatedAt = new Date().toISOString();
+        unregister();
       },
       (err: unknown) => {
         Object.assign(state, {
           status: "error",
           controller: undefined,
           durationMs: Date.now() - Date.parse(state.startedAt),
-          error: redactSecrets(cleanErrorMessage(err instanceof Error ? err.message : String(err))),
+          error: hide(redactSecrets(cleanErrorMessage(err instanceof Error ? err.message : String(err)))),
         });
         state.live.updatedAt = new Date().toISOString();
+        unregister();
       },
     );
     return { runId };
@@ -667,20 +730,35 @@ export function createApp(options: ServerOptions = {}): Hono {
     if (typeof url !== "string" || url.trim() === "") return c.json({ error: "Enter the URL of the page with your form." }, 400);
     const wantAi = (body as { ai?: unknown }).ai;
     if (wantAi !== undefined && typeof wantAi !== "boolean") return c.json({ error: "ai must be true or false." }, 400);
+    const signInAs = (body as { signInAs?: unknown }).signInAs;
+    if (signInAs !== undefined && signInAs !== null && !isAccountId(signInAs)) {
+      return c.json({ error: 'signInAs must be "a" (Account A), "b" (Account B) or null (not signed in).' }, 400);
+    }
+    // An account that isn't set up is refused before anything is sent to the app.
+    let signedIn: SignedInAs | undefined;
+    if (isAccountId(signInAs)) {
+      const found = await accountsFor(signInAs);
+      if ("error" in found) return c.json({ error: found.error }, 400);
+      signedIn = found;
+    }
 
+    const unregister = signedIn ? registerPasswords(signedIn.accounts, [signedIn.id]) : () => undefined;
+    const hide = usernameHider(signedIn?.accounts);
     try {
       const { ai, warning } = await aiForRequest(wantAi);
-      const { plan, warning: budgetWarning } = await planBounded(url.trim(), ai, c.req.raw.signal);
+      const { plan, warning: budgetWarning } = await planBounded(url.trim(), ai, c.req.raw.signal, signedIn);
       const planId = randomUUID();
       plans.set(planId, { plan, ai: ai !== undefined });
       prune();
-      // The stored plan keeps the real target; what leaves the process is redacted.
-      const warnings = [...planWarnings(plan), ...(warning ? [warning] : []), ...(budgetWarning ? [budgetWarning] : [])].map((w) => redactSecrets(w));
-      return c.json({ planId, plan: redactPlan(plan), checks: await checkTitles(options.checks), warnings }, 200);
+      // The stored plan keeps the real target; what leaves the process is redacted (and names no username).
+      const warnings = [...planWarnings(plan), ...(warning ? [warning] : []), ...(budgetWarning ? [budgetWarning] : [])].map((w) => hide(redactSecrets(w)));
+      return c.json({ planId, plan: hideInJson(redactPlan(plan), hide), checks: await checkTitles(options.checks), warnings }, 200);
     } catch (err) {
-      const message = redactSecrets(cleanErrorMessage(err instanceof Error ? err.message : String(err)));
+      const message = hide(redactSecrets(cleanErrorMessage(err instanceof Error ? err.message : String(err))));
       if (isUserError(err)) return c.json({ error: message }, 400);
       return c.json({ error: `Could not plan a run: ${message}` }, 500);
+    } finally {
+      unregister();
     }
   });
 
@@ -708,8 +786,15 @@ export function createApp(options: ServerOptions = {}): Hono {
     const approvedIds = approved ?? plan.scenarios.filter((s) => s.defaultSelected).map((s) => s.id);
     // An empty run would report "0 findings" and look like a clean pass.
     if (approvedIds.length === 0) return c.json({ error: "Select at least one scenario to run." }, 400);
+    // A run signs in again as the account its plan was made as, with the accounts as they are now.
+    let accounts: AccountsConfig | undefined;
+    if (plan.account) {
+      const found = await accountsFor(plan.account.id);
+      if ("error" in found) return c.json({ error: found.error }, 400);
+      accounts = found.accounts;
+    }
     const session = stored.ai ? (await aiForRequest(true)).ai : undefined;
-    const started = startRun(plan, approvedIds, { allowDestructive: body.allowDestructive === true, headed: body.headed === true, ai: stored.ai, session });
+    const started = startRun(plan, approvedIds, { allowDestructive: body.allowDestructive === true, headed: body.headed === true, ai: stored.ai, session, ...(accounts ? { accounts } : {}) });
     if ("error" in started) return c.json({ error: started.error }, started.code);
     return c.json({ runId: started.runId }, 202);
   });
@@ -720,7 +805,7 @@ export function createApp(options: ServerOptions = {}): Hono {
     c.json({
       version: RUN_HOUND_VERSION,
       runsDir,
-      allowedHosts: options.allowedHosts ?? (process.env.RUNHOUND_ALLOWED_HOSTS ?? "").split(",").map((h) => h.trim()).filter(Boolean),
+      allowedHosts: allowedHosts(),
       serverHosts: extraHosts,
       ai: aiStatus(await resolveAiConfig()),
     }),
@@ -730,14 +815,19 @@ export function createApp(options: ServerOptions = {}): Hono {
   // a GET. Every /api/ai* request must carry X-Run-Hound: 1: an <img>, <link> or form can't send a custom header, and
   // a cross-site fetch with one needs a CORS preflight this server never grants. Sec-Fetch-Site (browsers mark
   // cross-site GETs with it) and the Origin check above stay as further layers.
-  const aiGuard = async (c: Context, next: Next) => {
+  // The test accounts hold passwords and make the server sign in to the app: the same guard.
+  const headerGuard = (path: string) => async (c: Context, next: Next) => {
     const site = (c.req.header("sec-fetch-site") ?? "").toLowerCase();
     if (site === "cross-site" || site === "same-site") return c.json({ error: "Cross-site requests are not allowed." }, 403);
-    if (c.req.header("x-run-hound") !== "1") return c.json({ error: "Requests to /api/ai must send the header X-Run-Hound: 1." }, 403);
+    if (c.req.header("x-run-hound") !== "1") return c.json({ error: `Requests to ${path} must send the header X-Run-Hound: 1.` }, 403);
     await next();
   };
+  const aiGuard = headerGuard("/api/ai");
   app.use("/api/ai", aiGuard);
   app.use("/api/ai/*", aiGuard);
+  const accountsGuard = headerGuard("/api/accounts");
+  app.use("/api/accounts", accountsGuard);
+  app.use("/api/accounts/*", accountsGuard);
 
   app.get("/api/ai", async (c) => c.json(aiStatus(await resolveAiConfig()), 200, { "cache-control": "no-store" }));
 
@@ -782,6 +872,49 @@ export function createApp(options: ServerOptions = {}): Hono {
     return c.json(list.error ? { ...list, error: redactSecrets(list.error) } : list, 200, { "cache-control": "no-store" });
   });
 
+  app.get("/api/accounts", async (c) => c.json((await resolveAccounts()).status, 200, { "cache-control": "no-store" }));
+
+  app.put("/api/accounts", async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "The request body must be JSON." }, 400);
+    }
+    try {
+      checkAccountsPatch(body);
+      await checkLoginUrls(body, (await resolveAccounts()).status, { allowedHosts: allowedHosts() });
+    } catch (err) {
+      return c.json({ error: redactSecrets(err instanceof Error ? err.message : String(err)) }, 400);
+    }
+    try {
+      return c.json(await saveAccounts(body), 200, { "cache-control": "no-store" });
+    } catch (err) {
+      const message = redactSecrets(err instanceof Error ? err.message : String(err));
+      // A file system error (the folder can't be written) is Run Hound's problem, not the request's.
+      if ((err as NodeJS.ErrnoException).code) return c.json({ error: `Could not save the test accounts: ${message}` }, 500);
+      return c.json({ error: message }, 400);
+    }
+  });
+
+  app.post("/api/accounts/test", async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "The request body must be JSON like {\"id\": \"a\"}." }, 400);
+    }
+    const id = (body as { id?: unknown } | null)?.id;
+    if (!isAccountId(id)) return c.json({ error: 'id must be "a" (Account A) or "b" (Account B).' }, 400);
+    if (signInTests >= MAX_SIGN_IN_TESTS) return c.json({ error: "Another sign-in test is still running. Wait for it to finish." }, 409);
+    signInTests += 1;
+    try {
+      return c.json(await testSignIn(id, await resolveAccounts(), { allowedHosts: allowedHosts() }), 200, { "cache-control": "no-store" });
+    } finally {
+      signInTests -= 1;
+    }
+  });
+
   app.post("/api/runs/:runId/stop", async (c) => {
     const state = await runState(c.req.param("runId"));
     if (!state) return c.json({ error: "Unknown run." }, 404);
@@ -802,23 +935,40 @@ export function createApp(options: ServerOptions = {}): Hono {
     // Don't open a browser to plan when the run couldn't start anyway (startRun checks again after planning).
     const running = [...runs.values()].filter((r) => r.status === "running").length;
     if (running >= maxRuns) return c.json({ error: `${running} run${running === 1 ? " is" : "s are"} already in progress. Wait for ${running === 1 ? "it" : "one"} to finish.` }, 409);
+    // Signed in as the same account as before, with the accounts as they are now.
+    const account = planAccount(state.plan);
+    let signedIn: SignedInAs | undefined;
+    if (account) {
+      const found = await accountsFor(account.id);
+      if ("error" in found) return c.json({ error: found.error }, 400);
+      signedIn = found;
+    }
     // Plan the target again: the page may have changed since, so scenario ids are matched against the new plan.
     let plan: Plan;
     // Whether AI was used carries over; it can't be used now (turned off since) → the rerun goes without it.
     const { ai: session } = await aiForRequest(state.ai);
+    const unregister = signedIn ? registerPasswords(signedIn.accounts, [signedIn.id]) : () => undefined;
     try {
-      plan = (await planBounded(state.plan.target, session, c.req.raw.signal)).plan;
+      plan = (await planBounded(state.plan.target, session, c.req.raw.signal, signedIn)).plan;
     } catch (err) {
-      const message = redactSecrets(cleanErrorMessage(err instanceof Error ? err.message : String(err)));
+      const message = usernameHider(signedIn?.accounts)(redactSecrets(cleanErrorMessage(err instanceof Error ? err.message : String(err))));
       if (isUserError(err)) return c.json({ error: message }, 400);
       return c.json({ error: `Could not plan the run again: ${message}` }, 500);
+    } finally {
+      unregister();
     }
     const known = new Set(plan.scenarios.map((s) => s.id));
     const approved = state.approved.filter((id) => known.has(id));
     if (approved.length === 0) {
       return c.json({ error: "None of this run's scenarios are in the new plan (the page has changed). Start a new run instead." }, 400);
     }
-    const started = startRun(plan, approved, { allowDestructive: state.allowDestructive, headed: state.headed && headedAvailable, ai: session !== undefined, session });
+    const started = startRun(plan, approved, {
+      allowDestructive: state.allowDestructive,
+      headed: state.headed && headedAvailable,
+      ai: session !== undefined,
+      session,
+      ...(signedIn ? { accounts: signedIn.accounts } : {}),
+    });
     if ("error" in started) return c.json({ error: started.error }, started.code);
     return c.json({ runId: started.runId }, 202);
   });

@@ -263,6 +263,8 @@ pnpm exec tsx src/cli.ts run http://localhost:5173/signup --approve all
 
 Options: `--approve all|default|<id,id>` (default: the recommended scenarios), `--plan-only`, `--allow-destructive`, `--headed` (a visible browser window), `--runs-dir <dir>`, `--json`. `pnpm exec tsx src/cli.ts help` lists them.
 
+Pages behind a login (0.4.0 preview): save a test account you own with `pnpm exec tsx src/cli.ts accounts set a --login-url <sign-in page> --username <email> --password-stdin` (the password is read from stdin, never a flag), check it with `accounts test`, then add `--as a` to `run`. In the web UI it is **Settings → Test accounts** and New Run → **Sign in as**. The README's "Test accounts and signed-in runs" section has the details.
+
 ### Common problems
 
 | You see | What it means |
