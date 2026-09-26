@@ -3,8 +3,8 @@
 Fernway ("project planning for small studios") is a small, fictional SaaS app that Run Hound is tested against. It is
 built the way AI app builders such as Lovable, Bolt and v0 build apps today: Vite, React 19, TypeScript, Tailwind CSS
 v4, shadcn/ui-style components on Radix primitives, lucide icons, sonner toasts, react-hook-form with zod, and React
-Router. It has a marketing page, sign-up and sign-in, an onboarding wizard, a dashboard and settings, in light and dark
-mode.
+Router. It has a marketing page, sign-up and sign-in, an onboarding wizard, and a dashboard and settings behind a real
+sign-in (two accounts, each with a workspace of its own), in light and dark mode.
 
 ## Why it exists
 
@@ -18,7 +18,8 @@ client-side routing, animations and dark mode.
   saves by `Idempotency-Key`. **Any confirmed finding Run Hound reports on clean Fernway is either a real defect in
   Fernway or a Run Hound false positive.** Triage every one, and never change Fernway just to hide a Run Hound mistake.
 - **Bug mode** (`FERNWAY_BUGS`) plants the bugs AI-built apps typically ship with, one per id. Each one is caught by
-  one existing Run Hound check (table below).
+  one Run Hound check (tables below): W01-W10 by the V0/V1 checks, V01-V05 by the V2 checks (access control, mass
+  assignment, deep links) run signed in.
 
 [CONTRACT.md](CONTRACT.md) is the full contract: routes, labels, texts, the API, response headers and every bug. The
 names in it are load-bearing: Fernway's tests and Run Hound's acceptance suite rely on them.
@@ -31,12 +32,26 @@ names in it are load-bearing: Fernway's tests and Run Hound's acceptance suite r
 | `/signup` | Create account | Create account | "Continue with Google", password show/hide | `http://localhost:4110/signup` / `http://fernway:4110/signup` |
 | `/login` | Sign in | Sign in | password show/hide, "Forgot password?" | `http://localhost:4110/login` / `http://fernway:4110/login` |
 | `/onboarding` | 3-step wizard | Workspace (step 1) | Back / Continue, slug availability check | `http://localhost:4110/onboarding` / `http://fernway:4110/onboarding` |
-| `/app` | Dashboard | Quick add task | "New project" sheet with a form, command palette (Ctrl+K), sidebar, status tabs, row menus | `http://localhost:4110/app` / `http://fernway:4110/app` |
-| `/app/settings` | Settings | Profile | Notifications tab (auto-saving Switches), Billing tab | `http://localhost:4110/app/settings` / `http://fernway:4110/app/settings` |
+| `/app` (signed in) | Dashboard | Quick add task | "New project" sheet with a form, command palette (Ctrl+K), sidebar, status tabs, row menus, Sign out | `http://localhost:4110/app` / `http://fernway:4110/app` |
+| `/app/settings` (signed in) | Settings | Profile | Notifications tab (auto-saving Switches), Billing tab | `http://localhost:4110/app/settings` / `http://fernway:4110/app/settings` |
 
-Any other path answers `404` with a "Page not found" view. `/app` and `/app/settings` work without signing in, as a demo
-workspace. The one account is `alex@fernway.test` / `correct-horse-battery`. Data lives in memory and is seeded on
-start; `POST /api/__reset` restores the seed.
+Any other path answers `404` with a "Page not found" view. Data lives in memory and is seeded on start;
+`POST /api/__reset` restores the seed (sessions survive it).
+
+## Accounts
+
+`/app` and `/app/settings` need a session: signed out, they send you to `/login?next=<path>`. Every workspace API
+answers `401` without a session and only shows the signed-in user's own workspace (`404` for anyone else's ids).
+
+| Account | Email | Password | Workspace |
+|---|---|---|---|
+| Alex Rivera (the demo account; Run Hound's account A) | `alex@fernway.test` | `correct-horse-battery` | Rivera Studio |
+| Sam Okafor (Run Hound's account B) | `sam@fernway.test` | `staple-lemon-orbit` | Okafor & Co |
+
+To look around without typing a password, press **Use the demo account** on `/login` (it signs you in as Alex on the
+server). No page shows a password. Sign-up creates a new account with an empty workspace; "Sign out" is in the account
+menu. [CONTRACT.md](CONTRACT.md) "Accounts" has the details (`GET /api/me`, the profile at
+`/api/users/:id/profile` and its field allowlist).
 
 ## Start it
 
@@ -70,14 +85,23 @@ Fernway is a local test target only: do not expose it to the internet.
 
 ```sh
 PORT=4110 pnpm --filter fernway start &
-cd app && pnpm exec tsx src/cli.ts run http://localhost:4110/app --approve all --runs-dir /tmp/rh-runs
+cd app && pnpm exec tsx src/cli.ts run http://localhost:4110/signup --approve all --runs-dir /tmp/rh-runs
+```
+
+The signed-in pages need Run Hound's test accounts (0.4.0, [docs/v2-spec.md](../../docs/v2-spec.md)): Alex as account
+A and Sam as account B, both with the login URL `http://localhost:4110/login`, then `run ... --as a`:
+
+```sh
+printf %s 'correct-horse-battery' | pnpm exec tsx src/cli.ts accounts set a --login-url http://localhost:4110/login --username alex@fernway.test --password-stdin
+printf %s 'staple-lemon-orbit' | pnpm exec tsx src/cli.ts accounts set b --login-url http://localhost:4110/login --username sam@fernway.test --password-stdin
+pnpm exec tsx src/cli.ts run http://localhost:4110/app --as a --approve all --runs-dir /tmp/rh-runs
 ```
 
 ## Planted bugs
 
-`FERNWAY_BUGS` is `none` (default), `all`, or a comma list such as `W01,W06` (case-insensitive; an unknown id stops
-the server with an error naming the known ids). `GET /api/__config` answers the active ids. One build serves every
-mode. [bugs.json](bugs.json) is the ground truth.
+`FERNWAY_BUGS` is `none` (default), `all` (W01-W10 and V01-V05), or a comma list such as `W01,V02` (case-insensitive;
+an unknown id stops the server with an error naming the known ids). `GET /api/__config` answers the active ids. One
+build serves every mode. [bugs.json](bugs.json) is the ground truth.
 
 | Id | Page | Bug | Caught by |
 |---|---|---|---|
@@ -92,6 +116,16 @@ mode. [bugs.json](bugs.json) is the ground truth.
 | W09 | every page | `fernway_session` set without HttpOnly | `cookie-flags` |
 | W10 | `/login` | Sign-in errors are shown in red text only (no `role="alert"`, not linked to the fields) | `error-announcement` |
 
+The V2 bugs, caught with Run Hound signed in as Alex (A) with Sam as B:
+
+| Id | Page | Bug | Caught by |
+|---|---|---|---|
+| V01 | `/app/settings` | `GET /api/users/:id/profile` returns any user's profile to any signed-in user (no ownership check) | `access-control:other-account` |
+| V02 | `/app` | `GET /api/tasks` returns every user's tasks | `access-control:other-account` |
+| V03 | `/app`, `/app/settings` | The workspace APIs answer without a session (only the SPA redirects) | `access-control:signed-out` |
+| V04 | `/app/settings` | `PUT /api/users/:id/profile` stores any key it is sent, including `role` and `plan` | `mass-assignment` |
+| V05 | `/app` | Opening `/app/settings` or `/onboarding` directly answers `404` (no SPA fallback for those paths) | `deep-links` |
+
 A bug id never changes the clean-mode behaviour of anything else.
 
 ## Tests
@@ -102,7 +136,9 @@ pnpm --filter fernway typecheck
 ```
 
 `FERNWAY_SKIP_BUILD=1` reuses an existing `dist/`. The acceptance suite runs Run Hound itself against Fernway: every
-route in clean mode (zero confirmed findings, every form discovered) and each bug on its page.
+route in clean mode (zero confirmed findings, every form discovered; `/app` and `/app/settings` signed in as Alex with
+Sam as the other account, every scenario approved including mass assignment), each bug on its page, and a check that
+no run folder holds either password.
 
 ```sh
 cd tests/acceptance

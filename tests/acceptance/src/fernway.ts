@@ -2,19 +2,24 @@
  * Starts the Fernway fixture for acceptance runs (fixtures/fernway/CONTRACT.md, "Process").
  *
  *   - built once with `vite build` in fixtures/fernway (one build serves every mode)
- *   - started with `node server/index.mjs`, env PORT, FERNWAY_BUGS ("none" | "all" | "W01,W06")
+ *   - started with `node server/index.mjs`, env PORT, FERNWAY_BUGS ("none" | "all" | "W01,V02")
  *   - prints "fernway listening" once it accepts connections
- *   - POST /api/__reset restores the seed
+ *   - POST /api/__reset restores the seed (sessions survive it)
+ *
+ * V2 (CONTRACT.md "Accounts"): /app and /app/settings need a session. Run Hound signs in as Alex (test account A) with
+ * Sam as account B; fernwayAccounts() builds that AccountsConfig for an instance, so no test reads accounts.json.
  */
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import type { AccountsConfig } from "../../../app/src/accounts/types.js";
 import { freePort, REPO_ROOT } from "./kennel.js";
 
 const execFileAsync = promisify(execFile);
 
-export const FERNWAY_DIR = join(REPO_ROOT, "fixtures/fernway");
+/** fixtures/fernway, or ACCEPTANCE_FERNWAY_DIR (a copy with its own dist/, so parallel builds don't collide). */
+export const FERNWAY_DIR = process.env.ACCEPTANCE_FERNWAY_DIR || join(REPO_ROOT, "fixtures/fernway");
 
 /** One entry of fixtures/fernway/bugs.json. `page` is a route, or "*" for a bug on every route. */
 export interface FernwayBug {
@@ -25,6 +30,53 @@ export interface FernwayBug {
   title: string;
   detectedBy: string;
   page: string;
+  /** The scenario of `detectedBy` that catches it (V01-V03: "access-control:other-account" / ":signed-out"). */
+  scenario?: string;
+  /** Other pages the same bug is caught on (V03: /app/settings). */
+  alsoOn?: string[];
+}
+
+/** The seeded accounts (fixtures/fernway/server/seed.mjs ACCOUNTS). Alex is test account A, Sam is B. */
+export const FERNWAY_ACCOUNTS = {
+  alex: { email: "alex@fernway.test", password: "correct-horse-battery", name: "Alex Rivera" },
+  sam: { email: "sam@fernway.test", password: "staple-lemon-orbit", name: "Sam Okafor" },
+} as const;
+
+/** The routes that need a session (signed out, the SPA sends you to /login?next=<path>). */
+export const SIGNED_IN_ROUTES: readonly string[] = ["/app", "/app/settings"];
+export const needsSignIn = (route: string) => SIGNED_IN_ROUTES.includes(route);
+
+/**
+ * Run Hound's test accounts for a running Fernway: A = Alex, B = Sam, both signing in at <url>/login, isolated (they
+ * must not see each other's data). Pass it as RunOptions.accounts with signInAs "a".
+ */
+export function fernwayAccounts(url: string): AccountsConfig {
+  const loginUrl = `${url}/login`;
+  return {
+    isolated: true,
+    accounts: {
+      a: { id: "a", label: "Account A", loginUrl, username: FERNWAY_ACCOUNTS.alex.email, password: FERNWAY_ACCOUNTS.alex.password },
+      b: { id: "b", label: "Account B", loginUrl, username: FERNWAY_ACCOUNTS.sam.email, password: FERNWAY_ACCOUNTS.sam.password },
+    },
+  };
+}
+
+/**
+ * Every file under `dir` (recursively) whose bytes contain one of `needles`, as "<relative path>: <needle label>".
+ * Binary files are searched as bytes too.
+ */
+export async function filesContaining(dir: string, needles: Record<string, string>): Promise<string[]> {
+  const hits: string[] = [];
+  const entries = await readdir(dir, { recursive: true, withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const path = join(entry.parentPath, entry.name);
+    const bytes = await readFile(path);
+    for (const [label, needle] of Object.entries(needles)) {
+      if (bytes.includes(Buffer.from(needle, "utf8"))) hits.push(`${path.slice(dir.length + 1)}: ${label}`);
+    }
+  }
+  return hits;
 }
 
 export async function loadFernwayBugs(): Promise<FernwayBug[]> {

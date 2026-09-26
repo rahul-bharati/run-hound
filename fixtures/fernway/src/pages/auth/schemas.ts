@@ -62,15 +62,21 @@ export function passwordStrength(password: string): { level: 0 | 1 | 2 | 3; labe
 /** "Maya Patel" -> "Maya". */
 export const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name;
 
+/** A path that stays on this origin: one leading "/" and no second "/" or "\" after it ("//host" is another origin). */
+const isLocalPath = (path: string) => path.startsWith("/") && !path.startsWith("//") && !path.startsWith("/\\");
+
 /**
  * Where to go after signing in: a same-origin path from ?next= (V2 sends signed-out visitors to /login?next=<path>),
- * else /app. Anything that could leave the origin ("//host", "/\\host", "https:") falls back to /app.
+ * else /app. Anything that could leave the origin ("//host", "/\\host", "https:") falls back to /app, checked both
+ * before and after URL parsing: dot segments and backslashes can normalise to "//host" ("/.//host", "/app/..//host",
+ * "/./\\host"), which the router would treat as another origin.
  */
 export function safeNext(next: string | null): string {
-  if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return "/app";
+  if (!next || !isLocalPath(next)) return "/app";
   try {
     const url = new URL(next, window.location.origin);
-    return url.origin === window.location.origin ? `${url.pathname}${url.search}${url.hash}` : "/app";
+    const path = `${url.pathname}${url.search}${url.hash}`;
+    return url.origin === window.location.origin && isLocalPath(url.pathname) ? path : "/app";
   } catch {
     return "/app";
   }

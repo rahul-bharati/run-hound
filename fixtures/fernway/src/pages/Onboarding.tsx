@@ -5,7 +5,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
-import { getSessionUser, setSessionUser } from "@/lib/session";
+import { getSession, refreshSession } from "@/lib/session";
 import { useDocumentTitle } from "@/lib/utils";
 import { firstName } from "./auth/schemas";
 import { Done } from "./onboarding/Done";
@@ -46,8 +46,9 @@ export default function Onboarding() {
   const onDraft = useCallback((values: WorkspaceValues) => setPreview(values), []);
 
   function finished(result: CreatedWorkspace) {
-    const user = getSessionUser();
-    setSessionUser({ name: user.name, email: user.email, workspace: result.workspaceName });
+    // Signed in (e.g. straight after sign-up), the server renamed your workspace: pick up the new name. A signed-out
+    // visitor never asks (/api/me would only answer 401).
+    if (getSession().status === "signed-in") void refreshSession();
     toast.success("Workspace created", {
       description: `${result.workspaceName} is ready.${result.invites.length > 0 ? " Invites are on their way." : ""}`,
     });

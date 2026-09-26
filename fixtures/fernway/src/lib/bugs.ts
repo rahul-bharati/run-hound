@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 
-/** Fernway's planted bugs (CONTRACT.md). Clean mode has none. */
-export type BugId = "W01" | "W02" | "W03" | "W04" | "W05" | "W06" | "W07" | "W08" | "W09" | "W10";
+/** Fernway's planted bugs (CONTRACT.md). Clean mode has none. V01-V05 live on the server only. */
+export type BugId = "W01" | "W02" | "W03" | "W04" | "W05" | "W06" | "W07" | "W08" | "W09" | "W10" | "V01" | "V02" | "V03" | "V04" | "V05";
 
 let enabled: ReadonlySet<string> = new Set();
 let loading: Promise<ReadonlySet<string>> | undefined;

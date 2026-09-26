@@ -1,17 +1,24 @@
-// Account endpoints (/signup and /login). All account and session code lives in this module so V2's real accounts
-// can grow here. See CONTRACT.md "API".
+// Accounts and sessions (/signup, /login, the app's session). All account and session code lives in this module.
+// See CONTRACT.md "Accounts" and "API".
 //
-//   POST /api/signup  { name, email, password, company, terms } -> 201 { id, name, email } and a new session cookie;
-//                     same email (any case, including the demo account) -> 409 on `email`; password 8+ characters
-//                     (not trimmed); the name "Crash" in `name` or `company` -> 500. The password is stored as a
-//                     scrypt hash and never echoed.
-//   POST /api/login   { email, password, remember } -> 200 { id, name, email } and a new session cookie (kept 30 days
-//                     with `remember`), or 401 { error: "Email or password is incorrect" } with no cookie.
+//   POST /api/signup      { name, email, password, company, terms } -> 201 { id, name, email } and a new session
+//                         cookie: a new user with an empty workspace (named after the company, else "<first name>'s
+//                         workspace"), signed in. Same email (any case, including a seeded account) -> 409 on `email`;
+//                         password 8+ characters (not trimmed); the name "Crash" in `name` or `company` -> 500. The
+//                         password is stored as a scrypt hash and never echoed.
+//   POST /api/login       { email, password, remember } -> 200 { id, name, email } and a new session cookie (kept 30
+//                         days with `remember`), or 401 { error: "Email or password is incorrect" } with no cookie.
+//   POST /api/login/demo  {} -> 200 { id, name, email } and a new session cookie: signs in as Alex (the demo account)
+//                         without anyone typing or seeing a password ("Use the demo account" on /login).
+//   POST /api/logout      -> 204; ends the session (if any) and removes the cookie (Max-Age=0). Works signed out.
+//   GET  /api/me          -> 200 { id, name, email, workspace } for the session user, else 401 { error: "Sign in to
+//                         continue" }. Always honest: V03 never makes it answer without a session.
 //
-// Data: ctx.store.users, ctx.store.sessions (Map session id -> user id); ctx.sessionUser(cookies).
+// Data: ctx.store.users, ctx.store.sessions (Map session id -> user id), ctx.store.workspaces; ctx.sessionUser().
 
-import { badRequest, conflict, crashIfNamed, created, ok, unauthorized, validator } from "../http.mjs";
+import { badRequest, conflict, crashIfNamed, created, noContent, ok, unauthorized, validator } from "../http.mjs";
 import { hashPassword, verifyPassword } from "../passwords.mjs";
+import { ACCOUNTS, emptyWorkspace } from "../seed.mjs";
 
 /** Messages the client shows on the fields (src/pages/auth/schemas.ts uses the same wording). */
 export const AUTH_MESSAGES = Object.freeze({
@@ -26,6 +33,7 @@ export const AUTH_MESSAGES = Object.freeze({
   terms: "Agree to the Terms and Privacy Policy to continue.",
   emailTaken: "An account with this email already exists",
   badCredentials: "Email or password is incorrect",
+  signInFirst: "Sign in to continue",
 });
 
 export const PASSWORD_MIN = 8;
@@ -90,6 +98,7 @@ export function register(router, ctx) {
     /** @type {import("../seed.mjs").User} */
     const user = { id: ctx.newId(), name, email, company, passwordHash: hashPassword(password), createdAt: ctx.now() };
     ctx.store.users.push(user);
+    ctx.store.workspaces.set(user.id, emptyWorkspace(user));
     return created(publicUser(user), startSession(user.id, false));
   });
 
@@ -114,4 +123,31 @@ export function register(router, ctx) {
     },
     { idempotency: false },
   );
+
+  // "Use the demo account": a session for Alex, so people can try the app without the password ever being shown.
+  router.post(
+    "/api/login/demo",
+    () => {
+      const user = ctx.store.users.find((u) => u.id === ACCOUNTS.alex.id);
+      if (!user) throw new Error("the demo account is missing from the seed");
+      return ok(publicUser(user), startSession(user.id, false));
+    },
+    { idempotency: false },
+  );
+
+  router.post(
+    "/api/logout",
+    ({ cookies }) => {
+      const sid = cookies.fernway_session;
+      if (sid) ctx.store.sessions.delete(sid);
+      return { ...noContent(), headers: { "set-cookie": ctx.clearSessionCookie() } };
+    },
+    { idempotency: false },
+  );
+
+  router.get("/api/me", ({ cookies }) => {
+    const user = ctx.sessionUser(cookies);
+    if (!user) return unauthorized(AUTH_MESSAGES.signInFirst);
+    return ok({ ...publicUser(user), workspace: ctx.workspaceOf(user.id)?.name ?? "" });
+  });
 }

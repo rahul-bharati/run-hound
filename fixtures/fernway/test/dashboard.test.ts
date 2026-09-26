@@ -2,20 +2,27 @@
  * The /app Dashboard contract (CONTRACT.md "/app Dashboard", "API", W03, W05): the workspace API (projects, members,
  * tasks), the app shell, stat cards, the chart with its text summary, the projects table with status tabs and row
  * actions, the Quick add task form and the New project sheet, each in clean mode and with its planted bug.
+ *
+ * /app and its API need a session (V2): every API call and page here is signed in as Alex unless it says otherwise.
+ * Accounts, isolation, 401s and V01-V05 are covered in accounts.test.ts.
  */
 import type { Page, Request, Route } from "playwright";
 import { afterAll, describe, expect, it } from "vitest";
 import {
-  api,
+  api as rawApi,
   axeViolations,
   closeBrowser,
   horizontalOverflow,
   openPage,
   STACK_RE,
   useFernway,
+  type ApiInit,
   type Fernway,
   type OpenedPage,
 } from "./support.js";
+
+/** The API as Alex (pass `as` to call it as someone else, or "nobody"). */
+const api = (fw: Fernway, path: string, init: ApiInit = {}) => rawApi(fw, path, { as: "alex", ...init });
 
 afterAll(async () => {
   await closeBrowser();
@@ -80,7 +87,7 @@ function recordRequests(page: Page, path: string, method: string): Request[] {
 }
 
 async function openDashboard(fw: Fernway, options: Parameters<typeof openPage>[2] = {}): Promise<OpenedPage> {
-  const opened = await openPage(fw, "/app", options);
+  const opened = await openPage(fw, "/app", { as: "alex", ...options });
   await opened.page.getByRole("heading", { level: 1, name: "Dashboard" }).waitFor();
   await projectsTable(opened.page).getByRole("row").nth(1).waitFor();
   return opened;
@@ -323,7 +330,9 @@ describe("/app dashboard in a browser (clean mode)", () => {
       expect(events.failedRequests).toEqual([]);
       expect(events.badResponses).toEqual([]);
       const paths = events.requests.map((r) => new URL(r.url()).pathname);
-      expect(paths).toEqual(expect.arrayContaining(["/api/projects", "/api/members", "/api/tasks"]));
+      expect(paths).toEqual(expect.arrayContaining(["/api/me", "/api/projects", "/api/members", "/api/tasks"]));
+      // The greeting names the signed-in user.
+      expect(await page.locator("main").textContent()).toContain(", Alex. Here's where your studio stands today.");
     } finally {
       await close();
     }
@@ -447,7 +456,7 @@ describe("/app dashboard in a browser (clean mode)", () => {
       expect(await page.getByRole("button", { name: "Search" }).count()).toBe(1);
       const nav = page.getByRole("navigation", { name: "App" }).first();
       expect(await nav.getByRole("link").allInnerTexts()).toEqual(["Dashboard", "Projects", "Settings"]);
-      expect(await page.getByText("Signed in as Alex Rivera · Demo workspace").count()).toBeGreaterThan(0);
+      expect(await page.getByText("Signed in as Alex Rivera · Rivera Studio").count()).toBeGreaterThan(0);
 
       // The palette can open the New project sheet.
       await page.keyboard.press("Control+k");

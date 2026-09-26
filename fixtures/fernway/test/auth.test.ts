@@ -6,7 +6,7 @@ import type { Locator, Page, Request } from "playwright";
 import { afterAll, describe, expect, it } from "vitest";
 import { createApp } from "../server/app.mjs";
 import { verifyPassword } from "../server/passwords.mjs";
-import { api, axeViolations, closeBrowser, DEMO_ACCOUNT, horizontalOverflow, openPage, STACK_RE, useFernway, type Fernway } from "./support.js";
+import { ACCOUNTS, api, axeViolations, closeBrowser, DEMO_ACCOUNT, horizontalOverflow, openPage, STACK_RE, useFernway, type Fernway } from "./support.js";
 
 afterAll(closeBrowser);
 
@@ -420,10 +420,11 @@ describe("/signup (clean mode)", () => {
       await toast(page, "Welcome to Fernway, Maya!").waitFor();
       await page.getByRole("status").filter({ hasText: "Account created" }).waitFor();
 
+      // Signing up signed Maya in, with a workspace of her own named after her company.
       await page.goto(`${ref.fw.url}/app`, { waitUntil: "networkidle" });
-      await page.getByText("Signed in as Maya Patel · Demo workspace").first().waitFor();
+      await page.getByText("Signed in as Maya Patel · Juniper Studio").first().waitFor();
       await page.reload({ waitUntil: "networkidle" });
-      await page.getByText("Signed in as Maya Patel · Demo workspace").first().waitFor();
+      await page.getByText("Signed in as Maya Patel · Juniper Studio").first().waitFor();
 
       expect((await api(ref.fw, "/api/login", { body: { email: NEW_USER.email, password: NEW_USER.password } })).status).toBe(200);
       expect(events.consoleErrors).toEqual([]);
@@ -619,8 +620,10 @@ describe("/signup with W07 (focus ring removed on the inputs)", () => {
       expect(terms.role).toBe("checkbox");
       expect(terms.shadow).not.toBe("none");
 
-      // Everything else still works: the form submits.
+      // Everything else still works: the form submits, and the typed password stays out of the HTML.
       await fillSignup(page);
+      expect((await page.getByLabel("Password", { exact: true }).getAttribute("value")) ?? "").toBe("");
+      expect(await page.content()).not.toContain("Tr0ub4dor"); // NEW_USER.password, before the "&" HTML escapes
       await signupButton(page).click();
       await page.waitForURL(`${ref.fw.url}/onboarding`);
 
@@ -722,7 +725,7 @@ describe("/login (clean mode)", () => {
       await page.waitForURL(`${ref.fw.url}/app`);
       await page.getByRole("heading", { level: 1, name: "Dashboard" }).waitFor();
       await toast(page, "Welcome back, Alex!").waitFor();
-      await page.getByText("Signed in as Alex Rivera · Demo workspace").first().waitFor();
+      await page.getByText("Signed in as Alex Rivera · Rivera Studio").first().waitFor();
       const cookie = (await page.context().cookies()).find((c) => c.name === "fernway_session");
       expect(cookie?.httpOnly).toBe(true);
       expect(cookie?.expires).toBeGreaterThan(Date.now() / 1000 + 29 * 86400);
@@ -739,13 +742,55 @@ describe("/login (clean mode)", () => {
       ["/app/settings", "/app/settings"],
       ["//evil.test/steal", "/app"],
       ["https://evil.test/", "/app"],
+      // Dot segments and backslashes that URL parsing turns into "//evil.test" (protocol-relative: another origin).
+      ["/.//evil.test/steal", "/app"],
+      ["/app/..//evil.test", "/app"],
+      ["/./\\evil.test", "/app"],
     ] as const) {
-      const { page, close } = await openLogin(ref.fw, `/login?next=${encodeURIComponent(next)}`);
+      const { page, events, close } = await openLogin(ref.fw, `/login?next=${encodeURIComponent(next)}`);
       try {
         await page.getByLabel("Email", { exact: true }).fill(DEMO_ACCOUNT.email);
         await page.getByLabel("Password", { exact: true }).fill(DEMO_ACCOUNT.password);
         await signInButton(page).click();
         await page.waitForURL(`${ref.fw.url}${landing}`);
+        await toast(page, "Welcome back, Alex!").waitFor();
+        expect(await toast(page, "Couldn't sign you in").count(), next).toBe(0);
+        expect(events.pageErrors, next).toEqual([]);
+      } finally {
+        await close();
+      }
+    }
+  });
+
+  it("a typed password never reaches the page's HTML (the value attribute stays empty), on /login and /signup", async () => {
+    for (const [path, password] of [
+      ["/login", ACCOUNTS.alex.password],
+      ["/signup", ACCOUNTS.sam.password],
+    ] as const) {
+      const { page, close } = await openPage(ref.fw, path, { reducedMotion: "reduce" });
+      try {
+        const field = page.getByLabel("Password", { exact: true });
+        await field.fill(password);
+        expect(await field.inputValue(), path).toBe(password);
+        expect(await field.getAttribute("value") ?? "", path).toBe("");
+        // Show password (type="text") must not write it out either.
+        await page.getByRole("button", { name: "Show password" }).click();
+        expect(await field.inputValue(), path).toBe(password);
+        expect(await page.content(), path).not.toContain(password);
+      } finally {
+        await close();
+      }
+    }
+  });
+
+  it("Use the demo account never leaves the origin either: a ?next= that resolves to //host opens /app", async () => {
+    for (const next of ["/.//evil.test/steal", "/app/..//evil.test"]) {
+      const { page, close } = await openLogin(ref.fw, `/login?next=${encodeURIComponent(next)}`);
+      try {
+        await page.getByRole("button", { name: "Use the demo account" }).click();
+        await page.waitForURL(`${ref.fw.url}/app`);
+        await toast(page, "Welcome, Alex!").waitFor();
+        expect(await page.getByRole("alert").filter({ hasText: "Couldn't open the demo account" }).count(), next).toBe(0);
       } finally {
         await close();
       }
@@ -793,10 +838,13 @@ describe("/login (clean mode)", () => {
     }
   });
 
-  it("keyboard only: type, Tab to Remember me, Space, Enter signs in; the page never shows the demo password", async () => {
+  it("keyboard only: type, Tab to Remember me, Space, Enter signs in; the page never shows either password", async () => {
     const { page, close } = await openLogin(ref.fw);
     try {
-      expect(await page.locator("body").textContent()).not.toContain(DEMO_ACCOUNT.password);
+      for (const who of ["alex", "sam"] as const) {
+        expect(await page.content()).not.toContain(ACCOUNTS[who].password);
+        expect(await page.locator("body").textContent()).not.toContain(ACCOUNTS[who].email);
+      }
       await page.getByLabel("Email", { exact: true }).focus();
       await page.keyboard.type(DEMO_ACCOUNT.email);
       await page.getByLabel("Password", { exact: true }).focus();
@@ -816,12 +864,48 @@ describe("/login (clean mode)", () => {
     }
   });
 
-  it("the demo workspace link opens /app without signing in", async () => {
+  it("Use the demo account signs in as Alex on the server (no password on the page or in the request) and opens /app", async () => {
+    const { page, events, close } = await openLogin(ref.fw);
+    try {
+      const button = page.getByRole("button", { name: "Use the demo account" });
+      expect(await button.getAttribute("type")).toBe("button");
+      // It is not part of the sign-in form (Run Hound signs in with the form).
+      expect(await page.locator("form").getByRole("button", { name: "Use the demo account" }).count()).toBe(0);
+      const request = page.waitForRequest((r) => r.url().endsWith("/api/login/demo") && r.method() === "POST");
+      await button.click();
+      const sent = await request;
+      expect(sent.postData() ?? "").not.toContain(DEMO_ACCOUNT.password);
+      await page.waitForURL(`${ref.fw.url}/app`);
+      await page.getByRole("heading", { level: 1, name: "Dashboard" }).waitFor();
+      await page.getByText("Signed in as Alex Rivera · Rivera Studio").first().waitFor();
+      await toast(page, "Welcome, Alex!").waitFor();
+      expect(events.consoleErrors).toEqual([]);
+      expect(events.badResponses).toEqual([]);
+    } finally {
+      await close();
+    }
+  });
+
+  it("Use the demo account honours ?next=", async () => {
+    const { page, close } = await openLogin(ref.fw, "/login?next=/app/settings");
+    try {
+      await page.getByRole("button", { name: "Use the demo account" }).click();
+      await page.waitForURL(`${ref.fw.url}/app/settings`);
+      await page.getByRole("heading", { level: 1, name: "Settings" }).waitFor();
+    } finally {
+      await close();
+    }
+  });
+
+  it("a failed demo sign-in is announced inline and by toast", async () => {
     const { page, close } = await openLogin(ref.fw);
     try {
-      await page.getByRole("link", { name: "Explore the demo workspace" }).click();
-      await page.getByRole("heading", { level: 1, name: "Dashboard" }).waitFor();
-      await page.getByText("Signed in as Alex Rivera · Demo workspace").first().waitFor();
+      await page.route("**/api/login/demo", (route) => route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"Something went wrong"}' }));
+      await page.getByRole("button", { name: "Use the demo account" }).click();
+      await page.getByRole("alert").filter({ hasText: "Couldn't open the demo account" }).waitFor();
+      await toast(page, "Couldn't open the demo account").waitFor();
+      expect(await page.getByRole("button", { name: "Use the demo account" }).isEnabled()).toBe(true);
+      expect(page.url()).toBe(`${ref.fw.url}/login`);
     } finally {
       await close();
     }
@@ -933,7 +1017,7 @@ describe("/login with W10 (errors in red text only)", () => {
 describe("the Page not found view", () => {
   const ref = useFernway("none");
 
-  it("answers 404 with the Page not found view, names the path and links home and to the dashboard", async () => {
+  it("answers 404 with the Page not found view, names the path and links home and to the dashboard (sign-in first)", async () => {
     const { page, events, close } = await openPage(ref.fw, "/projects/archive", { reducedMotion: "reduce" });
     try {
       await page.getByRole("heading", { level: 1, name: "Page not found" }).waitFor();
@@ -946,7 +1030,9 @@ describe("the Page not found view", () => {
       await page.waitForURL(`${ref.fw.url}/`);
       await page.goBack();
       await page.getByRole("link", { name: "Open the dashboard" }).click();
-      await page.getByRole("heading", { level: 1, name: "Dashboard" }).waitFor();
+      // Signed out, the dashboard sends you to sign in first.
+      await page.waitForURL(`${ref.fw.url}/login?next=/app`);
+      await page.getByRole("heading", { level: 1, name: "Welcome back" }).waitFor();
     } finally {
       await close();
     }

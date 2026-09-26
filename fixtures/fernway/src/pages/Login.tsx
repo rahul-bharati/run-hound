@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowRight, KeyRound, LayoutDashboard } from "lucide-react";
-import { useId } from "react";
+import { useId, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -10,7 +10,7 @@ import { Form, FormErrorSummary, FormField, FormItem, FormLabel, FormMessage } f
 import { toast } from "@/components/ui/sonner";
 import { apiPost } from "@/lib/api";
 import { useBug } from "@/lib/bugs";
-import { setSessionUser } from "@/lib/session";
+import { refreshSession } from "@/lib/session";
 import { useDocumentTitle } from "@/lib/utils";
 import { LoginArt } from "./auth/art";
 import { AuthLayout } from "./auth/AuthLayout";
@@ -20,6 +20,7 @@ import { firstName, loginSchema, safeNext, type AccountUser, type LoginValues } 
 
 const FIELDS = ["email", "password"] as const;
 const FAILED = "Couldn't sign you in";
+const DEMO_FAILED = "Couldn't open the demo account";
 
 const linkClasses =
   "rounded-md outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
@@ -29,6 +30,9 @@ const linkClasses =
  * above the form, without a toast. W10 shows the sign-in errors (field validation and the 401) as red text only:
  * nothing marked, linked or announced. Server failures are unchanged under W10 (alert + toast), like Kennel's A05,
  * so only error-announcement catches it.
+ *
+ * "Use the demo account" (outside the form) signs in as the demo user on the server (POST /api/login/demo), so people
+ * can try the app without a password ever being shown on the page.
  */
 export default function Login() {
   useDocumentTitle("Sign in");
@@ -45,10 +49,14 @@ export default function Login() {
   const failure = form.formState.errors.root?.server;
   const refused = failure?.type === "401";
 
+  const [demoPending, setDemoPending] = useState(false);
+  const [demoError, setDemoError] = useState("");
+
   async function onSubmit(values: LoginValues) {
+    setDemoError("");
     try {
       const user = await apiPost<AccountUser>("/api/login", values);
-      setSessionUser({ name: user.name, email: user.email });
+      await refreshSession();
       toast.success(`Welcome back, ${firstName(user.name)}!`);
       navigate(safeNext(params.get("next")));
     } catch (err) {
@@ -57,6 +65,24 @@ export default function Login() {
       form.setError("root.server", { type: String(error.status), message: error.message });
       // Refused credentials are the form doing its job: the alert says so, a toast would only repeat it.
       if (error.status !== 401) toast.error(FAILED, { description: error.message });
+    }
+  }
+
+  async function signInWithDemo() {
+    if (demoPending) return;
+    setDemoPending(true);
+    setDemoError("");
+    form.clearErrors("root.server");
+    try {
+      const user = await apiPost<AccountUser>("/api/login/demo");
+      await refreshSession();
+      toast.success(`Welcome, ${firstName(user.name)}!`, { description: "You're in the demo account." });
+      navigate(safeNext(params.get("next")));
+    } catch (err) {
+      const error = toApiError(err);
+      setDemoError(error.message);
+      toast.error(DEMO_FAILED, { description: error.message });
+      setDemoPending(false);
     }
   }
 
@@ -145,7 +171,7 @@ export default function Login() {
               <KeyRound aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-info" />
               <div className="grid gap-0.5">
                 <p className="font-semibold">Password resets aren't available in this demo.</p>
-                <p className="text-muted-foreground">Create a new account, or explore the demo workspace without signing in.</p>
+                <p className="text-muted-foreground">Create a new account, or use the demo account below.</p>
               </div>
             </div>
           )}
@@ -156,13 +182,16 @@ export default function Login() {
         <Link to="/signup" className={`${linkClasses} inline-flex min-h-6 items-center gap-1 text-muted-foreground hover:text-foreground`}>
           New to Fernway? <span className="font-semibold text-primary underline-offset-4 hover:underline">Create an account</span>
         </Link>
-        <Link
-          to="/app"
-          className={`${linkClasses} inline-flex min-h-6 items-center gap-1.5 font-medium text-muted-foreground hover:text-foreground`}
-        >
-          <LayoutDashboard aria-hidden="true" className="size-4" />
-          Explore the demo workspace
-        </Link>
+        <Button type="button" variant="ghost" className="gap-1.5 font-medium text-muted-foreground" loading={demoPending} onClick={() => void signInWithDemo()}>
+          {!demoPending && <LayoutDashboard aria-hidden="true" className="size-4" />}
+          Use the demo account
+        </Button>
+        {demoError && (
+          <Alert variant="destructive">
+            <AlertTitle>{DEMO_FAILED}</AlertTitle>
+            <AlertDescription>{demoError}</AlertDescription>
+          </Alert>
+        )}
       </div>
     </AuthLayout>
   );

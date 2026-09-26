@@ -102,7 +102,7 @@ export function QuickAddCard({ projects, tasks, onCreated, onToggle, className }
                 <FormItem>
                   <FormLabel>Task</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. Send the Northwind moodboard" autoComplete="off" {...field} />
+                    <Input placeholder="e.g. Send the client the moodboard" autoComplete="off" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

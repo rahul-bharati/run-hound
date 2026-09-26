@@ -12,10 +12,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Textarea } from "@/components/ui/textarea";
-import { apiGet, apiPut, isApiError, type Profile } from "@/lib/api";
+import { apiGet, apiPut, isApiError, profilePath, type Profile } from "@/lib/api";
 import { useBug } from "@/lib/bugs";
-import { images } from "@/lib/images";
-import { cn } from "@/lib/utils";
+import { images, type ImageAsset } from "@/lib/images";
+import { useSessionUser } from "@/lib/session";
+import { cn, initials } from "@/lib/utils";
 import { LIMITS, TIME_ZONE_IDS, TIME_ZONE_OPTIONS } from "../constants";
 import { useLoad } from "../data";
 
@@ -27,8 +28,6 @@ const schema = z.object({
 });
 type Values = z.input<typeof schema>;
 const FIELDS = ["displayName", "email", "bio", "timeZone"] as const;
-
-const loadProfile = (signal: AbortSignal) => apiGet<Profile>("/api/profile", { signal });
 
 const toValues = (p: Profile): Values => ({
   displayName: p.displayName,
@@ -50,9 +49,16 @@ const place = (timeZone: string) => {
   return label.match(/\(([^)]+)\)/)?.[1] ?? label;
 };
 
-/** The Profile tab: loads GET /api/profile, then shows the Profile form next to a live preview. */
+/** The profile's photo, or null when it has none (the page shows initials). */
+const photoOf = (profile: Profile): ImageAsset | null => (typeof profile.avatar === "number" ? (images.avatars[profile.avatar] ?? null) : null);
+
+/**
+ * The Profile tab: loads the signed-in user's profile (GET /api/users/<me.id>/profile, the id from GET /api/me), then
+ * shows the Profile form next to a live preview.
+ */
 export function ProfileTab() {
-  const { state, reload, setData } = useLoad(loadProfile);
+  const user = useSessionUser();
+  const { state, reload, setData } = useLoad((signal) => apiGet<Profile>(profilePath(user.id), { signal }));
   if (state.status === "loading") {
     return (
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
@@ -76,21 +82,22 @@ export function ProfileTab() {
       </Alert>
     );
   }
-  return <ProfileForm profile={state.data} onSaved={(p) => setData(() => p)} />;
+  return <ProfileForm userId={user.id} profile={state.data} onSaved={(p) => setData(() => p)} />;
 }
 
 /**
  * The Profile form (CONTRACT.md): Display name, Email, Bio (160 characters, live counter), Time zone; "Save changes"
- * sends PUT /api/profile. W04: Bio is dropped from the request, yet the form still shows it as saved.
+ * sends PUT /api/users/<id>/profile with those 4 fields only. W04: Bio is dropped from the request, yet the form still
+ * shows it as saved.
  */
-function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: (p: Profile) => void }) {
+function ProfileForm({ userId, profile, onSaved }: { userId: string; profile: Profile; onSaved: (p: Profile) => void }) {
   const w04 = useBug("W04");
   const titleId = useId();
   const inFlight = useRef(false);
   const [saveError, setSaveError] = useState("");
   const [status, setStatus] = useState("");
   const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: toValues(profile) });
-  const photo = images.avatars[profile.avatar] ?? images.avatars[0]!;
+  const photo = photoOf(profile);
 
   const onSubmit = async (values: Values) => {
     if (inFlight.current) return;
@@ -101,7 +108,7 @@ function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: (p: Prof
     // W04: the bio never reaches the server.
     if (w04) delete body.bio;
     try {
-      const saved = await apiPut<Profile>("/api/profile", body);
+      const saved = await apiPut<Profile>(profilePath(userId), body);
       onSaved(saved);
       form.reset(w04 ? { ...toValues(saved), bio: values.bio } : toValues(saved));
       setStatus("Profile saved. Your changes are live across the workspace.");
@@ -137,16 +144,22 @@ function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: (p: Prof
           <form aria-labelledby={titleId} noValidate onSubmit={form.handleSubmit(onSubmit)} className="grid grid-cols-1 gap-6">
             <CardContent className="grid grid-cols-1 gap-6">
               <div className="flex flex-wrap items-center gap-4 rounded-2xl border bg-muted/40 p-4">
-                <img
-                  src={photo.src}
-                  alt={photo.alt}
-                  width={photo.width}
-                  height={photo.height}
-                  className="size-16 rounded-full object-cover shadow-soft ring-4 ring-card"
-                />
+                {photo ? (
+                  <img
+                    src={photo.src}
+                    alt={photo.alt}
+                    width={photo.width}
+                    height={photo.height}
+                    className="size-16 rounded-full object-cover shadow-soft ring-4 ring-card"
+                  />
+                ) : (
+                  <Initials name={profile.displayName} className="size-16 text-lg" />
+                )}
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold">Profile photo</p>
-                  <p className="text-sm text-muted-foreground">Shown on projects, comments and the team list.</p>
+                  <p className="text-sm text-muted-foreground">
+                    {photo ? "Shown on projects, comments and the team list." : "No photo yet: your initials are shown on projects, comments and the team list."}
+                  </p>
                 </div>
               </div>
 
@@ -260,8 +273,17 @@ function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: (p: Prof
   );
 }
 
+/** Initials in a circle, for a profile without a photo (decorative: the name is shown next to it). */
+function Initials({ name, className }: { name: string; className?: string }) {
+  return (
+    <span aria-hidden="true" className={cn("grid shrink-0 place-items-center rounded-full bg-accent font-semibold text-accent-foreground shadow-soft ring-4 ring-card", className)}>
+      {initials(name.trim() || "?")}
+    </span>
+  );
+}
+
 /** A live preview of the profile card (updates as you type; reads the form, never saves). */
-function ProfilePreview({ control, photo }: { control: Control<Values>; photo: (typeof images.avatars)[number] }) {
+function ProfilePreview({ control, photo }: { control: Control<Values>; photo: ImageAsset | null }) {
   const [displayName, email, bio, timeZone] = useWatch({ control, name: ["displayName", "email", "bio", "timeZone"] });
   return (
     <Card className="gap-0 overflow-hidden py-0 lg:sticky lg:top-24">
@@ -269,7 +291,11 @@ function ProfilePreview({ control, photo }: { control: Control<Values>; photo: (
       <CardContent className="-mt-10 grid grid-cols-1 gap-4 px-6 pb-6">
         {/* relative: the banner above has opacity (its own stacking context), which would otherwise paint over the
             photo's top half. */}
-        <img src={photo.src} alt="" width={photo.width} height={photo.height} className="relative size-20 rounded-full object-cover shadow-soft ring-4 ring-card" />
+        {photo ? (
+          <img src={photo.src} alt="" width={photo.width} height={photo.height} className="relative size-20 rounded-full object-cover shadow-soft ring-4 ring-card" />
+        ) : (
+          <Initials name={displayName} className="relative size-20 text-xl" />
+        )}
         <div className="min-w-0">
           <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Preview</h2>
           <p className="mt-1 truncate text-lg font-semibold">{displayName.trim() || "Your name"}</p>

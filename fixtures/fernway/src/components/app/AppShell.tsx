@@ -39,6 +39,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/sonner";
+import { isApiError } from "@/lib/api";
 import { useBug } from "@/lib/bugs";
 import { images } from "@/lib/images";
 import { sessionLabel, signOut, useSessionUser } from "@/lib/session";
@@ -115,12 +116,11 @@ function NavLinks({ collapsed = false, onNavigate }: { collapsed?: boolean; onNa
   );
 }
 
+/** The signed-in user's initials (decorative: the name is shown next to it or in the menu). */
 function UserAvatar({ className }: { className?: string }) {
   const user = useSessionUser();
-  const avatar = images.avatars[0]!;
   return (
     <Avatar className={className}>
-      {user.demo && <AvatarImage src={avatar.src} alt="" width={avatar.width} height={avatar.height} />}
       <AvatarFallback aria-hidden="true">{initials(user.name)}</AvatarFallback>
     </Avatar>
   );
@@ -169,10 +169,14 @@ export function AppShell({ children, mainClassName, commands = [] }: { children:
     fn();
   };
 
-  const handleSignOut = () => {
-    signOut();
-    toast.success("You're signed out", { description: "The demo workspace is still here when you come back." });
-    navigate("/login");
+  // POST /api/logout; once the client knows it is signed out, <RequireSession> sends the page to /login?next=<path>.
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      toast.success("You're signed out", { description: "Sign in again any time to pick up where you left off." });
+    } catch (err) {
+      toast.error("Couldn't sign you out", { description: isApiError(err) ? err.message : "Please try again." });
+    }
   };
 
   const iconButton = "rounded-full";
@@ -209,7 +213,7 @@ export function AppShell({ children, mainClassName, commands = [] }: { children:
         <div className={cn("flex items-center gap-3 border-t border-sidebar-border p-3", collapsed && "flex-col")}>
           <UserAvatar />
           <p className={cn("min-w-0 flex-1 text-xs leading-5 text-muted-foreground", collapsed && "sr-only")}>
-            {/* Reads "Signed in as Alex Rivera · Demo workspace"; shown as name over workspace. */}
+            {/* Reads "Signed in as Alex Rivera · Rivera Studio" (GET /api/me); shown as name over workspace. */}
             <span className="sr-only">Signed in as </span>
             <span className="block truncate text-sm font-semibold text-foreground">{user.name}</span>
             <span className="sr-only"> · </span>
@@ -332,7 +336,7 @@ export function AppShell({ children, mainClassName, commands = [] }: { children:
                     Settings
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={handleSignOut}>
+                  <DropdownMenuItem onSelect={() => void handleSignOut()}>
                     <LogOut aria-hidden="true" />
                     Sign out
                   </DropdownMenuItem>
@@ -381,7 +385,7 @@ export function AppShell({ children, mainClassName, commands = [] }: { children:
               {resolvedTheme === "dark" ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
               {resolvedTheme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
             </CommandItem>
-            <CommandItem value="Sign out" onSelect={() => run(handleSignOut)}>
+            <CommandItem value="Sign out" onSelect={() => run(() => void handleSignOut())}>
               <LogOut aria-hidden="true" />
               Sign out
             </CommandItem>

@@ -13,8 +13,9 @@ import { createApp } from "../server/app.mjs";
 import { ALL_BUGS as SERVER_BUGS, BugConfigError, parseBugs } from "../server/bugs.mjs";
 import { badRequest, crashIfNamed, created, createRouter, isCrash, ok, validator } from "../server/http.mjs";
 import { verifyPassword } from "../server/passwords.mjs";
-import { createSeed, DEMO_ACCOUNT as SEED_ACCOUNT } from "../server/seed.mjs";
+import { ACCOUNTS as SEED_ACCOUNTS, createSeed, DEMO_ACCOUNT as SEED_ACCOUNT, emptyWorkspace } from "../server/seed.mjs";
 import {
+  ACCOUNTS,
   ALL_BUGS,
   api,
   axeViolations,
@@ -23,6 +24,7 @@ import {
   DEMO_ACCOUNT,
   FERNWAY_ROOT,
   freePort,
+  isSignedInRoute,
   openPage,
   ROUTES,
   STACK_RE,
@@ -92,7 +94,7 @@ afterAll(async () => {
 // ---- FERNWAY_BUGS ------------------------------------------------------------------------------
 
 describe("FERNWAY_BUGS parsing", () => {
-  it("knows W01..W10, the same list the tests use", () => {
+  it("knows W01..W10 and V01..V05, the same list the tests use", () => {
     expect([...SERVER_BUGS]).toEqual([...ALL_BUGS]);
   });
 
@@ -101,8 +103,8 @@ describe("FERNWAY_BUGS parsing", () => {
     expect([...parseBugs("none")]).toEqual([]);
     expect([...parseBugs(" NONE ")]).toEqual([]);
     expect([...parseBugs("")]).toEqual([]);
-    expect([...parseBugs("all")].sort()).toEqual([...ALL_BUGS]);
-    expect([...parseBugs("ALL")].sort()).toEqual([...ALL_BUGS]);
+    expect([...parseBugs("all")].sort()).toEqual([...ALL_BUGS].sort());
+    expect([...parseBugs("ALL")].sort()).toEqual([...ALL_BUGS].sort());
   });
 
   it("a comma list is case-insensitive and ignores whitespace and empty entries", () => {
@@ -112,7 +114,8 @@ describe("FERNWAY_BUGS parsing", () => {
 
   it("an unknown id throws, naming the known ids", () => {
     expect(() => parseBugs("W01,W99")).toThrow(BugConfigError);
-    expect(() => parseBugs("W99")).toThrow(/W99.*W01, W02, W03, W04, W05, W06, W07, W08, W09, W10/);
+    expect(() => parseBugs("W99")).toThrow(/W99.*W01, W02, W03, W04, W05, W06, W07, W08, W09, W10, V01, V02, V03, V04, V05/);
+    expect([...parseBugs("v01, w03,V05")].sort()).toEqual(["V01", "V05", "W03"]);
   });
 
   it("the server exits 1 on an unknown id and names the known ids", async () => {
@@ -120,7 +123,7 @@ describe("FERNWAY_BUGS parsing", () => {
     const { code, stderr, stdout } = await runServer({ PORT: String(port), FERNWAY_BUGS: "W01,x42" });
     expect(code).toBe(1);
     expect(stderr).toContain("X42");
-    expect(stderr).toContain("W01, W02, W03, W04, W05, W06, W07, W08, W09, W10");
+    expect(stderr).toContain("W01, W02, W03, W04, W05, W06, W07, W08, W09, W10, V01, V02, V03, V04, V05");
     expect(stdout).not.toContain("fernway listening");
   });
 
@@ -340,8 +343,8 @@ describe("W06: a Stripe-style live secret key in the page's JavaScript", () => {
 describe("FERNWAY_BUGS=all", () => {
   const ref = useFernway("all");
 
-  it("GET /api/__config lists all ten ids, sorted", async () => {
-    expect((await api(ref.fw, "/api/__config")).body).toEqual({ bugs: [...ALL_BUGS] });
+  it("GET /api/__config lists all fifteen ids, sorted", async () => {
+    expect((await api(ref.fw, "/api/__config")).body).toEqual({ bugs: [...ALL_BUGS].sort() });
   });
 });
 
@@ -385,10 +388,12 @@ describe("API pipeline", () => {
             if (!v.ok) return badRequest(v.errors);
             return created({ email, size });
           });
-          router.get("/api/store", () => ok({ projects: ctx.store.projects.length, members: ctx.store.members.length }));
+          const alex = () => ctx.workspaceOf("alex-rivera")!;
+          router.get("/api/store", () => ok({ projects: alex().projects.length, members: alex().members.length, users: ctx.store.users.length }));
           router.post("/api/store/mutate", () => {
-            ctx.store.projects.push({ ...ctx.store.projects[0]!, id: "extra" });
-            return created({ projects: ctx.store.projects.length });
+            alex().projects.push({ ...alex().projects[0]!, id: "extra" });
+            ctx.store.users.push({ ...ctx.store.users[0]!, id: "extra-user", email: "extra@fernway.test" });
+            return created({ projects: alex().projects.length });
           });
         },
       },
@@ -478,9 +483,9 @@ describe("API pipeline", () => {
     expect((await fetch(`${base}/api/store`, { method: "HEAD" })).status).toBe(200);
   });
 
-  it("the same Idempotency-Key replays the first response (no second record)", async () => {
+  it("the same Idempotency-Key with the same body replays the first response (no second record)", async () => {
     const first = await post("/api/echo", { v: 1 }, { "idempotency-key": "key-1" });
-    const second = await post("/api/echo", { v: 2 }, { "idempotency-key": "key-1" });
+    const second = await post("/api/echo", { v: 1 }, { "idempotency-key": "key-1" });
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);
     const a = await first.json();
@@ -490,10 +495,60 @@ describe("API pipeline", () => {
     expect(a.idempotencyKey).toBe("key-1");
     expect(second.headers.get("idempotent-replayed")).toBe("true");
     expect(first.headers.get("idempotent-replayed")).toBeNull();
+    // The same key with another body is another request (a replay with extra fields is processed, not swallowed).
+    const changed = await post("/api/echo", { v: 1, role: "admin" }, { "idempotency-key": "key-1" });
+    expect((await changed.json()).n).toBe(2);
+    expect(changed.headers.get("idempotent-replayed")).toBeNull();
     // A new key is a new record.
-    expect((await (await post("/api/echo", { v: 3 }, { "idempotency-key": "key-2" })).json()).n).toBe(2);
+    expect((await (await post("/api/echo", { v: 3 }, { "idempotency-key": "key-2" })).json()).n).toBe(3);
     // No key: every request is new.
-    expect((await (await post("/api/echo", { v: 4 })).json()).n).toBe(3);
+    expect((await (await post("/api/echo", { v: 4 })).json()).n).toBe(4);
+  });
+
+  it("a key never replays another user's answer", async () => {
+    app.ctx.store.sessions.set("sid-alex", "alex-rivera");
+    app.ctx.store.sessions.set("sid-sam", "sam-okafor");
+    const asAlex = await post("/api/echo", { v: 1 }, { "idempotency-key": "shared-key", cookie: "fernway_session=sid-alex" });
+    const asSam = await post("/api/echo", { v: 1 }, { "idempotency-key": "shared-key", cookie: "fernway_session=sid-sam" });
+    const again = await post("/api/echo", { v: 1 }, { "idempotency-key": "shared-key", cookie: "fernway_session=sid-alex" });
+    expect((await asAlex.json()).n).toBe(1);
+    expect((await asSam.json()).n).toBe(2);
+    expect(asSam.headers.get("idempotent-replayed")).toBeNull();
+    expect((await again.json()).n).toBe(1);
+    expect(again.headers.get("idempotent-replayed")).toBe("true");
+  });
+
+  it("a key is scoped to the session: another visitor, or another session of the same user, never gets the first answer", async () => {
+    // Two signed-out visitors (their cookies sign nobody in): a replay would hand one visitor's answer, and any
+    // session cookie in it, to the other.
+    const one = await post("/api/echo", { v: 1 }, { "idempotency-key": "visitor-key", cookie: "fernway_session=visitor-one" });
+    const two = await post("/api/echo", { v: 1 }, { "idempotency-key": "visitor-key", cookie: "fernway_session=visitor-two" });
+    expect((await one.json()).n).toBe(1);
+    expect((await two.json()).n).toBe(2);
+    expect(two.headers.get("idempotent-replayed")).toBeNull();
+    // The same visitor again: a replay.
+    const oneAgain = await post("/api/echo", { v: 1 }, { "idempotency-key": "visitor-key", cookie: "fernway_session=visitor-one" });
+    expect((await oneAgain.json()).n).toBe(1);
+    expect(oneAgain.headers.get("idempotent-replayed")).toBe("true");
+
+    // Alex signed in twice (two browsers): each session is its own caller.
+    app.ctx.store.sessions.set("sid-alex-1", "alex-rivera");
+    app.ctx.store.sessions.set("sid-alex-2", "alex-rivera");
+    const first = await post("/api/echo", { v: 2 }, { "idempotency-key": "alex-key", cookie: "fernway_session=sid-alex-1" });
+    const second = await post("/api/echo", { v: 2 }, { "idempotency-key": "alex-key", cookie: "fernway_session=sid-alex-2" });
+    expect((await first.json()).n).toBe(3);
+    expect((await second.json()).n).toBe(4);
+    expect(second.headers.get("idempotent-replayed")).toBeNull();
+  });
+
+  it("an answer given while signed in is not replayed once that session has ended", async () => {
+    app.ctx.store.sessions.set("sid-ending", "alex-rivera");
+    const signedIn = await post("/api/echo", { v: 1 }, { "idempotency-key": "ending-key", cookie: "fernway_session=sid-ending" });
+    expect((await signedIn.json()).n).toBe(1);
+    app.ctx.store.sessions.delete("sid-ending"); // POST /api/logout
+    const after = await post("/api/echo", { v: 1 }, { "idempotency-key": "ending-key", cookie: "fernway_session=sid-ending" });
+    expect((await after.json()).n).toBe(2);
+    expect(after.headers.get("idempotent-replayed")).toBeNull();
   });
 
   it("concurrent requests with one key (a double click) create one record", async () => {
@@ -529,32 +584,46 @@ describe("API pipeline", () => {
 
   it("validation errors come back as 400 { errors: { field: message } } (and replay like any response)", async () => {
     const res = await post("/api/validate", { email: "nope", extra: "ignored" }, { "idempotency-key": "v" });
+    const replay = await post("/api/validate", { email: "nope", extra: "ignored" }, { "idempotency-key": "v" });
+    expect(replay.headers.get("idempotent-replayed")).toBe("true");
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ errors: { email: "Enter an email address like name@example.com.", size: "Choose a size." } });
     const good = await post("/api/validate", { email: " Ada@Example.test ", size: "M" });
     expect(await good.json()).toEqual({ email: "ada@example.test", size: "M" });
   });
 
-  it("POST /api/__reset restores the seed, clears the replay cache and runs onReset hooks", async () => {
+  it("POST /api/__reset restores the seed, clears the replay cache and runs onReset hooks; sessions survive", async () => {
     const before = resetHookRuns;
+    app.ctx.store.sessions.set("sid-kept", "sam-okafor");
+    app.ctx.store.sessions.set("sid-gone", "extra-user");
     await post("/api/store/mutate", {});
     expect((await (await fetch(`${base}/api/store`)).json()).projects).toBe(7);
+    expect(app.ctx.sessionUser({ fernway_session: "sid-gone" })?.id).toBe("extra-user");
     const k1 = await (await post("/api/echo", {}, { "idempotency-key": "after-reset" })).json();
     const reset = await fetch(`${base}/api/__reset`, { method: "POST" });
     expect(reset.status).toBe(204);
     expect(resetHookRuns).toBe(before + 1);
-    expect(await (await fetch(`${base}/api/store`)).json()).toEqual({ projects: 6, members: 8 });
+    expect(await (await fetch(`${base}/api/store`)).json()).toEqual({ projects: 6, members: 8, users: 2 });
     const k2 = await (await post("/api/echo", {}, { "idempotency-key": "after-reset" })).json();
     expect(k2.n).toBe(k1.n + 1);
+    // A seeded user's session survives the reset; a session of a user the reset removed resolves to nobody.
+    expect(app.ctx.sessionUser({ fernway_session: "sid-kept" })?.email).toBe(ACCOUNTS.sam.email);
+    expect(app.ctx.sessionUser({ fernway_session: "sid-gone" })).toBeNull();
   });
 
-  it("ctx.sessionCookie follows W09; ctx.sessionUser resolves a session", () => {
+  it("ctx.sessionCookie and clearSessionCookie follow W09; ctx.sessionUser resolves a session; ctx.workspaceOf finds the workspace", () => {
     expect(app.ctx.sessionCookie("abc")).toBe("fernway_session=abc; Path=/; HttpOnly; SameSite=Lax");
+    expect(app.ctx.clearSessionCookie()).toBe("fernway_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
     const w09 = createApp({ bugs: new Set(["W09"]), modules: [] });
     expect(w09.ctx.sessionCookie("abc")).toBe("fernway_session=abc; Path=/; SameSite=Lax");
+    expect(w09.ctx.clearSessionCookie()).toBe("fernway_session=; Path=/; SameSite=Lax; Max-Age=0");
     expect(app.ctx.sessionUser({})).toBeNull();
+    expect(app.ctx.sessionUser({ fernway_session: "no-such-session" })).toBeNull();
     app.ctx.store.sessions.set("sid-1", "alex-rivera");
     expect(app.ctx.sessionUser({ fernway_session: "sid-1" })?.email).toBe(DEMO_ACCOUNT.email);
+    expect(app.ctx.workspaceOf("alex-rivera")?.name).toBe("Rivera Studio");
+    expect(app.ctx.workspaceOf("sam-okafor")?.name).toBe("Okafor & Co");
+    expect(app.ctx.workspaceOf("nobody")).toBeUndefined();
   });
 
   it("registering one method and path twice throws", () => {
@@ -568,36 +637,77 @@ describe("API pipeline", () => {
 // ---- seed ----------------------------------------------------------------------------------------
 
 describe("seed data", () => {
-  it("has 6 projects, 8 members with avatar indexes 0-7, 1 profile, tasks and the demo account", () => {
+  it("has two accounts, each with its own workspace: 6 projects, members, tasks, a profile and notification settings", () => {
     const seed = createSeed();
-    expect(seed.projects).toHaveLength(6);
-    expect(new Set(seed.projects.map((p) => p.status))).toEqual(new Set(["active", "paused", "done"]));
-    expect(seed.members).toHaveLength(8);
-    expect(seed.members.map((m) => m.avatar)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-    expect(seed.members[0]!.name).toBe("Alex Rivera");
-    for (const p of seed.projects) expect(seed.members.some((m) => m.id === p.ownerId)).toBe(true);
-    for (const t of seed.tasks) expect(seed.projects.some((p) => p.id === t.projectId)).toBe(true);
-    expect(seed.profile.displayName).toBe("Alex Rivera");
-    expect(seed.profile.bio.length).toBeLessThanOrEqual(160);
-    expect(Object.keys(seed.notifications)).toHaveLength(4);
+    expect(seed.users.map((u) => [u.id, u.name, u.email])).toEqual([
+      ["alex-rivera", "Alex Rivera", "alex@fernway.test"],
+      ["sam-okafor", "Sam Okafor", "sam@fernway.test"],
+    ]);
+    expect([...seed.workspaces.keys()]).toEqual(["alex-rivera", "sam-okafor"]);
+    for (const [userId, ws] of seed.workspaces) {
+      expect(ws.projects, userId).toHaveLength(6);
+      expect(new Set(ws.projects.map((p) => p.status))).toEqual(new Set(["active", "paused", "done"]));
+      for (const p of ws.projects) expect(ws.members.some((m) => m.id === p.ownerId), p.id).toBe(true);
+      for (const t of ws.tasks) expect(ws.projects.some((p) => p.id === t.projectId), t.id).toBe(true);
+      expect(ws.members.some((m) => m.id === userId)).toBe(true);
+      expect(ws.profile.id).toBe(userId);
+      expect(ws.profile.bio.length).toBeLessThanOrEqual(160);
+      expect(ws.profile).toMatchObject({ role: "member", plan: "free" });
+      expect(Object.keys(ws.notifications)).toHaveLength(4);
+    }
+    const alex = seed.workspaces.get("alex-rivera")!;
+    expect(alex.name).toBe("Rivera Studio");
+    expect(alex.members).toHaveLength(8);
+    expect(alex.members.map((m) => m.avatar)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(alex.members[0]!.name).toBe("Alex Rivera");
+    expect(alex.profile.displayName).toBe("Alex Rivera");
+    expect(seed.workspaces.get("sam-okafor")!.name).toBe("Okafor & Co");
     expect(SEED_ACCOUNT).toEqual(DEMO_ACCOUNT);
+    expect(SEED_ACCOUNTS).toEqual(ACCOUNTS);
   });
 
-  it("stores the demo password hashed, never in plain text", () => {
+  it("ids are unique across workspaces, and nothing in Sam's workspace names Alex (and the other way round)", () => {
     const seed = createSeed();
-    const user = seed.users[0]!;
-    expect(JSON.stringify(seed.users)).not.toContain(DEMO_ACCOUNT.password);
-    expect(verifyPassword(DEMO_ACCOUNT.password, user.passwordHash)).toBe(true);
-    expect(verifyPassword("wrong-password", user.passwordHash)).toBe(false);
+    const alex = seed.workspaces.get("alex-rivera")!;
+    const sam = seed.workspaces.get("sam-okafor")!;
+    const ids = (ws: typeof alex) => [...ws.projects.map((p) => p.id), ...ws.tasks.map((t) => t.id)];
+    expect(ids(alex).filter((id) => ids(sam).includes(id))).toEqual([]);
+    expect(JSON.stringify(sam).toLowerCase()).not.toContain("alex");
+    expect(JSON.stringify(sam)).not.toContain("Rivera");
+    expect(JSON.stringify(alex).toLowerCase()).not.toContain("sam@");
+    expect(JSON.stringify(alex)).not.toContain("Okafor & Co");
+  });
+
+  it("stores both passwords hashed, never in plain text", () => {
+    const seed = createSeed();
+    const json = JSON.stringify(seed.users);
+    for (const who of ["alex", "sam"] as const) {
+      expect(json).not.toContain(ACCOUNTS[who].password);
+      const user = seed.users.find((u) => u.email === ACCOUNTS[who].email)!;
+      expect(verifyPassword(ACCOUNTS[who].password, user.passwordHash)).toBe(true);
+      expect(verifyPassword("wrong-password", user.passwordHash)).toBe(false);
+    }
+  });
+
+  it("a new sign-up's workspace is empty: the user as its only member, no projects or tasks, a profile from sign-up", () => {
+    const ws = emptyWorkspace({ id: "u-1", name: "Maya Patel", email: "maya@juniper.test", company: "" });
+    expect(ws.name).toBe("Maya's workspace");
+    expect(emptyWorkspace({ id: "u-2", name: "Maya Patel", email: "maya@juniper.test", company: "Juniper Studio" }).name).toBe("Juniper Studio");
+    expect(ws.members).toEqual([{ id: "u-1", name: "Maya Patel", email: "maya@juniper.test", role: "Owner", avatar: null }]);
+    expect(ws.projects).toEqual([]);
+    expect(ws.tasks).toEqual([]);
+    expect(ws.profile).toEqual({ id: "u-1", displayName: "Maya Patel", email: "maya@juniper.test", bio: "", timeZone: "UTC", avatar: null, role: "member", plan: "free" });
   });
 
   it("returns a fresh copy each time", () => {
     const a = createSeed();
-    a.projects.pop();
-    a.profile.bio = "changed";
+    a.workspaces.get("alex-rivera")!.projects.pop();
+    a.workspaces.get("alex-rivera")!.profile.bio = "changed";
+    a.workspaces.get("sam-okafor")!.notifications.mentions = false;
     const b = createSeed();
-    expect(b.projects).toHaveLength(6);
-    expect(b.profile.bio).not.toBe("changed");
+    expect(b.workspaces.get("alex-rivera")!.projects).toHaveLength(6);
+    expect(b.workspaces.get("alex-rivera")!.profile.bio).not.toBe("changed");
+    expect(b.workspaces.get("sam-okafor")!.notifications.mentions).toBe(true);
   });
 });
 
@@ -606,8 +716,8 @@ describe("seed data", () => {
 describe("the routes render in a browser (clean mode)", () => {
   const ref = useFernway("none");
 
-  it.each(ROUTES)("%s renders one h1 and one main, a Fernway: title, and loads with no errors", async (route) => {
-    const { page, events, close } = await openPage(ref.fw, route);
+  it.each(ROUTES)("%s renders one h1 and one main, a Fernway: title, and loads with no errors (signed in for /app*)", async (route) => {
+    const { page, events, close } = await openPage(ref.fw, route, isSignedInRoute(route) ? { as: "alex" } : {});
     try {
       await page.locator("h1").first().waitFor();
       expect(await page.locator("h1").count()).toBe(1);
@@ -658,7 +768,7 @@ describe("the routes render in a browser (clean mode)", () => {
   });
 
   it("the app shell: sidebar collapse, command palette (Ctrl+K), notifications and account menu", async () => {
-    const { page, events, close } = await openPage(ref.fw, "/app");
+    const { page, events, close } = await openPage(ref.fw, "/app", { as: "alex" });
     try {
       const collapse = page.getByRole("button", { name: "Collapse sidebar" });
       expect(await collapse.getAttribute("aria-expanded")).toBe("true");
@@ -691,7 +801,7 @@ describe("the routes render in a browser (clean mode)", () => {
       expect(await menu.getByRole("menuitem").allTextContents()).toEqual(["Profile", "Settings", "Sign out"]);
       await page.keyboard.press("Escape");
 
-      expect(await page.getByText("Signed in as Alex Rivera · Demo workspace").count()).toBeGreaterThan(0);
+      expect(await page.getByText("Signed in as Alex Rivera · Rivera Studio").count()).toBeGreaterThan(0);
       expect(events.consoleErrors).toEqual([]);
       expect(events.pageErrors).toEqual([]);
     } finally {
@@ -701,7 +811,7 @@ describe("the routes render in a browser (clean mode)", () => {
 
   it.each(["light", "dark"] as const)("the shell and every placeholder page pass axe (Run Hound's tags) in %s mode", async (colorScheme) => {
     for (const route of [...ROUTES, "/nope"]) {
-      const { page, close } = await openPage(ref.fw, route, { colorScheme, reducedMotion: "reduce" });
+      const { page, close } = await openPage(ref.fw, route, { colorScheme, reducedMotion: "reduce", ...(isSignedInRoute(route) ? { as: "alex" as const } : {}) });
       try {
         await page.locator("h1").first().waitFor();
         expect(await axeViolations(page), `${route} (${colorScheme})`).toEqual([]);
@@ -712,7 +822,7 @@ describe("the routes render in a browser (clean mode)", () => {
   });
 
   it("the shell's open overlays (palette, notifications, account menu) pass axe", async () => {
-    const { page, close } = await openPage(ref.fw, "/app", { reducedMotion: "reduce" });
+    const { page, close } = await openPage(ref.fw, "/app", { reducedMotion: "reduce", as: "alex" });
     try {
       await page.getByRole("button", { name: "Search" }).click();
       await page.getByRole("dialog", { name: "Search Fernway" }).waitFor();
@@ -732,7 +842,7 @@ describe("the routes render in a browser (clean mode)", () => {
 
   it("at 320px wide no route scrolls horizontally", async () => {
     for (const route of ROUTES) {
-      const { page, close } = await openPage(ref.fw, route, { viewport: { width: 320, height: 800 } });
+      const { page, close } = await openPage(ref.fw, route, { viewport: { width: 320, height: 800 }, ...(isSignedInRoute(route) ? { as: "alex" as const } : {}) });
       try {
         await page.locator("h1").first().waitFor();
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -748,7 +858,7 @@ describe("W05: icon-only shell buttons lose their names on /app only", () => {
   const ref = useFernway("W05");
 
   it("collapse and notifications have no accessible name on /app, and keep them on /app/settings", async () => {
-    const { page, close } = await openPage(ref.fw, "/app");
+    const { page, close } = await openPage(ref.fw, "/app", { as: "alex" });
     try {
       await page.locator("h1").waitFor();
       expect(await page.getByRole("button", { name: "Collapse sidebar" }).count()).toBe(0);

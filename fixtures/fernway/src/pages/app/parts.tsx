@@ -51,7 +51,7 @@ export function PriorityLabel({ priority, className }: { priority: ProjectPriori
 
 /** A member's portrait. Decorative by default (alt=""): the name is always shown next to it. */
 export function MemberAvatar({ member, className, alt = "", ...props }: { member: Pick<Member, "name" | "avatar"> | undefined; alt?: string } & ComponentProps<typeof Avatar>) {
-  const image = member ? images.avatars[member.avatar] : undefined;
+  const image = member && typeof member.avatar === "number" ? images.avatars[member.avatar] : undefined;
   return (
     <Avatar className={cn("size-8", className)} {...props}>
       {image && <AvatarImage src={image.src} alt={alt} width={image.width} height={image.height} />}

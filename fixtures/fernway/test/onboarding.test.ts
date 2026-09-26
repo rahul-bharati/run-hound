@@ -291,8 +291,8 @@ describe("/onboarding wizard (clean mode)", () => {
     }
   });
 
-  it("golden path: 3 steps, Back keeps values, Finish setup is pending then shows the ready view, a toast and the dashboard link", async () => {
-    const { page, events, close } = await openWizard(ref.fw);
+  it("golden path (signed in as Alex): 3 steps, Back keeps values, Finish setup is pending, then the ready view, a toast and the dashboard link; the workspace is renamed", async () => {
+    const { page, events, close } = await openWizard(ref.fw, { as: "alex" });
     try {
       await fillWorkspace(page, "Juniper Studio");
       await page.getByRole("radio", { name: "Internal work" }).click();

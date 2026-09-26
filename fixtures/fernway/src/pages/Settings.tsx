@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useLocation } from "react-router";
 import { AppShell } from "@/components/app/AppShell";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useSessionUser } from "@/lib/session";
 import { useDocumentTitle } from "@/lib/utils";
 import { BillingTab } from "./app/settings/BillingTab";
 import { NotificationsTab } from "./app/settings/NotificationsTab";
@@ -18,6 +19,7 @@ type Tab = (typeof TABS)[number]["value"];
 /** /app/settings (CONTRACT.md "/app/settings Settings"): Radix Tabs Profile (selected on load), Notifications, Billing. */
 export default function Settings() {
   useDocumentTitle("Settings");
+  const user = useSessionUser();
   const { hash } = useLocation();
   // "/app/settings#billing" (the sidebar's "View plans") opens that tab; plain /app/settings opens Profile.
   const [tab, setTab] = useState<Tab>(() => TABS.find((t) => `#${t.value}` === hash)?.value ?? "profile");
@@ -26,7 +28,7 @@ export default function Settings() {
     <AppShell>
       <div className="flex flex-col gap-6 lg:gap-8">
         <div>
-          <p className="text-sm font-medium text-primary">Demo workspace</p>
+          <p className="text-sm font-medium text-primary">{user.workspace}</p>
           <h1 className="mt-1 text-3xl font-bold tracking-tight sm:text-4xl">Settings</h1>
           <p className="mt-2 text-muted-foreground">Manage your profile, notifications and billing.</p>
         </div>

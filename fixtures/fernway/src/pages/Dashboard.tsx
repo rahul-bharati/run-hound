@@ -188,7 +188,7 @@ export default function Dashboard() {
         open={sheetOpen}
         onOpenChange={setSheetOpen}
         members={members}
-        defaultOwnerId={members[0]?.id ?? "alex-rivera"}
+        defaultOwnerId={members.find((m) => m.id === user.id)?.id ?? members[0]?.id ?? user.id}
         onCreated={onProjectCreated}
         returnFocus={newProjectButton}
       />

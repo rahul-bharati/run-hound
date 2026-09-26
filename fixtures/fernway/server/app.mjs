@@ -2,7 +2,7 @@
 // server/routes/), security headers, the session cookie and the Idempotency-Key replay cache. See CONTRACT.md.
 // Node built-ins only. server/index.mjs reads the environment and listens; tests can create an app in-process.
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { basename, dirname, extname, join, normalize, sep } from "node:path";
@@ -74,6 +74,14 @@ const SECRET_SCRIPTS = Object.freeze([{ bug: "W06", path: "/config/billing.js", 
 const FAKE_STRIPE_SECRET = ["sk", "live", "FAKEfernwayDemoOnly0000000000FAKE"].join("_");
 const FAKE_SECRET_PLACEHOLDER = "__FERNWAY_FAKE_STRIPE_SECRET__";
 
+/** V05: the routes a direct GET answers 404 for (no SPA fallback), while in-app navigation still renders them. */
+export const V05_ROUTES = Object.freeze(["/app/settings", "/onboarding"]);
+
+/** V05's answer: a static host's bare "Not Found" page (not the SPA). */
+export const NOT_FOUND_HTML =
+  '<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><title>404 Not Found</title></head>' +
+  "<body><h1>Not Found</h1><p>The requested URL was not found on this server.</p></body></html>\n";
+
 const REPLAY_LIMIT = 2_000;
 
 /**
@@ -81,11 +89,16 @@ const REPLAY_LIMIT = 2_000;
  * @property {ReadonlySet<string>} bugs       Enabled bug ids.
  * @property {(id: string) => boolean} bugOn  True when FERNWAY_BUGS enables that id.
  * @property {import("./seed.mjs").Store} store  The in-memory data. The object is stable but POST /api/__reset
- *   replaces its fields, so read `ctx.store.projects` inside handlers; never keep a reference to a field.
+ *   replaces its fields (all but `sessions`), so read `ctx.store.workspaces` inside handlers; never keep a reference
+ *   to a field.
  * @property {(sessionId?: string) => string} sessionCookie  A Set-Cookie value for fernway_session (a new UUID
  *   when no id is given): "Path=/; HttpOnly; SameSite=Lax", without HttpOnly under W09.
+ * @property {() => string} clearSessionCookie  A Set-Cookie value that removes fernway_session (Max-Age=0), with the
+ *   same flags as sessionCookie.
  * @property {(cookies: Record<string, string>) => import("./seed.mjs").User | null} sessionUser  The user signed in
- *   with the request's fernway_session cookie, or null.
+ *   with the request's fernway_session cookie, or null (no cookie, an unknown id, or a visitor's session that never
+ *   signed in).
+ * @property {(userId: string) => import("./seed.mjs").Workspace | undefined} workspaceOf  That user's workspace.
  * @property {(fn: () => void) => void} onReset  Runs fn on POST /api/__reset (for module-private state).
  * @property {() => string} newId  A random UUID.
  * @property {() => string} now    The current time as an ISO string.
@@ -104,6 +117,8 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
   const on = (id) => bugs.has(id);
 
   const store = createSeed();
+  /** The session cookie's flags; W09 drops HttpOnly. */
+  const cookieFlags = () => (on("W09") ? "Path=/; SameSite=Lax" : "Path=/; HttpOnly; SameSite=Lax");
   /** @type {(() => void)[]} */
   const resetHooks = [];
   /** @type {Map<string, Promise<import("./http.mjs").ApiResponse>>} */
@@ -115,13 +130,18 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
     bugOn: on,
     store,
     sessionCookie(sessionId = randomUUID()) {
-      const flags = on("W09") ? "Path=/; SameSite=Lax" : "Path=/; HttpOnly; SameSite=Lax";
-      return `${SESSION_COOKIE}=${sessionId}; ${flags}`;
+      return `${SESSION_COOKIE}=${sessionId}; ${cookieFlags()}`;
+    },
+    clearSessionCookie() {
+      return `${SESSION_COOKIE}=; ${cookieFlags()}; Max-Age=0`;
     },
     sessionUser(cookies) {
       const sid = cookies[SESSION_COOKIE];
       const userId = sid ? store.sessions.get(sid) : undefined;
       return (userId && store.users.find((u) => u.id === userId)) || null;
+    },
+    workspaceOf(userId) {
+      return store.workspaces.get(userId);
     },
     onReset(fn) {
       resetHooks.push(fn);
@@ -133,10 +153,15 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
   const router = createRouter();
   for (const m of modules) m.register(router, ctx);
 
+  /**
+   * Restores the seed. Sessions survive (a signed-in browser stays signed in as a seeded user; a session of a user
+   * created after the seed no longer resolves, since that user is gone).
+   */
   function reset() {
     const fresh = createSeed();
+    const sessions = store.sessions;
     for (const key of Object.keys(store)) delete store[/** @type {keyof typeof store} */ (key)];
-    Object.assign(store, fresh);
+    Object.assign(store, fresh, { sessions });
     replays.clear();
     for (const fn of resetHooks) fn();
   }
@@ -264,8 +289,9 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
 
     /** @type {Record<string, unknown>} */
     let body = {};
+    let raw = "";
     if (method !== "GET" && method !== "HEAD") {
-      const raw = await readBody(req);
+      raw = await readBody(req);
       if (raw.trim() !== "") {
         let parsed;
         try {
@@ -298,9 +324,16 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
     const cacheable = idempotencyKey && method !== "GET" && method !== "HEAD" && match.route.idempotency;
     if (!cacheable) return sendApi(res, await match.route.handler(request));
 
-    // The same key on the same endpoint answers the first response again, including while the first request is
-    // still running (a double click). Server failures are not cached, so a retry with the same key can succeed.
-    const cacheKey = `${method} ${match.route.pattern} ${path} ${idempotencyKey}`;
+    // The same key on the same endpoint, from the same session with the same body, answers the first response again,
+    // including while the first request is still running (a double click). A different body is a different request
+    // (it is processed). The cache is keyed per session (the fernway_session cookie, plus who it signs in), never per
+    // user: another visitor, another session of the same user, or the same cookie after it was signed out never gets
+    // the first answer (which can carry a Set-Cookie, as a sign-up's does). Requests without any session cookie share
+    // one anonymous slot. Server failures are not cached, so a retry with the same key can succeed.
+    const sid = request.cookies[SESSION_COOKIE] || "-";
+    const who = ctx.sessionUser(request.cookies)?.id ?? "-";
+    const digest = createHash("sha256").update(raw).digest("hex");
+    const cacheKey = JSON.stringify([sid, who, method, match.route.pattern, path, idempotencyKey, digest]);
     const earlier = replays.get(cacheKey);
     if (earlier) return sendApi(res, await earlier, { "idempotent-replayed": "true" });
 
@@ -332,7 +365,7 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
 
   /**
    * index.html with the given status (200 for the six routes, 404 otherwise); sets the session cookie on a
-   * visitor's first page load.
+   * visitor's first page load (a visitor's session: it signs nobody in).
    * @param {import("node:http").IncomingMessage} req
    * @param {import("node:http").ServerResponse} res
    * @param {number} status
@@ -344,10 +377,9 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
   }
 
   /** @param {string} pathname */
-  const isSpaRoute = (pathname) => {
-    const trimmed = pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
-    return SPA_ROUTES.includes(trimmed);
-  };
+  const trimSlash = (pathname) => (pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname);
+  /** @param {string} pathname */
+  const isSpaRoute = (pathname) => SPA_ROUTES.includes(trimSlash(pathname));
 
   /**
    * @param {import("node:http").IncomingMessage} req
@@ -360,6 +392,8 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
       const body = (await readFile(join(SECRETS, secret.file), "utf8")).replace(FAKE_SECRET_PLACEHOLDER, FAKE_STRIPE_SECRET);
       return send(res, 200, body, { "content-type": TYPES[".js"] });
     }
+    // V05: like a static host without a fallback to index.html, a direct GET of these routes answers a bare 404.
+    if (on("V05") && V05_ROUTES.includes(trimSlash(pathname))) return send(res, 404, NOT_FOUND_HTML, { "content-type": TYPES[".html"] });
     if (isSpaRoute(pathname)) return sendPage(req, res, 200);
 
     let decoded;

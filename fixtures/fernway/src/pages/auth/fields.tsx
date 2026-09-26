@@ -11,7 +11,7 @@ import { Slot as SlotPrimitive } from "radix-ui";
 import { useState, type ComponentProps, type ReactElement } from "react";
 import { FormControl, useFormField } from "@/components/ui/form";
 import { fieldClasses, Input } from "@/components/ui/input";
-import { PasswordInput } from "@/components/ui/password-input";
+import { PasswordInput, useUncontrolledValue } from "@/components/ui/password-input";
 import { cn } from "@/lib/utils";
 import { passwordStrength } from "./schemas";
 
@@ -36,12 +36,16 @@ export function AuthInput({ noFocusRing = false, className, type = "text", ...pr
   );
 }
 
-/** Same markup as the shared PasswordInput (show/hide button "Show password" / "Hide password"), W07 input inside. */
+/**
+ * Same markup and behaviour as the shared PasswordInput (show/hide button "Show password" / "Hide password", the typed
+ * password kept out of the HTML), W07 input inside.
+ */
 function BarePasswordInput({ className, wrapperClassName, ...props }: Omit<ComponentProps<"input">, "type"> & { wrapperClassName?: string }) {
   const [visible, setVisible] = useState(false);
+  const inputProps = useUncontrolledValue(props);
   return (
     <div data-slot="password-input" className={cn("relative", wrapperClassName)}>
-      <AuthInput noFocusRing type={visible ? "text" : "password"} className={cn("pr-12", className)} {...props} />
+      <AuthInput noFocusRing type={visible ? "text" : "password"} className={cn("pr-12", className)} {...inputProps} />
       <button
         type="button"
         aria-pressed={visible}

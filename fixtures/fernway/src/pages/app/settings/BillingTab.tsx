@@ -18,6 +18,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Progress } from "@/components/ui/progress";
 import { toast } from "@/components/ui/sonner";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useSessionUser } from "@/lib/session";
 import { cn, formatDate } from "@/lib/utils";
 
 const SEAT_PRICE = 29;
@@ -46,10 +47,11 @@ const money = (n: number) => new Intl.NumberFormat("en-US", { style: "currency",
 
 /**
  * The Billing tab: the current plan with usage, "Change plan" (a link to /#pricing) and "Cancel subscription", which
- * asks in a Radix AlertDialog first (destructive: Run Hound never clicks it by default). The demo workspace keeps
- * billing on the client: cancelling only schedules the end of the plan, and "Resume subscription" undoes it.
+ * asks in a Radix AlertDialog first (destructive: Run Hound never clicks it by default). Fernway keeps billing on
+ * the client: cancelling only schedules the end of the plan, and "Resume subscription" undoes it.
  */
 export function BillingTab() {
+  const user = useSessionUser();
   const endDate = trialEnd();
   const [cancelled, setCancelled] = useState(false);
   const resumeRef = useRef<HTMLButtonElement>(null);
@@ -207,7 +209,7 @@ export function BillingTab() {
             <p className="text-xs tracking-widest text-slate-200 uppercase">Visa</p>
             <p className="mt-6 font-mono text-lg tracking-wider">•••• •••• •••• 4242</p>
             <div className="mt-4 flex justify-between text-xs text-slate-200">
-              <span>Alex Rivera</span>
+              <span>{user.name}</span>
               <span>Expires 08/28</span>
             </div>
           </div>

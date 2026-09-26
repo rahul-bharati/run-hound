@@ -2,24 +2,51 @@
  * The /app/settings contract (CONTRACT.md "/app/settings Settings", "API", W04): the profile and notifications API,
  * the tabs, the Profile form (validation, pending state, errors, persistence), the auto-saving notification switches
  * and the Billing tab's Cancel subscription AlertDialog, in clean mode and with W04.
+ *
+ * /app/settings and its API need a session (V2): every API call and page here is signed in as Alex unless it says
+ * otherwise. The profile lives at /api/users/<id>/profile. Accounts, isolation, the field allowlist and V01-V05 are
+ * covered in accounts.test.ts.
  */
 import type { Page, Request, Route } from "playwright";
 import { afterAll, describe, expect, it } from "vitest";
 import { TIME_ZONES } from "../server/routes/workspace.mjs";
 import { TIME_ZONE_OPTIONS } from "../src/pages/app/constants";
-import { api, axeViolations, closeBrowser, horizontalOverflow, openPage, STACK_RE, useFernway, type Fernway, type OpenedPage } from "./support.js";
+import {
+  api as rawApi,
+  axeViolations,
+  closeBrowser,
+  horizontalOverflow,
+  openPage,
+  profileUrl,
+  STACK_RE,
+  useFernway,
+  type ApiInit,
+  type Fernway,
+  type OpenedPage,
+} from "./support.js";
+
+/** The API as Alex (pass `as` to call it as someone else, or "nobody"). */
+const api = (fw: Fernway, path: string, init: ApiInit = {}) => rawApi(fw, path, { as: "alex", ...init });
+
+/** Alex's profile endpoint. */
+const ALEX_PROFILE = profileUrl("alex");
 
 afterAll(async () => {
   await closeBrowser();
 });
 
 const SEED_PROFILE = {
+  id: "alex-rivera",
   displayName: "Alex Rivera",
   email: "alex@fernway.test",
   bio: "Studio lead at Fernway. I plan projects, keep timelines honest and make sure every client hears from us weekly.",
   timeZone: "America/New_York",
   avatar: 0,
+  role: "member",
+  plan: "free",
 };
+/** The fields the server keeps whatever PUT sends (id, photo and the privilege fields). */
+const KEPT = { id: "alex-rivera", avatar: 0, role: "member", plan: "free" };
 const SEED_NOTIFICATIONS = { productUpdates: true, weeklyDigest: true, mentions: true, taskReminders: false };
 const SWITCHES = ["Product updates", "Weekly digest", "Mentions", "Task reminders"];
 
@@ -76,7 +103,7 @@ const profileForm = (page: Page) => page.getByRole("form", { name: "Profile" });
 const field = (page: Page, name: string) => profileForm(page).getByRole("textbox", { name, exact: true });
 
 async function openSettings(fw: Fernway, options: Parameters<typeof openPage>[2] = {}): Promise<OpenedPage> {
-  const opened = await openPage(fw, "/app/settings", options);
+  const opened = await openPage(fw, "/app/settings", { as: "alex", ...options });
   await opened.page.getByRole("heading", { level: 1, name: "Settings" }).waitFor();
   // The profile has loaded once the form shows the saved display name.
   await expect.poll(() => field(opened.page, "Display name").inputValue()).not.toBe("");
@@ -93,32 +120,32 @@ async function openTab(page: Page, name: string) {
 describe("profile and notifications API (clean mode)", () => {
   const ref = useFernway("none");
 
-  it("GET /api/profile answers the seeded profile", async () => {
-    const res = await api(ref.fw, "/api/profile");
+  it("GET /api/users/alex-rivera/profile answers Alex's seeded profile (with role and plan)", async () => {
+    const res = await api(ref.fw, ALEX_PROFILE);
     expect(res.status).toBe(200);
     expect(res.body).toEqual(SEED_PROFILE);
   });
 
-  it("PUT /api/profile saves the 4 fields (200) and GET answers them; unknown keys are ignored", async () => {
-    const res = await api(ref.fw, "/api/profile", {
+  it("PUT saves the 4 fields (200) and GET answers them; every other key (id, avatar, role, plan, ...) is ignored", async () => {
+    const res = await api(ref.fw, ALEX_PROFILE, {
       method: "PUT",
-      body: { ...validProfile(), avatar: 5, role: "owner", plan: "enterprise" },
+      body: { ...validProfile(), id: "someone-else", avatar: 5, role: "owner", plan: "enterprise", isAdmin: true },
       headers: { "idempotency-key": crypto.randomUUID() },
     });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ...validProfile(), avatar: 0 });
-    expect((await api(ref.fw, "/api/profile")).body).toEqual({ ...validProfile(), avatar: 0 });
+    expect(res.body).toEqual({ ...validProfile(), ...KEPT });
+    expect((await api(ref.fw, ALEX_PROFILE)).body).toEqual({ ...validProfile(), ...KEPT });
   });
 
-  it("PUT /api/profile trims values, lower-cases the email and keeps the bio when it is not sent", async () => {
+  it("PUT trims values, lower-cases the email and keeps the bio when it is not sent", async () => {
     const { bio: _bio, ...noBio } = validProfile({ displayName: "  Alex  ", email: " Alex@Example.TEST " });
-    const res = await api(ref.fw, "/api/profile", { method: "PUT", body: noBio });
+    const res = await api(ref.fw, ALEX_PROFILE, { method: "PUT", body: noBio });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ displayName: "Alex", email: "alex@example.test", bio: SEED_PROFILE.bio });
   });
 
   it("an empty bio is allowed", async () => {
-    const res = await api(ref.fw, "/api/profile", { method: "PUT", body: validProfile({ bio: "" }) });
+    const res = await api(ref.fw, ALEX_PROFILE, { method: "PUT", body: validProfile({ bio: "" }) });
     expect(res.status).toBe(200);
     expect(res.body.bio).toBe("");
   });
@@ -131,19 +158,19 @@ describe("profile and notifications API (clean mode)", () => {
     [{ bio: "x".repeat(161) }, "bio"],
     [{ timeZone: "Mars/Olympus" }, "timeZone"],
     [{ timeZone: "" }, "timeZone"],
-  ])("PUT /api/profile %j answers 400 for %s and changes nothing", async (override, key) => {
-    const res = await api(ref.fw, "/api/profile", { method: "PUT", body: validProfile(override) });
+  ])("PUT %j answers 400 for %s and changes nothing", async (override, key) => {
+    const res = await api(ref.fw, ALEX_PROFILE, { method: "PUT", body: validProfile(override) });
     expect(res.status).toBe(400);
     expect(typeof res.body.errors[key]).toBe("string");
-    expect((await api(ref.fw, "/api/profile")).body).toEqual(SEED_PROFILE);
+    expect((await api(ref.fw, ALEX_PROFILE)).body).toEqual(SEED_PROFILE);
   });
 
-  it("PUT /api/profile with the display name Crash answers a bare 500", async () => {
-    const res = await api(ref.fw, "/api/profile", { method: "PUT", body: validProfile({ displayName: "Crash" }) });
+  it("PUT with the display name Crash answers a bare 500", async () => {
+    const res = await api(ref.fw, ALEX_PROFILE, { method: "PUT", body: validProfile({ displayName: "Crash" }) });
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ error: "Something went wrong" });
     expect(JSON.stringify(res.body)).not.toMatch(STACK_RE);
-    expect((await api(ref.fw, "/api/profile")).body).toEqual(SEED_PROFILE);
+    expect((await api(ref.fw, ALEX_PROFILE)).body).toEqual(SEED_PROFILE);
   });
 
   it("GET /api/notifications answers the 4 settings; PATCH changes the ones sent and answers all of them", async () => {
@@ -165,10 +192,10 @@ describe("profile and notifications API (clean mode)", () => {
   });
 
   it("POST /api/__reset restores the profile and notifications", async () => {
-    await api(ref.fw, "/api/profile", { method: "PUT", body: validProfile() });
+    await api(ref.fw, ALEX_PROFILE, { method: "PUT", body: validProfile() });
     await api(ref.fw, "/api/notifications", { method: "PATCH", body: { mentions: false } });
     await ref.fw.reset();
-    expect((await api(ref.fw, "/api/profile")).body).toEqual(SEED_PROFILE);
+    expect((await api(ref.fw, ALEX_PROFILE)).body).toEqual(SEED_PROFILE);
     expect((await api(ref.fw, "/api/notifications")).body).toEqual(SEED_NOTIFICATIONS);
   });
 
@@ -194,6 +221,9 @@ describe("/app/settings in a browser (clean mode)", () => {
       expect(await field(page, "Bio").inputValue()).toBe(SEED_PROFILE.bio);
       expect(await profileForm(page).getByRole("combobox", { name: "Time zone" }).textContent()).toContain("New York");
       expect(await profileForm(page).getByRole("img", { name: "Portrait of Alex Rivera" }).count()).toBe(1);
+      // The profile is Alex's own, by the id GET /api/me answered.
+      expect(events.requests.map((r) => new URL(r.url()).pathname)).toEqual(expect.arrayContaining(["/api/me", ALEX_PROFILE]));
+      expect(await page.getByText("Rivera Studio", { exact: true }).count()).toBeGreaterThan(0);
       expect(await profileForm(page).getByRole("textbox", { name: "Display name" }).getAttribute("autocomplete")).toBe("name");
       expect(await profileForm(page).getByRole("textbox", { name: "Email" }).getAttribute("autocomplete")).toBe("email");
       expect(events.consoleErrors).toEqual([]);
@@ -237,7 +267,7 @@ describe("/app/settings in a browser (clean mode)", () => {
   it("invalid values: each field is marked invalid, described by a visible message, the first is focused and the form announces it", async () => {
     const { page, close } = await openSettings(ref.fw);
     try {
-      const puts = recordRequests(page, "/api/profile", "PUT");
+      const puts = recordRequests(page, ALEX_PROFILE, "PUT");
       await field(page, "Display name").fill("");
       await profileForm(page).getByRole("textbox", { name: "Email" }).fill("nope");
       await field(page, "Bio").fill("x".repeat(161));
@@ -273,7 +303,7 @@ describe("/app/settings in a browser (clean mode)", () => {
       await page.keyboard.press("Enter");
       await page.getByRole("listbox").waitFor({ state: "hidden" });
 
-      const hold = await holdRequests(page, "/api/profile", "PUT");
+      const hold = await holdRequests(page, ALEX_PROFILE, "PUT");
       const save = profileForm(page).getByRole("button", { name: "Save changes" });
       await save.click();
       await expect.poll(() => hold.seen.length).toBe(1);
@@ -307,7 +337,7 @@ describe("/app/settings in a browser (clean mode)", () => {
   it("a double click saves once", async () => {
     const { page, close } = await openSettings(ref.fw);
     try {
-      const puts = recordRequests(page, "/api/profile", "PUT");
+      const puts = recordRequests(page, ALEX_PROFILE, "PUT");
       await field(page, "Display name").fill("Once only");
       await profileForm(page).getByRole("button", { name: "Save changes" }).dblclick();
       await profileForm(page).getByRole("status").filter({ hasText: "Profile saved" }).waitFor();
@@ -341,7 +371,7 @@ describe("/app/settings in a browser (clean mode)", () => {
     const { page, close } = await openSettings(ref.fw);
     try {
       await page.route(
-        (url) => url.pathname === "/api/profile",
+        (url) => url.pathname === ALEX_PROFILE,
         (route) =>
           route.request().method() === "PUT"
             ? route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ errors: { email: "Another account uses this email." } }) })
@@ -494,7 +524,7 @@ describe("W04: the Profile form drops Bio before sending but shows it as saved",
   it("the toast and status say saved, the request has no bio, and after reload the old bio is back", async () => {
     const { page, close } = await openSettings(ref.fw);
     try {
-      const puts = recordRequests(page, "/api/profile", "PUT");
+      const puts = recordRequests(page, ALEX_PROFILE, "PUT");
       await field(page, "Display name").fill("Alex Rivera-Stone");
       await field(page, "Bio").fill("A brand new bio that never reaches the server.");
       await profileForm(page).getByRole("button", { name: "Save changes" }).click();

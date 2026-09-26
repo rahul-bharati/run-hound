@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
+import { RequireSession } from "@/components/app/RequireSession";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/lib/theme";
@@ -11,7 +12,10 @@ import Onboarding from "@/pages/Onboarding";
 import Settings from "@/pages/Settings";
 import Signup from "@/pages/Signup";
 
-/** The client-side routes (CONTRACT.md "Routes"); the server answers each with index.html and 200. */
+/**
+ * The client-side routes (CONTRACT.md "Routes"); the server answers each with index.html and 200. /app and
+ * /app/settings need a session: <RequireSession> sends signed-out visitors to /login?next=<path>.
+ */
 export const ROUTES = ["/", "/signup", "/login", "/onboarding", "/app", "/app/settings"] as const;
 
 /** Scrolls to the top on a new page, or to the element named by the hash (in-page anchors like /#pricing). */
@@ -61,8 +65,10 @@ export function App() {
             <Route path="/signup" element={<Signup />} />
             <Route path="/login" element={<Login />} />
             <Route path="/onboarding" element={<Onboarding />} />
-            <Route path="/app" element={<Dashboard />} />
-            <Route path="/app/settings" element={<Settings />} />
+            <Route element={<RequireSession />}>
+              <Route path="/app" element={<Dashboard />} />
+              <Route path="/app/settings" element={<Settings />} />
+            </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
           <Toaster />

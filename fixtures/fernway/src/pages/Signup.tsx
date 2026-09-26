@@ -10,7 +10,7 @@ import { Form, FormDescription, FormErrorSummary, FormField, FormItem, FormLabel
 import { toast } from "@/components/ui/sonner";
 import { apiPost } from "@/lib/api";
 import { useBug } from "@/lib/bugs";
-import { setSessionUser } from "@/lib/session";
+import { refreshSession } from "@/lib/session";
 import { useDocumentTitle } from "@/lib/utils";
 import { SignupArt } from "./auth/art";
 import { AuthLayout } from "./auth/AuthLayout";
@@ -41,7 +41,8 @@ export default function Signup() {
   async function onSubmit(values: SignupValues) {
     try {
       const user = await apiPost<AccountUser>("/api/signup", values);
-      setSessionUser({ name: user.name, email: user.email });
+      // Signing up signs you in (the server set the session cookie): the app shell reads the new user from /api/me.
+      await refreshSession();
       toast.success(`Welcome to Fernway, ${firstName(user.name)}!`, { description: "Your account is ready. Next, set up your workspace." });
       navigate("/onboarding", { state: { welcome: user.name } });
     } catch (err) {

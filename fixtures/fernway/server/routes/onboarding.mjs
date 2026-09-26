@@ -4,9 +4,10 @@
 //                                      compared lower-case); a malformed slug -> 400 on `slug`.
 //   POST /api/onboarding            { workspaceName, slug, useCase, invites[] } -> 201 { id, workspaceName, slug,
 //                                      useCase, invites, url, createdAt }; a taken slug -> 409 on `slug`;
-//                                      workspaceName "Crash" -> 500.
+//                                      workspaceName "Crash" -> 500. Works signed out (the wizard is public); signed
+//                                      in, it also renames the session user's workspace to workspaceName.
 //
-// Data: ctx.store.workspaces, ctx.store.takenSlugs.
+// Data: ctx.store.onboardings, ctx.store.takenSlugs, ctx.store.workspaces (the rename).
 
 import { badRequest, conflict, crashIfNamed, created, EMAIL_RE, ok, validator } from "../http.mjs";
 
@@ -33,7 +34,7 @@ export const ONBOARDING_MESSAGES = Object.freeze({
  */
 export function register(router, ctx) {
   /** @param {string} slug */
-  const isTaken = (slug) => ctx.store.takenSlugs.includes(slug) || ctx.store.workspaces.some((w) => w.slug === slug);
+  const isTaken = (slug) => ctx.store.takenSlugs.includes(slug) || ctx.store.onboardings.some((w) => w.slug === slug);
 
   router.get("/api/slug-available", ({ query }) => {
     const slug = (query.get("slug") ?? "").trim().toLowerCase();
@@ -65,7 +66,10 @@ export function register(router, ctx) {
       url: `fernway.app/${slug}`,
       createdAt: ctx.now(),
     };
-    ctx.store.workspaces.push({ ...workspace, ownerId: ctx.sessionUser(cookies)?.id ?? null });
+    const user = ctx.sessionUser(cookies);
+    ctx.store.onboardings.push({ ...workspace, ownerId: user?.id ?? null });
+    const own = user ? ctx.workspaceOf(user.id) : undefined;
+    if (own) own.name = workspaceName;
     return created(workspace);
   });
 }

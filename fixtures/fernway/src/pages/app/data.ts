@@ -31,7 +31,8 @@ export function useLoad<T>(load: (signal: AbortSignal) => Promise<T>): {
       },
     );
     return () => controller.abort();
-    // `load` is a module-level function at every call site; `attempt` re-runs it.
+    // `load` is read on mount and on reload(): call sites pass a module-level function, or a closure over values that
+    // stay the same while the page is mounted (the signed-in user's id); `attempt` re-runs it.
   }, [attempt]);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);

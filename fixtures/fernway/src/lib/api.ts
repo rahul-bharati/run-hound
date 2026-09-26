@@ -125,8 +125,8 @@ export interface Member {
   name: string;
   email: string;
   role: string;
-  /** Index into `images.avatars`. */
-  avatar: number;
+  /** Index into `images.avatars`, or null for no photo (initials). */
+  avatar: number | null;
 }
 
 export interface Project {
@@ -151,13 +151,20 @@ export interface Task {
   createdAt: string;
 }
 
+/** GET/PUT /api/users/:id/profile. `role` and `plan` are read-only: the server never takes them from the client. */
 export interface Profile {
+  id: string;
   displayName: string;
   email: string;
   bio: string;
   timeZone: string;
-  /** Index into `images.avatars`. */
-  avatar: number;
+  /** Index into `images.avatars`, or null for no photo (initials). */
+  avatar: number | null;
+  role: string;
+  plan: string;
 }
+
+/** The profile endpoint of a user (the Settings page uses the signed-in user's id from GET /api/me). */
+export const profilePath = (userId: string) => `/api/users/${encodeURIComponent(userId)}/profile`;
 
 export type NotificationSettings = Record<string, boolean>;

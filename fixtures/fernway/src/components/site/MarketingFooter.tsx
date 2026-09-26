@@ -24,7 +24,7 @@ const COLUMNS: { title: string; links: { label: string; to: string | { pathname:
     ],
   },
   {
-    title: "Demo workspace",
+    title: "Your workspace",
     links: [
       { label: "Dashboard", to: "/app" },
       { label: "Settings", to: "/app/settings" },
