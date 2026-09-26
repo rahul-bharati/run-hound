@@ -5,7 +5,8 @@
  *   --headed opens a visible Chromium window so you can watch. Progress lines on stderr name each step and page URL.
  *   --plan-only prints the planned scenarios (with the ids --approve takes) and exits 0 without running anything.
  *   Exit code: 0 no confirmed findings (advisory findings are reported but don't fail the run), 1 at least one
- *   confirmed finding, 2 error (including a refused target, an unreachable page and an empty approval).
+ *   confirmed finding, 2 error (including a refused target, an unreachable page and an empty approval) or a run that
+ *   tested nothing (every approved scenario errored or was skipped).
  * With --json, stdout carries exactly one JSON document (the report, or the plan with --plan-only); progress, the run
  * folder and errors go to stderr.
  *   AI (docs/ai-spec.md, off by default): --ai / --no-ai, --ai-provider, --ai-model, --ai-base-url, --ai-allow-remote
@@ -59,7 +60,8 @@ const USAGE = `Usage:
 Exit codes for run:
   0  no confirmed findings (advisory findings, which rely on judgement, are reported but don't fail the run)
   1  at least one confirmed finding
-  2  an error: a refused or unreachable target, no form found, bad arguments, or --ai when AI can't be used
+  2  an error: a refused or unreachable target, no form found, bad arguments, or --ai when AI can't be used; or a run
+     where nothing was tested because every approved scenario errored or was skipped
 
 Run Hound only tests local and private-network addresses (localhost, 127.0.0.1, 10.x, 172.16-31.x, 192.168.x,
 fc00::/7, link-local); add other hosts you own to RUNHOUND_ALLOWED_HOSTS. Scenarios that submit the form create
@@ -111,6 +113,18 @@ function aiRemedy(status: AiStatus): string {
   }
   if (status.problem === "Choose a model") return " Pass --ai-model <id> or set RUNHOUND_AI_MODEL.";
   return "";
+}
+
+/**
+ * The line that explains exit 2 for a run where no scenario passed or failed, e.g. "Nothing was tested: all 17
+ * scenarios errored (see "Checks that errored" in the report)."
+ */
+function nothingTested(errored: number, skipped: number): string {
+  const total = errored + skipped;
+  const all = total === 1 ? "the only scenario" : total === 2 ? "both scenarios" : `all ${total} scenarios`;
+  if (skipped === 0) return `Nothing was tested: ${all} errored (see "Checks that errored" in the report).`;
+  if (errored === 0) return `Nothing was tested: ${all} ${total === 1 ? "was" : "were"} skipped (the report says why).`;
+  return `Nothing was tested: ${count(errored, "scenario")} errored and ${skipped} ${skipped === 1 ? "was" : "were"} skipped (the report says why).`;
 }
 
 /** "ollama/ornith-1.5:9b". */
@@ -271,8 +285,15 @@ async function runCommand(args: string[]): Promise<number> {
     process.stdout.write(`Report: ${dir}/report.html\n`);
   }
   for (const warning of report.ai?.warnings ?? []) log(`Warning: AI: ${warning}`);
-  if (report.summary.errored > 0) {
-    log(`Note: ${count(report.summary.errored, "scenario")} errored and tested nothing; see "Checks that errored" in the report.`);
+  const { passed, failed, errored, skipped } = report.summary;
+  // No scenario passed or failed (the app went down after discovery, every approved scenario was skipped): exit 0
+  // would read as a clean pass in CI, like the empty approval refused above.
+  if (passed + failed === 0) {
+    log(nothingTested(errored, skipped));
+    return 2;
+  }
+  if (errored > 0) {
+    log(`Note: ${count(errored, "scenario")} errored and tested nothing; see "Checks that errored" in the report.`);
   }
   // Advisory findings rely on judgement: they are reported but never fail the run.
   return report.findings.some((f) => f.confidence === "confirmed") ? 1 : 0;
@@ -357,7 +378,8 @@ function serveCommand(args: string[]): void {
       `run-hound: warning: serving on ${values.host}, not just localhost. Anyone who can reach this address can start runs.\n`,
     );
   }
-  const app = createApp({ runsDir: values["runs-dir"] });
+  // The UI and API also answer to the address they were bound to (never to a wildcard like 0.0.0.0).
+  const app = createApp({ runsDir: values["runs-dir"], boundHost: values.host });
   const server = serve({ fetch: app.fetch, port, hostname: values.host }, (info) => {
     const host = info.address.includes(":") ? `[${info.address}]` : info.address;
     process.stdout.write(`Run Hound listening on http://${host}:${info.port}\n`);
@@ -365,6 +387,21 @@ function serveCommand(args: string[]): void {
   const stop = () => server.close(() => process.exit(0));
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
+  // A listen error (the port is taken) arrives as an 'error' event, after main's try/catch: one plain line, exit 2.
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (server.listening) {
+      process.stderr.write(`run-hound: server error: ${redactSecrets(err.message)}\n`);
+      return;
+    }
+    const where = `port ${port} on ${values.host}`;
+    if (err.code === "EADDRINUSE") fail(`${where} is already in use (another Run Hound or dev server?). Stop it or pass --port <n>.`);
+    else if (err.code === "EACCES") fail(`not allowed to listen on ${where} (ports below 1024 need extra permissions). Pass --port <n>.`);
+    else if (err.code === "EADDRNOTAVAIL") fail(`${values.host} is not an address of this machine. Pass --host 127.0.0.1.`);
+    else fail(`could not listen on ${where}: ${err.message}`);
+    // Nothing else keeps the process alive, so it ends with exit code 2 once stderr has flushed.
+    process.removeListener("SIGINT", stop);
+    process.removeListener("SIGTERM", stop);
+  });
 }
 
 async function main(argv: string[]): Promise<void> {

@@ -5,9 +5,9 @@ import { join, resolve } from "node:path";
 import { chromium, type Browser, type LaunchOptions } from "playwright";
 import { groupOf } from "../core/format.js";
 import type { AccountsConfig } from "../accounts/types.js";
-import { CHECK_GROUPS, type AccountId, type Check, type CheckGroup, type CheckResult, type Plan, type Report, type Scenario } from "../core/types.js";
+import { CHECK_GROUPS, type AccountId, type Check, type CheckGroup, type CheckResult, type DiscoveredForm, type DiscoveredPage, type Plan, type Report, type Scenario } from "../core/types.js";
 import { BROWSER_LOCALE, createCheckContext } from "./context.js";
-import { discoverPage } from "./discover.js";
+import { discoverPage, holdSocketWrites } from "./discover.js";
 import {
   cleanErrorMessage,
   containerLocalhostHint,
@@ -15,11 +15,11 @@ import {
   explainNoForm,
   inContainer,
   NoFormFoundError,
-  normalizeTargetUrl,
+  splitTargetUrl,
   TargetNotAllowedError,
   TargetUnreachableError,
 } from "./errors.js";
-import { guardContext, guardSummary } from "./guard.js";
+import { guardContext, guardSummary, rememberCredentials } from "./guard.js";
 import { buildPlan, formOfScenario } from "./plan.js";
 import { redactSecrets } from "./redact.js";
 import { NOT_VISIBLE, redactReport, writeReport } from "./report.js";
@@ -49,6 +49,12 @@ export interface RunOptions {
   lookup?: SafetyOptions["lookup"];
   /** Where a check's log lines go. Defaults to stderr. */
   log?: (line: string) => void;
+  /**
+   * How long one scenario may take before it is abandoned like a stopped one (its browser contexts closed) and ends
+   * "error" with a note saying so; the run goes on with the next scenario. Defaults to SCENARIO_TIMEOUT_MS, or more for
+   * a check that asks for it (Check.timeLimitMs, see scenarioLimitMs).
+   */
+  scenarioTimeoutMs?: number;
   onProgress?: (event: ProgressEvent) => void;
   /** Run id to use (letters, digits, "_" and "-"). Generated when omitted; the server passes its own. */
   runId?: string;
@@ -154,14 +160,47 @@ export function newRunId(): string {
 export const NETWORK_IDLE_TIMEOUT_MS = 5_000;
 
 /**
+ * How long one scenario may take (RunOptions.scenarioTimeoutMs). Generous: the slowest checks (axe in four states on
+ * a busy machine) take about a minute and a half. A scenario that takes longer is stuck, usually waiting for a
+ * request the app never answers, and would otherwise hold the run (and a CI job) forever.
+ */
+export const SCENARIO_TIMEOUT_MS = 3 * 60_000;
+
+/**
+ * How long a scenario may take: RunOptions.scenarioTimeoutMs when given, else SCENARIO_TIMEOUT_MS or, for a check whose
+ * work grows with the page (Check.timeLimitMs: one page load per control clicked), what it asks for when that is more.
+ */
+export function scenarioLimitMs(check: Check, scenario: Scenario, form: DiscoveredForm, page?: DiscoveredPage, options: Pick<RunOptions, "scenarioTimeoutMs"> = {}): number {
+  if (options.scenarioTimeoutMs !== undefined) return options.scenarioTimeoutMs;
+  return Math.max(SCENARIO_TIMEOUT_MS, check.timeLimitMs?.(scenario, form, page) ?? 0);
+}
+
+/** "3 minutes", "1 minute", "90 seconds", "1 second". */
+function limitWords(ms: number): string {
+  const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
+  return ms >= 60_000 && ms % 60_000 === 0 ? plural(ms / 60_000, "minute") : plural(Math.round(ms / 100) / 10, "second");
+}
+
+/** Notes of a scenario abandoned at its time limit. */
+export function scenarioTimeoutNote(limitMs: number): string {
+  return (
+    `The scenario took longer than ${limitWords(limitMs)} and was stopped, so it has no result. ` +
+    "Something it waited for never finished, often a request the app never answered."
+  );
+}
+
+/**
  * Safety gate (host checked and pinned), open the target, discover the form, build the plan.
  * "localhost:3000/book" (no scheme) is read as http://localhost:3000/book. A target that doesn't answer is reported
  * as a TargetUnreachableError with one plain sentence, not Playwright's call log.
+ * A user name and password in the URL (http://user:pass@host/) are taken out of it: the plan's target never has them,
+ * and every browser context answers that origin's HTTP authentication with them (guard.ts rememberCredentials).
  */
 export async function discoverAndPlan(rawUrl: string, options: RunOptions = {}): Promise<Plan> {
-  const url = normalizeTargetUrl(rawUrl);
+  const { url, credentials } = splitTargetUrl(rawUrl);
   const safety = safetyOptions(options);
   const target = await checkTarget(url, safety);
+  if (credentials) rememberCredentials(url, credentials);
   const checks = await resolveChecks(options);
   engineStep(options, "Opening the page to find its forms and controls", url);
   const browser = await chromium.launch(launchOptions(target, options));
@@ -170,6 +209,9 @@ export async function discoverAndPlan(rawUrl: string, options: RunOptions = {}):
     const context = await browser.newContext({ locale: BROWSER_LOCALE });
     const guard = await guardContext(context, safety);
     const page = await context.newPage();
+    // Discovery clicks to read a widget's options and to find forms in dialogs, with writes blocked: its sockets must
+    // be routed before the page opens them.
+    await holdSocketWrites(page);
     let status: number | null = null;
     try {
       status = (await page.goto(url, { waitUntil: "load" }))?.status() ?? null;
@@ -183,7 +225,7 @@ export async function discoverAndPlan(rawUrl: string, options: RunOptions = {}):
     }
     if (guard.escaped.length > 0) throw new TargetNotAllowedError(url, guardSummary(guard)!);
     engineStep(options, "Reading the page: forms, fields and controls", page.url());
-    const found = await discoverPage(page);
+    const found = await discoverPage(page, { openers: true });
     if (found.forms.length === 0) {
       // A page without a form still gets the page-wide checks, unless it is an error page or a dev server refusing
       // the host name: testing that page would only test the error.
@@ -363,7 +405,8 @@ function groupResults(results: CheckResult[], groupOfScenario: Map<string, Check
 /**
  * Runs approved scenarios group by group (CHECK_GROUPS order), plan order inside a group; a group-start event
  * precedes each group. A destructive scenario runs only with allowDestructive.
- * A scenario whose check throws gets status "error" (the run continues). Writes the report
+ * A scenario whose check throws gets status "error" (the run continues), and so does one that takes longer than
+ * RunOptions.scenarioTimeoutMs (abandoned like a stopped one, with scenarioTimeoutNote as its notes). Writes the report
  * (see report.ts) into <runsDir>/<runId>/ and returns it. Re-checks the safety gate first.
  * Unapproved scenarios are left out of results; approved destructive ones without opt-in are "skipped".
  */
@@ -471,9 +514,14 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
     const progress = options.onProgress;
     const steps: NonNullable<CheckResult["steps"]> = [];
     const withSteps = (result: CheckResult): CheckResult => (steps.length > 0 ? { ...result, steps: [...steps] } : result);
+    // Set once the scenario has its result: a check abandoned at a stop or its time limit may still take steps or
+    // load pages before it notices, and those belong to no scenario any more.
+    let ended = false;
     const ctx = createCheckContext({
       browser,
       form: formOfScenario(plan, scenario),
+      // A page-wide scenario tests the page as it loads, never with the main form's dialog open.
+      openForm: scenario.scope !== "page",
       discoveredPage: plan.page,
       targetUrl: plan.target,
       artifactsDir,
@@ -488,25 +536,40 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
       // The context redacts step labels and URLs before these hooks see them. Steps are kept for the report
       // (CheckResult.steps) whether or not anyone is watching.
       onStep: (step) => {
+        if (ended) return;
         steps.push(step);
         progress?.({ type: "step", scenarioId, ...step });
       },
       onPageLoad: (page) => {
+        if (ended) return;
         recordVisit(page.url, scenarioId);
         progress?.({ type: "page", scenarioId, ...page });
       },
-      onFrame: progress && options.live ? (frame) => progress({ type: "frame", scenarioId, ...frame }) : undefined,
+      onFrame:
+        progress && options.live
+          ? (frame) => {
+              if (!ended) progress({ type: "frame", scenarioId, ...frame });
+            }
+          : undefined,
     });
     const started = Date.now();
     const base = { checkId: scenario.checkId, scenarioId: scenario.id };
+    const limitMs = scenarioLimitMs(check, scenario, ctx.form, plan.page, options);
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<"timed-out">((res) => (timer = setTimeout(() => res("timed-out"), limitMs)));
+    let abandoned: Promise<unknown> | undefined;
     try {
       const running = check.run(ctx, scenario);
       // An abandoned check keeps running until its contexts close under it (dispose below); its failure is moot.
       running.catch(() => undefined);
-      const outcome = await Promise.race([running, whenStopped]);
+      const outcome = await Promise.race([running, whenStopped, timedOut]);
+      if (outcome === "stopped" || outcome === "timed-out") abandoned = running;
       if (outcome === "stopped") {
         wasStopped = true;
         return withSteps({ ...skipped(scenario, STOPPED_NOTE), durationMs: Date.now() - started });
+      }
+      if (outcome === "timed-out") {
+        return withSteps({ ...base, status: "error", findings: [], durationMs: Date.now() - started, notes: scenarioTimeoutNote(limitMs) });
       }
       const result = outcome;
       // A scenario that left the allowed targets never produces findings: whatever it saw was not the target.
@@ -522,8 +585,12 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
       const notes = ctx.escaped.length > 0 ? guardSummary(ctx)! : redactSecrets(cleanErrorMessage(message));
       return withSteps({ ...base, status: "error", findings: [], durationMs: Date.now() - started, notes });
     } finally {
+      clearTimeout(timer);
+      ended = true;
       testRecordsCreated += ctx.testRecordsCreated();
       await ctx.dispose();
+      // The abandoned check may open another page before it notices its first one closed: close that when it ends.
+      if (abandoned) void abandoned.catch(() => undefined).then(() => ctx.dispose());
     }
   }
 
@@ -546,6 +613,7 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
     pagesVisited: [...pagesVisited].map(([url, scenarioIds]) => ({ url, scenarioIds })),
     testRecordsCreated,
     ...(wasStopped ? { stopped: true } : {}),
+    options: { allowDestructive, headed: options.headed ?? false },
     ...(browserName ? { browser: browserName } : {}),
   };
   // AI explanations (advisory) before the report is written; a stopped run is not explained.

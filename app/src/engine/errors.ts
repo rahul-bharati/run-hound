@@ -153,11 +153,52 @@ export function explainNavigationError(err: unknown, url: string): unknown {
   return err;
 }
 
+/** The user name and password written into a target URL (http://user:pass@host/), decoded. */
+export interface TargetCredentials {
+  username: string;
+  password: string;
+}
+
+/** "scheme://" and everything up to the last "@" before the path: the userinfo, for URLs the parser rejects. */
+const USERINFO = /^([a-z][a-z\d+.-]*:\/\/)[^/?#\\]*@/i;
+
+function decoded(part: string): string {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return part;
+  }
+}
+
+/**
+ * Accepts what people type ("localhost:3000/book" gets "http://" in front) and takes out a user name and password
+ * written into it. The URL comes back without them, so they never reach a plan, report, spec file, log line or the
+ * web UI; the browser still answers the app's HTTP authentication with them, for that origin only (guard.ts
+ * rememberCredentials). A URL without them comes back as typed.
+ */
+export function splitTargetUrl(url: string): { url: string; credentials?: TargetCredentials } {
+  const trimmed = url.trim();
+  const withScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  if (!withScheme.includes("@")) return { url: withScheme };
+  let parsed: URL;
+  try {
+    parsed = new URL(withScheme);
+  } catch {
+    // The gate refuses it and quotes it, so the userinfo must not be in it.
+    return { url: withScheme.replace(USERINFO, "$1") };
+  }
+  if (!parsed.username && !parsed.password) return { url: withScheme };
+  const credentials = { username: decoded(parsed.username), password: decoded(parsed.password) };
+  parsed.username = "";
+  parsed.password = "";
+  return { url: parsed.href, credentials };
+}
+
 /**
  * Accepts what people type: "localhost:3000/book" and "127.0.0.1:5173" get "http://" in front. A URL that already
- * names a scheme ("https://", "file://") is left alone for the safety gate to judge.
+ * names a scheme ("https://", "file://") is left alone for the safety gate to judge. A user name and password in it
+ * are dropped (see splitTargetUrl).
  */
 export function normalizeTargetUrl(url: string): string {
-  const trimmed = url.trim();
-  return /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  return splitTargetUrl(url).url;
 }

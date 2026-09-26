@@ -11,7 +11,9 @@ import { startFixtureServer, type FixtureServer } from "../../test-support/serve
 import { bookingApp } from "../../test/fixtures/checks/booking-page.js";
 import type { Check } from "../core/types.js";
 import { check as axeStates } from "../checks/axe-states.js";
+import { check as consoleNetworkErrors } from "../checks/console-network-errors.js";
 import { check as focusVisible } from "../checks/focus-visible.js";
+import { startModernApp } from "../../test/fixtures/checks/modern-apps.js";
 import { discoverAndPlan, runPlan } from "./runner.js";
 
 let runsDir: string;
@@ -66,5 +68,27 @@ describe("test records created by the run", () => {
     servers.push(server);
     const plan = await discoverAndPlan(`${server.url}/book`, { checks: [axeStates] });
     for (const s of plan.scenarios) expect(`${s.title} ${s.description}`).toMatch(/test records?/i);
+  }, 120_000);
+});
+
+describe("test records created by a GraphQL app (CHK-5)", () => {
+  it("counts the mutation that saved the record, not the queries the page posts on load and after saving", async () => {
+    const app = await startModernApp({
+      path: "/guestbook",
+      heading: "Guest book",
+      fields: [{ name: "name", label: "Your name", type: "text" }],
+      submitLabel: "Sign",
+      after: "toast",
+      api: "graphql",
+    });
+    try {
+      const plan = await discoverAndPlan(app.formUrl, { checks: [consoleNetworkErrors] });
+      const { report } = await runPlan(plan, { checks: [consoleNetworkErrors], approved: plan.scenarios.map((s) => s.id), runsDir, log: () => undefined });
+      expect(app.requests.filter((r) => r.url === "/graphql" && r.body.includes("query Records")).length, "the page posted queries").toBeGreaterThan(1);
+      expect(app.records).toHaveLength(1);
+      expect(report.testRecordsCreated).toBe(1);
+    } finally {
+      await app.close();
+    }
   }, 120_000);
 });

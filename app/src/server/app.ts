@@ -1,8 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { isIP } from "node:net";
+import { BlockList, isIP } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { Hono, type Context, type Next } from "hono";
 import { CHECK_GROUPS, type Check, type CheckGroup, type CheckResult, type Plan, type Report } from "../core/types.js";
@@ -14,7 +14,7 @@ import { aiStatus, DEFAULT_BASE_URLS, endpointHost, resolveAiConfig, saveAiConfi
 import { listModels } from "../ai/models.js";
 import { AI_PLAN_BUDGET_MS, aiSession, boundSession, type AiSession } from "../ai/session.js";
 import { AI_PROVIDERS, type AiConfigPatch, type AiProvider } from "../ai/types.js";
-import { canShowBrowser, discoverAndPlan, newRunId, NO_DISPLAY_MESSAGE, planWarnings, RUN_HOUND_VERSION, runPlan, type ProgressEvent, type RunOptions } from "../engine/runner.js";
+import { canShowBrowser, discoverAndPlan, newRunId, NO_DISPLAY_MESSAGE, planWarnings, RUN_HOUND_VERSION, runPlan, STOPPED_NOTE, type ProgressEvent, type RunOptions } from "../engine/runner.js";
 
 export interface ServerOptions extends Pick<RunOptions, "checks" | "runsDir" | "allowedHosts"> {
   /** Runs allowed at the same time (each one drives its own Chromium). Default 2; more are refused with 409. */
@@ -22,11 +22,18 @@ export interface ServerOptions extends Pick<RunOptions, "checks" | "runsDir" | "
   /** Whether a visible browser window can open on this machine. Detected (canShowBrowser) when omitted. */
   canShowBrowser?: boolean;
   /**
-   * Extra host names this server answers to, besides loopback ones (RUNHOUND_SERVER_HOSTS).
-   * Everything else is refused, so a public domain that resolves to 127.0.0.1 (DNS rebinding) can't
-   * drive Run Hound from a web page.
+   * Extra host names and addresses this server answers to, besides loopback ones (RUNHOUND_SERVER_HOSTS).
+   * Everything else is refused: a public domain that resolves to 127.0.0.1 (DNS rebinding) can't drive Run Hound
+   * from a web page, and another container on the same network can't reach it by the server's IP address.
    */
   serverHosts?: string[];
+  /** The address people open (RUNHOUND_PUBLIC_URL, set by the compose files); its host is accepted too. */
+  publicUrl?: string;
+  /**
+   * The address `serve --host` bound to. A specific address is accepted (you chose to serve on it); a wildcard
+   * (0.0.0.0, ::) adds nothing, so binding to every interface in a container doesn't open the API to its network.
+   */
+  boundHost?: string;
   /** How long the AI part of planning (review + suggest) may take per plan. Default AI_PLAN_BUDGET_MS (4 minutes). */
   aiPlanBudgetMs?: number;
 }
@@ -197,15 +204,98 @@ const REPORT_FILES: Record<string, string> = {
   "report.html": "text/html; charset=utf-8",
 };
 
+/** Addresses that only ever reach this machine: loopback (IPv4-mapped too) and the unspecified 0.0.0.0 / ::. */
+const THIS_MACHINE = new BlockList();
+THIS_MACHINE.addSubnet("127.0.0.0", 8, "ipv4");
+THIS_MACHINE.addAddress("::1", "ipv6");
+const UNSPECIFIED = new Set(["0.0.0.0", "::"]);
+
+/** A host name or address as the URL parser writes it, without IPv6 brackets: "LOCALHOST" -> "localhost". */
+function hostKey(host: string): string {
+  const name = host.trim().replace(/^\[|\]$/g, "").toLowerCase();
+  if (isIP(name) !== 6) return name;
+  try {
+    return new URL(`http://[${name}]/`).hostname.replace(/^\[|\]$/g, "");
+  } catch {
+    return name;
+  }
+}
+
 /**
- * Hosts the UI and API answer to without being listed: loopback names and any IP literal (so reaching the
- * container or a LAN address by IP still works). A DNS rebinding attack always arrives under a NAME the
- * attacker controls, which lands here and is refused.
+ * Hosts the UI and API answer to without being listed: loopback names and addresses, and 0.0.0.0 / :: (the address
+ * `serve --host 0.0.0.0` prints; connecting to it only ever reaches this machine). Any other IP address is refused,
+ * so a container on the same network can't use the API by the server's address, and a DNS rebinding attack, which
+ * always arrives under a NAME the attacker controls, is refused too.
  */
 function isDefaultHost(host: string): boolean {
-  const name = host.replace(/^\[|\]$/g, "").toLowerCase();
-  return name === "localhost" || name.endsWith(".localhost") || isIP(name) !== 0;
+  const name = hostKey(host);
+  if (name === "localhost" || name.endsWith(".localhost") || UNSPECIFIED.has(name)) return true;
+  const family = isIP(name);
+  return family !== 0 && THIS_MACHINE.check(name, family === 6 ? "ipv6" : "ipv4");
 }
+
+/** The host of a URL, or null when it doesn't parse. */
+function hostOf(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    return hostKey(new URL(url).hostname) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Security headers on every response: never framed (clickjacking), never MIME-sniffed, no Referer to other sites.
+ * The UI and report.html get their own CSP (below); everything else gets one that allows nothing.
+ */
+const BASE_HEADERS: Record<string, string> = { "x-content-type-options": "nosniff", "x-frame-options": "DENY", "referrer-policy": "no-referrer" };
+const DEFAULT_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+/**
+ * report.html is page-derived text with no script of its own: nothing runs in it (sandbox, no script-src), and it
+ * gets an opaque origin, so even an escaping slip or a tampered file can't call the API. Inline styles and images
+ * (its own artifacts and the data: URI mark) still load; allow-popups lets its links open in a new tab.
+ */
+const REPORT_CSP =
+  "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; " +
+  "sandbox allow-popups allow-popups-to-escape-sandbox";
+
+/** 'sha256-…' sources for every inline <script> and <style> in the UI document. */
+function inlineHashes(html: string, tag: "script" | "style"): string {
+  const hashes = [...html.matchAll(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "g"))].map((m) => `'sha256-${createHash("sha256").update(m[1]!, "utf8").digest("base64")}'`);
+  return hashes.join(" ") || "'none'";
+}
+
+/**
+ * The UI's CSP: only its own inline script and stylesheet (by hash; no other inline code, no style attributes),
+ * images from this server and data: URIs (the mark), requests only to this server.
+ */
+function uiCsp(html: string): string {
+  return [
+    "default-src 'none'",
+    `script-src ${inlineHashes(html, "script")}`,
+    `style-src ${inlineHashes(html, "style")}`,
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "base-uri 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+}
+
+/**
+ * Whether a run read back from disk was started with allowDestructive: report.options when the report records it,
+ * else whether a destructive approved scenario really ran (it is skipped with "Destructive scenario; …" without the
+ * opt-in; a scenario stopped before it started says nothing either way).
+ */
+function allowedDestructive(report: Report): boolean {
+  const recorded: unknown = report.options?.allowDestructive;
+  if (typeof recorded === "boolean") return recorded;
+  const destructive = new Set(report.plan.scenarios.filter((s) => s.destructive).map((s) => s.id));
+  return report.results.some((r) => destructive.has(r.scenarioId) && !(r.status === "skipped" && (r.notes === STOPPED_NOTE || /^Destructive scenario\b/.test(r.notes ?? ""))));
+}
+
+/** A redacted secret in a URL, as redactSecrets writes it: "[REDACTED:github-token]". */
+const REDACTED = /\[REDACTED:[\w-]*\]/;
 
 /** Errors caused by the user's input (bad or refused URL, no form, page won't load) rather than by Run Hound. */
 function isUserError(err: unknown): boolean {
@@ -310,19 +400,36 @@ async function checkTitles(checks: Check[] | undefined): Promise<Record<string, 
  * While a run is in progress the UI shows a live view: the numbered scenario list with the running scenario's steps,
  * the browser, the page URL, the latest frame (refreshed about twice a second) and the step log.
  * Plans and run states live in memory (the newest 50 of each); a finished run that is no longer in memory, or was
- * written before a restart, is read back from runsDir/<runId>/report.json, so report links keep working.
+ * written before a restart, is read back from runsDir/<runId>/report.json, so report links keep working. The runs
+ * list parses such a report once per change of the file (mtime and size). A re-run of a run read back from disk keeps
+ * allowDestructive (report.options, else whether a destructive scenario ran) and is refused (400) when the saved
+ * target had a secret redacted out of it.
  * The UI keeps the run id in the page's #/runs/<id> fragment, so reloading the page shows the same run (old #run=<id>
  * links still open it).
+ * Every request must be addressed to loopback (localhost, *.localhost, 127.0.0.0/8, ::1, or 0.0.0.0 / ::), a name or
+ * address in serverHosts, the host of publicUrl or the specific boundHost; anything else, other IP addresses included,
+ * is 403. Every response is nosniff, X-Frame-Options: DENY, Referrer-Policy: no-referrer and carries a CSP with
+ * frame-ancestors 'none': the UI's allows only its own inline script and stylesheet (by hash), report.html's is
+ * sandboxed with no scripts, and the rest allow nothing.
  */
 export function createApp(options: ServerOptions = {}): Hono {
   const app = new Hono();
   const plans = new Map<string, StoredPlan>();
   const runs = new Map<string, RunState>();
   const runsDir = resolve(options.runsDir ?? "runs");
-  const extraHosts = (options.serverHosts ?? (process.env.RUNHOUND_SERVER_HOSTS ?? "").split(","))
-    .map((h) => h.trim().toLowerCase())
-    .filter(Boolean);
-  const hostAllowed = (host: string) => isDefaultHost(host) || extraHosts.includes(host.toLowerCase());
+  // Accepted besides loopback: RUNHOUND_SERVER_HOSTS, the host of the address people open (RUNHOUND_PUBLIC_URL) and
+  // the specific address `serve --host` bound to. Loopback ones and wildcards add nothing.
+  const bound = options.boundHost ? hostKey(options.boundHost) : "";
+  const extraHosts = [
+    ...new Set(
+      [
+        ...(options.serverHosts ?? (process.env.RUNHOUND_SERVER_HOSTS ?? "").split(",")).map(hostKey),
+        hostOf(options.publicUrl ?? process.env.RUNHOUND_PUBLIC_URL) ?? "",
+        UNSPECIFIED.has(bound) ? "" : bound,
+      ].filter((h) => h && !isDefaultHost(h)),
+    ),
+  ];
+  const hostAllowed = (host: string) => isDefaultHost(host) || extraHosts.includes(hostKey(host));
   const maxRuns = options.maxConcurrentRuns ?? 2;
   const aiPlanBudgetMs = options.aiPlanBudgetMs ?? AI_PLAN_BUDGET_MS;
 
@@ -344,6 +451,9 @@ export function createApp(options: ServerOptions = {}): Hono {
     const finished = [...runs].filter(([, r]) => r.status !== "running").map(([id]) => id);
     for (const id of finished.slice(0, Math.max(0, runs.size - MAX_RUNS))) runs.delete(id);
   }
+
+  /** Summaries of finished runs read from disk, by run id, with the report.json mtime and size they were read at. */
+  const diskSummaries = new Map<string, { mtimeMs: number; size: number; summary: RunSummary | null }>();
 
   /** The run's state from memory, or a finished run read back from disk (after a restart or pruning). */
   async function runState(runId: string): Promise<RunState | undefined> {
@@ -369,10 +479,11 @@ export function createApp(options: ServerOptions = {}): Hono {
         durationMs,
         report,
         live,
+        // The plan as written to disk: its target is redacted (the rerun refuses one with a redacted secret).
         plan: report.plan,
         approved,
-        allowDestructive: false,
-        headed: false,
+        allowDestructive: allowedDestructive(report),
+        headed: report.options?.headed === true,
         ai: Boolean(report.plan.ai ?? report.ai),
       };
     } catch {
@@ -399,6 +510,26 @@ export function createApp(options: ServerOptions = {}): Hono {
     return out;
   }
 
+  /**
+   * A finished run's summary from runsDir/<id>/report.json, parsed once per change of the file (its mtime and size):
+   * the UI polls the list every 2 s during a run, and reports can be hundreds of KB each.
+   */
+  async function diskSummary(runId: string): Promise<RunSummary | null> {
+    let info;
+    try {
+      info = await stat(join(runsDir, runId, "report.json"));
+    } catch {
+      diskSummaries.delete(runId);
+      return null;
+    }
+    const cached = diskSummaries.get(runId);
+    if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size) return cached.summary;
+    const state = await runState(runId);
+    const summary = state ? summarize(runId, state) : null;
+    diskSummaries.set(runId, { mtimeMs: info.mtimeMs, size: info.size, summary });
+    return summary;
+  }
+
   /** Runs in memory plus finished runs on disk (runsDir/<id>/report.json), newest first. */
   async function listRuns(): Promise<RunSummary[]> {
     const out = [...runs].map(([id, state]) => summarize(id, state));
@@ -408,8 +539,10 @@ export function createApp(options: ServerOptions = {}): Hono {
     } catch {
       // No runs folder yet.
     }
-    const onDisk = await Promise.all(names.filter((id) => !runs.has(id)).map(async (id) => ({ id, state: await runState(id) })));
-    for (const { id, state } of onDisk) if (state) out.push(summarize(id, state));
+    const present = new Set(names);
+    for (const id of diskSummaries.keys()) if (!present.has(id)) diskSummaries.delete(id);
+    const onDisk = await Promise.all(names.filter((id) => !runs.has(id)).map(diskSummary));
+    for (const summary of onDisk) if (summary) out.push(summary);
     return out.sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt) || (a.runId < b.runId ? 1 : a.runId > b.runId ? -1 : 0));
   }
 
@@ -485,6 +618,15 @@ export function createApp(options: ServerOptions = {}): Hono {
     return { runId };
   }
 
+  // Security headers on every response, refusals included (see BASE_HEADERS); images need no CSP.
+  app.use("*", async (c, next) => {
+    await next();
+    for (const [name, value] of Object.entries(BASE_HEADERS)) c.header(name, value);
+    if (!c.res.headers.has("content-security-policy") && !(c.res.headers.get("content-type") ?? "").startsWith("image/")) {
+      c.header("content-security-policy", DEFAULT_CSP);
+    }
+  });
+
   // Only answer requests addressed to this machine, and never act on a POST from another site.
   app.use("*", async (c, next) => {
     const { hostname, origin } = new URL(c.req.url);
@@ -503,7 +645,8 @@ export function createApp(options: ServerOptions = {}): Hono {
 
   const headedAvailable = options.canShowBrowser ?? canShowBrowser();
   const uiHtml = renderUi({ version: RUN_HOUND_VERSION, canShowBrowser: headedAvailable });
-  app.get("/", (c) => c.html(uiHtml));
+  const uiPolicy = uiCsp(uiHtml);
+  app.get("/", (c) => c.html(uiHtml, 200, { "content-security-policy": uiPolicy }));
 
   // Only accept JSON posts: a cross-site page can send text/plain without a CORS preflight, but not application/json.
   app.use("/api/*", async (c, next) => {
@@ -652,6 +795,10 @@ export function createApp(options: ServerOptions = {}): Hono {
   app.post("/api/runs/:runId/rerun", async (c) => {
     const state = await runState(c.req.param("runId"));
     if (!state) return c.json({ error: "Unknown run." }, 404);
+    // A run read back from disk has the redacted target: planning it would test the wrong address.
+    if (REDACTED.test(state.plan.target)) {
+      return c.json({ error: "This run's address had a secret in it (a token or key), which is hidden in saved reports, so the run can't be planned again from here. Start a new run with the full address." }, 400);
+    }
     // Don't open a browser to plan when the run couldn't start anyway (startRun checks again after planning).
     const running = [...runs.values()].filter((r) => r.status === "running").length;
     if (running >= maxRuns) return c.json({ error: `${running} run${running === 1 ? " is" : "s are"} already in progress. Wait for ${running === 1 ? "it" : "one"} to finish.` }, 409);
@@ -703,7 +850,7 @@ export function createApp(options: ServerOptions = {}): Hono {
     const file = c.req.param("file");
     const type = REPORT_FILES[file];
     if (!state || state.status !== "done" || !type) return c.json({ error: "Not found." }, 404);
-    return c.body(await readFile(join(state.dir, file), "utf8"), 200, { "content-type": type });
+    return c.body(await readFile(join(state.dir, file), "utf8"), 200, { "content-type": type, ...(file === "report.html" ? { "content-security-policy": REPORT_CSP } : {}) });
   });
 
   app.get("/api/runs/:runId/specs/:file", async (c) => {

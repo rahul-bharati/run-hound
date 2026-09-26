@@ -65,10 +65,13 @@ export function planReviewPrompt(payload: PagePayload): { system: string; user: 
 /**
  * Merges an answer into a copy of the plan (the input is not mutated). For each built-in scenario the model answered:
  * ai = {rationale (trimmed, whitespace collapsed, cut to 200 chars), recommended}; priority = the model's;
- * defaultSelected = recommended && !destructive. Unknown ids and duplicates (after the first) are ignored; scenarios
- * the model did not mention are unchanged and have no `ai`. Scenarios are never added, removed or reordered, and
- * plan.groups is unchanged. Returns the plan and the ids the model got wrong (unknown, each listed once; suggested
- * ai-flow scenarios count as unknown).
+ * defaultSelected = defaultSelected || (recommended && !destructive). The review can tick a scenario, never untick
+ * one: "not recommended" is advice shown with the scenario (ai.recommended false and the rationale), and the user
+ * decides. So a small model, or page text posing as instructions, can never quietly drop a check from a run with
+ * the default approval (docs/ai-spec.md Rules 1 and 5). Unknown ids and duplicates (after the first) are ignored;
+ * scenarios the model did not mention are unchanged and have no `ai`. Scenarios are never added, removed or
+ * reordered, and plan.groups is unchanged. Returns the plan and the ids the model got wrong (unknown, each listed
+ * once; suggested ai-flow scenarios count as unknown).
  */
 export function mergeReview(plan: Plan, answer: PlanReviewAnswer): { plan: Plan; unknownIds: string[] } {
   const merged = structuredClone(plan);
@@ -85,7 +88,7 @@ export function mergeReview(plan: Plan, answer: PlanReviewAnswer): { plan: Plan;
     }
     scenario.ai = { rationale: oneLine(entry.rationale, MAX_RATIONALE), recommended: entry.recommended };
     scenario.priority = entry.priority;
-    scenario.defaultSelected = entry.recommended && !scenario.destructive;
+    scenario.defaultSelected = scenario.defaultSelected || (entry.recommended && !scenario.destructive);
   }
   return { plan: merged, unknownIds };
 }

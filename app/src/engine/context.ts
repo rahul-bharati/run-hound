@@ -6,7 +6,7 @@ import { notImplemented } from "../ai/not-implemented.js";
 import type { SessionState } from "./auth.js";
 import { openForm } from "./open-form.js";
 import { SIMULATED_RESPONSE_HEADER, type AccountRef, type Box, type CheckContext, type DiscoveredForm, type DiscoveredPage, type Evidence, type Fact, type FrameOptions, type Highlight, type Recording } from "../core/types.js";
-import { isAcceptedStatus, isSaveRequest } from "../core/saves.js";
+import { carriesTestValues, isAcceptedStatus, isPagePost, isSaveRequest } from "../core/saves.js";
 import { attachCapture } from "./capture.js";
 import { composeFrame, encodeGif, gifScale, renderCard, resolveHighlights, type FrameHeader } from "./evidence.js";
 import { explainNavigationError } from "./errors.js";
@@ -17,6 +17,11 @@ import type { SafetyOptions } from "./safety.js";
 export interface ContextOptions extends SafetyOptions {
   browser: Browser;
   form: DiscoveredForm;
+  /**
+   * Whether openPage opens `form` when it is in a dialog (form.opener) after every load. Default true. The runner
+   * passes false for page-wide scenarios: they test the page as it loads, not with the first form's dialog open.
+   */
+  openForm?: boolean;
   discoveredPage?: DiscoveredPage;
   targetUrl: string;
   artifactsDir: string;
@@ -155,10 +160,33 @@ export interface RunningCheckContext extends CheckContext {
 }
 
 /**
- * Whether a response may mean the app created a record: a save request (core/saves.ts: a non-GET fetch, XHR or form
- * post to the target's origin, or to another origin with the run's test values in its body) that the app answered
- * with a 2xx or 3xx status. Analytics beacons carry no test values in a body and preflights are OPTIONS, so neither
- * counts; nor does a response a check simulated. An upper bound: an app may turn a repeated post into one record.
+ * A GraphQL read sent as a POST (Apollo Client's default): a JSON body, or a batch of them, whose "query" holds no
+ * mutation. It reads records, even when its variables carry a test value (a search for what was just saved).
+ */
+function isGraphQlRead(postData: string | null): boolean {
+  if (!postData || !/^\s*[[{]/.test(postData)) return false;
+  let body: unknown;
+  try {
+    body = JSON.parse(postData);
+  } catch {
+    return false;
+  }
+  const operations = Array.isArray(body) ? body : [body];
+  return (
+    operations.length > 0 &&
+    operations.every((op) => {
+      const query = op && typeof op === "object" ? (op as { query?: unknown }).query : undefined;
+      return typeof query === "string" && !/\bmutation\b/.test(query);
+    })
+  );
+}
+
+/**
+ * Whether a response may mean the app created a test record: a save request (core/saves.ts: a non-GET fetch, XHR or
+ * form post to the target's origin, or to another origin with the run's test values in its body) that the app
+ * answered with a 2xx or 3xx status, and that is a page post, has no body, or carries the run's test values (CHK-5).
+ * So a same-origin analytics proxy, an RPC read sent as a POST or a GraphQL query never counts; nor does a preflight
+ * (OPTIONS) or a response a check simulated. An upper bound: an app may turn a repeated post into one record.
  */
 export function isAcceptedSave(
   r: { method: string; resourceType: string; url: string; status: number | null; postData: string | null; simulated?: boolean },
@@ -166,7 +194,9 @@ export function isAcceptedSave(
   runToken: string,
 ): boolean {
   if (r.simulated) return false;
-  return isSaveRequest(r, targetUrl, runToken) && isAcceptedStatus(r.status);
+  if (!isSaveRequest(r, targetUrl, runToken) || !isAcceptedStatus(r.status)) return false;
+  if (isGraphQlRead(r.postData)) return false;
+  return isPagePost(r) || !r.postData || carriesTestValues(r.postData, runToken);
 }
 
 /**
@@ -181,6 +211,9 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
   const screencasts: { cdp: CDPSession; stopped: boolean }[] = [];
   const counter = options.fileCounter ?? { value: 0 };
   let acceptedSaves = 0;
+  // Set by dispose(): a check abandoned at a stop or its time limit may still try to open a page; it gets none.
+  let disposed = false;
+  const ENDED = "The scenario has ended, so no new page is opened.";
   const runToken = options.runToken ?? newRunToken();
   /** URL of the page the check touched last; cards carry it in their header. */
   let lastUrl = options.targetUrl;
@@ -286,7 +319,12 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
     },
 
     async openPage(pageOptions = {}) {
+      if (disposed) throw new Error(ENDED);
       const context = await options.browser.newContext({ viewport: pageOptions.viewport ?? DEFAULT_VIEWPORT, locale: BROWSER_LOCALE });
+      if (disposed) {
+        await context.close().catch(() => undefined);
+        throw new Error(ENDED);
+      }
       contexts.push(context);
       guards.push(await guardContext(context, { allowedHosts: options.allowedHosts, lookup: options.lookup }));
       const page = await context.newPage();
@@ -317,7 +355,7 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
       // Bounded: a page that polls or keeps a stream open never reaches network idle.
       await page.waitForLoadState("networkidle", { timeout: NETWORK_IDLE_TIMEOUT_MS }).catch(() => undefined);
       // A form in a dialog or sheet (0.4.0): open it, so every check finds its form on screen.
-      if (options.form.opener) await openForm(page, options.form);
+      if (options.form.opener && options.openForm !== false) await openForm(page, options.form);
       return { context, page, capture };
     },
 
@@ -434,6 +472,7 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
     },
 
     async dispose() {
+      disposed = true;
       const casts = screencasts.splice(0);
       for (const cast of casts) cast.stopped = true;
       await Promise.all(casts.map(({ cdp }) => cdp.send("Page.stopScreencast").then(() => cdp.detach()).catch(() => undefined)));

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Generated ids</title></head>
+<body>
+<div id="root"></div>
+<script>
+  // Like a client-rendered React app whose useId numbering depends on which component mounts first: every load gives
+  // the form's elements different framework ids (React 18 ":r1:", React 19 "«r1»" and "_r_1_", Radix, Headless UI, MUI).
+  // data-field is only for the test to check what each selector found; nothing in the app reads it.
+  const n = 1 + Math.floor(Math.random() * 400);
+  const id = (k) => [":r" + (n + k).toString(32) + ":", "«r" + (n + k).toString(32) + "»", "_r_" + (n + k).toString(32) + "_"][k % 3];
+  const extra = Math.random() < 0.5 ? '<button type="button" id="radix-' + id(9) + '" aria-haspopup="dialog">Signed in as Alex</button>' : "";
+  document.getElementById("root").innerHTML = `
+    <header>${extra}</header>
+    <main>
+      <h1>Dashboard</h1>
+      <form id="radix-${id(0)}" aria-label="Quick add">
+        <div><label for="${id(1)}-form-item">Task</label><input id="${id(1)}-form-item" name="title" data-field="title"></div>
+        <div><label for="${id(2)}-form-item">Notes</label><textarea id="${id(2)}-form-item" data-field="notes"></textarea></div>
+        <div><label for="mui-${n}">Estimate</label><input id="mui-${n}" type="number" data-field="estimate"></div>
+        <div><label for="headlessui-listbox-button-${id(3)}">Assignee</label>
+          <button type="button" id="headlessui-listbox-button-${id(3)}" aria-haspopup="listbox" data-field="assignee">Anyone</button></div>
+        <div><label for="due">Due</label><input id="due" type="date" data-field="due"></div>
+        <div><input id="${id(4)}" placeholder="Tags" data-field="tags"></div>
+        <button type="submit" id="${id(5)}" data-field="submit">Add task</button>
+      </form>
+    </main>`;
+  document.querySelector("form").addEventListener("submit", (e) => e.preventDefault());
+</script>
+</body>
+</html>

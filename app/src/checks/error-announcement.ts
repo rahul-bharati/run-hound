@@ -250,7 +250,7 @@ for (const selector of ${JSON.stringify(failing.map((f) => f.field.selector))}) 
   const describedBy = (await control.getAttribute("aria-describedby")) ?? "";
   const texts = await Promise.all(describedBy.split(/\\s+/).filter(Boolean).map((id) => page.locator("#" + id).textContent()));
   expect(texts.join(" ").trim().length, selector).toBeGreaterThan(0);
-}`,
+}`, [], ctx.form,
           ),
         });
       }

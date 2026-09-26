@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Radix widgets</title>
+<style>
+  /* The DOM below is what React 19 + Radix + shadcn/ui + react-hook-form render (captured from a real app), minus classes. */
+  button[role=combobox], button[role=checkbox], button[role=switch], button[role=radio] { min-width: 16px; min-height: 16px; }
+  .bubble { position: absolute; pointer-events: none; opacity: 0; margin: 0; transform: translateX(-100%); width: 16px; height: 16px; }
+  .slider { position: relative; display: flex; width: 200px; height: 16px; }
+  .thumb { display: block; width: 16px; height: 16px; background: #333; border-radius: 50%; }
+  [role=listbox], .popover { position: absolute; top: 40px; left: 40px; background: white; border: 1px solid #999; padding: 4px; }
+</style>
+</head>
+<body>
+<div id="root">
+<header><nav aria-label="Main"><a href="/">Lab</a><button type="button" aria-pressed="false"><span>Switch to dark theme</span></button></nav></header>
+<main>
+<h1>Projects</h1>
+<form aria-labelledby="new-project">
+  <h2 id="new-project">New project</h2>
+  <div data-slot="form-item">
+    <label data-slot="form-label" for="_r_0_-form-item">Project name <span aria-hidden="true">*</span></label>
+    <input data-slot="form-control" id="_r_0_-form-item" aria-describedby="_r_0_-form-item-description" aria-invalid="false" value="" name="name">
+  </div>
+  <div data-slot="form-item">
+    <label data-slot="form-label" for="_r_1_-form-item">Team size (required)</label>
+    <button type="button" role="combobox" aria-expanded="false" aria-autocomplete="none" dir="ltr" data-state="closed" data-placeholder="" data-slot="form-control" id="_r_1_-form-item" aria-describedby="_r_1_-form-item-description" aria-invalid="false"><span style="pointer-events: none;">Select team size</span><svg width="16" height="16" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+    <select aria-hidden="true" tabindex="-1" style="position: absolute; border: 0px; width: 1px; height: 1px; padding: 0px; margin: -1px; overflow: hidden; clip: rect(0px, 0px, 0px, 0px); white-space: nowrap;"><option value="" selected=""></option><option value="1-5">1–5</option><option value="6-20">6–20</option><option value="21-50">21–50</option></select>
+  </div>
+  <div data-slot="form-item">
+    <label data-slot="form-label" for="_r_3_-form-item">Priority</label>
+    <div role="radiogroup" aria-required="false" dir="ltr" data-slot="form-control" id="_r_3_-form-item" aria-invalid="false" tabindex="0" style="outline: none;">
+      <div data-slot="form-item"><button type="button" role="radio" aria-checked="false" data-state="unchecked" value="low" id="_r_4_-form-item" tabindex="-1" data-radix-collection-item=""></button><input aria-hidden="true" tabindex="-1" type="radio" value="low" class="bubble"><label for="_r_4_-form-item">low</label></div>
+      <div data-slot="form-item"><button type="button" role="radio" aria-checked="false" data-state="unchecked" value="medium" id="_r_6_-form-item" tabindex="-1" data-radix-collection-item=""></button><input aria-hidden="true" tabindex="-1" type="radio" value="medium" class="bubble"><label for="_r_6_-form-item">medium</label></div>
+      <div data-slot="form-item"><button type="button" role="radio" aria-checked="false" data-state="unchecked" value="high" id="_r_8_-form-item" tabindex="-1" data-radix-collection-item=""></button><input aria-hidden="true" tabindex="-1" type="radio" value="high" class="bubble"><label for="_r_8_-form-item">high</label></div>
+    </div>
+  </div>
+  <div data-slot="form-item">
+    <label data-slot="form-label" for="_r_a_-form-item">Budget</label>
+    <span class="slider" dir="ltr" data-orientation="horizontal" aria-disabled="false" data-slot="form-control" aria-label="Budget" id="_r_a_-form-item" aria-invalid="false">
+      <span data-orientation="horizontal"><span data-orientation="horizontal" style="left: 0%; right: 90%;"></span></span>
+      <span style="position: absolute; left: 10%;"><span class="thumb" role="slider" aria-valuemin="0" aria-valuemax="50000" aria-orientation="horizontal" data-orientation="horizontal" tabindex="0" data-radix-collection-item="" aria-valuenow="5000"></span></span>
+      <input value="5000" style="display: none;">
+    </span>
+    <p data-slot="form-description" id="_r_a_-form-item-description">$5000</p>
+  </div>
+  <div data-slot="form-item">
+    <button type="button" role="switch" aria-checked="false" data-state="unchecked" value="on" data-slot="form-control" id="_r_b_-form-item" aria-invalid="false"><span data-state="unchecked"></span></button>
+    <input aria-hidden="true" tabindex="-1" type="checkbox" value="on" class="bubble" style="width: 32px; height: 18px;">
+    <label data-slot="form-label" for="_r_b_-form-item">Notify the team</label>
+  </div>
+  <div data-slot="form-item">
+    <button type="button" role="checkbox" aria-checked="false" aria-required="true" data-state="unchecked" value="on" data-slot="form-control" id="_r_c_-form-item" aria-invalid="false"></button>
+    <input aria-hidden="true" tabindex="-1" type="checkbox" value="on" required class="bubble">
+    <div><label data-slot="form-label" for="_r_c_-form-item">I accept the terms</label></div>
+  </div>
+  <div data-slot="form-item">
+    <label data-slot="form-label" for="_r_d_-form-item">Owner</label>
+    <button data-slot="form-control" role="combobox" aria-expanded="false" type="button" id="_r_d_-form-item" aria-haspopup="dialog" data-state="closed">Select owner</button>
+  </div>
+  <button data-slot="button" type="submit">Create project</button>
+</form>
+</main>
+</div>
+<script>
+  // Just enough behaviour to act like the real widgets: portals open on click and close on Escape.
+  const portal = (html) => { const el = document.createElement("div"); el.innerHTML = html; document.body.appendChild(el.firstElementChild); return document.body.lastElementChild; };
+  let open = null;
+  const close = () => { if (open) { open.el.remove(); open.trigger.setAttribute("aria-expanded", "false"); open.trigger.dataset.state = "closed"; open = null; } };
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+
+  const team = document.getElementById("_r_1_-form-item");
+  const bubble = team.nextElementSibling;
+  const showTeam = () => { team.firstElementChild.textContent = bubble.selectedOptions[0]?.textContent || "Select team size"; team.toggleAttribute("data-placeholder", !bubble.value); };
+  bubble.addEventListener("change", showTeam);
+  team.addEventListener("click", () => {
+    close();
+    window.teamOpened = (window.teamOpened || 0) + 1;
+    const el = portal('<div role="listbox" id="radix-_r_2_" data-state="open">' + ["1–5", "6–20", "21–50"].map((t, i) => '<div role="option" aria-selected="false" data-value="' + bubble.options[i + 1].value + '">' + t + "</div>").join("") + "</div>");
+    for (const o of el.children) o.addEventListener("click", () => { bubble.value = o.dataset.value; showTeam(); close(); });
+    team.setAttribute("aria-expanded", "true");
+    open = { el, trigger: team };
+  });
+
+  const owner = document.getElementById("_r_d_-form-item");
+  owner.addEventListener("click", () => {
+    close();
+    const el = portal('<div data-radix-popper-content-wrapper=""><div role="dialog" id="radix-_r_e_" class="popover" data-state="open"><div cmdk-root=""><input cmdk-input="" role="combobox" aria-expanded="true" aria-controls="_r_f_" placeholder="Search people..."><div cmdk-list="" role="listbox" id="_r_f_">' +
+      ["Alex Rivera", "Sam Lee", "Priya Shah"].map((m) => '<div cmdk-item="" role="option" data-value="' + m + '">' + m + "</div>").join("") + "</div></div></div></div>");
+    for (const o of el.querySelectorAll("[role=option]")) o.addEventListener("click", () => { owner.textContent = o.dataset.value; close(); });
+    owner.setAttribute("aria-expanded", "true");
+    open = { el, trigger: owner };
+  });
+
+  for (const r of document.querySelectorAll("[role=radio]")) r.addEventListener("click", () => {
+    for (const o of document.querySelectorAll("[role=radio]")) { o.setAttribute("aria-checked", String(o === r)); o.dataset.state = o === r ? "checked" : "unchecked"; o.nextElementSibling.checked = o === r; }
+  });
+  for (const b of document.querySelectorAll("[role=switch], [role=checkbox]")) b.addEventListener("click", () => {
+    const on = b.getAttribute("aria-checked") !== "true";
+    b.setAttribute("aria-checked", String(on)); b.dataset.state = on ? "checked" : "unchecked"; b.nextElementSibling.checked = on;
+  });
+  document.querySelector("form").addEventListener("submit", (e) => e.preventDefault());
+</script>
+</body>
+</html>

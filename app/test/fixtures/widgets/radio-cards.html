@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Choose a plan</title>
+<!--
+  shadcn "radio cards": each Radix RadioGroupItem is visually hidden (Tailwind sr-only) and its <label> is the card a
+  person clicks, so the radio itself can't be clicked where it is: the label card covers it.
+-->
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border-width: 0; }
+  [role=radiogroup] { display: grid; grid-template-columns: repeat(3, 120px); gap: 16px; }
+  [role=radiogroup] > div { position: relative; }
+  label { display: block; padding: 16px; border: 2px solid #ccc; border-radius: 6px; text-align: center; text-transform: capitalize; cursor: pointer; }
+  button[data-state=checked] + input + label { border-color: #111; }
+</style>
+</head>
+<body>
+<main>
+<h1>Choose a plan</h1>
+<form id="plan-form" novalidate>
+  <div role="radiogroup" aria-required="false" dir="ltr" aria-label="Plan" id="plan" tabindex="0">
+    <div><button type="button" role="radio" aria-checked="true" data-state="checked" value="starter" id="plan-starter" class="sr-only" tabindex="0"></button><input aria-hidden="true" tabindex="-1" type="radio" value="starter" checked style="position: absolute; pointer-events: none; opacity: 0; margin: 0px; transform: translateX(-100%);"><label for="plan-starter">starter</label></div>
+    <div><button type="button" role="radio" aria-checked="false" data-state="unchecked" value="team" id="plan-team" class="sr-only" tabindex="-1"></button><input aria-hidden="true" tabindex="-1" type="radio" value="team" style="position: absolute; pointer-events: none; opacity: 0; margin: 0px; transform: translateX(-100%);"><label for="plan-team">team</label></div>
+    <div><button type="button" role="radio" aria-checked="false" data-state="unchecked" value="studio" id="plan-studio" class="sr-only" tabindex="-1"></button><input aria-hidden="true" tabindex="-1" type="radio" value="studio" style="position: absolute; pointer-events: none; opacity: 0; margin: 0px; transform: translateX(-100%);"><label for="plan-studio">studio</label></div>
+  </div>
+</form>
+</main>
+<script>
+  var radios = Array.prototype.slice.call(document.querySelectorAll("[role=radio]"));
+  radios.forEach(function (r) {
+    r.addEventListener("click", function () {
+      radios.forEach(function (o) {
+        var on = o === r;
+        o.setAttribute("aria-checked", String(on));
+        o.setAttribute("data-state", on ? "checked" : "unchecked");
+        o.tabIndex = on ? 0 : -1;
+        o.nextElementSibling.checked = on;
+      });
+    });
+  });
+</script>
+</body>
+</html>

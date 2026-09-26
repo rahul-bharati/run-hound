@@ -273,7 +273,7 @@ Options: `--approve all|default|<id,id>` (default: the recommended scenarios), `
 | `EADDRINUSE` | The port is taken. Pick another (`--port`, `PORT`, `RUNHOUND_HOST_PORT`). |
 | `manifest unknown` or `denied` pulling `ghcr.io/rahul-bharati/run-hound…` | The images aren't published yet (they appear with the v0.3.0 release). Until then, build them from a clone: `docker compose up --build` ([From source](#from-source)). |
 | `EACCES … mkdir '/repo/app/runs/…'` | The container can't write to your reports folder. Create it yourself first (`mkdir -p runs`); on Podman avoid `--user`. |
-| `Error: executing /usr/bin/podman-compose run … exit status 1` | Podman's `docker compose` wrapper repeating Run Hound's exit code, not a crash: 1 means the run finished and found confirmed findings (the report was written), 2 an error (the message above it says which). |
+| `Error: executing /usr/bin/podman-compose run … exit status 1` | Podman's `docker compose` wrapper repeating Run Hound's exit code, not a crash: 1 means the run finished and found confirmed findings (the report was written), 2 an error or a run that tested nothing because every scenario errored or was skipped (the message above it says which). |
 | "Looks like you launched a headed browser without having a XServer running" | You ticked **Show the browser window** in a container or on a machine without a display. Untick it. |
 
 ## Trying the AI features

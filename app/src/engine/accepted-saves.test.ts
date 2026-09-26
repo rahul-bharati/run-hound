@@ -44,3 +44,35 @@ describe("isAcceptedSave", () => {
     expect(isAcceptedSave(save({ url: "http://localhost:9999/collect", postData: null }), TARGET, TOKEN)).toBe(false);
   });
 });
+
+/**
+ * CHK-5: an app that also POSTs to its own origin to read (GraphQL queries, Apollo's default) or to report events
+ * (a same-origin analytics proxy) created no record with those requests. Only writes that carry the run's test values,
+ * page posts and writes with no body at all count.
+ */
+describe("isAcceptedSave: reads and events sent as POST (CHK-5)", () => {
+  const gql = (query: string, variables: Record<string, unknown> = {}) => JSON.stringify({ query, variables });
+
+  it("does not count a GraphQL query, even one that carries a test value in its variables", () => {
+    expect(isAcceptedSave(save({ url: "http://localhost:5173/graphql", status: 200, postData: gql("query { entries { id name } }") }), TARGET, TOKEN)).toBe(false);
+    expect(isAcceptedSave(save({ url: "http://localhost:5173/graphql", status: 200, postData: gql("query Find($q: String) { entries(q: $q) { id } }", { q: `Name ${TOKEN}keep` }) }), TARGET, TOKEN)).toBe(false);
+    // A batch of queries is a read too.
+    expect(isAcceptedSave(save({ url: "http://localhost:5173/graphql", status: 200, postData: `[${gql("{ me { id } }")},${gql("query { entries { id } }")}]` }), TARGET, TOKEN)).toBe(false);
+  });
+
+  it("counts a GraphQL mutation that carries the test values", () => {
+    const mutation = gql("mutation Sign($name: String!) { sign(name: $name) { id } }", { name: `Name ${TOKEN}keep` });
+    expect(isAcceptedSave(save({ url: "http://localhost:5173/graphql", status: 200, postData: mutation }), TARGET, TOKEN)).toBe(true);
+  });
+
+  it("does not count a same-origin write without the test values in its body (an analytics proxy, a refetch)", () => {
+    expect(isAcceptedSave(save({ url: "http://localhost:5173/ingest", postData: '{"event":"$pageview"}' }), TARGET, TOKEN)).toBe(false);
+    expect(isAcceptedSave(save({ url: "http://localhost:5173/rpc/listEntries", status: 200, postData: '{"page":1}' }), TARGET, TOKEN)).toBe(false);
+  });
+
+  it("still counts a page post and a write with no body (a button that creates a draft)", () => {
+    expect(isAcceptedSave(save({ resourceType: "document", status: 303, postData: "subscribe=on" }), TARGET, TOKEN)).toBe(true);
+    expect(isAcceptedSave(save({ url: "http://localhost:5173/api/drafts", postData: null }), TARGET, TOKEN)).toBe(true);
+    expect(isAcceptedSave(save({ url: "http://localhost:5173/api/drafts", postData: "" }), TARGET, TOKEN)).toBe(true);
+  });
+});

@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projects</title>
+<!--
+  A react-hook-form + zod + shadcn/Radix "New project" form, rebuilt with plain DOM and a small script. The markup is
+  what React 19 + Radix render (copied from a real shadcn build): a Select trigger with its aria-hidden "bubble"
+  <select>, a RadioGroup, a Slider, a Switch, a Checkbox with bubble inputs, a shadcn Combobox (Popover + cmdk) and a
+  Downshift-style autocomplete. Nothing is marked required in the markup except the "*" in one label: the rules live
+  in the script (zod), as in most AI-built apps. The Select listbox and the cmdk popover open in portals at the end
+  of <body>; while the Select is open the rest of the page is aria-hidden and body has pointer-events: none.
+-->
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; color: #111; background: #fff; line-height: 1.5; }
+  main { max-width: 520px; }
+  .item { margin: 0 0 16px; position: relative; }
+  label { font-weight: 600; }
+  input:not([type]), input[type=text], input[type=email] { display: block; width: 100%; padding: 6px 8px; font-size: 16px; border: 1px solid #555; border-radius: 4px; }
+  select { font-size: 16px; }
+  button { font-size: 16px; }
+  button[role=combobox] { display: flex; justify-content: space-between; align-items: center; min-width: 220px; padding: 6px 10px; background: #fff; border: 1px solid #555; border-radius: 4px; }
+  button[role=checkbox], button[role=radio] { width: 16px; height: 16px; padding: 0; border: 1px solid #333; background: #fff; vertical-align: middle; }
+  button[role=radio] { border-radius: 50%; }
+  button[role=checkbox][data-state=checked], button[role=radio][data-state=checked] { background: #111; }
+  button[role=switch] { width: 32px; height: 18px; padding: 0; border-radius: 9px; border: 1px solid #333; background: #ddd; vertical-align: middle; }
+  button[role=switch][data-state=checked] { background: #111; }
+  [role=radiogroup] { display: flex; gap: 16px; }
+  .slider-root { position: relative; display: block; width: 300px; height: 20px; margin-top: 8px; }
+  .slider-track { position: absolute; left: 0; right: 0; top: 8px; height: 4px; background: #ddd; }
+  .slider-thumb { display: block; width: 16px; height: 16px; border-radius: 50%; background: #111; }
+  .msg { color: #b00020; font-size: 14px; margin: 4px 0 0; }
+  [data-radix-popper-content-wrapper] { background: #fff; border: 1px solid #999; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+  [role=option] { padding: 4px 10px; cursor: default; }
+  [role=option]:hover, [role=option][data-highlighted], [role=option][aria-selected=true] { background: #eee; }
+  #city-list { position: absolute; left: 0; right: 0; top: 100%; z-index: 10; margin: 0; padding: 0; list-style: none; background: #fff; border: 1px solid #999; }
+  [cmdk-input] { display: block; width: 100%; border: 0; border-bottom: 1px solid #ddd; padding: 6px 10px; font-size: 16px; }
+</style>
+</head>
+<body>
+<div id="root">
+<main>
+<h1>Projects</h1>
+<form id="project" novalidate aria-labelledby="new-project">
+  <h2 id="new-project">New project</h2>
+
+  <div class="item">
+    <label for="f-name">Project name *</label>
+    <input id="f-name" name="name" aria-invalid="false" value="">
+    <p class="msg" id="m-name"></p>
+  </div>
+
+  <div class="item">
+    <label for="f-team">Team size</label>
+    <button type="button" role="combobox" aria-expanded="false" aria-autocomplete="none" dir="ltr" data-state="closed" data-placeholder="" id="f-team" aria-invalid="false"><span style="pointer-events: none;">Select team size</span><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button>
+    <select aria-hidden="true" tabindex="-1" style="position: absolute; border: 0px; width: 1px; height: 1px; padding: 0px; margin: -1px; overflow: hidden; clip: rect(0px, 0px, 0px, 0px); white-space: nowrap; overflow-wrap: normal;"><option value="" selected=""></option><option value="1-5">1–5</option><option value="6-20">6–20</option><option value="21-50">21–50</option></select>
+    <p class="msg" id="m-teamSize"></p>
+  </div>
+
+  <div class="item">
+    <label for="f-priority">Priority</label>
+    <div role="radiogroup" aria-required="false" dir="ltr" id="f-priority" tabindex="0" style="outline: none;">
+      <div><button type="button" role="radio" aria-checked="false" data-state="unchecked" value="low" id="f-p-low" tabindex="-1"></button><input aria-hidden="true" tabindex="-1" type="radio" value="low" style="position: absolute; pointer-events: none; opacity: 0; margin: 0px; transform: translateX(-100%); width: 16px; height: 16px;"> <label for="f-p-low">low</label></div>
+      <div><button type="button" role="radio" aria-checked="false" data-state="unchecked" value="medium" id="f-p-medium" tabindex="-1"></button><input aria-hidden="true" tabindex="-1" type="radio" value="medium" style="position: absolute; pointer-events: none; opacity: 0; margin: 0px; transform: translateX(-100%); width: 16px; height: 16px;"> <label for="f-p-medium">medium</label></div>
+      <div><button type="button" role="radio" aria-checked="false" data-state="unchecked" value="high" id="f-p-high" tabindex="-1"></button><input aria-hidden="true" tabindex="-1" type="radio" value="high" style="position: absolute; pointer-events: none; opacity: 0; margin: 0px; transform: translateX(-100%); width: 16px; height: 16px;"> <label for="f-p-high">high</label></div>
+    </div>
+    <p class="msg" id="m-priority"></p>
+  </div>
+
+  <div class="item">
+    <label for="f-budget">Budget</label>
+    <span dir="ltr" data-orientation="horizontal" aria-disabled="false" aria-label="Budget" id="f-budget" class="slider-root"><span class="slider-track" data-orientation="horizontal"></span><span id="f-budget-thumb-wrap" style="position: absolute; left: 10%;"><span role="slider" aria-valuemin="0" aria-valuemax="50000" aria-orientation="horizontal" data-orientation="horizontal" tabindex="0" aria-valuenow="5000" class="slider-thumb"></span></span><input value="5000" style="display: none;"></span>
+    <p id="budget-text">$5000</p>
+  </div>
+
+  <div class="item">
+    <button type="button" role="switch" aria-checked="false" data-state="unchecked" value="on" id="f-notify"><span data-state="unchecked"></span></button><input aria-hidden="true" tabindex="-1" type="checkbox" value="on" style="position: absolute; pointer-events: none; opacity: 0; margin: 0px; transform: translateX(-100%); width: 32px; height: 18px;">
+    <label for="f-notify">Notify the team</label>
+  </div>
+
+  <div class="item">
+    <label for="f-owner">Owner</label>
+    <button type="button" role="combobox" aria-expanded="false" aria-haspopup="dialog" data-state="closed" id="f-owner" aria-invalid="false">Select owner</button>
+    <p class="msg" id="m-owner"></p>
+  </div>
+
+  <div class="item">
+    <label for="f-city">City</label>
+    <input id="f-city" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="city-list" autocomplete="off" value="">
+    <ul role="listbox" id="city-list" aria-label="Cities" hidden></ul>
+  </div>
+
+  <div class="item">
+    <label for="f-region">Region</label>
+    <select id="f-region" name="region"><option value="">Choose…</option><option value="eu">Europe</option><option value="us">Americas</option></select>
+  </div>
+
+  <div class="item">
+    <button type="button" role="checkbox" aria-checked="false" data-state="unchecked" value="on" id="f-terms" aria-invalid="false"></button><input aria-hidden="true" tabindex="-1" type="checkbox" value="on" style="position: absolute; pointer-events: none; opacity: 0; margin: 0px; transform: translateX(-100%); width: 16px; height: 16px;">
+    <div><label for="f-terms">I accept the terms</label><p class="msg" id="m-terms"></p></div>
+  </div>
+
+  <button type="submit" id="create">Create project</button>
+</form>
+<p id="toast" role="status"></p>
+<section aria-labelledby="list-h">
+  <h2 id="list-h">Your projects</h2>
+  <ul id="projects"></ul>
+</section>
+</main>
+</div>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var root = $("root");
+  var form = $("project");
+  var state = { teamSize: "", priority: "", notify: false, budget: 5000, owner: "", terms: false };
+
+  function showError(key, text) {
+    $("m-" + key).textContent = text;
+    var control = { name: "f-name", teamSize: "f-team", priority: "f-priority", owner: "f-owner", terms: "f-terms" }[key];
+    if (control) $(control).setAttribute("aria-invalid", "true");
+  }
+  function clearError(key) {
+    var msg = $("m-" + key);
+    if (msg) msg.textContent = "";
+  }
+
+  /** A popper portal at the end of <body>, under `trigger`. */
+  function portal(trigger) {
+    var wrap = document.createElement("div");
+    wrap.setAttribute("data-radix-popper-content-wrapper", "");
+    wrap.setAttribute("dir", "ltr");
+    var r = trigger.getBoundingClientRect();
+    wrap.style.cssText = "position: absolute; left: " + (r.left + scrollX) + "px; top: " + (r.bottom + scrollY + 4) + "px; min-width: " + r.width + "px; z-index: 50;";
+    document.body.appendChild(wrap);
+    return wrap;
+  }
+
+  // ---------- Radix Select (Team size): opens on mouse pointerdown, selects on pointerup, modal while open ----------
+  var team = $("f-team");
+  var teamNative = team.nextElementSibling;
+  var teamLabels = { "1-5": "1–5", "6-20": "6–20", "21-50": "21–50" };
+  var selectOpen = null;
+  function setTeam(value) {
+    state.teamSize = value;
+    team.firstElementChild.textContent = value ? teamLabels[value] : "Select team size";
+    if (value) team.removeAttribute("data-placeholder"); else team.setAttribute("data-placeholder", "");
+    if (teamNative.value !== value) {
+      teamNative.value = value;
+      teamNative.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    if (value) clearError("teamSize");
+  }
+  // Radix's bubble <select> calls onValueChange with its new value.
+  teamNative.addEventListener("change", function () { if (teamNative.value !== state.teamSize) setTeam(teamNative.value); });
+  function closeSelect() {
+    if (!selectOpen) return;
+    selectOpen.remove();
+    selectOpen = null;
+    team.setAttribute("aria-expanded", "false");
+    team.setAttribute("data-state", "closed");
+    root.removeAttribute("aria-hidden");
+    document.body.style.pointerEvents = "";
+    team.focus();
+  }
+  function openSelect() {
+    if (selectOpen) return;
+    var wrap = portal(team);
+    var box = document.createElement("div");
+    box.setAttribute("role", "listbox");
+    box.id = "radix-team-content";
+    box.setAttribute("data-state", "open");
+    box.tabIndex = -1;
+    var viewport = document.createElement("div");
+    viewport.setAttribute("role", "presentation");
+    box.appendChild(viewport);
+    Object.keys(teamLabels).forEach(function (value, i) {
+      var opt = document.createElement("div");
+      opt.setAttribute("role", "option");
+      opt.setAttribute("aria-labelledby", "team-opt-" + i);
+      opt.setAttribute("aria-selected", String(state.teamSize === value));
+      opt.setAttribute("data-state", state.teamSize === value ? "checked" : "unchecked");
+      opt.tabIndex = -1;
+      opt.innerHTML = '<span></span><span id="team-opt-' + i + '">' + teamLabels[value] + "</span>";
+      var pointerType = "";
+      var choose = function () { setTeam(value); closeSelect(); };
+      opt.addEventListener("pointerdown", function (e) { pointerType = e.pointerType; });
+      opt.addEventListener("pointerup", function () { if (pointerType === "mouse") choose(); });
+      opt.addEventListener("click", function () { if (pointerType !== "mouse") choose(); });
+      opt.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(); } });
+      viewport.appendChild(opt);
+    });
+    wrap.appendChild(box);
+    selectOpen = wrap;
+    team.setAttribute("aria-expanded", "true");
+    team.setAttribute("data-state", "open");
+    team.setAttribute("aria-controls", box.id);
+    root.setAttribute("aria-hidden", "true");
+    document.body.style.pointerEvents = "none";
+    wrap.style.pointerEvents = "auto";
+    (box.querySelector('[data-state="checked"]') || box.querySelector("[role=option]")).focus();
+  }
+  team.addEventListener("pointerdown", function (e) {
+    if (e.button === 0 && !e.ctrlKey && e.pointerType === "mouse") { openSelect(); e.preventDefault(); }
+  });
+  team.addEventListener("click", function (e) { team.focus(); if (e.pointerType !== "mouse") openSelect(); });
+  team.addEventListener("keydown", function (e) {
+    if ([" ", "Enter", "ArrowUp", "ArrowDown"].indexOf(e.key) >= 0) { openSelect(); e.preventDefault(); }
+  });
+
+  // ---------- Radix Checkbox and Switch: a button with aria-checked, mirrored into an aria-hidden input ----------
+  function toggleButton(btn, key) {
+    var bubble = btn.nextElementSibling;
+    btn.addEventListener("click", function () {
+      var next = btn.getAttribute("aria-checked") !== "true";
+      btn.setAttribute("aria-checked", String(next));
+      btn.setAttribute("data-state", next ? "checked" : "unchecked");
+      state[key] = next;
+      bubble.checked = next;
+      if (next) clearError(key);
+    });
+    // Radix: checkboxes toggle with Space (the button's own click), never Enter.
+    btn.addEventListener("keydown", function (e) { if (e.key === "Enter") e.preventDefault(); });
+  }
+  toggleButton($("f-notify"), "notify");
+  toggleButton($("f-terms"), "terms");
+
+  // ---------- Radix RadioGroup ----------
+  var radios = Array.prototype.slice.call($("f-priority").querySelectorAll("[role=radio]"));
+  function checkRadio(btn) {
+    radios.forEach(function (r) {
+      var on = r === btn;
+      r.setAttribute("aria-checked", String(on));
+      r.setAttribute("data-state", on ? "checked" : "unchecked");
+      r.tabIndex = on ? 0 : -1;
+      r.nextElementSibling.checked = on;
+    });
+    state.priority = btn ? btn.value : "";
+    if (btn) clearError("priority");
+  }
+  radios.forEach(function (r, i) {
+    r.addEventListener("click", function () { checkRadio(r); });
+    r.addEventListener("keydown", function (e) {
+      var move = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+      if (!move) return;
+      e.preventDefault();
+      var next = radios[(i + move + radios.length) % radios.length];
+      next.focus();
+      checkRadio(next);
+    });
+  });
+
+  // ---------- Radix Slider: keys only (Home, End, arrows, PageUp/PageDown = 10 steps) ----------
+  var thumb = $("f-budget").querySelector("[role=slider]");
+  var MIN = 0, MAX = 50000, STEP = 500;
+  function setBudget(v) {
+    v = Math.min(MAX, Math.max(MIN, Math.round(v / STEP) * STEP));
+    state.budget = v;
+    thumb.setAttribute("aria-valuenow", String(v));
+    $("f-budget-thumb-wrap").style.left = ((v - MIN) / (MAX - MIN)) * 100 + "%";
+    $("budget-text").textContent = "$" + v;
+    $("f-budget").querySelector("input").value = String(v);
+  }
+  thumb.addEventListener("keydown", function (e) {
+    var big = e.key === "PageUp" || e.key === "PageDown" || (e.shiftKey && e.key.indexOf("Arrow") === 0);
+    var dir = { ArrowRight: 1, ArrowUp: 1, PageUp: 1, ArrowLeft: -1, ArrowDown: -1, PageDown: -1 }[e.key];
+    if (e.key === "Home") setBudget(MIN);
+    else if (e.key === "End") setBudget(MAX);
+    else if (dir) setBudget(state.budget + dir * STEP * (big ? 10 : 1));
+    else return;
+    e.preventDefault();
+  });
+
+  // ---------- shadcn Combobox: a button[role=combobox] opening a Popover with a cmdk list (non-modal) ----------
+  var owner = $("f-owner");
+  var people = ["Alex Rivera", "Sam Lee", "Priya Shah", "Jon Park"];
+  var popover = null;
+  function setOwner(name) {
+    state.owner = name;
+    owner.textContent = name || "Select owner";
+    if (name) clearError("owner");
+  }
+  function closeOwner() {
+    if (!popover) return;
+    popover.remove();
+    popover = null;
+    owner.setAttribute("aria-expanded", "false");
+    owner.setAttribute("data-state", "closed");
+  }
+  function openOwner() {
+    var wrap = portal(owner);
+    wrap.innerHTML =
+      '<div role="dialog" id="radix-owner-content" data-state="open" tabindex="-1"><div cmdk-root="" tabindex="-1">' +
+      '<label cmdk-label="" for="owner-search" id="owner-search-label"></label>' +
+      '<input placeholder="Search people..." cmdk-input="" autocomplete="off" autocorrect="off" spellcheck="false" aria-autocomplete="list" role="combobox" aria-expanded="true" aria-controls="owner-list" aria-labelledby="owner-search-label" id="owner-search" type="text" value="">' +
+      '<div cmdk-list="" role="listbox" tabindex="-1" aria-label="Suggestions" id="owner-list"></div></div></div>';
+    popover = wrap;
+    owner.setAttribute("aria-expanded", "true");
+    owner.setAttribute("data-state", "open");
+    owner.setAttribute("aria-controls", "radix-owner-content");
+    var input = wrap.querySelector("input");
+    var list = wrap.querySelector("[role=listbox]");
+    function render() {
+      var q = input.value.trim().toLowerCase();
+      list.innerHTML = "";
+      var shown = people.filter(function (p) { return p.toLowerCase().indexOf(q) >= 0; });
+      if (!shown.length) list.innerHTML = '<div cmdk-empty="" role="presentation">No one found.</div>';
+      shown.forEach(function (p, i) {
+        var item = document.createElement("div");
+        item.setAttribute("cmdk-item", "");
+        item.setAttribute("role", "option");
+        item.setAttribute("aria-disabled", "false");
+        item.setAttribute("aria-selected", String(i === 0));
+        item.setAttribute("data-selected", String(i === 0));
+        item.setAttribute("data-value", p);
+        item.textContent = p;
+        item.addEventListener("click", function () { setOwner(p); closeOwner(); owner.focus(); });
+        list.appendChild(item);
+      });
+    }
+    input.addEventListener("input", render);
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        var sel = list.querySelector('[aria-selected="true"]');
+        if (sel) { setOwner(sel.getAttribute("data-value")); closeOwner(); owner.focus(); }
+      }
+    });
+    render();
+    input.focus();
+  }
+  owner.addEventListener("click", function () { if (popover) closeOwner(); else openOwner(); });
+
+  // Radix DismissableLayer: Escape and a pointerdown outside close whatever is open.
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    if (selectOpen) closeSelect();
+    if (popover) { closeOwner(); owner.focus(); }
+  });
+  document.addEventListener("pointerdown", function (e) {
+    if (selectOpen && !selectOpen.contains(e.target) && e.target !== team && !team.contains(e.target)) closeSelect();
+    if (popover && !popover.contains(e.target) && e.target !== owner) closeOwner();
+  });
+
+  // ---------- Downshift-style autocomplete (City): a text input[role=combobox] with suggestions ----------
+  var city = $("f-city");
+  var cityList = $("city-list");
+  var cities = ["Lisbon", "London", "Oslo", "Porto"];
+  function closeCities() {
+    cityList.hidden = true;
+    city.setAttribute("aria-expanded", "false");
+  }
+  function renderCities() {
+    var q = city.value.trim().toLowerCase();
+    var shown = cities.filter(function (c) { return c.toLowerCase().indexOf(q) === 0; });
+    cityList.innerHTML = "";
+    shown.forEach(function (c, i) {
+      var li = document.createElement("li");
+      li.setAttribute("role", "option");
+      li.id = "city-opt-" + i;
+      li.setAttribute("aria-selected", "false");
+      li.textContent = c;
+      li.addEventListener("mousedown", function (e) { e.preventDefault(); });
+      li.addEventListener("click", function () { city.value = c; closeCities(); });
+      cityList.appendChild(li);
+    });
+    cityList.hidden = shown.length === 0;
+    city.setAttribute("aria-expanded", String(shown.length > 0));
+  }
+  city.addEventListener("focus", renderCities);
+  city.addEventListener("input", renderCities);
+  city.addEventListener("blur", closeCities);
+  city.addEventListener("keydown", function (e) { if (e.key === "Escape" && !cityList.hidden) { e.stopPropagation(); closeCities(); } });
+
+  // ---------- Submit: zod-style rules, then POST as JSON ----------
+  var rules = {
+    name: [function (v) { return v.name.length >= 2; }, "Enter a project name"],
+    teamSize: [function (v) { return !!v.teamSize; }, "Choose a team size"],
+    priority: [function (v) { return !!v.priority; }, "Choose a priority"],
+    owner: [function (v) { return !!v.owner; }, "Choose an owner"],
+    terms: [function (v) { return v.terms === true; }, "You must accept the terms"],
+  };
+  function reset() {
+    $("f-name").value = "";
+    setTeam("");
+    checkRadio(null);
+    setOwner("");
+    city.value = "";
+    $("f-region").value = "";
+    ["f-notify", "f-terms"].forEach(function (id) { if ($(id).getAttribute("aria-checked") === "true") $(id).click(); });
+    setBudget(5000);
+  }
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var values = {
+      name: $("f-name").value.trim(),
+      teamSize: state.teamSize,
+      priority: state.priority,
+      budget: state.budget,
+      notify: state.notify,
+      owner: state.owner,
+      city: city.value,
+      region: $("f-region").value,
+      terms: state.terms,
+    };
+    var bad = false;
+    Object.keys(rules).forEach(function (key) {
+      if (!rules[key][0](values)) { bad = true; showError(key, rules[key][1]); }
+    });
+    if (bad) return;
+    fetch("/api/projects", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(values) })
+      .then(function (res) {
+        if (!res.ok) throw new Error("Request failed (" + res.status + ")");
+        return res.json();
+      })
+      .then(function (item) {
+        $("toast").textContent = "Project created";
+        var li = document.createElement("li");
+        li.textContent = item.name + " · " + item.teamSize + " · " + item.priority;
+        $("projects").appendChild(li);
+        reset();
+      })
+      .catch(function () { $("toast").textContent = "Could not create the project"; });
+  });
+})();
+</script>
+</body>
+</html>

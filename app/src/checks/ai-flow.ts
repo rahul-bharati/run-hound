@@ -3,8 +3,9 @@ import type { Capture, Check, CheckContext, CheckResult, DiscoveredForm, Fact, F
 import { isAcceptedStatus } from "../core/saves.js";
 import { redactSecrets } from "../engine/redact.js";
 import { isDestructiveControl } from "./dead-control.js";
-import { clip, controlLocator, endpointOf, errorResult, evidence, fieldLocator, fillLines, findingFactory, guarded, recordFlow, requestSummary, result, specSource, tryCapture } from "./lib/functional-finding.js";
-import { controlName, createRequests, fieldName, fillForm, isSameOrigin, settle, sleep, submitControl, waitFor, waitForCreates, type FieldValue } from "./lib/functional-form.js";
+import { clip, controlLocator, endpointOf, errorResult, evidence, fieldLocator, findingFactory, guarded, recordFlow, requestSummary, result, specSource, tryCapture } from "./lib/functional-finding.js";
+import { controlName, createRequests, fieldName, isSameOrigin, settle, sleep, submitControl, waitFor, waitForCreates, type FieldValue } from "./lib/functional-form.js";
+import { fieldKind, setField, setFieldSpec, type FieldSetting } from "./lib/widgets.js";
 
 const ID = "ai-flow" as const;
 
@@ -54,6 +55,17 @@ function expectationText(expect: FlowExpectation, text: string | null): string {
   }
 }
 
+/** What a fill or choose step sets: a fill's text (read as the field takes it: an option, yes/no, a number), a choice's option. */
+function settingOf(step: Extract<Resolved, { action: "fill" | "choose" }>): FieldSetting {
+  return step.action === "choose" ? { option: step.value.value } : { text: step.value.value };
+}
+
+/** Whether filling `field` types text into it (a text field or an autocomplete), rather than choosing or checking. */
+function typesInto(field: FormField): boolean {
+  const kind = fieldKind(field);
+  return kind === "text" || kind === "combobox";
+}
+
 /** Resolves every step up front, so a flow that names something missing fails before anything is clicked. */
 function resolve(flow: FlowStep[], fields: FormField[], controls: FormControl[]): Resolved[] | string {
   const steps: Resolved[] = [];
@@ -65,7 +77,11 @@ function resolve(flow: FlowStep[], fields: FormField[], controls: FormControl[])
         const field = fields.find((f) => f.key === step.field);
         if (!field) return `Step ${n} names a field "${step.field}" that this form doesn't have.`;
         if (step.action === "fill") {
-          steps.push({ action: "fill", value: { field, value: step.value, canary: false }, label: `Type "${clip(step.value, 40)}" into ${fieldName(field)}`, plain: `Type into ${fieldName(field)}` });
+          // A fill on a picker, checkbox or slider sets it (Owner to "Sam Lee", Terms to "yes") rather than typing.
+          const [label, plain] = typesInto(field)
+            ? [`Type "${clip(step.value, 40)}" into ${fieldName(field)}`, `Type into ${fieldName(field)}`]
+            : [`Set ${fieldName(field)} to "${clip(step.value, 40)}"`, `Set ${fieldName(field)}`];
+          steps.push({ action: "fill", value: { field, value: step.value, canary: false }, label, plain });
           break;
         }
         const wanted = step.option.trim().toLowerCase();
@@ -159,11 +175,13 @@ async function focusOf(page: Page, ctx: CheckContext): Promise<Focus> {
     | { inFormField: boolean; risky: string | null; buttonName: string | null; defaultButton: string | null }
     | null;
   if (!raw) return { inFormField: false, destructive: null, submitsDestructive: null };
-  const destructiveName = (found: string | null) => {
+  // The default button is the form's own submit button: sending words ("Send message") are its normal job, as in
+  // destructiveEnterTarget, so only deleting and session-ending words count there.
+  const destructiveName = (found: string | null, isSubmit = false) => {
     const name = found ? clip(found, 60) : null;
-    return name && isDestructiveControl({ accessibleName: name, text: name, role: "button", tag: "button", selector: "", isSubmit: false }) ? name : null;
+    return name && isDestructiveControl({ accessibleName: name, text: name, role: "button", tag: "button", selector: "", isSubmit }) ? name : null;
   };
-  return { inFormField: raw.inFormField, destructive: raw.risky ?? destructiveName(raw.buttonName), submitsDestructive: destructiveName(raw.defaultButton) };
+  return { inFormField: raw.inFormField, destructive: raw.risky ?? destructiveName(raw.buttonName), submitsDestructive: destructiveName(raw.defaultButton, true) };
 }
 
 /** Visible elements whose text contains `text` (Playwright's getByText, case-insensitive substring). */
@@ -262,7 +280,7 @@ async function decide(
       };
     }
     case "field-kept": {
-      const typed = filled.filter((v) => !v.field.options?.length);
+      const typed = filled.filter((v) => typesInto(v.field));
       const lost: { v: FieldValue; now: string }[] = [];
       for (const v of typed) {
         const now = await page.locator(v.field.selector).first().inputValue({ timeout: 2_000 }).catch(() => "(field is gone)");
@@ -296,7 +314,7 @@ function expectLines(step: Extract<Resolved, { action: "expect" }>, filled: Fiel
     case "no-errors":
       return [`expect(errors).toEqual([]);`];
     case "field-kept":
-      return filled.filter((v) => !v.field.options?.length).map((v) => `await expect(${fieldLocator(v.field)}).toHaveValue(${q(v.value)});`);
+      return filled.filter((v) => typesInto(v.field)).map((v) => `await expect(${fieldLocator(v.field)}).toHaveValue(${q(v.value)});`);
   }
 }
 
@@ -328,7 +346,7 @@ function actionLines(step: Resolved): string[] {
   switch (step.action) {
     case "fill":
     case "choose":
-      return fillLines([step.value]);
+      return setFieldSpec(step.value.field, settingOf(step));
     case "click":
       return [`await ${controlLocator(step.control)}.click();`, `await page.waitForLoadState("networkidle");`];
     case "press":
@@ -426,7 +444,13 @@ export const check: Check = {
         switch (step.action) {
           case "fill":
           case "choose": {
-            await fillForm(page, [step.value]);
+            try {
+              await setField(page, step.value.field, settingOf(step));
+            } catch (err) {
+              // The step can't be performed (a value the widget doesn't offer): an error, like a missing field.
+              const why = err instanceof Error ? err.message : String(err);
+              return { ...errorResult(ID, scenario, started, redactSecrets(`Could not run step ${done.length + 1}: ${why}`)), steps };
+            }
             if (step.action === "fill") filled.push(step.value);
             await record(step, [{ selector: step.value.field.selector, label: clip(step.label, 50), tone: "info" }]);
             const moved = await focusGuard();
@@ -503,7 +527,7 @@ export const check: Check = {
             source: specSource(ctx.targetUrl, scenario.title, [
               ...setupLines(actions),
               ...actions.flatMap((s) => (s.action === "expect" ? expectLines(s, filled) : actionLines(s))),
-            ]),
+            ], ctx.form),
           },
         });
         // Built on a model's suggestion, so advisory even though the expectation itself is deterministic.

@@ -2,6 +2,7 @@
  * bundle-secrets: scan every script the page loads (external and inline) plus the HTML for
  * secret-looking values. Publishable keys are allowed; values are only ever reported redacted.
  */
+import { createHash } from "node:crypto";
 import type { Check, CheckContext, DiscoveredForm, EvidenceCard, Scenario } from "../core/types.js";
 import { findSecrets, redactSecrets, secretSpans } from "../engine/redact.js";
 import { checkResult, evalIn, FindingList, guarded, playwrightSpec, scenarioFor } from "./lib/a11y-common.js";
@@ -30,17 +31,20 @@ const SPEC_PATTERNS: Record<string, string> = {
   "private-key": String.raw`-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----`,
 };
 
-interface Source {
+export interface Source {
   /** Where the text came from: a script URL, "inline script #n on <page>", or the page URL. */
   where: string;
   url: string | null;
   text: string;
 }
 
-/** Re-fetches a same-origin script in full from the page; null on a redirect, an error status or a network error. */
+/**
+ * Re-fetches a same-origin script in full from the page; null on a redirect, an error status, a network error or no
+ * answer within 10 seconds (page.evaluate has no timeout of its own, and a server may never answer).
+ */
 const REFETCH = `async (url) => {
   try {
-    const res = await fetch(url, { redirect: "manual", credentials: "same-origin", cache: "no-store" });
+    const res = await fetch(url, { redirect: "manual", credentials: "same-origin", cache: "no-store", signal: AbortSignal.timeout(10000) });
     return res.type === "opaqueredirect" || !res.ok ? null : await res.text();
   } catch {
     return null;
@@ -92,7 +96,7 @@ function shortenTokens(line: string): string {
   return line.replace(/[A-Za-z0-9_\-+=.]{24,}/g, (token) => `${token.slice(0, 6)}…(${token.length} chars)`);
 }
 
-interface Excerpt {
+export interface Excerpt {
   line: number;
   column: number;
   /** File line number of lines[0]. */
@@ -151,6 +155,46 @@ export function jwtClaims(text: string, index: number): { label: string; value: 
   return out;
 }
 
+/** One distinct secret and every place it was found. Holds only the redacted preview, never the value. */
+export interface SecretGroup {
+  kind: string;
+  preview: string;
+  places: string[];
+  url: string | null;
+  excerpt: Excerpt;
+  claims: { label: string; value: string }[];
+}
+
+/**
+ * One group per distinct secret, in the order they were first found. Two secrets are the same only when their values
+ * are: the preview (first 4 characters and the length) is shared by every AWS access key, so grouping by it would
+ * merge a production and a staging key into one finding and leave one of them unmentioned. The value is only hashed
+ * in memory for the comparison; it is never kept.
+ */
+export function groupSecrets(sources: Source[]): SecretGroup[] {
+  const groups = new Map<string, SecretGroup>();
+  for (const source of sources) {
+    const spans = secretSpans(source.text);
+    for (const match of findSecrets(source.text)) {
+      const span = spans.find((s) => s.start === match.index);
+      const value = span ? source.text.slice(span.start, span.end) : match.preview;
+      const key = `${match.kind}|${createHash("sha256").update(value).digest("hex")}`;
+      const where = redactSecrets(source.where);
+      const group = groups.get(key) ?? {
+        kind: match.kind,
+        preview: match.preview,
+        places: [],
+        url: source.url,
+        excerpt: excerptAround(source.text, match.index, match.kind),
+        claims: match.kind === "supabase-service-role" ? jwtClaims(source.text, match.index) : [],
+      };
+      if (!group.places.includes(where)) group.places.push(where);
+      groups.set(key, group);
+    }
+  }
+  return [...groups.values()];
+}
+
 function capitalise(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
@@ -201,26 +245,13 @@ export const check: Check = {
       ctx.step("Downloading every script the page loads");
       const sources = await collectSources(ctx);
       ctx.step(`Searching ${sources.length} scripts and the HTML for secret keys`);
-      // One finding per distinct secret (kind + redacted preview); list every place it appears.
-      const seen = new Map<string, { kind: string; preview: string; places: string[]; url: string | null; excerpt: Excerpt; claims: { label: string; value: string }[] }>();
-      for (const source of sources) {
-        for (const match of findSecrets(source.text)) {
-          const key = `${match.kind}|${match.preview}`;
-          const where = redactSecrets(source.where);
-          const entry = seen.get(key) ?? {
-            kind: match.kind,
-            preview: match.preview,
-            places: [],
-            url: source.url,
-            excerpt: excerptAround(source.text, match.index, match.kind),
-            claims: match.kind === "supabase-service-role" ? jwtClaims(source.text, match.index) : [],
-          };
-          if (!entry.places.includes(where)) entry.places.push(where);
-          seen.set(key, entry);
-        }
-      }
-      for (const entry of seen.values()) {
+      // One finding per distinct secret; list every place it appears.
+      const groups = groupSecrets(sources);
+      for (const entry of groups) {
         const what = KIND_NAMES[entry.kind] ?? `a secret (${entry.kind})`;
+        // Different keys of one kind share a preview ("AKIA…(20 chars)"): number them so each finding can be told apart.
+        const sameKind = groups.filter((g) => g.kind === entry.kind && g.preview === entry.preview);
+        const nth = sameKind.length > 1 ? ` (key ${sameKind.indexOf(entry) + 1} of ${sameKind.length} different keys)` : "";
         const place = entry.places[0]!;
         const no = findings.items.length + 1;
         const { line, column, lines, firstLine } = entry.excerpt;
@@ -235,16 +266,16 @@ export const check: Check = {
             { label: "Line", value: String(line) },
             { label: "Column", value: String(column) },
             { label: "Key type", value: entry.kind },
-            { label: "Key (redacted)", value: entry.preview },
+            { label: "Key (redacted)", value: `${entry.preview}${nth}` },
             ...entry.claims,
             ...(entry.places.length > 1 ? [{ label: "Also found in", value: entry.places.slice(1, 4).join(", ") }] : []),
           ],
         });
         const inScripts = entry.places.length > 1 ? ` (in ${entry.places.length} scripts)` : "";
         findings.add({
-          title: `${entry.kind === "supabase-service-role" ? "Supabase service_role key is shipped to every visitor" : `Secret key shipped to every visitor: ${what}`}${inScripts}`,
+          title: `${entry.kind === "supabase-service-role" ? "Supabase service_role key is shipped to every visitor" : `Secret key shipped to every visitor: ${what}`}${inScripts}${nth}`,
           severity: "critical",
-          meaning: `The page's JavaScript contains ${what}. Anything in the page's scripts can be read by anyone who opens the site, so this key is effectively public. It was found in ${entry.places.length > 1 ? `${entry.places.length} places: ${entry.places.join(", ")}` : place}.`,
+          meaning: `The page's JavaScript contains ${what}. Anything in the page's scripts can be read by anyone who opens the site, so this key is effectively public. It was found in ${entry.places.length > 1 ? `${entry.places.length} places: ${entry.places.join(", ")}` : place} (line ${line}).${sameKind.length > 1 ? ` The page ships ${sameKind.length} different keys of this kind; each has its own finding, and each must be replaced.` : ""}`,
           impact: "Anyone can copy the key and use it as you: run up bills on your account, read or change your data, or bypass your security rules.",
           fix: "Remove the key from the frontend code and move the call that needs it to your server (or an edge function). Then revoke the key and create a new one, because the old one has already been exposed.",
           location: place,

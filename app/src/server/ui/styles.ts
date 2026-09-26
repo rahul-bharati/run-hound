@@ -163,6 +163,7 @@ input[type=checkbox]:disabled { opacity:.45; cursor:not-allowed; }
 .inventory .inv-name { font-weight:600; font-size:.88rem; color:var(--fg); }
 .inventory .inv-meta { font:.74rem/1.4 var(--mono); color:var(--dim); }
 .options { display:grid; gap:.4rem; margin-top:1.1rem; padding-top:1rem; border-top:1px solid var(--line); }
+.options.flush { margin-top:0; padding-top:0; border-top:0; }
 .option { display:flex; gap:.8rem; align-items:flex-start; }
 .option label { cursor:pointer; min-width:0; }
 .option .desc { display:block; color:var(--dim); font-size:.85rem; margin-top:.1rem; }
@@ -242,6 +243,7 @@ input[type=checkbox][role=switch]:checked::before { left:calc(100% - 1.02rem); b
 .rows { list-style:none; display:grid; gap:.5rem; }
 .srow { background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md); }
 .srow-main { display:flex; align-items:center; gap:.85rem; padding:.7rem .6rem .7rem 1rem; min-height:54px; }
+.ring-slot { display:contents; }
 .srow .n { font:500 .88rem/1 var(--mono); color:var(--muted); width:1.2rem; flex:none; font-variant-numeric:tabular-nums; }
 .srow .t { flex:1; min-width:0; font-weight:550; overflow-wrap:anywhere; }
 .srow .d { font:.8rem/1 var(--mono); color:var(--dim); font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -378,6 +380,7 @@ input[type=checkbox][role=switch]:checked::before { left:calc(100% - 1.02rem); b
 .panel h3 .ic { color:var(--muted); }
 .panel h3 .grow { flex:1; }
 .panel p { color:var(--muted); font-size:.92rem; overflow-wrap:anywhere; }
+.panel p.fg { color:var(--fg); }
 .panel p + p { margin-top:.4rem; }
 .repro { list-style:none; counter-reset: rs; display:grid; gap:.5rem; }
 .repro li { counter-increment: rs; display:grid; grid-template-columns: 1.5rem minmax(0, 1fr); gap:.6rem; font-size:.88rem; color:var(--fg); }

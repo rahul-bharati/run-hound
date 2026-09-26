@@ -4,7 +4,7 @@
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { AI_CHECK_IDS, CHECK_IDS, type CheckId, type CheckResult, type Report, type ResultStatus, type Severity } from "../../../app/src/core/types.js";
+import { AI_CHECK_IDS, CHECK_IDS, V2_CHECK_IDS, type CheckId, type CheckResult, type Report, type ResultStatus, type Severity } from "../../../app/src/core/types.js";
 import { KENNEL_DIR } from "./kennel.js";
 
 export const EXPECTED_DIR = join(KENNEL_DIR, "expected");
@@ -63,8 +63,13 @@ export async function loadGolden(mode: string): Promise<Golden> {
   return golden as Golden;
 }
 
-/** Checks judged against the golden files: every check except the AI-only ones, which plan nothing without a model. */
-const GOLDEN_IDS = CHECK_IDS.filter((id) => !AI_CHECK_IDS.includes(id));
+/**
+ * Checks judged against the golden files: every check except the AI-only ones, which plan nothing without a model, and
+ * the V2 ones, which plan nothing on Kennel's signed-out runs (docs/v2-spec.md "Checks": access-control and
+ * mass-assignment need a signed-in run, deep-links a page with links to other pages; Fernway's suite judges them).
+ * A finding from any of them would still be reported as unexpected.
+ */
+const GOLDEN_IDS = CHECK_IDS.filter((id) => !AI_CHECK_IDS.includes(id) && !V2_CHECK_IDS.includes(id));
 
 const isCheckId = (v: unknown): v is CheckId => typeof v === "string" && (CHECK_IDS as readonly string[]).includes(v);
 

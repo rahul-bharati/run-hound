@@ -549,6 +549,14 @@ export const CLIENT = String.raw`
         const url = entry ? entry.target : "";
         const ids = st.report && st.report.approved ? st.report.approved : (live.scenarios || []).map((s) => s.id);
         input.value = url;
+        // The server never sends a secret in an address back ("?t=[REDACTED:github-token]"): planning that would test
+        // the wrong page, so ask for the real address instead.
+        if (/\[REDACTED:[\w-]*\]/.test(url)) {
+          newState.url = url;
+          showError("This address had a secret in it (a token or key), which Run Hound hides. Enter the full address again to plan it.");
+          input.focus();
+          return;
+        }
         plan(url, ids.length ? ids : null);
       } catch (err) {
         if (my !== gen) return;
@@ -650,7 +658,7 @@ export const CLIENT = String.raw`
       h("header", { class: "page-head" }, h("h1", { text: "Settings" }), h("p", { text: "Defaults for new runs, and how this Run Hound server is set up." })),
       h("section", { class: "card", "aria-labelledby": "defaults-h" },
         h("h2", { id: "defaults-h", class: "card-title" }, "Defaults"),
-        h("div", { class: "options", style: "border-top:0;padding-top:0;margin-top:0" },
+        h("div", { class: "options flush" },
           h("div", { class: "option" }, destructive, h("label", { for: "default-destructive" }, "Allow destructive scenarios", h("span", { class: "desc", text: "They may change or delete data beyond creating test records. Leave off unless this is a throwaway environment." }))),
           h("div", { class: "option" }, headed, h("label", { for: "default-headed" }, "Show the browser window", h("span", { class: "desc", text: CONFIG.headedDesc })))),
         saved),
@@ -669,7 +677,7 @@ export const CLIENT = String.raw`
         h("dt", { text: "Version" }), h("dd", {}, h("code", { text: s.version })),
         h("dt", { text: "Runs folder" }), h("dd", {}, h("code", { text: s.runsDir })),
         h("dt", { text: "Allowed extra hosts" }), h("dd", {}, list(s.allowedHosts, "None. Only localhost and private network addresses (set RUNHOUND_ALLOWED_HOSTS to add hosts you own).")),
-        h("dt", { text: "Accepted server host names" }), h("dd", {}, list(s.serverHosts, "Loopback names and IP addresses only (set RUNHOUND_SERVER_HOSTS to add names).")));
+        h("dt", { text: "Accepted server host names" }), h("dd", {}, list(s.serverHosts, "Loopback names and addresses only (set RUNHOUND_SERVER_HOSTS to add names or addresses).")));
     }).catch((err) => {
       if (my !== gen) return;
       info.append(h("dt", { text: "Server settings" }), h("dd", { class: "error", text: "Could not load them: " + err.message }));
@@ -839,7 +847,9 @@ export const CLIENT = String.raw`
       refresh.disabled = true;
       let res;
       try {
-        res = await api("/api/ai/models?provider=" + enc(providerOf()) + "&baseUrl=" + enc(baseUrl.value.trim()));
+        // A ticked (unsaved) consent box counts for listing models; unticked, the server uses the saved consent.
+        const consented = consent && consent.checked ? "&allowRemote=1" : "";
+        res = await api("/api/ai/models?provider=" + enc(providerOf()) + "&baseUrl=" + enc(baseUrl.value.trim()) + consented);
       } catch (err) {
         res = { models: [], error: "Could not list the models: " + err.message };
       }
@@ -868,6 +878,8 @@ export const CLIENT = String.raw`
       if (consent && consentSlot.dataset.host === host) return; // same host: keep what the user ticked
       consent = h("input", { type: "checkbox", id: "ai-allow-remote", disabled: locked("allowRemote") });
       consent.checked = locked("allowRemote") ? st.allowRemote === true : host === consentedHost;
+      // Ticking it lists the endpoint's models right away (before Save), so a model can be picked in one go.
+      consent.addEventListener("change", loadModels);
       consentSlot.dataset.host = host;
       fill(consentSlot, h("div", { class: "option ai-consent" }, consent,
         h("label", { for: "ai-allow-remote" }, "Send redacted page structure (labels, field types, button names — never values, cookies or screenshots) to " + host,
@@ -1139,7 +1151,7 @@ export const CLIENT = String.raw`
       ui.groupCounts.push({ el: count, ids: g.items.map((s) => s.id) });
       for (const s of g.items) {
         n++;
-        const ringSlot = h("span", { class: "ring-slot", style: "display:contents" }, ring("queued"));
+        const ringSlot = h("span", { class: "ring-slot" }, ring("queued"));
         const dur = h("span", { class: "d", text: "—" });
         const sub = h("div", { class: "substeps", id: "steps-" + n, hidden: true });
         const toggle = h("button", { type: "button", class: "toggle", "aria-expanded": "false", "aria-controls": "steps-" + n, "aria-label": "Steps of “" + s.title + "”" }, icon("chevronDown"));
@@ -1357,6 +1369,7 @@ export const CLIENT = String.raw`
 
   function failedView(id, st) {
     setTitle("Run failed");
+    const headError = h("p", { class: "error" });
     return h("div", { id: "report", class: "report" },
       h("div", { class: "report-top" }, h("nav", { class: "crumbs", "aria-label": "Breadcrumb" }, h("ol", {}, h("li", {}, h("a", { href: "#/runs", text: "Runs" })), h("li", { "aria-current": "page", text: "Run " + id }))),
         h("time", { class: "when", datetime: st.startedAt, text: dateTime(st.startedAt) })),
@@ -1364,7 +1377,8 @@ export const CLIENT = String.raw`
           typeof st.total === "number" && st.total > 0
             ? h("p", { class: "fail-progress", text: st.completed + " of " + plural(st.total, "scenario") + " had finished when it failed" + (typeof st.durationMs === "number" ? ", after " + formatDuration(st.durationMs) : "") + "." })
             : null)),
-        h("div", { class: "head-actions" }, rerunButton(id), h("a", { class: "btn", href: "#/new" }, icon("play"), "New run"))));
+        h("div", { class: "head-actions" }, rerunButton(id, headError), h("a", { class: "btn", href: "#/new" }, icon("play"), "New run"))),
+      headError);
   }
 
   function rerunButton(id, errorSlot) {
@@ -1373,6 +1387,7 @@ export const CLIENT = String.raw`
     b.addEventListener("click", async () => {
       b.disabled = true;
       label.textContent = "Planning again…";
+      if (errorSlot) errorSlot.textContent = "";
       try {
         const { runId } = await api("/api/runs/" + enc(id) + "/rerun", {});
         location.hash = "#/runs/" + runId;
@@ -1620,7 +1635,7 @@ export const CLIENT = String.raw`
         parts.push(h("section", { class: "panel", "aria-labelledby": "why-h" }, h("h3", { id: "why-h" }, icon("shield"), "Why it matters"), h("p", { text: f.impact })));
         parts.push(h("section", { class: "panel", "aria-labelledby": "ask-h" },
           h("h3", { id: "ask-h" }, icon("sparkle"), h("span", { class: "grow", text: "What to ask your AI" }), copyButton("Copy", () => f.fix)),
-          h("p", { style: "color:var(--fg)", text: f.fix })));
+          h("p", { class: "fg", text: f.fix })));
         if (f.ai) parts.push(aiExplanationPanel(f.ai));
         if (f.spec) parts.push(specPanel(f.spec, base));
       }
@@ -1633,7 +1648,7 @@ export const CLIENT = String.raw`
   function aiExplanationPanel(ai) {
     return h("section", { class: "panel ai-panel", "aria-labelledby": "ai-exp-h" },
       h("h3", { id: "ai-exp-h" }, icon("sparkle"), h("span", { class: "grow" }, "AI explanation", h("span", { class: "tag ai", text: "Advisory" }))),
-      h("p", { style: "color:var(--fg)", text: ai.summary }),
+      h("p", { class: "fg", text: ai.summary }),
       h("div", { class: "ask" },
         h("h4", {}, h("span", { class: "grow", text: "Ask your AI" }), copyButton("Copy", () => ai.askYourAi)),
         h("p", { class: "ask-text", text: ai.askYourAi })),

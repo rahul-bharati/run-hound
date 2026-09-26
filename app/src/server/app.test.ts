@@ -300,10 +300,17 @@ describe("DNS rebinding and cross-site protection", () => {
     "http://127.0.0.1:4000/",
     "http://[::1]:4000/",
     "http://run-hound.localhost:4000/",
-    "http://192.168.1.20:4000/", // reaching the machine (or a container) by address is fine
+    "http://127.0.0.2:4000/", // any loopback address
   ])("serves requests addressed to %s", async (base) => {
     const res = await app.request(new URL("/", base).toString());
     expect(res.status).toBe(200);
+  });
+
+  it("refuses other IP addresses unless listed: another container on the network can't use the API by address", async () => {
+    // (Before 0.4.0 any IP literal was accepted, e.g. http://192.168.1.20:4000/.)
+    expect((await app.request("http://192.168.1.20:4000/")).status).toBe(403);
+    const listed = createApp({ checks: fakeChecks, runsDir, serverHosts: ["192.168.1.20"] });
+    expect((await listed.request("http://192.168.1.20:4000/")).status).toBe(200);
   });
 
   it("refuses requests whose Host is not a loopback name (a rebound public domain)", async () => {

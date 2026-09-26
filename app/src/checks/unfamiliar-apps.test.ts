@@ -128,6 +128,7 @@ describe("form whose API is on another origin (another port, with CORS)", () => 
   it("error-announcement leaves out a required field that already holds a valid default", async () => {
     const r = await run(errorAnnouncement, "cross-origin-api");
     expect(r.status).toBe("pass");
-    expect(r.notes).toMatch(/left out "Number of people, including you", which already had a value/);
+    // The radio group is required by its legend ("Are you coming? (required)") and "Yes" is checked from the start.
+    expect(r.notes).toMatch(/left out "Are you coming\? \(required\)" and "Number of people, including you", which already had a value/);
   });
 });

@@ -1,13 +1,21 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser, overallStatus, runCheck } from "../../test-support/harness.js";
+import { closeBrowser, getBrowser, overallStatus, runCheck } from "../../test-support/harness.js";
 import { startBookingApp, sampleForm, type BookingServer } from "../../test/fixtures/checks/_behavior/booking-app.js";
 import { allFindings } from "../../test/fixtures/checks/assert-finding.js";
+import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
 import { expectCheckShape, expectCleanPass, expectFailure, expectPlan, findingText } from "../../test/fixtures/checks/_behavior/expectations.js";
 import type { DiscoveredForm } from "../core/types.js";
+import { createCheckContext } from "../engine/context.js";
+import { discoverPage } from "../engine/discover.js";
 import { check, isDestructiveControl } from "./dead-control.js";
 
 const ID = "dead-control" as const;
 const servers: BookingServer[] = [];
+const fixtureServers: FixtureServer[] = [];
 
 /**
  * Non-submit buttons, each proving a different kind of "it did something":
@@ -59,6 +67,7 @@ async function app(options: { deadSaveDraft?: boolean; deadClear?: boolean } = {
 
 afterAll(async () => {
   await Promise.all(servers.map((s) => s.server.close()));
+  await Promise.all(fixtureServers.map((s) => s.close()));
   await closeBrowser();
 });
 
@@ -185,4 +194,277 @@ describe("dead-control: destructive controls", () => {
     const { results } = await runCheck(check, s.url);
     expect(allFindings(results)).toEqual([]);
   });
+});
+
+describe("isDestructiveControl: sending, paying, ordering and trashing (CHK-3)", () => {
+  const control = (text: string, extra: Partial<{ selector: string; isSubmit: boolean; accessibleName: string | null }> = {}) => ({
+    accessibleName: text || null,
+    text,
+    role: "button",
+    tag: "button",
+    selector: "#x",
+    isSubmit: false,
+    ...extra,
+  });
+
+  it("treats controls that send, trash, order, pay or check out as destructive", () => {
+    for (const name of [
+      "Send",
+      "Send invoice",
+      "Send reminder",
+      "Resend code",
+      "Trash",
+      "Move to trash",
+      "Place order",
+      "Order now",
+      "Confirm order",
+      "Submit payment",
+      "Payment",
+      "Check out",
+      "Check-out",
+      "Checkout",
+      "Buy now",
+      "Purchase",
+      "Transfer funds",
+      "Upgrade to Pro",
+      "Subscribe to Pro",
+      "Donate",
+      "Clear cart",
+      "Leave team",
+      "Ban user",
+      "Factory reset",
+      "Terminate instance",
+      "Reboot",
+      "Shut down server",
+      "Truncate table",
+      "Regenerate API key",
+    ]) {
+      expect(isDestructiveControl(control(name)), name).toBe(true);
+    }
+  });
+
+  it("does not stop everyday controls that share a word with a destructive one", () => {
+    for (const name of [
+      "Sort order",
+      "Order by date",
+      "Payload",
+      "Subscribe",
+      "Leave a review",
+      "Restart tour",
+      "Drop files here",
+      "Clear filters",
+      "Block quote",
+      "Checklist",
+      "Sender details",
+      "Reject all cookies",
+      "Decline",
+    ]) {
+      expect(isDestructiveControl(control(name)), name).toBe(false);
+    }
+  });
+
+  it("does not stop the form's own submit button just because it says send (every save check submits the form)", () => {
+    expect(isDestructiveControl(control("Send message", { isSubmit: true }))).toBe(false);
+    expect(isDestructiveControl(control("Send", { isSubmit: true }))).toBe(false);
+    // Paying and ordering stay destructive even as the submit button.
+    expect(isDestructiveControl(control("Place order", { isSubmit: true }))).toBe(true);
+    expect(isDestructiveControl(control("Pay now", { isSubmit: true }))).toBe(true);
+  });
+
+  it("reads an unnamed icon button's own test id or id", () => {
+    expect(isDestructiveControl(control("", { selector: '[data-testid="delete-row"]' }))).toBe(true);
+    expect(isDestructiveControl(control("", { selector: "#trash-btn-3" }))).toBe(true);
+    expect(isDestructiveControl(control("", { selector: '[data-testid="removeItem"]' }))).toBe(true);
+    // A path anchored at an ancestor's id says nothing about the button itself.
+    expect(isDestructiveControl(control("", { selector: "#delete-dialog > button:nth-of-type(1)" }))).toBe(false);
+    expect(isDestructiveControl(control("", { selector: '[data-testid="menu-toggle"]' }))).toBe(false);
+    // A named control is judged by its name.
+    expect(isDestructiveControl(control("Edit", { selector: '[data-testid="delete-edit"]' }))).toBe(false);
+  });
+});
+
+/** A page with the controls an AI-built list and form typically has, next to their handlers. */
+function modernPage(options: { form?: string; outside?: string; script?: string }) {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Items</title><link rel="icon" href="data:,">
+<style>
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border-width: 0; }
+  .card { position: relative; }
+  .card label { display: flex; padding: 16px; border: 2px solid #999; cursor: pointer; }
+  .banner { position: fixed; left: 0; right: 0; bottom: 0; height: 120px; background: #eee; }
+</style></head>
+<body><main><h1>Items</h1>
+${options.outside ?? ""}
+<form id="f"><h2>Choose a plan</h2>
+  <label for="email">Email</label><input id="email" name="email" type="email">
+  ${options.form ?? ""}
+  <button type="submit">Save plan</button>
+</form><p id="out"></p></main>
+<script>
+document.getElementById("f").addEventListener("submit", function (e) { e.preventDefault(); });
+${options.script ?? ""}
+</script></body></html>`;
+}
+
+describe("dead-control: a control that can't be clicked (LOV-10)", () => {
+  it("skips a control covered by another element with a note, and still tests the others", async () => {
+    const page = modernPage({
+      form: `<button type="button" id="covered" style="position:fixed;bottom:40px;left:20px">Show details</button>
+        <div class="banner" id="banner">We use cookies.</div>
+        <button type="button" id="recommend">Recommend a plan</button>`,
+      script: 'document.getElementById("recommend").addEventListener("click", function () { document.getElementById("out").textContent = "Team plan recommended"; });',
+    });
+    const s = await startFixtureServer({ pages: { "/plan": page } });
+    fixtureServers.push(s);
+    const { results } = await runCheck(check, `${s.url}/plan`);
+    const notes = results[0]!.notes ?? "";
+    expect(results[0]!.status, notes).toBe("pass");
+    expect(notes).toMatch(/"Show details": skipped \(could not be clicked/);
+    expect(notes).toMatch(/"Recommend a plan": DOM change/);
+  });
+
+  it("never errors on shadcn radio cards (an sr-only radio covered by its label)", async () => {
+    const card = (p: string, checked: boolean) =>
+      `<div class="card"><button type="button" role="radio" aria-checked="${checked}" data-state="${checked ? "checked" : "unchecked"}" value="${p}" id="plan-${p}" class="sr-only"></button><label for="plan-${p}">${p}</label></div>`;
+    const page = modernPage({
+      form: `<div role="radiogroup" aria-label="Plan">${card("starter", true)}${card("team", false)}${card("studio", false)}</div>
+        <button type="button" id="recommend">Recommend a plan</button>`,
+      script: [
+        'document.querySelectorAll("[role=radio]").forEach(function (r) { r.addEventListener("click", function () {',
+        '  document.querySelectorAll("[role=radio]").forEach(function (o) { o.setAttribute("aria-checked", String(o === r)); o.dataset.state = o === r ? "checked" : "unchecked"; });',
+        "}); });",
+        'document.getElementById("recommend").addEventListener("click", function () { document.getElementById("out").textContent = "Team plan recommended"; });',
+      ].join("\n"),
+    });
+    const s = await startFixtureServer({ pages: { "/plan": page } });
+    fixtureServers.push(s);
+    const { results } = await runCheck(check, `${s.url}/plan`);
+    const notes = results[0]!.notes ?? "";
+    expect(results[0]!.status, notes).toBe("pass");
+    expect(allFindings(results)).toEqual([]);
+    expect(notes).toMatch(/"Recommend a plan": DOM change/);
+  });
+});
+
+describe("dead-control: a control nobody can click", () => {
+  it("reports working buttons that an invisible overlay (a leftover backdrop) covers: a click lands on the overlay", async () => {
+    const page = modernPage({
+      form: `<button type="button" id="apply">Apply coupon</button>
+        <button type="button" id="recommend">Recommend a plan</button>`,
+      outside: '<div class="ghost" data-state="closed" style="position:fixed;inset:0;z-index:50;background:transparent"></div>',
+      script: [
+        'document.getElementById("apply").addEventListener("click", function () { document.getElementById("out").textContent = "Coupon applied"; });',
+        'document.getElementById("recommend").addEventListener("click", function () { document.getElementById("out").textContent = "Team plan recommended"; });',
+      ].join("\n"),
+    });
+    const s = await startFixtureServer({ pages: { "/plan": page } });
+    fixtureServers.push(s);
+    const { results } = await runCheck(check, `${s.url}/plan`);
+    const findings = expectFailure(results, ID, "broken-feature", ["high"]);
+    expect(findings.map((f) => f.title)).toEqual(['2 buttons can\'t be clicked (Apply coupon, Recommend a plan)']);
+    const text = findings.map(findingText).join("\n");
+    expect(text).toMatch(/invisible <div class="ghost">/);
+    expect(results[0]!.notes ?? "").toMatch(/"Apply coupon": can't be clicked \(an invisible <div class="ghost"> is on top of it\)/);
+  });
+
+  it("is skipped, not passed, when no control could be clicked at all (a visible banner covers them)", async () => {
+    const page = modernPage({
+      form: '<button type="button" id="recommend">Recommend a plan</button>',
+      outside: '<div class="consent" style="position:fixed;inset:0;z-index:50;background:rgba(0,0,0,0.5)"><p style="background:#fff">We use cookies.</p></div>',
+      script: 'document.getElementById("recommend").addEventListener("click", function () { document.getElementById("out").textContent = "Team plan recommended"; });',
+    });
+    const s = await startFixtureServer({ pages: { "/plan": page } });
+    fixtureServers.push(s);
+    const { results } = await runCheck(check, `${s.url}/plan`);
+    const notes = results[0]!.notes ?? "";
+    expect(allFindings(results)).toEqual([]);
+    expect(results[0]!.status, notes).toBe("skipped");
+    expect(notes).toMatch(/nothing was tested/i);
+    expect(notes).toMatch(/"Recommend a plan": skipped \(could not be clicked: a <div> is on top of it\)/);
+  });
+});
+
+describe("dead-control: links and buttons that open a new tab (CHK-4)", () => {
+  it("counts a target=_blank link and a window.open button as doing something", async () => {
+    const page = modernPage({
+      form: `<p><input type="checkbox" id="terms" name="terms"> <label for="terms">I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a></label></p>
+        <button type="button" id="help">Open help</button>`,
+      script: 'document.getElementById("help").addEventListener("click", function () { window.open("/help-center", "_blank"); });',
+    });
+    const s = await startFixtureServer({ pages: { "/plan": page, "/terms": "<!doctype html><title>Terms</title><h1>Terms</h1>", "/help-center": "<!doctype html><title>Help</title><h1>Help</h1>" } });
+    fixtureServers.push(s);
+    const { results } = await runCheck(check, `${s.url}/plan`);
+    const notes = results[0]!.notes ?? "";
+    expect(allFindings(results), notes).toEqual([]);
+    expect(results[0]!.status, notes).toBe("pass");
+    expect(notes).toMatch(/"Terms of Service": (new tab|navigation)/);
+    expect(notes).toMatch(/"Open help": new tab/);
+  });
+});
+
+describe("dead-control: unnamed icon buttons whose icon says delete (CHK-3)", () => {
+  it("never clicks an unnamed trash-icon button or a Send button without --allow-destructive", async () => {
+    const trash = '<svg class="lucide lucide-trash-2" width="16" height="16" viewBox="0 0 24 24"><path d="M3 6h18"/></svg>';
+    const page = modernPage({
+      form: `<ul id="rows"><li>Invoice #1001 <button type="button" class="icon">${trash}</button></li>
+        <li>Invoice #1002 <button type="button" class="icon">${trash}</button> <button type="button" id="send2">Send</button></li></ul>
+        <button type="button" id="recommend">Recommend a plan</button>`,
+      script: [
+        'document.querySelectorAll("button.icon").forEach(function (b, i) { b.addEventListener("click", function () { fetch("/api/items/" + (i + 1), { method: "DELETE" }); }); });',
+        'document.getElementById("send2").addEventListener("click", function () { fetch("/api/items/2/send", { method: "POST" }); });',
+        'document.getElementById("recommend").addEventListener("click", function () { document.getElementById("out").textContent = "Team plan recommended"; });',
+      ].join("\n"),
+    });
+    const s = await startFixtureServer({ pages: { "/plan": page }, fallback: (_req, res) => json(res, 200, { ok: true }) });
+    fixtureServers.push(s);
+    const { scenarios, results } = await runCheck(check, `${s.url}/plan`);
+    const writes = s.requests.filter((r) => r.method === "DELETE" || (r.method === "POST" && r.url.includes("/send")));
+    expect(writes.map((r) => `${r.method} ${r.url}`)).toEqual([]);
+    expect(scenarios[0]!.description).toMatch(/Left out unless you allow destructive scenarios: .*"Send"/);
+    const notes = results[0]!.notes ?? "";
+    expect(results[0]!.status, notes).toBe("pass");
+    expect(notes).toMatch(/"unnamed button": skipped \(looks destructive/);
+    expect(notes).toMatch(/"Recommend a plan": DOM change/);
+  });
+});
+
+describe("dead-control: a form in a dialog (LOV-8)", () => {
+  it("opens the dialog on every fresh page before clicking, and the spec opens it too", async () => {
+    const members: unknown[] = [];
+    const server = await startFixtureServer({
+      root: fileURLToPath(new URL("../../test/fixtures/discover/", import.meta.url)),
+      routes: {
+        "GET /api/members": (_req, res) => json(res, 200, members),
+        "POST /api/members": (req, res) => {
+          members.push(JSON.parse(req.body));
+          json(res, 201, {});
+        },
+      },
+    });
+    fixtureServers.push(server);
+    const url = `${server.url}/dialog-only.html`;
+    const browser = await getBrowser();
+    const discovery = await browser.newPage();
+    await discovery.goto(url, { waitUntil: "networkidle" });
+    const found = await discoverPage(discovery, { openers: true });
+    await discovery.close();
+    const form = found.forms[0]!;
+    expect(form.opener?.name).toBe("Add member");
+
+    const artifactsDir = await mkdtemp(join(tmpdir(), "rh-dead-dialog-"));
+    const ctx = createCheckContext({ browser, form, discoveredPage: found, targetUrl: url, artifactsDir, runToken: "t3st" });
+    try {
+      const [scenario] = check.plan(form, found);
+      const result = await check.run(ctx, scenario!);
+      expect(result.notes).toMatch(/"Cancel": DOM change/);
+      expect(result.findings.map((f) => f.title)).toEqual(['"Help" button does nothing']);
+      const source = result.findings[0]!.spec!.source;
+      const opens = source.indexOf(`page.locator("#add")`);
+      expect(opens, source).toBeGreaterThan(source.indexOf("await page.goto(TARGET)"));
+      expect(opens, "the dialog opens before the form is filled").toBeLessThan(source.indexOf(`getByLabel("Name"`));
+      expect(members, "nothing was saved: the submit button is never clicked").toEqual([]);
+    } finally {
+      await ctx.dispose();
+      await rm(artifactsDir, { recursive: true, force: true });
+    }
+  }, 90_000);
 });
