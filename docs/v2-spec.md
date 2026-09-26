@@ -1,4 +1,4 @@
-# V2 spec (0.4.0 preview): signed-in runs and access checks
+# V2 spec (0.4.0 preview, 0.5.0): signed-in runs, access checks and write-side checks
 
 Status: the first V2 slice, shipped in 0.4.0 as a preview (the web UI and the HTML report say "V2 preview"). This
 is its build contract. It extends [v0-spec.md](v0-spec.md) and [v1-spec.md](v1-spec.md), which still hold for
@@ -13,8 +13,9 @@ V2 is "single feature end to end" (README roadmap). 0.4.0 ships its foundation a
 - **Mass assignment**: does the server accept fields the form never sends, such as `role` or `plan`?
 - **Deep links**: do the app's own pages load when opened directly (a reload, a shared link)?
 
-Not in 0.4.0 (planned): multi-page feature runs (a feature named by the user, tested across its pages), write-side
-access checks (B changing A's records), rate limits, CSRF, file upload, prompt injection, paywall/success-page trust.
+Not in 0.4.0: write-side access checks, CSRF and paywall/success-page trust (all three are in 0.5.0, see
+[0.5.0: write-side checks](#050-write-side-checks)). Still planned: multi-page feature runs (a feature named by the
+user, tested across its pages), rate limits, file upload, prompt injection.
 
 ## Test accounts
 
@@ -285,3 +286,168 @@ so every page that carries another bug still loads directly and can be planned w
   nothing (no account, and no links to other pages).
 - No report, log line, evidence file or spec from any of these runs contains either password (a test greps the run
   folders).
+
+## 0.5.0: write-side checks
+
+The second V2 slice adds three checks that use accounts A and B to test **writes**, not reads. Everything above still
+holds. These three checks change data in account A, so each one follows the safety rules below. The acceptance suite
+enforces them.
+
+### Safety contract (all three checks)
+
+- **Only the run's own test record.** A write, including a replayed or forged one, targets only a record that Run
+  Hound created as A **in this scenario**, carrying the run token (the usual test record, counted in
+  `testRecordsCreated`). A's pre-existing records are never written to. Neither are ids found by listing, guessing or
+  incrementing. When the page has no form that creates such a record, the scenario is skipped and says why.
+- **Allowed targets only.** Every request goes through the safety gate and the navigation guard (v0-spec). Requests
+  go only to the target's origin or the app's local API (the same "app backend" rule as `pii-leak`). Nothing is sent to
+  a third-party host.
+- **Never these endpoints**, even with `--allow-destructive`: sign-out, password, email, account deletion,
+  payment/checkout provider, invitation or sharing endpoints. The existing never-click word lists and the "path that
+  acts" rule (`deep-links`) decide this, plus the password/email field rule from `access-control` step 1.
+- **Verdict from a re-read, not a status code.** A write "worked" only when a re-read **as A** shows the change (the
+  value changed, or the record is gone). The attempted request's status does not decide it (a `200 {error}`, a write
+  that is ignored, or a `404` from an idempotent DELETE are all common).
+- **Restore, then confirm.** After each attempt the scenario puts the test record back: it writes the original values
+  back, or creates it again when it was deleted. It then re-reads as A and compares with the snapshot taken before the
+  attempt. Anything that could not be restored is named in the notes ("… could not be undone: check Account A"), and
+  the scenario is not "pass" while such a note stands.
+- **Credentials and evidence.** Account credentials come only from the configured accounts (env vars or
+  `accounts.json`) and exported specs read them from environment variables. Evidence redacts cookies, bearer tokens,
+  CSRF tokens and both passwords (`redactSecrets`, with the session values registered as in [Test accounts](#test-accounts)).
+  Cookie values are never read into a page Run Hound serves and never written to the report.
+- **Unticked by default**, like `mass-assignment`: these checks change account A. With a check unticked the plan says
+  what it would do.
+
+### Types and shared helpers (additions)
+
+```ts
+CHECK_IDS += "write-access", "csrf", "paywall-trust"   // after "deep-links"; V2_CHECK_IDS gains them too
+// app/src/checks/lib/record-state.ts (shared by the three checks; no CheckContext change):
+findOwnRecord(ctx, capture, testValues): Promise<{ url: string; body: string } | null>  // mass-assignment's findRecord, moved here
+snapshotRecord(ctx, url, testValues): Promise<RecordSnapshot | null>   // GET as A, JSON, the run-token record only
+rereadRecord(ctx, snap): Promise<JsonObject[] | "gone" | null>         // null = the re-read itself failed
+restoreRecord(ctx, snap, how: { save: Capture["requests"][number] }): Promise<{ restored: string[]; notRestored: string[] }>
+// app/src/checks/lib/cross-site.ts (csrf only): crossSitePage(ctx, target): Promise<CrossSitePage | { inconclusive: string }>
+```
+
+The three checks set `destructive: false`, `defaultSelected: false` and an `interruptedNote` (0.4.1) that asks the user
+to check Account A, since a stop or the time limit can end a scenario between a write and its restore.
+
+`CheckContext.request` stays as in 0.4.0 and **must not** decide a CSRF verdict. It runs outside a browser, so it
+sends A's cookies whatever their SameSite value, and it adds the app's credential headers. A real cross-site page can
+do neither.
+
+### Checks (0.5.0)
+
+| Check id | Group | Scope | Planned when | Default |
+|---|---|---|---|---|
+| `write-access` | Security | form | signed in, a form that saves a record; scenario `other-account` also needs B and `isolated` | **unticked** |
+| `csrf` | Security | form | signed in, a form that saves a record | **unticked** |
+| `paywall-trust` | Security | page | signed in, and an entitlement endpoint was found (below) | **unticked** |
+
+### `write-access`
+
+Scenarios `other-account` (as B) and `signed-out`.
+
+1. As A, create the test record through the form. Find its record endpoint (as in `mass-assignment` step 2) and the
+   write requests the app itself uses for it: the save request, plus PUT/PATCH/DELETE/POST requests to a URL that
+   contains the test record's id, **observed from the app** (never guessed). No record endpoint means the scenario is
+   skipped.
+2. Snapshot the record as A.
+3. As the scenario's identity, send each observed update request (PUT/PATCH/POST-to-id) with one field changed to a
+   new run-token value. **DELETE runs last**, and only when the app itself showed a DELETE for that id.
+4. After each request, re-read as A. Finding when the value changed or the record is gone: **critical**, confirmed,
+   "Account B can change Account A's records" / "… delete …" / "Signed-out visitors can …". Then restore (see the
+   safety contract).
+5. Pass notes name the requests tried and say that A's record was unchanged.
+
+### `csrf`
+
+A real browser page on a **different site** from the target submits the forged request, and A's own browser context
+sends whatever cookies the browser would send.
+
+- **Cross-site origin.** Run Hound serves a blank attacker page from a local origin that is a different *site* from
+  the target. When the target is on `localhost`, the page is on `127.0.0.1`, and the other way round. It is added to the
+  allowed targets for that scenario only. Other ports of the same host are **not** cross-site (same site, so SameSite
+  cookies are sent). When no truly cross-site local origin can be set up (for example when the target host is a
+  private name from `RUNHOUND_ALLOWED_HOSTS`), the scenario is **inconclusive/skipped** with the reason, never
+  "confirmed" and never "pass".
+- **What is forged.** Only the save request this form already makes for the run's test record, with a new run-token
+  value, sent to the app's own origin or its local API. Only requests a cross-site page can send **without a CORS
+  preflight** are sent: form-encoded, multipart or `text/plain` bodies with no custom headers. Nothing is added to them
+  (no token, no credential header).
+- **JSON endpoints.** A save that the app sends as JSON can only be a finding when the same payload is accepted as
+  `text/plain` or form-encoded (the scenario sends it that way), or when CORS reflects the attacker origin with
+  credentials (then it is reported under this check and noted as a `cors` issue). Otherwise the scenario passes with
+  "needs a preflight".
+- **Cookies.** A cookie without a SameSite attribute counts as `Lax` (Chromium's default). Chromium also lets a
+  new `Lax`-by-default cookie through on a cross-site POST during its first 2 minutes. So the scenario runs the forged
+  request only once A's session is more than 2 minutes old, or it records that window and does not count the result.
+- **Verdict.** Re-read the record as A. Finding when the forged value is stored: **high**, confirmed, "A page on
+  another site can change Account A's data (no CSRF protection)". The notes explain which defense was missing (no
+  token, SameSite=None, no Origin check). Then restore. A rejected request, or no change on re-read, is a pass.
+
+### `paywall-trust`
+
+Run Hound never enters payment details, and never loads or calls a payment provider. The navigation guard blocks any
+third-party checkout host. A request to one is listed in the notes as "blocked (payment provider)".
+
+1. **Entitlement endpoint (required).** A GET as A whose JSON holds A's plan/role/credits/entitlement fields (`plan`,
+   `tier`, `subscription`, `isPro`, `credits`, `entitlements`, `features`), found like the `mass-assignment` record
+   endpoint. None found → skipped ("No plan or entitlement data was found, so this can't be checked").
+2. Snapshot it as A. Unpaid is the starting state: if A already has a paid plan, the scenario is skipped.
+3. Probes, each followed by a re-read of the entitlement endpoint as A:
+   - **Success page granting on load**: open the app's own success/upgraded/thank-you routes that the page links to
+     or that the app's checkout redirect names (same origin only). Loading them must not change the entitlement.
+   - **Client-sent price or plan**: when the app itself sends a same-origin upgrade/checkout request, it is replayed
+     to the app only, with a zero price or a paid plan id, and never forwarded to a provider.
+   - **Paid-feature API**: a same-origin API that the app calls only in paid mode (seen in the discovered requests)
+     is called as unpaid A.
+4. Finding only on a **server-side** state change or data: the entitlement changed (**critical**, confirmed, "Account
+   A got a paid plan without paying"), or the paid-feature API answered 2xx with data (**high**, confirmed). A
+   `402`/`403` is a pass. Text in the page ("Pro", "Upgrade", a success message), or gating only in the UI, is at most
+   **advisory** and never confirmed.
+5. Restore the snapshot's plan/role/credits. Whatever can't be put back is named ("… check Account A").
+
+### Fernway (0.5.0 planned bugs)
+
+Fernway's cookie is already `SameSite=Lax`. Clean mode keeps it and adds a CSRF token or Origin check, ownership
+checks on writes, and a server-side entitlement. New bugs (ids to be confirmed in `bugs.json`):
+
+| Id | Bug | Caught by (page) |
+|---|---|---|
+| V06 | `PATCH /api/tasks/:id` updates another user's task | `write-access:other-account` (`/app`) |
+| V07 | Writes to `/api/tasks/:id` work without a session | `write-access:signed-out` (`/app`) |
+| V08 | Session cookie set `SameSite=None; Secure` (Chromium accepts Secure on `http://localhost`), and the task save accepts a form-encoded body with no token or Origin check | `csrf` (`/app`) |
+| V09 | `/app/upgraded` sets `plan: "pro"` on load (a fake local checkout, no provider) | `paywall-trust` (`/app/settings`) |
+
+### Build plan (0.5.0)
+
+Built in this order; each step owns the files named and touches no others.
+
+1. **Foundation** (one engineer, first): register the three ids in `app/src/core/types.ts` (`CHECK_IDS`,
+   `V2_CHECK_IDS`) and `app/src/checks/index.ts` with stub checks that plan nothing; create
+   `app/src/checks/lib/record-state.ts` (moving `findRecord`/`recordChains`/`nearest` out of `mass-assignment.ts`,
+   which then imports them, behavior unchanged) with unit tests. Everything else keeps passing.
+2. **In parallel**, each on its own files only:
+   - `write-access`: `app/src/checks/write-access.ts`, `write-access*.test.ts`.
+   - `csrf`: `app/src/checks/csrf.ts`, `app/src/checks/lib/cross-site.ts`, `csrf*.test.ts`.
+   - `paywall-trust`: `app/src/checks/paywall-trust.ts`, `paywall-trust*.test.ts`.
+   - Fernway: everything under `fixtures/fernway/` (server routes, `bugs.json`, `CONTRACT.md`, the SPA for
+     `/app/upgraded`, its own tests) for V06–V09 and the clean-mode defenses.
+   Check tests build their own small fixture servers in the test file (as `mass-assignment-robust.test.ts` does)
+   and do not edit `test-support/accounts-app.ts`.
+3. **Integration** (one engineer, last): `tests/acceptance` (bug → route → check rows, clean-mode re-reads, the
+   inconclusive `csrf` case, the widened secret grep), the web UI and report where they list checks, the site's
+   checks data, README, TESTING, CHANGELOG and the 0.5.0 version bump.
+
+### Acceptance (0.5.0 additions)
+
+- Clean Fernway, signed in as Alex with Sam as B, all three checks ticked: no confirmed findings, and A's records and
+  plan are unchanged afterwards (the test re-reads them).
+- Each of V06–V09 alone: only the named scenario reports a confirmed finding, and A's state is restored afterwards.
+- `csrf` on a target whose cross-site origin can't be set up reports inconclusive, never confirmed.
+- Kennel and the samples: the new checks plan nothing, or skip with a reason. No existing golden file changes.
+- The password grep covers the run folders of the new checks too: no report, log, evidence or spec holds either
+  password, a session cookie value or a CSRF token.
