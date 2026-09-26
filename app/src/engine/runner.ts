@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { chromium, type Browser, type LaunchOptions } from "playwright";
+import { chromium, type Browser, type LaunchOptions, type Page } from "playwright";
 import { groupOf } from "../core/format.js";
 import { resolveAccounts } from "../accounts/config.js";
 import type { AccountsConfig, TestAccount } from "../accounts/types.js";
@@ -238,6 +238,28 @@ async function accountsConfig(options: RunOptions): Promise<AccountsConfig> {
 /** The slot that isn't `id`. */
 const otherSlot = (id: AccountId): AccountId => (id === "a" ? "b" : "a");
 
+/**
+ * Marks the email fields that hold the signed-in account's own email (FormField.holdsAccountEmail), as read on the
+ * loaded page: checks leave them as they are, so no save changes the email the account signs in with. Fields of forms
+ * behind a trigger aren't on the page yet and are read when they are there (their values are then left as found only
+ * if already marked; a dialog form holding the account's email is rare).
+ */
+async function markAccountEmail(page: Page, found: DiscoveredPage, username: string): Promise<void> {
+  const own = username.trim().toLowerCase();
+  if (!own.includes("@")) return;
+  for (const form of found.forms) {
+    for (const field of form.fields) {
+      if (field.type !== "email" && !/e-?mail/i.test(`${field.key} ${field.accessibleName ?? ""} ${field.label ?? ""}`)) continue;
+      const value = await page
+        .locator(field.selector)
+        .first()
+        .inputValue({ timeout: 1_000 })
+        .catch(() => null);
+      if (value !== null && value.trim().toLowerCase() === own) field.holdsAccountEmail = true;
+    }
+  }
+}
+
 /** True when the slot has what signing in needs: a sign-in page, a username and a password. */
 function accountReady(account: TestAccount | undefined): account is TestAccount {
   return Boolean(account && account.loginUrl?.trim() && account.username?.trim() && account.password);
@@ -426,7 +448,8 @@ async function discoverSignedInOrOut(
       engineStep(options, "Opening the page to find its forms and controls", url);
     }
     const env: PlanEnv = { signedIn: Boolean(signing), otherAccount: Boolean(signing?.other) };
-    const context = await browser.newContext({ locale: BROWSER_LOCALE, ...(session ? { storageState: session } : {}) });
+    // serviceWorkers: a service worker's own requests bypass context.route (discovery's write block, the guard).
+    const context = await browser.newContext({ locale: BROWSER_LOCALE, serviceWorkers: "block", ...(session ? { storageState: session } : {}) });
     const guard = await guardContext(context, safety);
     const page = await context.newPage();
     // Discovery clicks to read a widget's options and to find forms in dialogs, with writes blocked: its sockets must
@@ -449,6 +472,7 @@ async function discoverSignedInOrOut(
     }
     engineStep(options, "Reading the page: forms, fields and controls", page.url());
     const found = await discoverPage(page, { openers: true });
+    if (signing) await markAccountEmail(page, found, signing.account.username);
     if (found.forms.length === 0) {
       // A page without a form still gets the page-wide checks, unless it is an error page or a dev server refusing
       // the host name: testing that page would only test the error.

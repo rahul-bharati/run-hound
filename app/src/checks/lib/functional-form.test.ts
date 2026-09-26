@@ -234,6 +234,34 @@ describe("canaryValues + settingFor: the fill policy for widgets (LOV-1)", () =>
   });
 });
 
+describe("canaryValues + settingFor: the signed-in account's own email (0.4.1)", () => {
+  const field = (key: string, extra: Partial<FormField> = {}): FormField => ({
+    key,
+    selector: `#${key}`,
+    type: key === "email" ? "email" : "text",
+    role: "textbox",
+    accessibleName: key,
+    label: key,
+    required: true,
+    ...extra,
+  } as FormField);
+  const form = (fields: FormField[]): DiscoveredForm => ({ url: "http://127.0.0.1:4100/settings", selector: "#profile", name: "Profile", fields, controls: [] });
+
+  it("leaves an email field that holds the account's email alone, and still types canaries into the others", () => {
+    const values = canaryValues(form([field("displayName"), field("email", { holdsAccountEmail: true })]), "tok1", "own");
+    const email = values.find((v) => v.field.key === "email")!;
+    expect(email).toMatchObject({ keep: true, canary: false });
+    expect(settingFor(email)).toBeNull();
+    expect(values.find((v) => v.field.key === "displayName")!.canary).toBe(true);
+  });
+
+  it("types a canary into an email field that doesn't hold the account's email", () => {
+    const email = canaryValues(form([field("email")]), "tok1", "own")[0]!;
+    expect(email.keep).toBeUndefined();
+    expect(settingFor(email)).toEqual({ text: email.value });
+  });
+});
+
 let widgetApp: WidgetApp | undefined;
 const widgetPages: Page[] = [];
 

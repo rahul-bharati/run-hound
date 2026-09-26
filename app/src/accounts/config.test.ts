@@ -276,6 +276,13 @@ describe("a saved password is bound to the origin of its login URL", () => {
 });
 
 describe("saveAccounts", () => {
+  it("tightens a folder that already existed with looser permissions to 0700", async () => {
+    await mkdir(dir, { recursive: true });
+    await chmod(dir, 0o755);
+    await saveAccounts({ accounts: { a: { label: "Owner" } } }, { env, home: tmp });
+    expect((await stat(dir)).mode & 0o777).toBe(0o700);
+  });
+
   it("creates the folder (0700) and writes the file (0600) in the spec's shape", async () => {
     const status = await saveAccounts({ accounts: { a: { ...fullA, label: "Owner" } } }, { env, home: tmp });
     expect((await stat(dir)).mode & 0o777).toBe(0o700);

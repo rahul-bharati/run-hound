@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { chmod, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { isPrivateAddress } from "../engine/safety.js";
@@ -316,6 +316,8 @@ function keyOrigin(config: Pick<AiConfig, "provider" | "baseUrl">): string {
 async function writePrivate(file: string, text: string): Promise<void> {
   const dir = dirname(file);
   await mkdir(dir, { recursive: true, mode: 0o700 });
+  // mkdir's mode only applies to a folder it creates: tighten one that was already there with looser permissions.
+  await chmod(dir, 0o700).catch(() => undefined);
   const temp = join(dir, `.ai.json.${process.pid}.${randomBytes(6).toString("hex")}.tmp`);
   try {
     const handle = await open(temp, "wx", 0o600);

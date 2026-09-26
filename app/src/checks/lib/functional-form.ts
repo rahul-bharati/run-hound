@@ -14,6 +14,8 @@ export interface FieldValue {
   value: string;
   /** True when `value` is a unique canary that should show up again (free-text fields only). */
   canary: boolean;
+  /** Left as the page has it (FormField.holdsAccountEmail): fillForm doesn't touch it. */
+  keep?: boolean;
 }
 
 const START_DATE = /start|from|begin|check.?in|arriv|depart/i;
@@ -107,6 +109,11 @@ export function canaryValues(form: DiscoveredForm, token: string, salt: string):
   let passwordValue: string | null = null;
 
   for (const field of form.fields) {
+    // The signed-in account's own email (a profile form): kept, so a save can't change how the account signs in.
+    if (field.holdsAccountEmail) {
+      values.push({ field, value: "", canary: false, keep: true });
+      continue;
+    }
     const text = describe(field);
     const kind = fieldKind(field);
     // Choices get their first real option ("None" and "Select…" are skipped). A picker whose options only exist once
@@ -196,6 +203,7 @@ function nameWord(field: FormField): string {
  * - a slider keeps its value unless one is given; file and hidden inputs are never set.
  */
 export function settingFor(v: FieldValue): FieldSetting | null {
+  if (v.keep) return null;
   const { field, value } = v;
   switch (fieldKind(field)) {
     case "text":
@@ -232,6 +240,7 @@ export interface FillProblem {
 export async function fillForm(page: Page, values: FieldValue[]): Promise<FillProblem[]> {
   const problems: FillProblem[] = [];
   for (const v of values) {
+    if (v.keep) continue;
     const setting = settingFor(v);
     if (!setting) continue;
     try {
@@ -260,6 +269,7 @@ const flat = (s: string | null | undefined) => (s ?? "").replace(/\s+/g, " ").tr
  * only show once open, a combobox suggestion). A field that is gone counts as not kept.
  */
 export async function valueKept(page: Page, v: FieldValue): Promise<boolean | null> {
+  if (v.keep) return null;
   const setting = settingFor(v);
   if (!setting) return null;
   const { field, value } = v;

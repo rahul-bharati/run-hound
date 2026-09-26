@@ -535,6 +535,8 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
       const context = await options.browser.newContext({
         viewport: pageOptions.viewport ?? DEFAULT_VIEWPORT,
         locale: BROWSER_LOCALE,
+        // A service worker's own requests bypass context.route (the write block and the safety guard).
+        serviceWorkers: "block",
         ...(state ? { storageState: state } : {}),
       });
       if (disposed) {
