@@ -3,7 +3,10 @@ import { closeBrowser, runCheck } from "../../test-support/harness.js";
 import { json } from "../../test-support/server.js";
 import { startBookingApp, sampleForm, type BookingServer, type ClientOptions } from "../../test/fixtures/checks/_behavior/booking-app.js";
 import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectPlan } from "../../test/fixtures/checks/_behavior/expectations.js";
+import { startModernApp, type ModernApp } from "../../test/fixtures/checks/modern-apps.js";
 import { check } from "./double-submit.js";
+import { MULTI_STEP_NOTE } from "./lib/functional-form.js";
+import { startSchemaFormApp } from "../../test/fixtures/checks/schema-form.js";
 
 const ID = "double-submit" as const;
 const servers: BookingServer[] = [];
@@ -90,5 +93,86 @@ describe("double-submit: a server that turns a repeated post into the same recor
     expect(s.createRequests().length).toBeGreaterThanOrEqual(2);
     expectCleanPass(results, ID);
     expect(results[0]!.notes).toMatch(/same record \(booking-1\)/);
+  });
+});
+
+describe("double-submit: GraphQL apps, where reads are POSTs too (CHK-5)", () => {
+  const apps: ModernApp[] = [];
+  afterAll(async () => {
+    await Promise.all(apps.map((a) => a.close()));
+  });
+  async function graphqlApp(options: { noGuard?: boolean }) {
+    const a = await startModernApp({
+      path: "/guestbook",
+      heading: "Sign the guestbook",
+      fields: [
+        { name: "name", label: "Full name", type: "text" },
+        { name: "email", label: "Work email", type: "email" },
+      ],
+      submitLabel: "Sign",
+      after: "toast",
+      api: "graphql",
+      saveDelayMs: 800,
+      ...options,
+    });
+    apps.push(a);
+    return a;
+  }
+  const mutations = (a: ModernApp) => a.requests.filter((r) => r.url === "/graphql" && r.body.includes("mutation"));
+
+  it("GOOD: one mutation from a guarded button passes, though the page posts a query on load and after saving", async () => {
+    const a = await graphqlApp({});
+    const { results } = await runCheck(check, a.formUrl);
+    expect(mutations(a)).toHaveLength(1);
+    expect(a.requests.filter((r) => r.url === "/graphql").length).toBeGreaterThanOrEqual(3);
+    expectCleanPass(results, ID);
+  });
+
+  it("BAD: an unguarded button sends the mutation twice: reported as 2 saves, not counting the queries", async () => {
+    const a = await graphqlApp({ noGuard: true });
+    const { results } = await runCheck(check, a.formUrl);
+    expect(mutations(a)).toHaveLength(2);
+    const findings = expectFailure(results, ID, "broken-feature", ["high"]);
+    expect(findings[0]!.title).toBe('Double-clicking "Sign" saves 2 times');
+    // Every request on the evidence card is the mutation, each with a measured start time.
+    const card = JSON.stringify(findings[0]!.evidence.filter((e) => e.kind === "network").map((e) => e.data));
+    expect(card).not.toMatch(/query Records/);
+  });
+});
+
+describe("double-submit: the first step of a wizard (LOV-12)", () => {
+  it("skips with the multi-step reason, not as refused test values", async () => {
+    const a = await startModernApp({
+      path: "/wizard",
+      heading: "Set up your workspace",
+      fields: [
+        { name: "workspace", label: "Workspace name", type: "text" },
+        { name: "email", label: "Invite a teammate", type: "email" },
+      ],
+      submitLabel: "Finish setup",
+      after: "toast",
+      wizard: true,
+    });
+    try {
+      const { results } = await runCheck(check, a.formUrl);
+      expect(results[0]!.status).toBe("skipped");
+      expect(results[0]!.notes).toBe(MULTI_STEP_NOTE);
+    } finally {
+      await a.close();
+    }
+  });
+});
+
+describe("double-submit: skip notes never blame the app for what Run Hound didn't do (RH-10)", () => {
+  it("names the field whose rule refused Run Hound's value", async () => {
+    const a = await startSchemaFormApp({ taskMinLength: 80 });
+    try {
+      const { results } = await runCheck(check, a.formUrl);
+      expect(results[0]!.status).toBe("skipped");
+      expect(results[0]!.notes).toMatch(/showed an error on "Task"/);
+      expect(results[0]!.notes).not.toMatch(/may have refused/);
+    } finally {
+      await a.close();
+    }
   });
 });

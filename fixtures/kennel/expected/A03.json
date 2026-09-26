@@ -1,7 +1,8 @@
 {
   "mode": "A03",
   "mustFail": [
-    "keyboard-completion"
+    "keyboard-completion",
+    "error-announcement"
   ],
   "mustPass": "all-others",
   "allowedSideEffects": [],
@@ -9,7 +10,12 @@
     {
       "checkId": "keyboard-completion",
       "severity": "high"
+    },
+    {
+      "checkId": "error-announcement",
+      "severity": "high",
+      "titleIncludes": "Pet type"
     }
   ],
-  "notes": "Pet type becomes clickable divs with no tabindex or role: not reachable by Tab, so the booking cannot be created by keyboard. Considered and rejected: axe-states (plain divs with click handlers violate no axe rule; if Kennel adds ARIA roles without required children, axe would flag aria-required-children and this golden needs revisiting), focus-visible (divs are not in the tab order), dead-control (clicking a div changes the DOM selection state), mouse-driven checks (options are still clickable)."
+  "notes": "Pet type becomes clickable divs with no tabindex or role: not reachable by Tab, so the booking cannot be created by keyboard. Considered and rejected: axe-states (plain divs with click handlers violate no axe rule; if Kennel adds ARIA roles without required children, axe would flag aria-required-children and this golden needs revisiting), focus-visible (divs are not in the tab order), dead-control (clicking a div changes the DOM selection state), mouse-driven checks (options are still clickable). Also caught since 0.4.0 (error-announcement checks every field that shows an error after an empty submit, not only the ones marked required): the divs are not a form control, so \"Choose a pet type.\" can't be tied to them (no aria-invalid, no aria-describedby) and only the live region's count (\"There are 5 problems with your booking.\") is announced; the clean radio group is wired and passes."
 }

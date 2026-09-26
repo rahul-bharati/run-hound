@@ -123,7 +123,8 @@ export function AiSection() {
           </p>
           <p className="leading-relaxed text-muted">
             AI is <strong className="text-fg">off by default</strong>. When it&apos;s on, only redacted page structure
-            goes to the model you configure: the page title and path, field labels and types, option labels, button names and the scenario list;
+            goes to the model you configure: the page title and path (a local model also gets the redacted address with
+            its query), field labels and types, option labels, button names and the scenario list;
             for explanations, the finding text and its evidence facts, without test values. Never typed values, cookies, response bodies or
             screenshots.
           </p>

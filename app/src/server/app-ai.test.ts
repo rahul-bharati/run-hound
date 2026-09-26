@@ -377,7 +377,8 @@ describe("POST /api/plan with AI", () => {
     expect(fv.defaultSelected).toBe(true);
     const dc = plan.scenarios.find((s) => s.id === "dc:1")!;
     expect(dc.ai?.recommended).toBe(false);
-    expect(dc.defaultSelected).toBe(false);
+    // "Not recommended" is advice: the review never unticks a scenario that is ticked by default.
+    expect(dc.defaultSelected).toBe(true);
     expect(plan.scenarios.some((s) => s.id === "nope:9")).toBe(false);
 
     const suggested = plan.scenarios.filter((s) => s.id.startsWith("ai-flow:"));

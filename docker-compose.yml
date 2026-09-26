@@ -1,4 +1,4 @@
-# Run Hound (0.3.0) plus the apps it is tested against, all local. See TESTING.md.
+# Run Hound (0.4.0) plus the apps it is tested against, all local, built from this clone. See TESTING.md.
 #
 #   cp .env.example .env        # optional: every setting has a default; edit ports and options there
 #   mkdir -p runs               # reports land in ./runs; create it first so the files belong to you
@@ -9,6 +9,9 @@
 #
 #   http://kennel:3000/book            Kennel with its planted bugs (KENNEL_BUGS, default: every V0 and V1 bug)
 #   http://kennel-clean:3000/book      Kennel in clean mode: every check should pass
+#   http://fernway:4110/               Fernway, a Lovable-style SaaS app, clean (also /signup /login /onboarding
+#                                      /app /app/settings /app/help): any confirmed finding is a false positive
+#   http://fernway-bugs:4110/          Fernway with its planted bugs (FERNWAY_BUGS, default: all, W01-W10 and V01-V05)
 #   http://classic-post:4101/signup    sample: server-rendered form, no JavaScript
 #   http://spa-fetch:4102/             sample: vanilla-JS contact form, same-origin JSON API
 #   http://login:4103/                 sample: sign-in form (401 on wrong credentials)
@@ -21,25 +24,37 @@
 # Testing an app running on your machine: enter http://host.docker.internal:<port>/<page> in the UI. Your dev server
 # must listen on all interfaces and accept that host name (TESTING.md has the settings for Vite and Next.js).
 # On Linux, `docker run --network host` (TESTING.md) is simpler: it tests http://localhost:<port> directly.
+#
+# The images built here get the published names and tags (ghcr.io/rahul-bharati/run-hound:0.4.0 and so on), because
+# the service definitions must stay identical to run-hound.compose.yml's (app/test/compose-files.test.ts checks that).
+# So after a local build, run-hound.compose.yml uses your build too until you run
+# `docker compose -f run-hound.compose.yml pull`, and never run `docker compose push` with this file.
 
 x-sample: &sample
   build:
     context: .
     dockerfile: fixtures/samples/Dockerfile
-  image: ghcr.io/rahul-bharati/run-hound-samples:0.3.0
+  image: ghcr.io/rahul-bharati/run-hound-samples:0.4.0
   init: true
+  # Healthy while the app answers on its PORT (any status below 500). The images have no curl, so Node's fetch probes.
+  healthcheck: &app-healthcheck
+    test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:' + process.env.PORT + '/', { redirect: 'manual', signal: AbortSignal.timeout(4000) }).then((r) => process.exit(r.status < 500 ? 0 : 1), () => process.exit(1))"]
+    interval: 30s
+    timeout: 5s
+    start_period: 10s
+    retries: 3
 
 services:
   run-hound:
     build:
       context: .
       dockerfile: app/Dockerfile
-    image: ghcr.io/rahul-bharati/run-hound:0.3.0
+    image: ghcr.io/rahul-bharati/run-hound:0.4.0
     init: true
     environment:
       # Named hosts the safety gate accepts besides localhost and private addresses: the test apps and the names
       # Docker and Podman give your machine. Nothing public is added. Override in .env to add your own.
-      RUNHOUND_ALLOWED_HOSTS: ${RUNHOUND_ALLOWED_HOSTS:-kennel,kennel-clean,classic-post,spa-fetch,login,cross-origin-api,multi-form,host.docker.internal,host.containers.internal}
+      RUNHOUND_ALLOWED_HOSTS: ${RUNHOUND_ALLOWED_HOSTS:-kennel,kennel-clean,fernway,fernway-bugs,classic-post,spa-fetch,login,cross-origin-api,multi-form,host.docker.internal,host.containers.internal}
       RUNHOUND_PUBLIC_URL: http://localhost:${RUNHOUND_HOST_PORT:-4000}
       # AI (optional, off by default; docs/ai-spec.md). Settings saved from the web UI go to ./runs/.config/ai.json
       # on your machine (inside the reports folder, so they belong to you and survive a rebuild).
@@ -69,6 +84,26 @@ services:
       RUNHOUND_AI_AWS_PROFILE: ${RUNHOUND_AI_AWS_PROFILE:-}
       # AWS_CONFIG_FILE: /home/pwuser/.aws/config
       # AWS_SHARED_CREDENTIALS_FILE: /home/pwuser/.aws/credentials
+      # Test accounts for signed-in runs and access checks (optional; docs/v2-spec.md "Test accounts"): two accounts
+      # you own on the app you test. Values set here override the ones saved on the Settings page (which go to
+      # ./runs/.config/accounts.json on your machine); empty means not set.
+      RUNHOUND_ACCOUNT_A_LOGIN_URL: ${RUNHOUND_ACCOUNT_A_LOGIN_URL:-}
+      RUNHOUND_ACCOUNT_A_USERNAME: ${RUNHOUND_ACCOUNT_A_USERNAME:-}
+      RUNHOUND_ACCOUNT_A_PASSWORD: ${RUNHOUND_ACCOUNT_A_PASSWORD:-}
+      RUNHOUND_ACCOUNT_A_LABEL: ${RUNHOUND_ACCOUNT_A_LABEL:-}
+      RUNHOUND_ACCOUNT_B_LOGIN_URL: ${RUNHOUND_ACCOUNT_B_LOGIN_URL:-}
+      RUNHOUND_ACCOUNT_B_USERNAME: ${RUNHOUND_ACCOUNT_B_USERNAME:-}
+      RUNHOUND_ACCOUNT_B_PASSWORD: ${RUNHOUND_ACCOUNT_B_PASSWORD:-}
+      RUNHOUND_ACCOUNT_B_LABEL: ${RUNHOUND_ACCOUNT_B_LABEL:-}
+      RUNHOUND_ACCOUNTS_ISOLATED: ${RUNHOUND_ACCOUNTS_ISOLATED:-}
+    # The image's own check: healthy while the UI answers. A one-shot `compose run run-hound run <url>` counts as
+    # healthy too.
+    healthcheck:
+      test: ["CMD", "node", "/usr/local/bin/run-hound-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     extra_hosts:
       # Docker Desktop defines host.docker.internal itself; this adds it on Linux Docker and Podman too.
       - "host.docker.internal:host-gateway"
@@ -78,9 +113,12 @@ services:
       - ${RUNHOUND_RUNS_DIR:-./runs}:/repo/app/runs
       # Optional, read-only: your AWS profiles for Bedrock (see AWS_PROFILE above).
       # - ~/.aws:/home/pwuser/.aws:ro
+    # Started, not healthy: the apps boot in about a second, and the UI doesn't need them until you start a run.
     depends_on:
       - kennel
       - kennel-clean
+      - fernway
+      - fernway-bugs
       - classic-post
       - spa-fetch
       - login
@@ -92,7 +130,9 @@ services:
     build:
       context: .
       dockerfile: fixtures/kennel/Dockerfile
-    image: ghcr.io/rahul-bharati/run-hound-kennel:0.3.0
+    image: ghcr.io/rahul-bharati/run-hound-kennel:0.4.0
+    init: true
+    healthcheck: *app-healthcheck
     environment:
       KENNEL_BUGS: ${KENNEL_BUGS:-all}
     ports:
@@ -106,6 +146,26 @@ services:
     ports:
       - "127.0.0.1:${KENNEL_CLEAN_HOST_PORT:-3100}:3000"
       - "127.0.0.1:${KENNEL_CLEAN_ANALYTICS_HOST_PORT:-3101}:3001"
+
+  # ---- Fernway: a Lovable/Bolt-style SaaS app (Vite, React, Tailwind, Radix) --------------------------------------
+  fernway: &fernway
+    build:
+      context: .
+      dockerfile: fixtures/fernway/Dockerfile
+    image: ghcr.io/rahul-bharati/run-hound-fernway:0.4.0
+    init: true
+    healthcheck: *app-healthcheck
+    environment:
+      FERNWAY_BUGS: none
+    ports:
+      - "127.0.0.1:${FERNWAY_HOST_PORT:-4110}:4110"
+
+  fernway-bugs:
+    <<: *fernway # same image as fernway, with its planted bugs
+    environment:
+      FERNWAY_BUGS: ${FERNWAY_BUGS:-all}
+    ports:
+      - "127.0.0.1:${FERNWAY_BUGS_HOST_PORT:-4111}:4110"
 
   # ---- Sample apps: unfamiliar, well-built apps (fixtures/samples) ---------------------------------------------
   classic-post:

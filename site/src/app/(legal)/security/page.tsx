@@ -1,13 +1,14 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { LegalDoc, LegalHeading, type LegalTocItem, MailLink } from "@/components/legal/legal";
+import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
-export const metadata: Metadata = {
+export const metadata = pageMetadata({
+  path: "/security/",
   title: "Security",
   description:
     "How to report a vulnerability in Run Hound or this website, what to include, what is in scope and how we respond.",
-};
+});
 
 const toc: LegalTocItem[] = [
   { id: "how-to-report", label: "How to report" },
@@ -80,8 +81,8 @@ export default function SecurityPage() {
         </li>
         <li>
           official {site.name} releases and the container images published from the repository (
-          <code>ghcr.io/rahul-bharati/run-hound</code>, <code>run-hound-kennel</code> and{" "}
-          <code>run-hound-samples</code>);
+          <code>ghcr.io/rahul-bharati/run-hound</code>, <code>run-hound-kennel</code>, <code>run-hound-samples</code>{" "}
+          and <code>run-hound-fernway</code>);
         </li>
         <li>
           the safeguards that limit what {site.name} may test, such as the local-only target check, pinning the

@@ -46,12 +46,59 @@ export const CHECK_IDS = [
   "source-maps",
   // V2 (0.3.0): runs the flows an AI model suggested. It plans nothing itself; suggestions come from ai/suggest.ts.
   "ai-flow",
+  // V2 (0.4.0): signed-in runs with test accounts (docs/v2-spec.md).
+  "access-control",
+  "mass-assignment",
+  "deep-links",
 ] as const;
 
 /** Checks added in V1 (single page). Everything else in CHECK_IDS shipped in V0. */
 export const V1_CHECK_IDS: readonly CheckId[] = ["page-controls", "security-headers", "cookie-flags", "cors", "source-maps"];
 
 export type CheckId = (typeof CHECK_IDS)[number];
+
+/** Checks added in 0.4.0 (the first V2 slice: test accounts, access checks, deep links). docs/v2-spec.md. */
+export const V2_CHECK_IDS: readonly CheckId[] = ["access-control", "mass-assignment", "deep-links"];
+
+/** The two test-account slots (docs/v2-spec.md "Test accounts"). */
+export type AccountId = "a" | "b";
+
+/** How plans, reports and checks name a test account: never its username or password. */
+export interface AccountRef {
+  id: AccountId;
+  /** "Account A" unless the user gave it a label. */
+  label: string;
+}
+
+/**
+ * What the run can do, passed to Check.plan (0.4.0). Absent means signed out with no other account, as in 0.3.0.
+ * `signedIn`: the plan was discovered, and the run will run, as a test account. `otherAccount`: a second account is
+ * configured, can be signed in, and the user said the two must not see each other's data (accounts.json "isolated").
+ */
+export interface PlanEnv {
+  signedIn: boolean;
+  otherAccount: boolean;
+}
+
+/** Whose session a check opens a page or sends a request with: the run's account, the other account, or nobody. */
+export type Identity = "self" | "other" | "signed-out";
+
+/** A request CheckContext.request sends (docs/v2-spec.md "Types"). GET unless `method` says otherwise. */
+export interface IdentityRequest {
+  method?: string;
+  url: string;
+  /** Extra headers. Credential headers (cookie, authorization, apikey, x-*-token, x-api-key) are dropped and replaced by the identity's own. */
+  headers?: Record<string, string>;
+  /** Request body, sent as is (JSON callers pass JSON.stringify(...) and a content-type header). */
+  body?: string;
+}
+
+/** The answer to an IdentityRequest: body capped at 1 MB, header names lower-case. Redirects are not followed. */
+export interface IdentityResponse {
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+}
 
 /** Checks that only run scenarios an AI model suggested; never listed as "nothing to test on this page". */
 export const AI_CHECK_IDS: readonly CheckId[] = ["ai-flow"];
@@ -82,6 +129,27 @@ export interface FormField {
   options?: { label: string; selector: string }[];
   /** The field's autocomplete hint, lowercased ("email", "current-password"), when it has one. */
   autocomplete?: string;
+  /**
+   * A non-native widget (0.4.0), as Radix/shadcn, Headless UI or cmdk render them, and how to set its value:
+   * - "aria-select": a button[role=combobox] (Radix Select) whose listbox opens in a portal; `options` are its choices.
+   * - "aria-combobox": a text input[role=combobox] with a listbox of suggestions (cmdk, Downshift).
+   * - "aria-checkbox" / "aria-switch": a button[role=checkbox|switch] with aria-checked.
+   * - "aria-radio": a [role=radiogroup] of [role=radio] items; `options` are the items.
+   * - "aria-slider": a [role=slider] set with the arrow keys.
+   * `selector` is always the visible, focusable control. Absent for native controls.
+   */
+  widget?: "aria-select" | "aria-combobox" | "aria-checkbox" | "aria-switch" | "aria-radio" | "aria-slider";
+  /**
+   * The hidden native input a widget mirrors its value into (Radix "bubble" inputs: an aria-hidden <select> or
+   * <input type=checkbox|radio> inside the form), when it has one. Setting that input is the fastest reliable way to
+   * set the widget; the visible control is still the one focused and clicked.
+   */
+  nativeSelector?: string;
+  /**
+   * Why `required` is true (0.4.0): "attribute" (required / aria-required) or "label" (the label or its marker says so:
+   * "*", "(required)", "required"). Schema-validated forms (react-hook-form + zod) usually have only the label.
+   */
+  requiredBy?: "attribute" | "label";
   /** Native constraints, when present. */
   constraints?: { min?: string; max?: string; minLength?: number; maxLength?: number; pattern?: string };
 }
@@ -114,6 +182,12 @@ export interface DiscoveredForm {
   fields: FormField[];
   /** Buttons and clickable controls inside the form, including the submit control. */
   controls: FormControl[];
+  /**
+   * The control that shows this form (0.4.0): a form inside a dialog, sheet or popover that only exists after a click
+   * ("New project", "Book a demo"). CheckContext.openPage clicks it after every page load (engine/open-form.ts), so a
+   * check always finds the form on screen. Absent for forms that are on the page when it loads.
+   */
+  opener?: { selector: string; name: string | null };
 }
 
 /**
@@ -132,6 +206,12 @@ export interface DiscoveredPage {
   controls: FormControl[];
   /** How many links with a real href the page has (not tested one by one in V1; a crawl is V3). */
   links: number;
+  /**
+   * Where the page's own links go (0.4.0, for deep-links): absolute URLs of a[href] links to the page's origin, without
+   * the hash, one per path and query, in page order, at most 50. Never an in-page anchor ("#…"), a download, or a link
+   * whose name or path says it acts (log out, delete, unsubscribe…: isDestructiveControl). Absent in older plans.
+   */
+  linkTargets?: string[];
 }
 
 /**
@@ -381,12 +461,32 @@ export interface CheckContext {
   allowDestructive: boolean;
   /** Unique token for this run; use it in canary values so runs don't collide. */
   runToken: string;
-  /** Opens a fresh context + page on the target with network/console capture attached. */
-  openPage(options?: { viewport?: { width: number; height: number } }): Promise<{
+  /**
+   * The run's test account and the other account (0.4.0), by label only. Absent or null = signed out / not available.
+   */
+  accounts?: { self: AccountRef | null; other: AccountRef | null };
+  /**
+   * Opens a fresh context + page on the target with network/console capture attached. `as` (0.4.0) picks the session:
+   * "self" (default) = the run's account when the run is signed in, else signed out; "other" = the second account
+   * (throws when there is none); "signed-out" = no session.
+   */
+  openPage(options?: { viewport?: { width: number; height: number }; as?: Identity }): Promise<{
     context: BrowserContext;
     page: Page;
     capture: Capture;
   }>;
+  /**
+   * Sends one HTTP request as `as` (0.4.0): that identity's cookies plus the credential headers the app itself sent
+   * from that identity to the same origin (never guessed); "signed-out" sends neither. The URL must pass the safety
+   * gate (else it rejects), redirects are not followed, 10 s timeout, body capped at 1 MB. Not recorded as page
+   * activity; a non-GET request that the app accepts counts as a test record.
+   */
+  request(as: Identity, request: IdentityRequest): Promise<IdentityResponse>;
+  /**
+   * Strings that identify the run account's own data (its username), for matching responses only: never print them,
+   * put them in evidence or send them to a model. Empty when signed out.
+   */
+  accountMarkers(): string[];
   /** Saves a plain screenshot under artifactsDir. Legacy: prefer capture(). */
   screenshot(page: Page, label: string): Promise<Evidence>;
   /**
@@ -412,9 +512,23 @@ export interface Check {
    * page (with the main form, or an empty form when the page has none) and run against the page as a whole.
    */
   scope?: "form" | "page";
-  /** Scenarios this check proposes for the given form (and page, in V1); empty if it does not apply. */
-  plan(form: DiscoveredForm, page?: DiscoveredPage): Scenario[];
+  /**
+   * Scenarios this check proposes for the given form (and page, in V1); empty if it does not apply. `env` (0.4.0) says
+   * whether the run is signed in and has a second account; absent = signed out, no other account.
+   */
+  plan(form: DiscoveredForm, page?: DiscoveredPage, env?: PlanEnv): Scenario[];
   run(ctx: CheckContext, scenario: Scenario): Promise<CheckResult>;
+  /**
+   * How long one of this check's scenarios may take, when its work grows with the page (a check that loads the page
+   * once for every control it clicks). The runner allows the larger of this and its default limit (3 minutes);
+   * RunOptions.scenarioTimeoutMs, when given, applies as it is. Absent = the default limit.
+   */
+  timeLimitMs?(scenario: Scenario, form: DiscoveredForm, page?: DiscoveredPage): number;
+  /**
+   * Added to the notes of a scenario the runner abandoned mid-run (stopped, or over its time limit): what the check may
+   * have left changed on the target, since it had no chance to put it back. Absent = nothing to say.
+   */
+  interruptedNote?: string;
 }
 
 /** A group's scenarios within a plan, in run order. */
@@ -436,6 +550,13 @@ export interface Plan {
   groups: PlanGroup[];
   /** Set when an AI model reviewed the plan or suggested scenarios (0.3.0). */
   ai?: PlanAi;
+  /** The test account the page was discovered as (0.4.0); a run of this plan signs in as the same account. Absent = signed out. */
+  account?: AccountRef;
+  /**
+   * True when the plan was made signed out on a page with a form that saves, and the access checks were among the
+   * checks (0.4.0): they plan nothing signed out, so planWarnings shows one hint to sign in as a test account instead.
+   */
+  signInHint?: boolean;
 }
 
 /** Which model looked at a plan or report, and what went wrong. */
@@ -497,13 +618,25 @@ export interface Report {
   /**
    * How many records the run may have created in the app under test: save requests (non-GET fetch, XHR or form
    * posts to the target's origin, or carrying the run's test values to another origin) that the app accepted with
-   * a 2xx or 3xx status. Run Hound never deletes them; the report says so. Optional only for older reports.
+   * a 2xx or 3xx status, and that are page posts, have no body or carry the run's test values (GraphQL queries and
+   * same-origin reads or analytics sent as POST don't count; engine/context.ts isAcceptedSave). Run Hound never
+   * deletes them; the report says so. Optional only for older reports.
    */
   testRecordsCreated?: number;
   /** True when the user stopped the run: remaining scenarios are "skipped" with notes "Stopped by you". */
   stopped?: boolean;
+  /**
+   * How the run was started, so a re-run of a report read back from disk runs the same way. The runner always sets
+   * it; it is optional only so reports written before 0.4.0 can still be read.
+   */
+  options?: { allowDestructive: boolean; headed: boolean };
   /** Browser the run used, e.g. "Chromium 153.0.8010.12". */
   browser?: string;
   /** Set when AI explanations were requested (0.3.0): the model and how many findings it explained. */
   ai?: AiUsage & { explained: number };
+  /**
+   * Who the run signed in as and, when a scenario used it, the other account (0.4.0). Absent in reports written
+   * before 0.4.0, which read as signed out.
+   */
+  accounts?: { signedInAs: AccountRef | null; other: AccountRef | null };
 }

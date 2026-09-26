@@ -3,7 +3,7 @@ import { Icon, groupIcons } from "@/components/icon";
 import { NewTag } from "@/components/layout";
 import { checkGroups } from "./data";
 
-/** The preview's checks in the three groups the plan, the live view and the report use. New V1 checks are tagged. */
+/** The built-in checks in the three groups the plan, the live view and the report use. V2 preview checks are tagged. */
 export function Groups() {
   return (
     <ul className="grid gap-5 lg:grid-cols-3">
@@ -29,7 +29,8 @@ export function Groups() {
                 <Icon icon={Check} size={16} className="mt-0.5 text-accent" />
                 <span className="flex flex-1 flex-wrap items-center gap-x-2 gap-y-1">
                   {check.label}
-                  {check.isNew ? <NewTag>New</NewTag> : null}
+                  {check.preview ? <NewTag>V2 preview</NewTag> : null}
+                  {check.signedIn ? <span className="font-mono text-[11px] text-dim">signed in</span> : null}
                 </span>
               </li>
             ))}

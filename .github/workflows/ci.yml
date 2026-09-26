@@ -1,18 +1,24 @@
-# Type-checks and runs every suite: Run Hound's unit and browser tests, Kennel's own tests, and the acceptance
-# suite (Run Hound against Kennel in clean mode and with every planted bug, plus the unfamiliar sample apps).
+# Type-checks and runs every suite: Run Hound's unit and browser tests, Kennel's and Fernway's own tests, and the
+# acceptance suite (Run Hound against Kennel and Fernway in clean mode and with every planted bug, plus the unfamiliar
+# sample apps). It also builds the four Docker images (amd64, nothing pushed) and smoke-tests them in the compose test
+# lab, and lints and builds the marketing site (site/, its own pnpm project).
+# Release images (release-images.yml) calls this workflow first, so no image is published unless all of it passes.
 name: CI
 
 on:
   push:
-    branches: [main, v0]
+    branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # When release-images.yml calls this workflow, github.workflow is the caller's name ("Release images"), so a release
+  # never cancels, or is cancelled by, a CI run on the same ref.
+  group: ${{ github.workflow }}-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -20,8 +26,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      # Kennel is built once below; the suites reuse its dist/ instead of rebuilding it.
+      # Kennel and Fernway are built once below; the suites reuse their dist/ instead of rebuilding it.
       KENNEL_SKIP_BUILD: "1"
+      FERNWAY_SKIP_BUILD: "1"
     steps:
       - uses: actions/checkout@v7
 
@@ -43,6 +50,7 @@ jobs:
         run: |
           pnpm --filter run-hound exec tsc --noEmit
           pnpm --filter kennel exec tsc --noEmit
+          pnpm --filter fernway exec tsc --noEmit
           pnpm --filter acceptance exec tsc --noEmit
 
       - name: Validate the compose files
@@ -51,11 +59,189 @@ jobs:
       - name: Build Kennel
         run: pnpm --filter kennel build
 
+      - name: Build Fernway
+        run: pnpm --filter fernway build
+
       - name: Run Hound tests (unit and browser)
         run: pnpm --filter run-hound test
 
       - name: Kennel tests (clean mode and every bug)
         run: pnpm --filter kennel test
 
-      - name: Acceptance (Run Hound against Kennel and the sample apps)
+      - name: Fernway tests (clean mode and every bug)
+        run: pnpm --filter fernway test
+
+      - name: Acceptance (Run Hound against Kennel, Fernway and the sample apps)
         run: pnpm test:acceptance
+
+  images:
+    name: Docker images (build and smoke test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Version
+        id: version
+        run: echo "version=$(jq -r .version app/package.json)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      # linux/amd64 only, loaded into the runner's Docker (nothing is pushed). The tags are the ones both compose files
+      # use, so the test lab below runs exactly these builds. The GHA cache scopes are CI's own ("ci-<image>");
+      # release-images.yml reads them too, so a release after a green main rebuilds little.
+      - name: Build run-hound
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: app/Dockerfile
+          platforms: linux/amd64
+          load: true
+          provenance: false
+          tags: ghcr.io/rahul-bharati/run-hound:${{ steps.version.outputs.version }}
+          cache-from: type=gha,scope=ci-run-hound
+          cache-to: type=gha,mode=max,scope=ci-run-hound
+
+      - name: Build run-hound-kennel
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: fixtures/kennel/Dockerfile
+          platforms: linux/amd64
+          load: true
+          provenance: false
+          tags: ghcr.io/rahul-bharati/run-hound-kennel:${{ steps.version.outputs.version }}
+          cache-from: type=gha,scope=ci-run-hound-kennel
+          cache-to: type=gha,mode=max,scope=ci-run-hound-kennel
+
+      - name: Build run-hound-samples
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: fixtures/samples/Dockerfile
+          platforms: linux/amd64
+          load: true
+          provenance: false
+          tags: ghcr.io/rahul-bharati/run-hound-samples:${{ steps.version.outputs.version }}
+          cache-from: type=gha,scope=ci-run-hound-samples
+          cache-to: type=gha,mode=max,scope=ci-run-hound-samples
+
+      - name: Build run-hound-fernway
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: fixtures/fernway/Dockerfile
+          platforms: linux/amd64
+          load: true
+          provenance: false
+          tags: ghcr.io/rahul-bharati/run-hound-fernway:${{ steps.version.outputs.version }}
+          cache-from: type=gha,scope=ci-run-hound-fernway
+          cache-to: type=gha,mode=max,scope=ci-run-hound-fernway
+
+      - name: "Smoke test: run-hound --version is app/package.json's version"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          docker image ls --format 'table {{.Repository}}:{{.Tag}}\t{{.Size}}' | grep -E 'REPOSITORY|rahul-bharati'
+          out=$(docker run --rm "ghcr.io/rahul-bharati/run-hound:$VERSION" --version)
+          echo "$out"
+          if [ "$out" != "run-hound $VERSION" ]; then
+            echo "::error::run-hound --version printed \"$out\", expected \"run-hound $VERSION\""
+            exit 1
+          fi
+
+      - name: "Smoke test: the run-hound image stays Chromium-only and under 1 GB"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # About 0.7 GB with Chromium's headless shell only (0.3.0, on Playwright's image with every browser: 2.8 GB).
+          size=$(docker image inspect -f '{{.Size}}' "ghcr.io/rahul-bharati/run-hound:$VERSION")
+          echo "run-hound image: $((size / 1000000)) MB"
+          browsers=$(docker run --rm --entrypoint sh "ghcr.io/rahul-bharati/run-hound:$VERSION" -c 'ls /ms-playwright')
+          echo "$browsers"
+          if [ "$size" -gt 1000000000 ]; then
+            echo "::error::The run-hound image is $((size / 1000000)) MB; it should stay under 1000 MB (see app/Dockerfile)."
+            exit 1
+          fi
+          if echo "$browsers" | grep -qE '^(firefox|webkit|chromium)-'; then
+            echo "::error::The run-hound image should ship only chromium_headless_shell (see app/Dockerfile)."
+            exit 1
+          fi
+
+      - name: Start the test lab (run-hound.compose.yml with the images built above)
+        run: |
+          mkdir -p runs
+          docker compose -f run-hound.compose.yml up --detach --pull never --wait --wait-timeout 180
+          docker compose -f run-hound.compose.yml ps
+
+      - name: "Smoke test: the UI, Kennel, Fernway and the samples answer"
+        run: |
+          for url in http://127.0.0.1:4000/ http://127.0.0.1:3000/book http://127.0.0.1:3100/book \
+            http://127.0.0.1:4110/ http://127.0.0.1:4111/ http://127.0.0.1:4101/signup http://127.0.0.1:4102/ \
+            http://127.0.0.1:4103/ http://127.0.0.1:4104/ http://127.0.0.1:4106/; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$url" || true)
+            echo "$url -> $code"
+            if [ "$code" != 200 ]; then
+              echo "::error::$url answered $code, expected 200"
+              exit 1
+            fi
+          done
+
+      - name: "Smoke test: a CLI run in the lab finds Kennel's bugs (exit 1)"
+        run: |
+          set +e
+          docker compose -f run-hound.compose.yml run --rm -T run-hound run http://kennel:3000/book --approve all | tee run.log
+          code=${PIPESTATUS[0]}
+          set -e
+          findings=$(grep -oE '^[0-9]+ findings' run.log | grep -oE '^[0-9]+' || true)
+          echo "exit code $code, ${findings:-no} findings"
+          if [ "$code" != 1 ]; then
+            echo "::error::Expected exit code 1 (confirmed findings), got $code"
+            exit 1
+          fi
+          # 23 on Kennel with every bug; one check (replaying requests past the browser) only runs on localhost.
+          if [ "${findings:-0}" -lt 20 ]; then
+            echo "::error::Expected at least 20 findings on Kennel with every bug, got ${findings:-0}"
+            exit 1
+          fi
+          ls runs/*/report.html runs/*/report.json
+
+      - name: Logs of the test lab
+        if: failure()
+        run: docker compose -f run-hound.compose.yml logs --no-color
+
+      - name: Stop the test lab
+        if: always()
+        run: docker compose -f run-hound.compose.yml down
+
+  site:
+    name: Marketing site (lint and build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v7
+
+      # site/ is its own pnpm project (not in the root workspace); its package.json names the pnpm version.
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: site/package.json
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: site/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: pnpm build

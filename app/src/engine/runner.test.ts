@@ -277,6 +277,15 @@ describe("runPlan", () => {
     expect(report.notVisible.length).toBeGreaterThan(0);
   });
 
+  it("records the options a re-run needs (allowDestructive, headed) in the report and report.json", async () => {
+    const plain = await runPlan(plan, { checks, runsDir, approved: ["dc:controls"] });
+    expect(plain.report.options).toEqual({ allowDestructive: false, headed: false });
+    const destructive = await runPlan(plan, { checks, runsDir, approved: ["pe:reload"], allowDestructive: true });
+    expect(destructive.report.options).toEqual({ allowDestructive: true, headed: false });
+    const written = JSON.parse(await readFile(join(destructive.dir, "report.json"), "utf8")) as Report;
+    expect(written.options).toEqual({ allowDestructive: true, headed: false });
+  });
+
   it("gives each run its own id and folder", async () => {
     const a = await runPlan(plan, { checks, runsDir, approved: ["sf:500"] });
     const b = await runPlan(plan, { checks, runsDir, approved: ["sf:500"] });

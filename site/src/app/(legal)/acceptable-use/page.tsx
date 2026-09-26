@@ -1,13 +1,14 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { LegalDoc, LegalHeading, type LegalTocItem, MailLink } from "@/components/legal/legal";
+import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
-export const metadata: Metadata = {
+export const metadata = pageMetadata({
+  path: "/acceptable-use/",
   title: "Acceptable use",
   description:
     "Run Hound is for testing apps you own or are authorized to test. How it enforces that, and which uses are prohibited.",
-};
+});
 
 const toc: LegalTocItem[] = [
   { id: "the-rule", label: "The rule" },
@@ -32,8 +33,8 @@ export default function AcceptableUsePage() {
     >
       <p>
         This policy is part of our <Link href="/terms">Terms of use</Link>. {site.name} is a public open-source preview
-        ({site.release} {site.version}); the safeguards below describe how it is designed to work, and the ones marked
-        planned arrive with later versions.
+        ({site.version}); the safeguards below describe how it is designed to work, and the ones marked planned arrive
+        with later versions.
       </p>
 
       <LegalHeading id="the-rule">The rule: only test what you are allowed to test</LegalHeading>
@@ -66,6 +67,11 @@ export default function AcceptableUsePage() {
         <li>
           <strong>Destructive actions are opt-in.</strong> Actions with real consequences, such as real payments or
           deleting data, are off unless you explicitly turn them on.
+        </li>
+        <li>
+          <strong>Only your own test accounts.</strong> Signed-in runs and the access checks use only the test accounts
+          you set up yourself, on an app you are allowed to test, and their sign-in page must pass the same local-only
+          check as any target. Use accounts made for testing, never a real person&apos;s.
         </li>
       </ul>
       <p>

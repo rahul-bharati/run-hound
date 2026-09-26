@@ -56,3 +56,24 @@ export const serviceRoleJwt = withConfigScript(`
     supabaseServiceKey: "${FAKE_SERVICE_ROLE_JWT}",
   };
 `);
+
+/** Two different AWS access keys (production and staging): same kind, same first 4 characters, same length. */
+export const FAKE_AWS_KEY_PROD = "AKIAFAKEPRODKEY00001";
+export const FAKE_AWS_KEY_STAGING = "AKIAFAKESTAGEKEY0002";
+
+/** BAD: both AWS keys in one loaded script. Two keys, two findings: rotating one leaves the other exposed. */
+export const twoAwsKeys = withConfigScript(`
+  window.__APP_CONFIG__ = {
+    awsAccessKeyProd: "${FAKE_AWS_KEY_PROD}",
+    awsAccessKeyStaging: "${FAKE_AWS_KEY_STAGING}",
+  };
+`);
+
+/** BAD: the same AWS key in two loaded scripts. One key, one finding that lists both scripts. */
+export const oneKeyTwoScripts: BookingVariant = {
+  head: '<script src="/assets/app-config.js"></script><script src="/assets/vendor.js"></script>',
+  routes: {
+    "GET /assets/app-config.js": scriptRoute(`window.k1 = "${FAKE_AWS_KEY_PROD}";`),
+    "GET /assets/vendor.js": scriptRoute(`window.k2 = "${FAKE_AWS_KEY_PROD}";`),
+  },
+};

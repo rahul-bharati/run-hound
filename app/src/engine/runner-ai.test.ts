@@ -172,7 +172,8 @@ describe("discoverAndPlan with AI", () => {
     const sf = plan.scenarios.find((s) => s.id === "sf:500")!;
     expect(sf.ai).toEqual({ rationale: "A booking that silently fails loses customers.", recommended: true });
     expect(sf.priority).toBe("high");
-    expect(plan.scenarios.find((s) => s.id === "dc:controls")!.defaultSelected).toBe(false);
+    // The review can tick a scenario but never untick a default one (docs/ai-spec.md, "Review"): advice only.
+    expect(plan.scenarios.find((s) => s.id === "dc:controls")!.defaultSelected).toBe(true);
     const flow = plan.scenarios.find((s) => s.id === "ai-flow:1")!;
     expect(flow.checkId).toBe("ai-flow");
     expect(flow.defaultSelected).toBe(false);

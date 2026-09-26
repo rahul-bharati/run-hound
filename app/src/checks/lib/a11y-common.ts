@@ -4,6 +4,7 @@
  */
 import type { Page } from "playwright";
 import { cleanErrorMessage } from "../../engine/errors.js";
+import { openFormSpec } from "../../engine/open-form.js";
 import { redactSecrets } from "../../engine/redact.js";
 import type {
   Category,
@@ -100,7 +101,10 @@ export async function guarded(
   }
 }
 
-/** A Playwright spec file that reproduces a finding. `body` is the test body (indented by the caller or not). */
+/**
+ * A Playwright spec file that reproduces a finding. `body` is the test body (indented by the caller or not). When
+ * `form` is in a dialog (an opener), the spec opens it after loading the page, the way the check did.
+ */
 export function playwrightSpec(
   checkId: CheckId,
   findingNo: number,
@@ -108,10 +112,9 @@ export function playwrightSpec(
   targetUrl: string,
   body: string,
   extraImports: string[] = [],
+  form?: DiscoveredForm,
 ) {
-  const indented = body
-    .trim()
-    .split("\n")
+  const indented = [...(form ? openFormSpec(form) : []), ...body.trim().split("\n")]
     .map((line) => (line ? `  ${line}` : line))
     .join("\n");
   return {

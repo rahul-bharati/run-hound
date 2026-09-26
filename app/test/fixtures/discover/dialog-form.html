@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Team</title>
+<style>
+  [role=dialog] { position: fixed; top: 20%; left: 20%; background: white; border: 1px solid #999; padding: 16px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+</style>
+</head>
+<body>
+<!-- Like a Lovable dashboard: the page's forms live in Radix Dialogs (portals mounted on click). Each opener reports its
+     click with a GET beacon so the test can tell which controls discovery tried. -->
+<div id="app">
+<header>
+  <button type="button" id="bell">Notifications</button>
+  <button type="button" id="radix-:r1:" aria-haspopup="dialog" aria-expanded="false" data-state="closed">Signed in as Alex</button>
+</header>
+<main>
+  <h1>Team</h1>
+  <button type="button" id="radix-:r2:" aria-haspopup="dialog" aria-expanded="false" aria-controls="radix-:r3:" data-state="closed">Add member</button>
+  <button type="button" id="wipe" aria-haspopup="dialog">Delete all members</button>
+  <button type="button" id="new-project">New project</button>
+  <button type="button" id="refresh">Refresh</button>
+  <ul id="members"></ul>
+  <h2>Newsletter</h2>
+  <form id="newsletter"><label for="news-email">Email</label><input id="news-email" name="email" type="email"><button>Subscribe</button></form>
+</main>
+</div>
+<script>
+  const app = document.getElementById("app");
+  const beacon = (what) => fetch("/api/clicked/" + what);
+  let open = null;
+  // Radix hides everything outside an open dialog from assistive technology, and puts it back when it closes.
+  const show = (trigger, html) => {
+    close();
+    const box = document.createElement("div");
+    box.innerHTML = html;
+    const el = box.firstElementChild;
+    document.body.appendChild(el);
+    app.setAttribute("aria-hidden", "true");
+    trigger.setAttribute("aria-expanded", "true");
+    open = { el, trigger };
+    for (const b of el.querySelectorAll("[data-close]")) b.addEventListener("click", close);
+    return el;
+  };
+  const close = () => { if (!open) return; open.el.remove(); app.removeAttribute("aria-hidden"); open.trigger.setAttribute("aria-expanded", "false"); open = null; };
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+
+  async function load() {
+    const r = await fetch("/api/members");
+    const members = r.ok ? await r.json() : [];
+    document.getElementById("members").replaceChildren(...members.map((m) => { const li = document.createElement("li"); li.textContent = m.name + " (" + m.email + ")"; return li; }));
+  }
+
+  const alex = document.getElementById("radix-:r1:");
+  alex.addEventListener("click", () => { beacon("account"); show(alex, '<div role="dialog" id="radix-:r9:" data-state="open"><p>Account settings</p><button type="button" data-close>Done</button></div>'); });
+
+  const add = document.getElementById("radix-:r2:");
+  add.addEventListener("click", () => {
+    beacon("add-member");
+    const el = show(add, `<div role="dialog" id="radix-:r3:" aria-labelledby="radix-:r4:" aria-describedby="radix-:r5:" data-state="open" tabindex="-1">
+      <h2 id="radix-:r4:">Add a team member</h2><p id="radix-:r5:">They will show up in the list.</p>
+      <form>
+        <div><label for="_r_6_-form-item">Name</label><input id="_r_6_-form-item" name="name"></div>
+        <div><label for="_r_7_-form-item">Email</label><input id="_r_7_-form-item" name="email" type="email"></div>
+        <button type="submit">Save member</button>
+      </form>
+      <button type="button" data-close><span class="sr-only">Close</span>×</button></div>`);
+    el.querySelector("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const body = { name: form.elements.name.value.trim(), email: form.elements.email.value.trim() };
+      if (!body.name || !body.email) return;
+      const r = await fetch("/api/members", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      if (r.ok) { close(); await load(); }
+    });
+  });
+
+  document.getElementById("wipe").addEventListener("click", () => { beacon("wipe"); fetch("/api/members", { method: "DELETE" }); });
+
+  const np = document.getElementById("new-project");
+  np.addEventListener("click", () => {
+    beacon("new-project");
+    // Some apps create a draft record the moment "New" is clicked; discovery must never let that write through.
+    fetch("/api/projects", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    show(np, `<div role="dialog" aria-modal="true" aria-label="New project">
+      <label for="pname">Project name</label><input id="pname">
+      <button type="button" data-close>Cancel</button><button type="button" id="create">Create</button></div>`);
+  });
+
+  document.getElementById("bell").addEventListener("click", () => beacon("bell"));
+  document.getElementById("refresh").addEventListener("click", () => { beacon("refresh"); load(); });
+  document.getElementById("newsletter").addEventListener("submit", (e) => e.preventDefault());
+  load();
+</script>
+</body>
+</html>

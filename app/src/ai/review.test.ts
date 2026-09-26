@@ -64,11 +64,24 @@ describe("mergeReview", () => {
     const axe = merged.scenarios.find((s) => s.id === "axe:1")!;
     expect(axe.ai).toEqual({ rationale: "Not much here", recommended: false });
     expect(axe.priority).toBe("low");
-    expect(axe.defaultSelected).toBe(false);
+    // Changed with AI-1: "not recommended" is advice shown with the scenario; it no longer unticks a default.
+    expect(axe.defaultSelected).toBe(true);
     const ds = merged.scenarios.find((s) => s.id === "double-submit:1")!;
     expect(ds.ai).toEqual({ rationale: "Booking twice charges twice", recommended: true });
     expect(ds.priority).toBe("high");
     expect(ds.defaultSelected).toBe(true);
+  });
+
+  it("never unticks a scenario that is ticked by default: \"not recommended\" stays advice, visible in ai (AI-1)", () => {
+    // A small model, or text on the page posing as instructions, answers "not recommended" for everything.
+    const plan = makePlan();
+    const { plan: merged } = mergeReview(plan, { scenarios: plan.scenarios.map((s) => entry(s.id, false, "low", "No security surface here")) });
+    for (const s of merged.scenarios) {
+      const original = plan.scenarios.find((o) => o.id === s.id)!;
+      expect(s.defaultSelected, s.id).toBe(original.defaultSelected);
+      expect(s.ai).toEqual({ rationale: "No security surface here", recommended: false });
+    }
+    expect(merged.scenarios.find((s) => s.id === "security-headers:1")!.defaultSelected).toBe(true);
   });
 
   it("keeps destructive scenarios unticked even when recommended", () => {
@@ -159,9 +172,18 @@ describe("reviewPlan", () => {
     expect(request.user).not.toContain("localhost:5310");
 
     expect(reviewed.scenarios[0]!.ai).toEqual({ rationale: "Few states", recommended: false });
-    expect(reviewed.scenarios[0]!.defaultSelected).toBe(false);
+    // Changed with AI-1: the model's "not recommended" never unticks a scenario that is ticked by default.
+    expect(reviewed.scenarios[0]!.defaultSelected).toBe(true);
     expect(reviewed.scenarios.map((s) => s.id)).toEqual(plan.scenarios.map((s) => s.id));
     expect(plan.scenarios[0]!.ai).toBeUndefined();
+  });
+
+  it("a review answering \"not recommended\" for everything leaves the default approval as it was (AI-1)", async () => {
+    const plan = makePlan();
+    const client = new FakeClient([{ scenarios: plan.scenarios.map((s) => entry(s.id, false, "low", "Skip it")) }]);
+    const reviewed = await reviewPlan(plan, client, { remote: false });
+    const ticked = (p: typeof plan) => p.scenarios.filter((s) => s.defaultSelected).map((s) => s.id);
+    expect(ticked(reviewed)).toEqual(ticked(plan));
   });
 
   it("rejects with the client's AiError", async () => {

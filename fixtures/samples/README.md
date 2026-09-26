@@ -29,6 +29,6 @@ cd app && pnpm exec tsx src/cli.ts run http://localhost:4102/ --approve all --ru
 
 ```sh
 cd tests/acceptance
-pnpm exec vitest run src/samples.acceptance.test.ts                              # all four
+pnpm exec vitest run src/samples.acceptance.test.ts                              # all five
 ACCEPTANCE_SAMPLES=login KEEP_RUNS=1 pnpm exec vitest run src/samples.acceptance.test.ts   # one app, keep its report
 ```

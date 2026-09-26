@@ -5,6 +5,8 @@
  *   confirmed  - one confirmed finding (silent-failure), nothing advisory
  *   mixed      - one advisory and one confirmed finding
  *   skipped    - both scenarios skip, with a note that starts "Skipped: " like the real checks' notes
+ *   errored    - both scenarios throw (as when the app stops answering after discovery), so both error
+ *   partly-errored - dead-control passes, silent-failure throws
  * No page is opened, so the run is fast and depends only on the target passing the safety gate and having a form.
  */
 const mode = process.env.RH_FAKE_FINDINGS ?? "none";
@@ -36,6 +38,9 @@ function fakeCheck(checkId, confidence, emits) {
     category: "broken-feature",
     plan: () => [scenario(checkId, `${checkId}:fake`)],
     run: async (_ctx, s) => {
+      if (mode === "errored" || (mode === "partly-errored" && checkId === "silent-failure")) {
+        throw new Error("The app closed the connection without answering.");
+      }
       if (mode === "skipped") {
         return { checkId, scenarioId: s.id, status: "skipped", findings: [], notes: "Skipped: the fake form has nothing to check.", durationMs: 1 };
       }

@@ -1,37 +1,63 @@
-const version = "0.3.0";
-const composeFileUrl = "https://raw.githubusercontent.com/rahul-bharati/run-hound/main/run-hound.compose.yml";
+// The release this site describes. It must equal app/package.json: the release workflow (release-images.yml,
+// check-version) fails when they differ.
+const version = "0.4.0";
+// Download links (curl) are pinned to the release tag, so the compose file always names the images of this release.
+const tag = `v${version}`;
+const raw = (path: string) => `https://raw.githubusercontent.com/rahul-bharati/run-hound/${tag}/${path}`;
+const github = "https://github.com/rahul-bharati/run-hound";
+const composeFileUrl = raw("run-hound.compose.yml");
 
 export const site = {
   name: "Run Hound",
   tagline: "Your AI said it's done. Let's check.",
+  // Default meta description: at most about 155 characters, so search results show it whole.
   description:
-    "Open-source (MIT), AI-assisted UI testing for AI-built apps. Point it at a page on your local app, approve the plan (optionally reviewed by your own AI model), and get a report of broken flows, accessibility failures, missing protections and leaks, each with evidence and a Playwright test. Local web UI, a CLI for CI, and Docker or Podman in one command.",
-  // Current release: V1 ("Single page"), open source under MIT, with optional AI since 0.3.0. V0 ("Single form", 0.1.0) shipped before it.
+    "Open-source, AI-assisted UI testing for AI-built apps. Real checks in a real browser, with evidence and a Playwright test for every finding.",
+  // Current stage: V1 ("Single page"), open source under MIT, with optional AI since 0.3.0. V0 ("Single form",
+  // 0.1.0) shipped before it. 0.4.0 adds the first slice of V2 as a preview (docs/v2-spec.md): test accounts and
+  // signed-in runs, access checks, mass assignment and deep links. The web UI and reports call it "V2 preview".
   release: "V1",
   releaseName: "Single page",
+  preview: "V2 preview",
+  previewName: "Signed-in runs and access checks",
   version,
+  tag,
   // Label for the main call to action, used in the header, heroes and page footers.
-  cta: "Try V1 locally",
-  // `||`, not `??`: Docker passes an unset build arg as an empty string.
+  cta: "Try it locally",
+  // `||`, not `??`: Docker passes an unset build arg as an empty string. A production build needs the real address
+  // (canonical links, og:url, sitemap.xml, robots.txt): the Dockerfile refuses to build without it, and next.config.ts
+  // warns when `next build` runs without it.
   url: process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
-  github: "https://github.com/rahul-bharati/run-hound",
+  github,
   // The repository is public: anyone can clone it, try it and file issues.
-  testingGuide: "https://github.com/rahul-bharati/run-hound/blob/main/TESTING.md",
-  changelog: "https://github.com/rahul-bharati/run-hound/blob/main/CHANGELOG.md",
-  feedback: "https://github.com/rahul-bharati/run-hound/issues/new/choose",
+  testingGuide: `${github}/blob/main/TESTING.md`,
+  changelog: `${github}/blob/main/CHANGELOG.md`,
+  feedback: `${github}/issues/new/choose`,
   license: "MIT",
-  licenseUrl: "https://github.com/rahul-bharati/run-hound/blob/main/LICENSE",
-  // No clone needed: downloads run-hound.compose.yml and starts Run Hound, Kennel and the sample apps from the
-  // published images (README.md "Quickest start"). Podman: `podman compose -f run-hound.compose.yml up`.
+  licenseUrl: `${github}/blob/main/LICENSE`,
+  // Documents in the repository that the docs link to for the full details.
+  aiSpec: `${github}/blob/main/docs/ai-spec.md`,
+  v2Spec: `${github}/blob/main/docs/v2-spec.md`,
+  envExample: `${github}/blob/main/.env.example`,
+  fernwayGuide: `${github}/blob/main/fixtures/fernway/README.md`,
+  kennelBugs: `${github}/blob/main/fixtures/kennel/bugs.json`,
+  fernwayBugs: `${github}/blob/main/fixtures/fernway/bugs.json`,
+  // No clone needed: downloads run-hound.compose.yml and starts Run Hound, Kennel, Fernway and the sample apps from
+  // the published images (README.md "Quickest start"). Podman: `podman compose -f run-hound.compose.yml up`.
   composeFileUrl,
+  // The documented settings file for the compose file, from the same release.
+  envFileUrl: raw(".env.example"),
   dockerCommand: `curl -fsSLO ${composeFileUrl} && mkdir -p runs && docker compose -f run-hound.compose.yml up`,
-  // Images published to GHCR with the v0.3.0 release (run-hound, run-hound-kennel, run-hound-samples; linux/amd64 and
-  // arm64). Until they are published, a clone builds the same images: `docker compose up --build` (docker-compose.yml).
+  // Published on GHCR with every release, public (no login needed), for linux/amd64 and arm64: run-hound (web UI,
+  // CLI and Chromium's headless shell: about 260 MB to download, 715 MB on disk), and the test apps run-hound-kennel,
+  // run-hound-samples and run-hound-fernway. The four download about 0.5 GB together. In a clone,
+  // `docker compose up --build` (docker-compose.yml) builds the same images from source.
   image: `ghcr.io/rahul-bharati/run-hound:${version}`,
+  labImages: ["run-hound-kennel", "run-hound-samples", "run-hound-fernway"],
   // Placeholders until real addresses exist.
   contactEmail: "contact@rahulbharati.dev",
   securityEmail: "contact@rahulbharati.dev",
-  issues: "https://github.com/rahul-bharati/run-hound/issues",
+  issues: `${github}/issues`,
   // Google Analytics 4 measurement id ("G-..."), set at build time. Empty: no analytics and no consent banner.
   gaMeasurementId: process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID || "",
   // Date shown as "Last updated" on the legal pages: machine-readable, and as displayed.

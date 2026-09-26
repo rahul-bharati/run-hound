@@ -1,7 +1,7 @@
 /**
  * pii-leak: submit the form with a canary email and phone number, then look at every request to a
  * different origin (a third party). Fail when a canary, or a common hash/encoding of it, appears in
- * the request URL or body.
+ * the request URL or body. The app's own backend is not a third party, wherever it is hosted (see appBackends).
  */
 import { createHash } from "node:crypto";
 import { rm } from "node:fs/promises";
@@ -118,6 +118,177 @@ export function isOwnApiSave(request: { method: string; resourceType: string; ur
   return typed.length >= 2;
 }
 
+/** Why an origin counts as the app's own backend rather than a third party. */
+export type BackendReason = "own-api" | "hosted-backend" | "form-action" | "app-api";
+
+/**
+ * Hosted backends the app builders wire a form to: the app's own database, auth or storage (Supabase, Firebase,
+ * Appwrite, Convex, Nhost, Hasura Cloud, Xata, AWS AppSync) and form services a form sends its data to (Formspree,
+ * Getform, Basin, Web3Forms, FormSubmit, Formcarry, Formspark, EmailJS). The data goes there to be stored for the app,
+ * not to be tracked. Matched on the whole host name or a subdomain of it.
+ */
+const HOSTED_BACKENDS = [
+  "supabase.co",
+  "supabase.in",
+  "firestore.googleapis.com",
+  "firebaseio.com",
+  "firebasedatabase.app",
+  "identitytoolkit.googleapis.com",
+  "securetoken.googleapis.com",
+  "firebasestorage.googleapis.com",
+  "cloudfunctions.net",
+  "appwrite.io",
+  "convex.cloud",
+  "nhost.run",
+  "hasura.app",
+  "xata.sh",
+  "formspree.io",
+  "getform.io",
+  "usebasin.com",
+  "api.web3forms.com",
+  "formsubmit.co",
+  "formcarry.com",
+  "submit-form.com",
+  "api.emailjs.com",
+];
+const APPSYNC = /\.appsync-api\.[a-z0-9-]+\.amazonaws\.com$/;
+
+/**
+ * Analytics, advertising, session-replay and error-monitoring hosts. Never taken for the app's own API, even when
+ * one of them is the only place the whole form was sent (an analytics "identify" call).
+ */
+const TRACKERS = [
+  "google-analytics.com",
+  "analytics.google.com",
+  "googletagmanager.com",
+  "doubleclick.net",
+  "googleadservices.com",
+  "googlesyndication.com",
+  "facebook.com",
+  "facebook.net",
+  "segment.io",
+  "segment.com",
+  "mixpanel.com",
+  "amplitude.com",
+  "posthog.com",
+  "hotjar.com",
+  "hotjar.io",
+  "clarity.ms",
+  "plausible.io",
+  "usefathom.com",
+  "fullstory.com",
+  "heap.io",
+  "heapanalytics.com",
+  "logrocket.io",
+  "logrocket.com",
+  "mouseflow.com",
+  "sentry.io",
+  "rudderstack.com",
+  "tiktok.com",
+  "linkedin.com",
+  "licdn.com",
+  "twitter.com",
+  "ads-twitter.com",
+  "snapchat.com",
+  "pinterest.com",
+  "bing.com",
+  "reddit.com",
+  "redditstatic.com",
+  "criteo.com",
+  "taboola.com",
+  "outbrain.com",
+];
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function onDomain(host: string, domains: string[]): boolean {
+  return domains.some((d) => host === d || host.endsWith(`.${d}`));
+}
+
+type RequestInfo = { method: string; resourceType: string; url: string; postData: string | null };
+
+/** How many of the values typed into the form a request body carries. */
+function typedCount(request: RequestInfo, values: Canaries): number {
+  if (!request.postData) return 0;
+  const body = `${request.postData}\n${decode(request.postData)}`.toLowerCase();
+  return [values.email, values.phone, values.name, values.text].filter((v) => body.includes(v.toLowerCase())).length;
+}
+
+/**
+ * The origins that are the app's own backend, not a third party, with the reason; everything else on another origin
+ * is a third party. In order of precedence:
+ * - "own-api": the form's save to an API on this machine or the local network (isOwnApiSave).
+ * - "hosted-backend": any request to a hosted backend or form service the app builders wire forms to (HOSTED_BACKENDS):
+ *   a Supabase project, Firebase, Formspree and the like.
+ * - "form-action": a full-page form post (the form's own action, not a script) carrying a typed value: the form itself
+ *   names where its data goes.
+ * - "app-api": when none of the above received the form and nothing typed was written to the target's origin or the
+ *   local network, the app's configured API on the internet (an API the app is set up to call, such as
+ *   https://api.myapp.com): the one origin that received a write carrying two or more of the typed values, unless it
+ *   is a known analytics or advertising host (TRACKERS). When two or more origins did, Run Hound cannot tell which is
+ *   the app's, and none is exempt.
+ * With a backend of the first three kinds, another origin receiving the whole form is a copy sent elsewhere: a third
+ * party. Data in a URL, in a read, or a lone typed value in an analytics call is never the form being saved.
+ */
+export function appBackends(requests: RequestInfo[], targetUrl: string, values: Canaries): { origin: string; why: BackendReason }[] {
+  const origin = new URL(targetUrl).origin;
+  const found = new Map<string, BackendReason>();
+  const add = (url: string, why: BackendReason) => {
+    const o = new URL(url).origin;
+    if (!found.has(o)) found.set(o, why);
+  };
+  const others = requests.filter((r) => {
+    try {
+      return /^https?:/.test(r.url) && new URL(r.url).origin !== origin;
+    } catch {
+      return false;
+    }
+  });
+  for (const r of others) {
+    const host = hostOf(r.url);
+    if (isOwnApiSave(r, targetUrl, values)) add(r.url, "own-api");
+    else if (onDomain(host, HOSTED_BACKENDS) || APPSYNC.test(host)) add(r.url, "hosted-backend");
+    else if (isWrite(r) && r.resourceType === "document" && typedCount(r, values) >= 1) add(r.url, "form-action");
+  }
+  // Any typed value written to the target's origin or the local network means the app has a backend of its own:
+  // then nothing on the internet is taken for its API.
+  const savedLocally = requests.some((r) => isWrite(r) && isLocalOrigin(r.url, targetUrl) && typedCount(r, values) >= 1);
+  if (found.size === 0 && !savedLocally) {
+    const saves = others.filter((r) => isWrite(r) && typedCount(r, values) >= 2 && !onDomain(hostOf(r.url), TRACKERS));
+    const origins = [...new Set(saves.map((r) => new URL(r.url).origin))];
+    if (origins.length === 1) add(origins[0]!, "app-api");
+  }
+  return [...found].map(([o, why]) => ({ origin: o, why }));
+}
+
+/** The requests to a third party: another http(s) origin that is not one of the app's backends (appBackends). */
+export function thirdPartyRequests<T extends RequestInfo>(requests: T[], targetUrl: string, values: Canaries): T[] {
+  const origin = new URL(targetUrl).origin;
+  const backends = new Set(appBackends(requests, targetUrl, values).map((b) => b.origin));
+  return requests.filter((r) => {
+    try {
+      const o = new URL(r.url).origin;
+      return /^https?:/.test(r.url) && o !== origin && !backends.has(o);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** How the note names each kind of backend. */
+const BACKEND_WORDS: Record<BackendReason, string> = {
+  "own-api": "its own API",
+  "hosted-backend": "a hosted backend or form service the app uses",
+  "form-action": "where the form itself posts",
+  "app-api": "the only place the form was saved, taken to be the app's own API: make sure it is yours",
+};
+
 /** The filled form just before submit, with the fields holding the test values and the submit control marked. */
 async function captureAtSubmit(ctx: CheckContext, page: Page, values: Canaries): Promise<Evidence> {
   const email = ctx.form.fields.find((f) => f.type === "email" || /mail/i.test(f.key));
@@ -163,7 +334,6 @@ export const check: Check = {
       const findings = new FindingList("pii-leak", "security");
       const values = canaries(ctx.runToken);
       const { page, capture } = await ctx.openPage();
-      const origin = new URL(ctx.targetUrl).origin;
       ctx.step("Filling the form with a test email and phone number", page);
       await fillValid(page, ctx.form, values);
       const atSubmit = await captureAtSubmit(ctx, page, values);
@@ -172,17 +342,10 @@ export const check: Check = {
       // Trackers often fire after the success response; give them a moment.
       await settle(page, 1_500);
 
-      const otherOrigins = capture.requests.filter((r) => {
-        try {
-          return new URL(r.url).origin !== origin && /^https?:/.test(r.url);
-        } catch {
-          return false;
-        }
-      });
-      // The app's own API on another origin receives the form by design; everything else is a third party.
-      const ownApi = otherOrigins.filter((r) => isOwnApiSave(r, ctx.targetUrl, values));
-      const ownApiOrigins = [...new Set(ownApi.map((r) => new URL(r.url).origin))];
-      const thirdParty = otherOrigins.filter((r) => !ownApiOrigins.includes(new URL(r.url).origin));
+      // The app's own backend (its API, a hosted backend, where the form posts) receives the form by design;
+      // everything else on another origin is a third party.
+      const backends = appBackends(capture.requests, ctx.targetUrl, values);
+      const thirdParty = thirdPartyRequests(capture.requests, ctx.targetUrl, values);
 
       // One finding per (third-party host, kind of data, hashed or not).
       const groups = new Map<string, { host: string; needle: Needle; hits: Evidence[]; request: Capture["requests"][number]; where: string }>();
@@ -254,7 +417,8 @@ export const check: Check = {
             findings.items.length + 1,
             `${data} is not sent to ${host}`,
             ctx.targetUrl,
-            `// Any request to another origin than the app (not only ${host}) must not carry the value.
+            `// Any request to another origin than the app (not only ${host}) must not carry the value.${backends.length > 0 ? "\n// The app's own backend receives the form by design." : ""}
+const backends: string[] = ${JSON.stringify(backends.map((b) => b.origin))};
 const leaks: string[] = [];
 const decode = (text: string) => {
   try {
@@ -265,18 +429,24 @@ const decode = (text: string) => {
 };
 page.on("request", (req) => {
   const text = req.url() + " " + decode(req.url()) + " " + (req.postData() ?? "");
-  if (new URL(req.url()).origin !== new URL(TARGET).origin && text.includes(${JSON.stringify(needle.value)})) leaks.push(req.url());
+  const origin = new URL(req.url()).origin;
+  if (origin !== new URL(TARGET).origin && !backends.includes(origin) && text.includes(${JSON.stringify(needle.value)})) leaks.push(req.url());
 });
 ${fillAndSubmitSpec(ctx.form, values)}
 await page.waitForLoadState("networkidle");
 await page.waitForTimeout(1500);
-expect(leaks).toEqual([]);`,
+expect(leaks).toEqual([]);`, [], ctx.form,
           ),
         });
       }
 
       const status = response?.status() ?? null;
-      const apiNote = ownApiOrigins.length > 0 ? `; the form saves to its own API at ${ownApiOrigins.map((o) => new URL(o).host).join(", ")}, which is not counted as a third party` : "";
+      const ownApi = backends.filter((b) => b.why === "own-api");
+      const otherBackends = backends.filter((b) => b.why !== "own-api");
+      const apiNote = [
+        ownApi.length > 0 ? `; the form saves to its own API at ${ownApi.map((b) => new URL(b.origin).host).join(", ")}, which is not counted as a third party` : "",
+        otherBackends.length > 0 ? `; not counted as third parties either: ${otherBackends.map((b) => `${new URL(b.origin).host} (${BACKEND_WORDS[b.why]})`).join(", ")}` : "",
+      ].join("");
       return checkResult(
         "pii-leak",
         scenario,

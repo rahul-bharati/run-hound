@@ -2,13 +2,67 @@
  * double-submit: fill valid data and double-click the submit button. Pass when no single endpoint receives
  * the same create request twice (a disabled button or an in-flight guard both achieve that); fail when one
  * does. Other same-origin writes the page makes on submit (telemetry, a second resource) are counted
- * separately, so they never look like a double booking.
+ * separately, so they never look like a double booking. Only requests sent after the double click count, and when
+ * some of them carry the typed test values, only those: a GraphQL or RPC app also POSTs its reads (a query on load,
+ * a refetch after saving) to the same endpoint.
  */
-import type { Check, Scenario } from "../core/types.js";
+import { carriesTestValues } from "../core/saves.js";
+import type { Capture, Check, CheckContext, Scenario } from "../core/types.js";
 import { RECORD_CREATES, bodyLines, clip, controlLocator, endpointOf, evidence, fillLines, findingFactory, guarded, markText, recordFlow, requestSummary, result, specSource, tryCard } from "./lib/functional-finding.js";
-import { canaryValues, createRequests, fillForm, isCreatePlaywrightRequest, isSignInForm, SIGN_IN_NOTE, sleep, submitControl, submitForm, waitForCreates, isSearchForm } from "./lib/functional-form.js";
+import {
+  armFieldErrors,
+  canaryValues,
+  createRequests,
+  fillForm,
+  isCreatePlaywrightRequest,
+  isSearchForm,
+  isSignInForm,
+  MULTI_STEP_NOTE,
+  SIGN_IN_NOTE,
+  sleep,
+  submitControl,
+  submitForm,
+  waitForCreates,
+  watchNextStep,
+  whyNothingSent,
+  type FieldValue,
+} from "./lib/functional-form.js";
 
 const ID = "double-submit" as const;
+
+/**
+ * The save requests a double click sent: the create requests captured since `from` (the capture's length when the
+ * double click started), narrowed to the ones carrying the run's test values when any do (the others are reads and
+ * refetches sent as POSTs). Grouped by endpoint, and by body too when none carries the values: two identical posts
+ * are a repeat, two different ones to one RPC endpoint are two different calls.
+ */
+function savesAfterClick(
+  capture: Capture,
+  from: number,
+  targetUrl: string,
+  runToken: string,
+): { saves: Capture["requests"]; key: (r: Capture["requests"][number]) => string; byBody: boolean } {
+  const sent = createRequests({ ...capture, requests: capture.requests.slice(from) }, targetUrl, runToken);
+  const carrying = sent.filter((r) => carriesTestValues(r.postData, runToken));
+  const endpoint = (r: Capture["requests"][number]) => `${r.method} ${new URL(r.url).pathname}`;
+  if (carrying.length > 0) return { saves: carrying, key: endpoint, byBody: false };
+  // A multipart body's boundary differs per request; the rest is what was sent.
+  return { saves: sent, key: (r) => `${endpoint(r)} ${(r.postData ?? "").replace(/-{2,}\S*Boundary\S*/g, "")}`, byBody: true };
+}
+
+/**
+ * Whether one plain click on submit, on a fresh page, shows a wizard's next step. Needed after a double click that
+ * sent nothing: its second click can land on the next step's "Back" button (where "Continue" was), which returns to
+ * the first step, so the double click itself looks like nothing happened.
+ */
+async function firstStepOfWizard(ctx: CheckContext, values: FieldValue[]): Promise<boolean> {
+  const { page, capture } = await ctx.openPage();
+  await fillForm(page, values);
+  const step = await watchNextStep(page, capture, ctx.targetUrl, ctx.runToken);
+  await submitForm(page, ctx.form);
+  await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
+  return step.moved();
+}
 
 /** The id of the record a create response returned ({ id }, { _id }, { data: { id } }), if any. */
 function recordId(body: string | null): string | null {
@@ -68,42 +122,51 @@ export const check: Check = {
         }
       });
       page.on("request", (request) => {
-        if (!isCreatePlaywrightRequest(request, ctx.targetUrl, ctx.runToken)) return;
-        const key = `${request.method()} ${request.url()}`;
+        // Requests from page load and typing (autosave) are not the double click's.
+        if (clickedAt === 0 || !isCreatePlaywrightRequest(request, ctx.targetUrl, ctx.runToken)) return;
+        const key = `${request.method()} ${request.url()} ${request.postData() ?? ""}`;
         startedAt.set(key, [...(startedAt.get(key) ?? []), performance.now() - clickedAt]);
       });
 
       ctx.step("Filling the form with valid test values", page);
-      await fillForm(page, values);
+      const unset = await fillForm(page, values);
       const flow = recordFlow(ctx, page, `double-click ${name}`);
       await flow.step("Form filled with valid data", {
         highlights: submit ? [{ selector: submit.selector, label: "Double-clicking next", tone: "info" }] : [],
         facts: [{ label: "Save requests so far", value: "0" }],
       });
+      const step = await watchNextStep(page, capture, ctx.targetUrl, ctx.runToken);
+      await armFieldErrors(page);
+      // Set together, in one synchronous step: the capture and the timing listener see the same requests from here.
+      const from = capture.requests.length;
       clickedAt = performance.now();
       await submitForm(page, ctx.form, "dblclick");
       await flow.step(`Double-clicked "${name}"`, {
         highlights: submit ? [{ selector: submit.selector, label: "Clicked twice" }] : [],
-        facts: [{ label: "Save requests so far", value: String(createRequests(capture, ctx.targetUrl, ctx.runToken).length) }],
+        facts: [{ label: "Save requests so far", value: String(savesAfterClick(capture, from, ctx.targetUrl, ctx.runToken).saves.length) }],
       });
       // A slow second request can start a little after the first; wait, then let everything finish.
       await sleep(1000);
       ctx.step("Waiting for the save requests to finish", page);
       await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
 
-      const creates = createRequests(capture, ctx.targetUrl, ctx.runToken);
+      const { saves: creates, key: endpointKey, byBody } = savesAfterClick(capture, from, ctx.targetUrl, ctx.runToken);
       if (creates.length === 0) {
+        // The first step of a wizard saves nothing: it shows the next step. That is not a refusal.
+        const why = await whyNothingSent(page, ctx.form, values, unset);
         return {
           ...result(ID, scenario, started, []),
           status: "skipped",
-          notes: "Skipped: double-clicking submit sent nothing to the server (the page may have refused Run Hound's test values), so there were no save requests to count.",
+          notes: (await step.moved()) || (await firstStepOfWizard(ctx, values))
+            ? MULTI_STEP_NOTE
+            : `Skipped: double-clicking submit sent nothing to the server, so there were no save requests to count. ${why}`,
         };
       }
       // Group by endpoint: two posts to the same method+path are a double submit, one post each to two
       // different endpoints is just what the page does on submit.
       const endpoint = (r: (typeof creates)[number]) => `${r.method} ${new URL(r.url).pathname}`;
       const groups = new Map<string, typeof creates>();
-      for (const r of creates) groups.set(endpoint(r), [...(groups.get(endpoint(r)) ?? []), r]);
+      for (const r of creates) groups.set(endpointKey(r), [...(groups.get(endpointKey(r)) ?? []), r]);
       const repeated = [...groups.values()].filter((g) => g.length > 1).sort((a, b) => b.length - a.length)[0];
       if (!repeated) {
         return result(
@@ -111,7 +174,9 @@ export const check: Check = {
           scenario,
           started,
           [],
-          `${creates.length} save request(s), each to a different endpoint: ${[...groups.keys()].join(", ")}.`,
+          byBody
+            ? `${creates.length} save request(s), none sent twice (none carried the typed test values, so identical requests were counted): ${[...new Set(creates.map(endpoint))].join(", ")}.`
+            : `${creates.length} save request(s), each to a different endpoint: ${[...new Set(creates.map(endpoint))].join(", ")}.`,
         );
       }
       const duplicates = repeated;
@@ -131,10 +196,11 @@ export const check: Check = {
         );
       }
 
-      // Offsets are matched to requests in the order they were sent, per method + URL.
+      // Offsets are matched to requests in the order they were sent, per method, URL and body (so a query sent to
+      // the same endpoint in between never takes a save's place).
       const used = new Map<string, number>();
       const offsetOf = (r: (typeof creates)[number]) => {
-        const key = `${r.method} ${r.url}`;
+        const key = `${r.method} ${r.url} ${r.postData ?? ""}`;
         const i = used.get(key) ?? 0;
         used.set(key, i + 1);
         return startedAt.get(key)?.[i];
@@ -195,7 +261,7 @@ export const check: Check = {
             submit ? `await ${controlLocator(submit)}.dblclick();` : `await page.keyboard.press("Enter");`,
             `await page.waitForTimeout(3000);`,
             `expect(creates).toHaveLength(1);`,
-          ]),
+          ], ctx.form),
         },
       });
       return result(ID, scenario, started, [finding]);

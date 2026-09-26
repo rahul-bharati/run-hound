@@ -10,6 +10,10 @@ import {
   type ClientOptions,
 } from "../../test/fixtures/checks/_behavior/booking-app.js";
 import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectPlan, findingText } from "../../test/fixtures/checks/_behavior/expectations.js";
+import { startHangApp } from "../../test/fixtures/checks/hang-app.js";
+import { startModernApp } from "../../test/fixtures/checks/modern-apps.js";
+import { startSchemaFormApp, type SchemaFormApp, type SchemaFormOptions } from "../../test/fixtures/checks/schema-form.js";
+import { MULTI_STEP_NOTE } from "./lib/functional-form.js";
 import { check } from "./client-only-validation.js";
 
 const ID = "client-only-validation" as const;
@@ -162,5 +166,92 @@ describe("client-only-validation: the replay stays on the target", () => {
     } finally {
       await elsewhere.close();
     }
+  });
+});
+
+describe("client-only-validation: a server that never answers the replay (ENG-1)", () => {
+  it("gives up on the replay after 10 seconds and says so plainly", async () => {
+    const s = await startHangApp("invalid");
+    try {
+      const started = Date.now();
+      const { results } = await runCheck(check, `${s.url}/contact`);
+      expect(Date.now() - started, "the check finished on its own").toBeLessThan(30_000);
+      expect(s.hung(), "the replay reached the server and was never answered").toBeGreaterThan(0);
+      expect(results[0]!.findings).toEqual([]);
+      expect(results[0]!.notes).toMatch(/did not answer within 10 seconds/);
+    } finally {
+      await s.close();
+    }
+  }, 45_000);
+});
+
+describe("client-only-validation: the first step of a wizard (LOV-12)", () => {
+  it("skips with the multi-step reason, not as refused test values", async () => {
+    const a = await startModernApp({
+      path: "/wizard",
+      heading: "Set up your workspace",
+      fields: [
+        { name: "workspace", label: "Workspace name", type: "text" },
+        { name: "email", label: "Invite a teammate", type: "email" },
+      ],
+      submitLabel: "Finish setup",
+      after: "toast",
+      wizard: true,
+    });
+    try {
+      const { results } = await runCheck(check, a.formUrl);
+      expect(results[0]!.status).toBe("skipped");
+      expect(results[0]!.notes).toBe(MULTI_STEP_NOTE);
+    } finally {
+      await a.close();
+    }
+  });
+});
+
+describe("client-only-validation: schema-validated forms that mark nothing as required (LOV-6, RH-08)", () => {
+  const schemaApps: SchemaFormApp[] = [];
+  afterAll(async () => {
+    await Promise.all(schemaApps.map((a) => a.close()));
+  });
+  async function schema(options: SchemaFormOptions) {
+    const a = await startSchemaFormApp(options);
+    schemaApps.push(a);
+    return a;
+  }
+
+  it("empties a field the page refuses when empty (found by an empty submit) and reports a server that saves it", async () => {
+    const a = await schema({ serverChecks: false });
+    const { results } = await runCheck(check, a.formUrl);
+    const findings = expectFailure(results, ID, "validation", ["high"]);
+    expect(findings[0]!.title).toBe("The server accepts required Task left empty");
+    // Only the replay reached the server: the valid save and the empty submit were answered by Run Hound.
+    expect(a.posts()).toHaveLength(1);
+    expect(a.posts()[0]).toMatchObject({ title: "" });
+  });
+
+  it("passes when the server refuses the emptied field", async () => {
+    const a = await schema({});
+    const { results } = await runCheck(check, a.formUrl);
+    expectCleanPass(results, ID);
+    expect(results[0]!.notes).toMatch(/400.*required Task left empty/);
+  });
+
+  it("never empties an optional field: a page that refuses nothing when empty is skipped with a plain reason", async () => {
+    const a = await schema({ validate: false, serverChecks: false });
+    const { results } = await runCheck(check, a.formUrl);
+    expect(results[0]!.status).toBe("skipped");
+    expect(results[0]!.notes).toMatch(/^Skipped: /);
+    expect(results[0]!.notes).toMatch(/no error/);
+    expect(results[0]!.notes).not.toMatch(/could not be changed/);
+    // Nothing reached the app: the valid save and the empty submit were both answered by Run Hound.
+    expect(a.posts()).toEqual([]);
+  });
+
+  it("RH-10: when the page refuses Run Hound's value, the skip note names that field instead of blaming the app", async () => {
+    const a = await schema({ taskMinLength: 80 });
+    const { results } = await runCheck(check, a.formUrl);
+    expect(results[0]!.status).toBe("skipped");
+    expect(results[0]!.notes).toMatch(/showed an error on "Task"/);
+    expect(results[0]!.notes).not.toMatch(/may have refused/);
   });
 });

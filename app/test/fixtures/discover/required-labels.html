@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Required labels</title></head>
+<body>
+<!-- A schema-validated form (react-hook-form + zod style): no required attributes, the labels say what is required. -->
+<main>
+<form id="signup" novalidate>
+  <h1>Create your account</h1>
+  <label for="fullName">Full name *</label><input id="fullName" name="fullName">
+  <label for="email">Work email <span aria-hidden="true" class="text-destructive">*</span></label><input id="email" name="email" type="email">
+  <label for="phone">Phone (required)</label><input id="phone" name="phone" type="tel">
+  <label for="team">Team name - required</label><input id="team" name="team">
+  <label for="company">Company</label><input id="company" name="company">
+  <label for="website">Website</label><input id="website" name="website" type="url" required>
+  <label for="referral">Referral code (optional)</label><input id="referral" name="referral">
+  <label for="notes">Notes, not required</label><textarea id="notes" name="notes"></textarea>
+  <fieldset>
+    <legend>Plan <abbr title="required">*</abbr></legend>
+    <input type="radio" id="p1" name="plan" value="free"><label for="p1">Free</label>
+    <input type="radio" id="p2" name="plan" value="pro"><label for="p2">Pro</label>
+  </fieldset>
+  <button type="submit">Sign up</button>
+</form>
+</main>
+</body>
+</html>

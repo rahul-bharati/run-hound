@@ -1,6 +1,7 @@
 import type { StaticImageData } from "next/image";
-// Evidence straight from the report of a Run Hound 0.2.0 (V1) run on Kennel with all 24 planted bugs switched on
-// (25 September 2026), copied by app/scripts/capture-site-screens.ts. Keys and email addresses are fake test values.
+// Evidence straight from the report of a Run Hound 0.4.0 run on Kennel (its new look) with all 24 V0 and V1 planted bugs
+// switched on and AI off (26 September 2026), copied by app/scripts/capture-site-screens.ts. Keys and email addresses
+// are fake test values.
 import doubleSubmitGif from "@/assets/evidence/double-submit-recording.gif";
 import doubleSubmitStill from "@/assets/evidence/double-submit-recording-still.png";
 import doubleSubmitCard from "@/assets/evidence/double-submit-two-requests.png";
@@ -22,16 +23,16 @@ export const evidence = {
   },
   doubleSubmitCard: {
     src: doubleSubmitCard,
-    alt: "Request card: POST /api/bookings sent 2 times by one double click, at +37.6 ms and +38.0 ms, each answered 201 with a different record id. Both request bodies are shown.",
+    alt: "Request card: POST /api/bookings sent 2 times by one double click, at +29.5 ms and +29.7 ms, each answered 201 with a different record id. Both request bodies are shown.",
   },
   noVisibleFocus: {
     src: focusFrame,
-    alt: "Annotated frame: the Pet name field has keyboard focus, boxed in red and labelled No visible focus. A facts panel lists 0 of 31552 pixels changed, and identical outline, shadow, border and background at rest and focused.",
+    alt: "Annotated frame: the Pet name field has keyboard focus, boxed in red and labelled No visible focus. A facts panel lists 0 of 37296 pixels around it changed, identical outline, shadow, border and background at rest and focused, and the six fields with no visible focus.",
   },
   silentFailureRecording: {
     src: silentGif,
     still: silentStill,
-    alt: "Recording of the Kennel booking form after a failed save: the Book button keeps spinning and, 5.0 seconds later, no error message has appeared. The facts panel records the simulated 500 and that all 9 values were kept.",
+    alt: "Recording of the Kennel booking form after a failed save: the Book button keeps spinning and, 5.1 seconds after submitting, no error message has appeared. The facts panel records the simulated 500 and that all 9 values were kept.",
   },
   secretKey: {
     src: secretCard,

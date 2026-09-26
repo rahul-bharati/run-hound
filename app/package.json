@@ -1,11 +1,14 @@
 {
   "name": "run-hound",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "license": "MIT",
   "type": "module",
   "bin": {
     "run-hound": "./src/cli.ts"
+  },
+  "engines": {
+    "node": ">=22.12"
   },
   "scripts": {
     "serve": "tsx src/cli.ts serve",

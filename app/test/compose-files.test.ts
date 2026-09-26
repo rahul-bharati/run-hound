@@ -23,6 +23,29 @@ describe("compose files", () => {
     expect(release).not.toMatch(/^\s+build:/m);
     const images = [...release.matchAll(/image: (\S+)/g)].map((m) => m[1]);
     expect(images.length).toBeGreaterThan(0);
-    for (const image of images) expect(image).toMatch(new RegExp(`^ghcr\\.io/rahul-bharati/run-hound(-kennel|-samples)?:${version.replace(/\./g, "\\.")}$`));
+    for (const image of images) expect(image).toMatch(new RegExp(`^ghcr\\.io/rahul-bharati/run-hound(-kennel|-samples|-fernway)?:${version.replace(/\./g, "\\.")}$`));
+  });
+});
+
+/** Test accounts (docs/v2-spec.md "Test accounts"): every variable passes through, empty unless set in .env. */
+const ACCOUNT_VARS = [
+  ...["A", "B"].flatMap((slot) => ["LOGIN_URL", "USERNAME", "PASSWORD", "LABEL"].map((field) => `RUNHOUND_ACCOUNT_${slot}_${field}`)),
+  "RUNHOUND_ACCOUNTS_ISOLATED",
+];
+
+describe("test accounts in the deployment files", () => {
+  it.each(["docker-compose.yml", "run-hound.compose.yml"])("%s passes the RUNHOUND_ACCOUNT* variables through, empty by default", (name) => {
+    const text = read(name);
+    for (const v of ACCOUNT_VARS) expect(text, v).toMatch(new RegExp(`^\\s+${v}: \\$\\{${v}:-\\}\\s*$`, "m"));
+  });
+
+  it("docker-entrypoint.sh hands `accounts` to the CLI, like `ai`", () => {
+    const line = read("app/docker-entrypoint.sh")
+      .split("\n")
+      .find((l) => /^\s*serve\s*\|/.test(l));
+    expect(line).toBeDefined();
+    const commands = line!.replace(/\)\s*$/, "").split("|").map((w) => w.trim());
+    expect(commands).toContain("ai");
+    expect(commands).toContain("accounts");
   });
 });

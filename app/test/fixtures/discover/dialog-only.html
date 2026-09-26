@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem; }
+  [role="dialog"] { position: fixed; inset: 10% 25%; background: #fff; border: 1px solid #333; padding: 1.5rem; }
+  .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); }
+</style>
+</head>
+<body>
+<!-- The page's only form is in a dialog that "Add member" opens (a Radix/shadcn Dialog without the library). -->
+<header>
+  <h1>Team</h1>
+  <button type="button" id="add" aria-haspopup="dialog" aria-expanded="false">Add member</button>
+</header>
+<main>
+  <h2>Members</h2>
+  <ul id="members"></ul>
+</main>
+<script>
+  const add = document.getElementById("add");
+  const list = document.getElementById("members");
+  async function load() {
+    const members = await fetch("/api/members").then((r) => r.json());
+    list.replaceChildren(...members.map((m) => Object.assign(document.createElement("li"), { textContent: `${m.name} <${m.email}>` })));
+  }
+  function close(overlay, dialog) {
+    overlay.remove();
+    dialog.remove();
+    add.setAttribute("aria-expanded", "false");
+    add.focus();
+  }
+  add.addEventListener("click", () => {
+    if (document.querySelector("[role=dialog]")) return;
+    const overlay = Object.assign(document.createElement("div"), { className: "overlay" });
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-labelledby", "dialog-title");
+    dialog.innerHTML = `<h2 id="dialog-title">Add a team member</h2>
+      <form id="member-form">
+        <p><label for="member-name">Name</label> <input id="member-name" name="name" required></p>
+        <p><label for="member-email">Email</label> <input id="member-email" name="email" type="email" required></p>
+        <button type="button" id="help">Help</button>
+        <button type="button" id="cancel">Cancel</button>
+        <button type="submit">Save member</button>
+        <p role="status" id="dialog-status"></p>
+      </form>`;
+    document.body.append(overlay, dialog);
+    add.setAttribute("aria-expanded", "true");
+    dialog.querySelector("#member-name").focus();
+    dialog.querySelector("#cancel").addEventListener("click", () => close(overlay, dialog));
+    // "Help" has no handler: a dead control inside the dialog.
+    dialog.querySelector("form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = Object.fromEntries(new FormData(event.target));
+      const res = await fetch("/api/members", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) });
+      if (!res.ok) return void (dialog.querySelector("#dialog-status").textContent = "Could not add the member");
+      close(overlay, dialog);
+      await load();
+    });
+  });
+  load();
+</script>
+</body>
+</html>

@@ -3,10 +3,14 @@
  * Evidence is redacted here, so checks can pass raw captured data.
  */
 import { cleanErrorMessage } from "../../engine/errors.js";
+import { openFormSpec } from "../../engine/open-form.js";
 import { redactSecrets } from "../../engine/redact.js";
 import type { Page } from "playwright";
-import type { Capture, Category, CheckContext, CheckId, CheckResult, Evidence, EvidenceCard, Finding, FrameOptions, Scenario, Severity } from "../../core/types.js";
-import { fieldName, type FieldValue } from "./functional-form.js";
+import type { Capture, Category, CheckContext, CheckId, CheckResult, DiscoveredForm, Evidence, EvidenceCard, Finding, FrameOptions, Scenario, Severity } from "../../core/types.js";
+import { isEmptiableText, settingFor, type FieldValue } from "./functional-form.js";
+import { fieldLocator, setFieldSpec } from "./widgets.js";
+
+export { fieldLocator };
 
 /** Deep-copies `data` with every string passed through redactSecrets and cut to a readable length. */
 export function redactData(data: unknown, maxString = 2000): unknown {
@@ -236,57 +240,57 @@ export function endpointOf(method: string, url: string): string {
 
 const q = (s: string) => JSON.stringify(s);
 
-/** Roles getByRole can find a form field by; anything else (e.g. "generic") falls back to label or placeholder. */
-const FIELD_ROLES = new Set(["textbox", "searchbox", "combobox", "listbox", "spinbutton", "slider", "checkbox", "radio", "switch", "radiogroup"]);
-
 /**
- * A role/label locator a person would write for a field, falling back to its CSS selector.
- * getByLabel only matches <label>, aria-label and aria-labelledby, never a placeholder, so an accessible name that
- * came from the placeholder (a placeholder-only field) uses getByPlaceholder instead; otherwise the exported spec
- * would hang waiting for a label that does not exist.
+ * Roles a control keeps in an exported spec: every role getByRole can find a control by. A Radix Select trigger is a
+ * "combobox" and a Radix radio a "radio"; looking for them as buttons would never find them (LOV-14).
  */
-export function fieldLocator(field: FieldValue["field"]): string {
-  if (field.label) return `page.getByLabel(${q(field.label)}, { exact: true })`;
-  const name = field.accessibleName;
-  if (name && name !== field.placeholder) {
-    return FIELD_ROLES.has(field.role) ? `page.getByRole(${q(field.role)}, { name: ${q(name)}, exact: true })` : `page.getByLabel(${q(name)}, { exact: true })`;
-  }
-  // A placeholder-only field is usually fixed by adding a <label> with the same text (and dropping the placeholder),
-  // so the spec also accepts that label; it keeps working once the accessibility bug is fixed.
-  if (field.placeholder) return `page.getByPlaceholder(${q(field.placeholder)}, { exact: true }).or(page.getByLabel(${q(field.placeholder)}, { exact: true })).first()`;
-  return `page.locator(${q(field.selector)})`;
-}
+const CONTROL_ROLES = new Set([
+  "button",
+  "link",
+  "checkbox",
+  "radio",
+  "switch",
+  "tab",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "option",
+  "combobox",
+  "listbox",
+  "slider",
+  "spinbutton",
+  "textbox",
+  "searchbox",
+  "treeitem",
+  "gridcell",
+  "row",
+]);
 
-/** A role locator for a control, falling back to its CSS selector when it has no name. */
+/** A role locator for a control (a button for generic or unknown roles), falling back to its CSS selector when it has no name. */
 export function controlLocator(control: { accessibleName: string | null; role: string; selector: string; text?: string }): string {
-  const role = ["button", "link", "checkbox", "tab", "menuitem", "switch"].includes(control.role) ? control.role : "button";
+  const role = CONTROL_ROLES.has(control.role) ? control.role : "button";
   if (control.accessibleName) return `page.getByRole(${q(role)}, { name: ${q(control.accessibleName)}, exact: true })`;
   return `page.locator(${q(control.selector)})`;
 }
 
-/** Spec lines that fill the form the way the check did. */
-export function fillLines(values: FieldValue[]): string[] {
-  const lines: string[] = [];
-  for (const { field, value } of values) {
-    if (field.options && field.options.length > 0) {
-      const option = field.options.find((o) => o.label === value) ?? field.options[0]!;
-      if (field.type === "select") lines.push(`await ${fieldLocator(field)}.selectOption({ label: ${q(option.label)} });`);
-      else if (field.type === "radio") lines.push(`await page.getByRole("radio", { name: ${q(option.label)}, exact: true }).check();`);
-      else lines.push(`await page.getByText(${q(option.label)}, { exact: true }).first().click(); // ${fieldName(field)}`);
-      continue;
-    }
-    if (field.type === "checkbox") {
-      if (field.required) lines.push(`await ${fieldLocator(field)}.check();`);
-      continue;
-    }
-    if (["radio", "custom", "file", "hidden"].includes(field.type)) continue;
-    lines.push(`await ${fieldLocator(field)}.fill(${q(value)});`);
-  }
-  return lines;
+/** Spec lines that empty the form's text fields, as emptyTextFields does before an empty submit (a settings form). */
+export function emptyTextSpec(form: DiscoveredForm): string[] {
+  return form.fields.filter(isEmptiableText).map((f) => `await ${fieldLocator(f)}.fill("");`);
 }
 
-/** A complete @playwright/test file. The body lines run inside one test after page.goto(target). */
-export function specSource(target: string, testName: string, body: string[]): string {
+/** Spec lines that fill the form the way the check did (fillForm): the same settings, through setFieldSpec. */
+export function fillLines(values: FieldValue[]): string[] {
+  return values.flatMap((v) => {
+    const setting = settingFor(v);
+    return setting ? setFieldSpec(v.field, setting) : [];
+  });
+}
+
+/**
+ * A complete @playwright/test file. The body lines run inside one test after page.goto(target) and, when `form` is in
+ * a dialog (an opener), after opening it the way the check did.
+ */
+export function specSource(target: string, testName: string, body: string[], form?: DiscoveredForm): string {
   return [
     `import { test, expect } from "@playwright/test";`,
     ``,
@@ -295,6 +299,7 @@ export function specSource(target: string, testName: string, body: string[]): st
     ``,
     `test(${q(testName)}, async ({ page }) => {`,
     `  await page.goto(TARGET);`,
+    ...(form ? openFormSpec(form) : []).map((line) => `  ${line}`),
     ...body.map((line) => (line ? `  ${line}` : "")),
     `});`,
     ``,

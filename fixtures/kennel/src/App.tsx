@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent, type ReactNode } from "react";
+import { HeroArt, Icon, PawLogo, type IconName } from "./art.js";
 
 /**
  * Kennel's booking page. Clean mode is meant to be genuinely good; every V0 bug (see ../bugs.json and
@@ -90,18 +91,86 @@ export function App() {
 
   const bugClasses = config ? [...config.bugs].map((b) => `bug-${b.toLowerCase()}`).join(" ") : "";
   return (
-    <main className={`page ${bugClasses}`}>
-      <h1>Book a sitter</h1>
-      <p className="intro">Tell us about your pet and when you're away. Phone, special instructions and the account are optional.</p>
-      {loadError ? (
-        <p role="alert" className="alert-box">Kennel could not load. Reload the page to try again.</p>
-      ) : config ? (
-        <BookingPage config={config} />
-      ) : (
-        <p>Loading…</p>
-      )}
-    </main>
+    <div className={`shell ${bugClasses}`}>
+      <header className="site-header">
+        <div className="container header-inner">
+          <span className="brand">
+            <PawLogo />
+            <span className="brand-name">Kennel</span>
+          </span>
+          <p className="header-note">
+            <Icon name="shieldCheck" size={18} />
+            Vetted, insured sitters
+          </p>
+        </div>
+      </header>
+
+      <main className="container page">
+        <div className="hero">
+          <div className="hero-copy">
+            <p className="eyebrow">
+              <Icon name="sparkles" size={16} />
+              Pet sitting, made easy
+            </p>
+            <h1>
+              Book a <span className="swash">sitter</span>
+            </h1>
+            <p className="tagline">Loving, local sitters who treat your pet like family.</p>
+            <p className="intro">Tell us about your pet and when you're away. Phone, special instructions and the account are optional.</p>
+            <ul className="perks">
+              <li>
+                <Icon name="badgeCheck" size={18} />
+                Background-checked
+              </li>
+              <li>
+                <Icon name="camera" size={18} />
+                Daily photo updates
+              </li>
+              <li>
+                <Icon name="heart" size={18} />
+                Free cancellation
+              </li>
+            </ul>
+          </div>
+          <HeroArt className="hero-art" />
+        </div>
+
+        {loadError ? (
+          <p role="alert" className="alert-box">Kennel could not load. Reload the page to try again.</p>
+        ) : config ? (
+          <BookingPage config={config} />
+        ) : (
+          <p className="loading">Loading…</p>
+        )}
+      </main>
+
+      <footer className="site-footer">
+        <div className="container footer-inner">
+          <span className="footer-brand">
+            <Icon name="paw" size={16} />
+            Kennel
+          </span>
+          <p>A demo booking app. Bookings live in memory and are cleared when the server restarts.</p>
+        </div>
+      </footer>
+    </div>
   );
+}
+
+const PET_ICON: Record<PetType, IconName> = { dog: "dog", cat: "cat", other: "rabbit" };
+
+/** Whole nights between two YYYY-MM-DD dates, or null when they don't parse or run backwards. */
+function nights(start: string, end: string): number | null {
+  const a = Date.parse(`${start}T00:00:00Z`);
+  const b = Date.parse(`${end}T00:00:00Z`);
+  if (Number.isNaN(a) || Number.isNaN(b) || b < a) return null;
+  return Math.round((b - a) / 86_400_000);
+}
+
+function stayLength(start: string, end: string): string | null {
+  const n = nights(start, end);
+  if (n === null) return null;
+  return n === 0 ? "Day visit" : n === 1 ? "1 night" : `${n} nights`;
 }
 
 function BookingPage({ config }: { config: Config }) {
@@ -291,245 +360,371 @@ function BookingPage({ config }: { config: Config }) {
     );
   }
 
+
   const blockPaste = (e: ClipboardEvent<HTMLInputElement>) => e.preventDefault();
+  const statusTone = /problem|Could not/.test(status) ? "warn" : "ok";
 
   return (
-    <>
-      {available && <p className="availability">Sitters are available for new bookings.</p>}
-      <form ref={formRef} className="booking-form" noValidate onSubmit={onSubmit}>
-        <div className="field">
-          <label htmlFor="petName">Pet name</label>
-          <div className="with-button">
-            <input
-              ref={petNameRef}
-              id="petName"
-              name="petName"
-              type="text"
-              autoComplete="off"
-              required
-              value={values.petName}
-              onChange={(e) => set("petName", e.target.value)}
-              {...a11y("petName")}
-            />
-            {/* A02: the icon-only button loses its accessible name. */}
-            <button
-              type="button"
-              className="icon-button"
-              data-kennel="clear-pet-name"
-              aria-label={bug("A02") ? undefined : "Clear pet name"}
-              onClick={clearPetName}
-            >
-              <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16">
-                <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-            </button>
-          </div>
-          {errorFor("petName")}
-        </div>
-
-        {bug("A03") ? (
-          // A03: the pet type picker is clickable divs with no role, tabindex or keyboard support.
-          <div className="field">
-            <div className="label">Pet type</div>
-            <div className="picker" data-kennel="pet-type">
-              {PET_TYPES.map((t) => (
-                <div
-                  key={t.value}
-                  className={values.petType === t.value ? "option selected" : "option"}
-                  onClick={() => set("petType", t.value)}
-                >
-                  {t.label}
-                </div>
-              ))}
-            </div>
-            {errorFor("petType")}
-          </div>
-        ) : (
-          <div className="field">
-            <fieldset className="radios" data-kennel="pet-type" {...(announceErrors && errors.petType ? { "aria-describedby": "petType-error" } : {})}>
-              <legend>Pet type</legend>
-              {PET_TYPES.map((t) => (
-                <label key={t.value} className="radio">
-                  <input
-                    type="radio"
-                    name="petType"
-                    value={t.value}
-                    required
-                    checked={values.petType === t.value}
-                    onChange={() => set("petType", t.value)}
-                    aria-invalid={(announceErrors && Boolean(errors.petType)) || undefined}
-                  />
-                  {t.label}
-                </label>
-              ))}
-            </fieldset>
-            {errorFor("petType")}
-          </div>
-        )}
-
-        <div className="dates">
-          <div className="field">
-            <label htmlFor="startDate">Start date</label>
-            <input
-              id="startDate"
-              name="startDate"
-              type="date"
-              required
-              value={values.startDate}
-              onChange={(e) => set("startDate", e.target.value)}
-              {...a11y("startDate")}
-            />
-            {errorFor("startDate")}
-          </div>
-          <div className="field">
-            <label htmlFor="endDate">End date</label>
-            <input
-              id="endDate"
-              name="endDate"
-              type="date"
-              required
-              min={values.startDate || undefined}
-              value={values.endDate}
-              onChange={(e) => set("endDate", e.target.value)}
-              {...a11y("endDate")}
-            />
-            {errorFor("endDate")}
-          </div>
-        </div>
-
-        <div className="field">
-          <label htmlFor="ownerEmail">Owner email</label>
-          <input
-            id="ownerEmail"
-            name="ownerEmail"
-            type="email"
-            autoComplete="email"
-            required
-            value={values.ownerEmail}
-            onChange={(e) => set("ownerEmail", e.target.value)}
-            {...a11y("ownerEmail", "email-hint")}
-          />
-          <p className="hint" id="email-hint" data-kennel="email-hint">
-            We only use this to confirm your booking.
-          </p>
-          {errorFor("ownerEmail")}
-        </div>
-
-        <div className="field">
-          {/* A01: the phone input is labelled only by its placeholder. */}
-          {!bug("A01") && <label htmlFor="phone">Phone</label>}
-          <input
-            id="phone"
-            name="phone"
-            type="tel"
-            autoComplete="tel"
-            placeholder={bug("A01") ? "Phone" : undefined}
-            value={values.phone}
-            onChange={(e) => set("phone", e.target.value)}
-            {...a11y("phone")}
-          />
-          {errorFor("phone")}
-        </div>
-
-        <div className="field">
-          <label htmlFor="instructions">Special instructions</label>
-          <textarea
-            id="instructions"
-            name="instructions"
-            rows={3}
-            value={values.instructions}
-            onChange={(e) => set("instructions", e.target.value)}
-            {...a11y("instructions")}
-          />
-          {errorFor("instructions")}
-        </div>
-
-        <fieldset className="account">
-          <legend>Create an account</legend>
-          <p className="hint">Optional. Lets you manage your bookings later.</p>
-          <div className="field">
-            <label htmlFor="password">Password</label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="confirmPassword">Confirm password</label>
-            <input
-              id="confirmPassword"
-              name="confirmPassword"
-              type="password"
-              autoComplete="new-password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              // A07: paste is blocked on the confirm field.
-              onPaste={bug("A07") ? blockPaste : undefined}
-            />
-          </div>
-        </fieldset>
-
-        <div className="actions">
-          <button type="submit" className="primary" disabled={pending && !bug("F04")}>
-            Book
-            {pending && <span className="spinner" aria-hidden="true" />}
-          </button>
-          {/* F01: Save draft has no click handler. */}
-          <button type="button" className="secondary" onClick={bug("F01") ? undefined : saveDraft}>
-            Save draft
-          </button>
-        </div>
-
-        <p role="status" className="status">
-          {status}
-        </p>
-        <div role="alert" className="alert">
-          {serverError && (
-            <div className="alert-box">
-              <p>{serverError.message}</p>
-              {serverError.stack && <pre className="stack">{serverError.stack}</pre>}
-            </div>
+    <div className="workspace">
+      <div className="card form-card">
+        <div className="card-top">
+          {available && (
+            <p className="availability">
+              <span className="pulse" aria-hidden="true" />
+              Sitters are available for new bookings.
+            </p>
           )}
+          <p className="eta">
+            <Icon name="clock" size={16} />
+            Takes about 2 minutes
+          </p>
         </div>
-      </form>
 
-      <section className="bookings" aria-labelledby="bookings-title">
-        <div className="bookings-head">
-          <h2 id="bookings-title">Your bookings</h2>
-          {/* F07: the page-level Refresh button (outside the form) has no click handler. */}
-          <button type="button" className="secondary" data-kennel="refresh-bookings" onClick={bug("F07") ? undefined : () => void reloadBookings()}>
-            Refresh
-          </button>
-        </div>
-        {bookings.length === 0 && <p>No bookings yet.</p>}
-        <ul>
-          {bookings.map((b) => (
-            <li key={b.id}>
-              {/* A08: remove buttons shrink to 16x16 px (see styles.css). */}
+        <form ref={formRef} className="booking-form" noValidate onSubmit={onSubmit}>
+          <div className="field">
+            <label htmlFor="petName">Pet name</label>
+            <div className="with-button control">
+              <Icon name="paw" className="control-icon" size={18} />
+              <input
+                ref={petNameRef}
+                id="petName"
+                name="petName"
+                type="text"
+                autoComplete="off"
+                placeholder="e.g. Biscuit"
+                required
+                value={values.petName}
+                onChange={(e) => set("petName", e.target.value)}
+                {...a11y("petName")}
+              />
+              {/* A02: the icon-only button loses its accessible name. */}
               <button
                 type="button"
-                className="icon-button remove"
-                data-kennel="remove-booking"
-                aria-label={`Remove booking for ${b.petName}`}
-                onClick={() => void removeBooking(b)}
+                className="icon-button clear"
+                data-kennel="clear-pet-name"
+                aria-label={bug("A02") ? undefined : "Clear pet name"}
+                onClick={clearPetName}
               >
                 <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16">
                   <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                 </svg>
               </button>
-              <span className="details">
-                <strong>{b.petName}</strong> ({TYPE_LABEL[b.petType]}) · {b.startDate} to {b.endDate} · {b.ownerEmail}
-                {b.phone && <> · Phone: {b.phone}</>}
-                {b.instructions && <> · Notes: {b.instructions}</>}
+            </div>
+            {errorFor("petName")}
+          </div>
+
+          {bug("A03") ? (
+            // A03: the pet type picker is clickable divs with no role, tabindex or keyboard support.
+            <div className="field pet-type-field">
+              <div className="label">Pet type</div>
+              <div className="picker choice-grid" data-kennel="pet-type">
+                {PET_TYPES.map((t) => (
+                  <div
+                    key={t.value}
+                    className={values.petType === t.value ? "option choice selected" : "option choice"}
+                    onClick={() => set("petType", t.value)}
+                  >
+                    <Icon name={PET_ICON[t.value]} className="choice-icon" size={22} />
+                    {t.label}
+                  </div>
+                ))}
+              </div>
+              {errorFor("petType")}
+            </div>
+          ) : (
+            <div className="field pet-type-field">
+              <fieldset className="radios" data-kennel="pet-type" {...(announceErrors && errors.petType ? { "aria-describedby": "petType-error" } : {})}>
+                <legend>Pet type</legend>
+                <div className="choice-grid">
+                  {PET_TYPES.map((t) => (
+                    <label key={t.value} className="radio choice">
+                      <input
+                        type="radio"
+                        name="petType"
+                        value={t.value}
+                        required
+                        checked={values.petType === t.value}
+                        onChange={() => set("petType", t.value)}
+                        aria-invalid={(announceErrors && Boolean(errors.petType)) || undefined}
+                      />
+                      <Icon name={PET_ICON[t.value]} className="choice-icon" size={22} />
+                      {t.label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              {errorFor("petType")}
+            </div>
+          )}
+
+          <div className="dates">
+            <div className="field">
+              <label htmlFor="startDate">Start date</label>
+              <input
+                id="startDate"
+                name="startDate"
+                type="date"
+                required
+                value={values.startDate}
+                onChange={(e) => set("startDate", e.target.value)}
+                {...a11y("startDate")}
+              />
+              {errorFor("startDate")}
+            </div>
+            <div className="field">
+              <label htmlFor="endDate">End date</label>
+              <input
+                id="endDate"
+                name="endDate"
+                type="date"
+                required
+                min={values.startDate || undefined}
+                value={values.endDate}
+                onChange={(e) => set("endDate", e.target.value)}
+                {...a11y("endDate")}
+              />
+              {errorFor("endDate")}
+            </div>
+          </div>
+
+          <div className="contact">
+            <div className="field">
+              <label htmlFor="ownerEmail">Owner email</label>
+              <div className="control">
+                <Icon name="mail" className="control-icon" size={18} />
+                <input
+                  id="ownerEmail"
+                  name="ownerEmail"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  required
+                  value={values.ownerEmail}
+                  onChange={(e) => set("ownerEmail", e.target.value)}
+                  {...a11y("ownerEmail", "email-hint")}
+                />
+              </div>
+              <p className="hint" id="email-hint" data-kennel="email-hint">
+                We only use this to confirm your booking.
+              </p>
+              {errorFor("ownerEmail")}
+            </div>
+
+            <div className="field">
+              {/* A01: the phone input is labelled only by its placeholder. */}
+              {!bug("A01") && (
+                <div className="label-row">
+                  <label htmlFor="phone">Phone</label>
+                  <span className="optional">Optional</span>
+                </div>
+              )}
+              <div className="control">
+                <Icon name="phone" className="control-icon" size={18} />
+                <input
+                  id="phone"
+                  name="phone"
+                  type="tel"
+                  autoComplete="tel"
+                  placeholder={bug("A01") ? "Phone" : undefined}
+                  value={values.phone}
+                  onChange={(e) => set("phone", e.target.value)}
+                  {...a11y("phone")}
+                />
+              </div>
+              {errorFor("phone")}
+            </div>
+          </div>
+
+          <div className="field">
+            <div className="label-row">
+              <label htmlFor="instructions">Special instructions</label>
+              <span className="optional">Optional</span>
+            </div>
+            <textarea
+              id="instructions"
+              name="instructions"
+              rows={3}
+              placeholder="Feeding times, walks, medication, favourite toys…"
+              value={values.instructions}
+              onChange={(e) => set("instructions", e.target.value)}
+              {...a11y("instructions")}
+            />
+            {errorFor("instructions")}
+          </div>
+
+          <fieldset className="account">
+            <legend>
+              <Icon name="lock" size={18} />
+              Create an account
+            </legend>
+            <p className="hint">Optional. Lets you manage your bookings later.</p>
+            <div className="account-grid">
+              <div className="field">
+                <label htmlFor="password">Password</label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="confirmPassword">Confirm password</label>
+                <input
+                  id="confirmPassword"
+                  name="confirmPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  // A07: paste is blocked on the confirm field.
+                  onPaste={bug("A07") ? blockPaste : undefined}
+                />
+              </div>
+            </div>
+          </fieldset>
+
+          <div className="form-foot">
+            <div className="actions">
+              <button type="submit" className="primary" disabled={pending && !bug("F04")}>
+                Book
+                {pending ? <span className="spinner" aria-hidden="true" /> : <Icon name="arrowRight" size={18} />}
+              </button>
+              {/* F01: Save draft has no click handler. */}
+              <button type="button" className="secondary" onClick={bug("F01") ? undefined : saveDraft}>
+                <Icon name="save" size={18} />
+                Save draft
+              </button>
+            </div>
+
+            <p role="status" className="status" data-tone={statusTone}>
+              {status}
+            </p>
+            <div role="alert" className="alert">
+              {serverError && (
+                <div className="alert-box">
+                  <p>{serverError.message}</p>
+                  {serverError.stack && <pre className="stack">{serverError.stack}</pre>}
+                </div>
+              )}
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <div className="side">
+        <section className="card bookings" aria-labelledby="bookings-title">
+          <div className="bookings-head">
+            <div className="bookings-title">
+              <h2 id="bookings-title">Your bookings</h2>
+              {bookings.length > 0 && <span className="count">{bookings.length}</span>}
+            </div>
+            {/* F07: the page-level Refresh button (outside the form) has no click handler. */}
+            <button type="button" className="secondary small" data-kennel="refresh-bookings" onClick={bug("F07") ? undefined : () => void reloadBookings()}>
+              <Icon name="refresh" size={16} />
+              Refresh
+            </button>
+          </div>
+          {bookings.length === 0 && (
+            <div className="empty">
+              <span className="empty-icon" aria-hidden="true">
+                <Icon name="paw" size={22} />
+              </span>
+              <p>No bookings yet.</p>
+              <p className="empty-sub">Your upcoming stays will show up here.</p>
+            </div>
+          )}
+          <ul>
+            {bookings.map((b) => {
+              const stay = stayLength(b.startDate, b.endDate);
+              return (
+                <li key={b.id} className={`booking pet-${b.petType}`}>
+                  <span className="avatar" aria-hidden="true">
+                    <Icon name={PET_ICON[b.petType] ?? "paw"} size={20} />
+                  </span>
+                  <span className="details">
+                    <span className="booking-top">
+                      <strong className="pet-name">{b.petName}</strong>
+                      <span className="badge">{TYPE_LABEL[b.petType]}</span>
+                      {stay && <span className="stay">{stay}</span>}
+                    </span>
+                    <span className="booking-line">
+                      <Icon name="calendar" size={15} />
+                      <span>
+                        {b.startDate} to {b.endDate}
+                      </span>
+                    </span>
+                    <span className="booking-line">
+                      <Icon name="mail" size={15} />
+                      <span className="email">{b.ownerEmail}</span>
+                    </span>
+                    {b.phone && (
+                      <span className="booking-line">
+                        <Icon name="phone" size={15} />
+                        <span>
+                          <span className="sr-only">Phone: </span>
+                          {b.phone}
+                        </span>
+                      </span>
+                    )}
+                    {b.instructions && (
+                      <span className="notes">
+                        <span className="notes-label">Notes: </span>
+                        {b.instructions}
+                      </span>
+                    )}
+                  </span>
+                  {/* A08: remove buttons shrink to 16x16 px (see styles.css). */}
+                  <button
+                    type="button"
+                    className="icon-button remove"
+                    data-kennel="remove-booking"
+                    aria-label={`Remove booking for ${b.petName}`}
+                    onClick={() => void removeBooking(b)}
+                  >
+                    <Icon name="trash" size={18} />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+
+        <section className="card how" aria-labelledby="how-title">
+          <h2 id="how-title">How Kennel works</h2>
+          <ol className="steps">
+            <li>
+              <span className="step-icon" aria-hidden="true">
+                <Icon name="notes" size={18} />
+              </span>
+              <span>
+                <strong>Tell us about your pet</strong>
+                <span className="step-text">Dates, routines and any special needs.</span>
               </span>
             </li>
-          ))}
-        </ul>
-      </section>
-    </>
+            <li>
+              <span className="step-icon" aria-hidden="true">
+                <Icon name="heart" size={18} />
+              </span>
+              <span>
+                <strong>Meet your sitter</strong>
+                <span className="step-text">We match you with a vetted local sitter.</span>
+              </span>
+            </li>
+            <li>
+              <span className="step-icon" aria-hidden="true">
+                <Icon name="camera" size={18} />
+              </span>
+              <span>
+                <strong>Relax while you're away</strong>
+                <span className="step-text">Get photo updates every day of the stay.</span>
+              </span>
+            </li>
+          </ol>
+        </section>
+      </div>
+    </div>
   );
 }

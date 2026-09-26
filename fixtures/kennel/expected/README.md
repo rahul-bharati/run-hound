@@ -1,10 +1,14 @@
 # Kennel accepted responses (golden files)
 
-One file per mode: `clean.json`, plus `<BUGID>.json` for every V0 bug in `../bugs.json`.
+One file per mode: `clean.json`, plus `<BUGID>.json` for every V0 and V1 bug in `../bugs.json`.
 The acceptance suite (`tests/acceptance`) starts Kennel with `KENNEL_BUGS=<mode>` (`none` for clean),
-resets it, runs `discoverAndPlan(<kennel>/book)`, approves every scenario (`allowDestructive: false`),
+resets it, runs `discoverAndPlan(<kennel>/book)` signed out, approves every scenario (`allowDestructive: false`),
 runs `runPlan` and compares the report with the file. These files are written and reviewed by hand;
 the suite never writes them.
+
+The files judge every check except `ai-flow` (it plans nothing without a model) and the V2 checks
+`access-control`, `mass-assignment` and `deep-links` (they plan nothing on Kennel's signed-out runs; Fernway's
+acceptance suite judges them). A finding from any of those is still a mismatch.
 
 ## Schema
 
@@ -12,8 +16,8 @@ the suite never writes them.
 {
   "mode": "F01",                       // "clean" or the bug id; must match the file name
   "mustFail": ["dead-control"],        // checks that must end "fail" with >= 1 finding; always includes bugs.json detectedBy
-  "mustPass": "all-others",            // or an explicit list of check ids; "all-others" = every CHECK_ID not in
-                                       // mustFail or allowedSideEffects. These must end "pass" with 0 findings.
+  "mustPass": "all-others",            // or an explicit list of check ids; "all-others" = every judged check not
+                                       // in mustFail or allowedSideEffects. These must end "pass" with 0 findings.
   "allowedSideEffects": [              // checks that MAY fail in this mode (pass is also fine; error/skipped never is)
     { "checkId": "axe-states", "reason": "why this bug can legitimately trip this check" }
   ],
@@ -32,7 +36,7 @@ expected finding are all errors. Side-effect reasons must actually justify the s
 
 A check's status is collapsed over its scenarios: `fail` > `error` > `pass` > `skipped`.
 
-1. Every check in `CHECK_IDS` must have planned and run at least one scenario that was not skipped.
+1. Every judged check must have planned and run at least one scenario that was not skipped.
 2. No scenario may end in `error`.
 3. A failed result carries at least one finding; a passed result carries none.
 4. `mustFail` checks fail with at least one finding.
@@ -58,11 +62,17 @@ Ignored: run ids, finding ids, timings, evidence, artifact paths, meaning/impact
 between the golden file and a golden-shaped summary of what was observed. Nothing is written: edit the file by hand,
 and give every new side effect a real reason. Narrow a run with `ACCEPTANCE_MODES=clean,F01`.
 
-## Known gaps (to reconcile during integration)
+## Gaps found while writing these files
+
+The three gaps are closed; the notes stay because the golden files still refer to them.
 
 - **A01**: axe-core 4.13's `label` rule accepts a non-empty placeholder as a label, so the WCAG A/AA tag set does not
-  flag a placeholder-only input. `axe-states` needs an extra assertion (or Kennel a different bug shape) to catch it.
-- **A08**: `target-size` has a spacing exception; Kennel must place the 16x16 remove buttons close together.
-  The buttons exist only once a booking is listed, so `axe-states` must run on the success state.
-- **S04**: `verbose-errors` submits oversized and malformed input; Kennel must produce the stack trace on that path.
-- Titles are only pinned for `dead-control` (names the control) and `axe-states` (axe help text).
+  flag a placeholder-only input. `axe-states` adds Run Hound's own placeholder-only label rule, which catches it.
+  `A01.json` still leaves `titleIncludes` out.
+- **A08**: `target-size` has a spacing exception, so Kennel packs the 16x16 remove buttons into tight rows. The buttons
+  exist only once a booking is listed, and `axe-states` scans the success state.
+- **S04**: `verbose-errors` submits oversized and malformed input, and with S04 on Kennel throws on that path (not only
+  for the pet name `Crash`), so the stack trace reaches the page.
+- Titles are pinned (`titleIncludes`) only where the finding names something specific: the control for `dead-control`
+  and `page-controls`, the field for `error-announcement`, the axe help text for `axe-states`, and a phrase of each
+  V1 page check's title.

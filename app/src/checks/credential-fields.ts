@@ -160,7 +160,7 @@ export const check: Check = {
     return el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
   });
   expect(allowed, selector).toBe(true);
-}`,
+}`, [], ctx.form,
           ),
         });
       }
@@ -197,7 +197,7 @@ export const check: Check = {
             `for (const selector of ${JSON.stringify(unhinted.map((u) => u.field.selector))}) {
   await expect(page.locator(selector)).toHaveAttribute("autocomplete", /\\S/);
   await expect(page.locator(selector)).not.toHaveAttribute("autocomplete", "off");
-}`,
+}`, [], ctx.form,
           ),
         });
       }

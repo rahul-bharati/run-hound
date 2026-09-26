@@ -1,13 +1,14 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { LegalDoc, LegalHeading, type LegalTocItem, MailLink } from "@/components/legal/legal";
+import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
-export const metadata: Metadata = {
+export const metadata = pageMetadata({
+  path: "/terms/",
   title: "Terms",
   description:
     "Terms of use for the Run Hound website, and how the MIT license governs the Run Hound software.",
-};
+});
 
 const toc: LegalTocItem[] = [
   { id: "agreement", label: "Agreement" },
@@ -42,7 +43,7 @@ export default function TermsPage() {
 
       <LegalHeading id="software-license">The software and its license</LegalHeading>
       <p>
-        {site.name} is available as a public open-source preview ({site.release} {site.version}), with its source code
+        {site.name} is available as a public open-source preview ({site.version}), with its source code
         in a public repository. It is released under the <a href="https://opensource.org/license/mit">MIT License</a>{" "}
         (the <a href={site.licenseUrl}>LICENSE file</a> in the repository). The license, not these terms, governs your
         rights to use, copy, modify and distribute the code. If these terms and the license ever

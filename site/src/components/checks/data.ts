@@ -2,7 +2,9 @@ import type { Severity } from "@/components/finding";
 
 /**
  * Roadmap stage a check is in or planned for. V0 = single form on localhost (shipped, 0.1.0); V1 = single page
- * (current open-source preview; page-wide checks since 0.2.0, optional AI since 0.3.0); V4 = live staging behind domain verification.
+ * (current; page-wide checks since 0.2.0, optional AI since 0.3.0); V2 = single feature (a preview since 0.4.0:
+ * signed-in runs, access checks, mass assignment and deep links; the rest is planned); V4 = live staging behind
+ * domain verification.
  */
 export type Version = "V0" | "V1" | "V2" | "V3" | "V4";
 
@@ -20,8 +22,8 @@ export type Check = {
   /** Extra qualifier shown beside the version (e.g. "stretch"). */
   note?: string;
   /**
-   * In the current preview. Every V0 check is; for V1 only the checks that shipped in 0.2.0 are, the rest of V1's
-   * list is still planned.
+   * In the current release. Every V0 check is; for V1 and V2 only the checks marked shipped are (V1's page-wide checks
+   * since 0.2.0, V2's preview checks since 0.4.0), the rest of their lists is still planned.
    */
   shipped?: boolean;
 };
@@ -37,7 +39,7 @@ export type CheckCategory = {
 export const versionMeaning: Record<Version, string> = {
   V0: "One form on localhost: shipped",
   V1: "One page: available now, more to come",
-  V2: "One feature, end to end",
+  V2: "One feature, end to end: a preview is available now (signed-in runs and access checks)",
   V3: "The whole app",
   V4: "Live staging, domain verified",
 };
@@ -129,9 +131,10 @@ export const categories: CheckCategory[] = [
       },
       {
         name: "Refresh, deep links and Back",
-        line: "Pages that break when you reload them, open them from a shared link, or press Back.",
+        line: "Pages that break when you reload them or open them from a shared link. Checking the Back button is planned.",
         severity: "high",
         version: "V2",
+        shipped: true,
         signal: "direct load of each route",
       },
       {
@@ -196,10 +199,11 @@ export const categories: CheckCategory[] = [
       },
       {
         name: "Server trusts extra fields",
-        line: "The server accepts values the form never offered, such as a role or price.",
+        line: "The server stores fields the form never sends, such as a role, a plan or a verified flag (mass assignment).",
         severity: "high",
         version: "V2",
-        signal: "compare two test accounts you own",
+        shipped: true,
+        signal: "replayed save on a test account you own",
       },
       {
         name: "Search, sort and pagination edges",
@@ -399,9 +403,10 @@ export const categories: CheckCategory[] = [
       },
       {
         name: "Other users' data exposed",
-        line: "One account can read or change another account's records.",
+        line: "One account can read another account's records. Checking whether it can change them is planned.",
         severity: "critical",
         version: "V2",
+        shipped: true,
         signal: "compare two test accounts you own",
       },
       {
@@ -409,7 +414,8 @@ export const categories: CheckCategory[] = [
         line: "Pages hide things from logged-out users, but the server hands them over anyway.",
         severity: "critical",
         version: "V2",
-        signal: "compare two test accounts you own",
+        shipped: true,
+        signal: "replay without a session",
       },
       {
         name: "Paid features without paying",
@@ -628,15 +634,23 @@ export type PreviewCheck = {
   line: string;
   /** Test records a run of this check can create in the app under test. */
   records: string;
-  /** Release that added the check. The 15 V0 checks carry "V0"; the five page-wide checks are new in V1. */
-  since: "V0" | "V1";
+  /**
+   * Stage that added the check: V0 (0.1.0) for the form checks, V1 (0.2.0) for the page-wide checks, V2 for the
+   * checks of the V2 preview (0.4.0).
+   */
+  since: "V0" | "V1" | "V2";
   /** Findings are marked advisory when the target looks like a dev server, which doesn't send production values. */
   devServerAdvisory?: boolean;
+  /** Planned only on a signed-in run, with a test account (docs: Signed-in runs and test accounts). */
+  signedIn?: boolean;
+  /** In the plan, but unticked until you tick it. */
+  offByDefault?: boolean;
 };
 
 /**
- * The 20 built-in checks in the V1 preview (0.2.0 and later), in the three groups the plan, run and report follow: V0's 15
- * form checks plus five page-wide checks new in V1. Source of truth: TESTING.md and app/src/checks.
+ * The built-in checks in the current release, in the three groups the plan, run and report follow, in run order:
+ * V0's form checks, V1's page-wide checks and the V2 preview's checks (0.4.0). Source of truth: app/src/checks and
+ * app/src/core/types.ts (CHECK_IDS); the V2 checks in docs/v2-spec.md.
  */
 export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = [
   {
@@ -700,7 +714,7 @@ export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = 
         id: "dead-control",
         name: "Dead controls",
         line: "Clicks every button except submit and flags buttons that do nothing at all. Destructive-looking buttons are left out unless you allow them.",
-        records: "0",
+        records: "0, unless a button saves something (a draft)",
         since: "V0",
       },
       {
@@ -737,6 +751,13 @@ export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = 
         line: "Clicks the buttons and controls outside the forms, across the whole page, and flags the ones that do nothing at all. Destructive-looking controls are left out unless you allow them.",
         records: "0, unless a button saves something",
         since: "V1",
+      },
+      {
+        id: "deep-links",
+        name: "Deep links",
+        line: "Opens up to 10 of the page's own links directly, as a reload or a shared link would, and flags pages that answer with an error or show a not-found view while the same link works inside the app. Never a link that signs out, deletes or accepts an invitation.",
+        records: "0",
+        since: "V2",
       },
     ],
   },
@@ -795,13 +816,30 @@ export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = 
         records: "0",
         since: "V1",
       },
+      {
+        id: "access-control",
+        name: "Access control",
+        line: "Signed in as Account A, saves a test record, then replays the requests that returned its data as Account B and as a visitor who isn't signed in. Either one getting Account A's data back is a critical finding. Only Account A's own GET requests are replayed.",
+        records: "up to 1 per scenario, in Account A",
+        since: "V2",
+        signedIn: true,
+      },
+      {
+        id: "mass-assignment",
+        name: "Mass assignment",
+        line: "Saves the form as Account A, replays the save with fields the form never sends (role: admin, isAdmin, plan: pro, credits, verified) and reads the record again. A field the server stored is a finding. Run Hound puts back what it changed and says what it couldn't.",
+        records: "up to 2, in Account A",
+        since: "V2",
+        signedIn: true,
+        offByDefault: true,
+      },
     ],
   },
 ];
 
 /**
  * The optional check added in 0.3.0. It runs only when AI is on and you tick a suggested flow, so it is listed
- * beside the 20 built-in checks rather than counted with them.
+ * beside the built-in checks rather than counted with them.
  */
 export const aiFlowCheck = {
   id: "ai-flow",

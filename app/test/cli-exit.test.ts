@@ -2,11 +2,12 @@
  * Tester release (0.1.0) exit codes for `run-hound run` (docs/v0-spec.md, "Tester release"):
  *   0  no confirmed findings (advisory findings are reported but don't fail the run)
  *   1  at least one confirmed finding
- *   2  an error or a refused target
+ *   2  an error or a refused target, and a run that tested nothing (every approved scenario errored or was skipped)
  *
  * The real CLI runs end to end. The check library is swapped for fake checks by a test-only preload
  * (test/fixtures/cli-exit/fake-checks-hook.mjs, loaded through NODE_OPTIONS=--import), so each case controls exactly
- * which findings the run produces. RH_FAKE_FINDINGS picks them: none | advisory | confirmed | mixed | skipped.
+ * which findings the run produces. RH_FAKE_FINDINGS picks them: none | advisory | confirmed | mixed | skipped | errored |
+ * partly-errored.
  */
 import { execFile } from "node:child_process";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
@@ -20,7 +21,7 @@ import type { Report } from "../src/core/types.js";
 const appDir = fileURLToPath(new URL("..", import.meta.url));
 const HOOK = fileURLToPath(new URL("./fixtures/cli-exit/fake-checks-hook.mjs", import.meta.url));
 
-type FakeMode = "none" | "advisory" | "confirmed" | "mixed" | "skipped";
+type FakeMode = "none" | "advisory" | "confirmed" | "mixed" | "skipped" | "errored" | "partly-errored";
 
 interface CliResult {
   code: number | null;
@@ -126,11 +127,45 @@ describe("run-hound run exit codes (tester release)", () => {
 
   it("prints a skipped scenario's reason once, without repeating \"skipped\"", async () => {
     const { res } = await run("skipped", false);
-    expect(res.code, res.stderr).toBe(0);
+    // Every scenario skipped: nothing was tested, which is exit 2 (it used to be 0, a clean-looking pass).
+    expect(res.code, res.stderr).toBe(2);
     // The result line ends with the scenario's duration (docs/v0-spec.md, "Groups and timing").
     expect(res.stderr).toMatch(/^ {2}skipped: the fake form has nothing to check\. · (?:\d+\.\d s|\d+ s|\d+ min(?: \d+ s)?|\d+ h(?: \d+ min)?)$/m);
     expect(res.stderr).not.toMatch(/skipped: Skipped/i);
     expect(res.stderr).toMatch(/with 1 field; 2 scenarios planned\./);
+  }, 180_000);
+
+  it("exits 2 when every scenario errored, and says in one plain line that nothing was tested", async () => {
+    const { res, report } = await run("errored");
+    expect(res.code, res.stderr).toBe(2);
+    // The report is still written and printed: it says which checks errored and why.
+    expect(report!.summary).toMatchObject({ passed: 0, failed: 0, errored: 2, skipped: 0 });
+    expect(await readdir(runsDir)).toEqual([report!.runId]);
+    const lines = res.stderr.split("\n").filter((l) => /nothing was tested/i.test(l));
+    expect(lines, res.stderr).toHaveLength(1);
+    expect(lines[0]).toMatch(/^Nothing was tested: both scenarios errored\b/);
+  }, 180_000);
+
+  it("exits 2 without --json too, after the summary", async () => {
+    const { res } = await run("errored", false);
+    expect(res.code, res.stderr).toBe(2);
+    expect(res.stdout).toMatch(/Scenarios: 0 passed, 0 failed, 2 errored, 0 skipped\./);
+    expect(res.stderr).toMatch(/^Nothing was tested: both scenarios errored\b/m);
+  }, 180_000);
+
+  it("exits 2 when every scenario was skipped, naming it as skipped", async () => {
+    const { res, report } = await run("skipped");
+    expect(res.code, res.stderr).toBe(2);
+    expect(report!.summary).toMatchObject({ passed: 0, failed: 0, errored: 0, skipped: 2 });
+    expect(res.stderr).toMatch(/^Nothing was tested: both scenarios were skipped\b/m);
+  }, 180_000);
+
+  it("keeps exit 0 when some scenarios errored but others ran and found nothing confirmed", async () => {
+    const { res, report } = await run("partly-errored");
+    expect(res.code, res.stderr).toBe(0);
+    expect(report!.summary).toMatchObject({ passed: 1, errored: 1 });
+    expect(res.stderr).not.toMatch(/nothing was tested/i);
+    expect(res.stderr).toMatch(/Note: 1 scenario errored and tested nothing/);
   }, 180_000);
 
   it.each([
@@ -157,5 +192,6 @@ describe("run-hound run exit codes (tester release)", () => {
     expect(res.code).toBe(0);
     expect(res.stdout).toMatch(/0[^\n]*no confirmed findings/i);
     expect(res.stdout).toMatch(/advisory/i);
+    expect(res.stdout).toMatch(/2[^\n]*an error[\s\S]*nothing was tested/i);
   }, 60_000);
 });

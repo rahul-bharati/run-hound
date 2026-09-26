@@ -1,4 +1,4 @@
-export type RoadmapStatus = "shipped" | "current" | "planned";
+export type RoadmapStatus = "shipped" | "current" | "preview" | "planned";
 
 export type RoadmapStage = {
   version: string;
@@ -13,10 +13,12 @@ export type RoadmapStage = {
 const statusStyle: Record<RoadmapStatus, { card: string; pill: string; dot: string }> = {
   shipped: { card: "border-line", pill: "border-line-strong text-muted", dot: "bg-muted" },
   "current": { card: "border-accent/60", pill: "border-accent text-accent", dot: "bg-accent" },
+  // Partly released: part of the stage ships in the current release, the rest is planned.
+  preview: { card: "border-dashed border-accent/40", pill: "border-dashed border-accent/60 text-accent", dot: "bg-accent/60" },
   planned: { card: "border-line", pill: "border-line-strong text-dim", dot: "bg-line-strong" },
 };
 
-/** Vertical roadmap with a status label per stage. The current stage (the current release) is lit. */
+/** Vertical roadmap with a status label per stage. The current stage is lit; a stage in preview is outlined. */
 export function RoadmapList({ stages }: { stages: readonly RoadmapStage[] }) {
   return (
     <ol className="flex flex-col gap-4">
