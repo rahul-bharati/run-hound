@@ -14,6 +14,9 @@
  *
  * Google Analytics loads only after consent, as an external script (components/consent); Cloudflare Web Analytics is
  * injected at the edge as an external script too. Neither needs an inline script.
+ *
+ * JSON-LD blocks (<script type="application/ld+json">, components/json-ld.tsx) are data, never executed, so the policy
+ * does not cover them and their hashes are left out.
  */
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -39,11 +42,15 @@ function policy(hashes) {
   ].join("; ");
 }
 
-/** 'sha256-…' for each distinct inline script (a <script> without src) in the page, in page order. */
+/**
+ * 'sha256-…' for each distinct inline script (a <script> without src) in the page, in page order. Data blocks
+ * (JSON-LD) are not scripts the browser runs, so they get no hash.
+ */
 function inlineScriptHashes(html) {
   const hashes = [];
   for (const [, attributes, body] of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
     if (/\bsrc\s*=/i.test(attributes)) continue;
+    if (/\btype\s*=\s*["']?application\/ld\+json/i.test(attributes)) continue;
     const hash = `'sha256-${createHash("sha256").update(body, "utf8").digest("base64")}'`;
     if (!hashes.includes(hash)) hashes.push(hash);
   }

@@ -34,11 +34,15 @@ export function Hero() {
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(60%_45%_at_50%_20%,rgba(94,230,163,0.09),transparent_70%)]"
       />
+      {/* On desktop the mark is the largest image in view at first paint (the LCP), so it loads at once and first;
+          phones, where it is hidden, fetch only the smallest file (1px). */}
       <Image
         src={houndMark}
         alt=""
         aria-hidden="true"
-        sizes="(min-width: 1024px) 980px, 760px"
+        loading="eager"
+        fetchPriority="high"
+        sizes="(min-width: 1024px) 980px, (min-width: 768px) 760px, 1px"
         className="pointer-events-none absolute left-1/2 top-0 -z-10 hidden h-auto w-[760px] max-w-none -translate-x-1/2 select-none opacity-[0.06] md:block lg:-top-16 lg:w-[980px] lg:opacity-[0.1]"
       />
 
@@ -68,12 +72,15 @@ export function Hero() {
             Find the bugs your AI forgot <span className="text-accent">to test.</span>
           </h1>
 
+          {/* The first sentence defines Run Hound on its own, so a search result or an AI answer can quote it whole; the
+              second names who it's for (docs/overview.md "Who it's for"). Kept short: seven lines on desktop, as
+              before the definition was added, and one more on a phone, so the calls to action barely move. */}
           <p className="max-w-2xl text-pretty text-lg leading-relaxed text-muted sm:text-xl">
-            AI-assisted UI testing for AI-built apps. Point Run Hound at a page on your local app: it finds the forms
-            and controls on it, custom widgets and dialog forms included, plans the checks, and after you approve, runs
-            them in a real browser and reports what broke, with annotated evidence and a Playwright test for each
-            finding. It can sign in with test accounts you own, and your own AI model can review the plan and explain
-            findings.
+            {site.name} is an open-source, AI-assisted UI testing tool for apps built with AI app builders such as
+            Lovable, Bolt and v0. It&apos;s for solo developers, small teams and QA testers. Point it at a page on your
+            local app: it finds the forms and controls, custom widgets and dialog forms included, plans the checks and
+            runs the ones you approve in a real browser, with evidence and a Playwright test for each finding. It can
+            sign in as test accounts you own, and your AI model can review the plan.
           </p>
 
           <div className="flex w-full flex-col items-center gap-3">
@@ -122,10 +129,13 @@ export function Hero() {
         </div>
 
         <figure className="w-full min-w-0 [perspective:2400px]">
+          {/* Preloaded only on tall screens 1024 px and wider, where it is above the fold (its top edge is at about
+              980 px) and can be the largest paint. On phones and laptops it starts below the fold, and lazy loading
+              fetches it as soon as it nears the viewport. */}
           <Screenshot
             screen={screens.liveRun}
-            preload
             sizes={shotSizes}
+            preloadMedia="(min-width: 1024px) and (min-height: 1100px)"
             // Phones: just the run column (progress, scenarios, the running one's steps), readable at that width.
             phoneCrop={{ left: 258, top: 8, width: 536, height: 980 }}
             className="lg:origin-bottom lg:[transform:rotateX(9deg)]"

@@ -1,16 +1,13 @@
 import Link from "next/link";
 import { ButtonLink, GitHubIcon } from "@/components/button-link";
+import { JsonLd } from "@/components/json-ld";
 import { Card, PageHeader, Section } from "@/components/layout";
+import { openSourceJsonLd, openSourcePage } from "@/components/oss/open-source";
 import { RoadmapList, type RoadmapStage } from "@/components/oss/roadmap-list";
 import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
-export const metadata = pageMetadata({
-  path: "/open-source/",
-  title: "Open source",
-  description:
-    "Run Hound is open source under the MIT license, every check included. The roadmap, the test apps it is scored against, and how to contribute.",
-});
+export const metadata = pageMetadata(openSourcePage);
 
 const openCore: { core: string; later: string }[] = [
   {
@@ -98,6 +95,7 @@ const externalLink = "text-accent underline underline-offset-4 hover:text-accent
 export default function OpenSourcePage() {
   return (
     <>
+      <JsonLd data={openSourceJsonLd()} />
       <PageHeader
         eyebrow="OPEN SOURCE"
         title={
@@ -237,6 +235,11 @@ export default function OpenSourcePage() {
             Fernway&apos;s
           </a>
           . Five sample apps, built well on purpose, complete the set: any confirmed finding on them is a false positive.
+          The demo shows{" "}
+          <Link href="/demo/" className={externalLink}>
+            the findings and evidence from real runs on Kennel and Fernway
+          </Link>
+          .
         </p>
       </Section>
 
@@ -264,6 +267,13 @@ export default function OpenSourcePage() {
               Contribution guidelines are coming. We will decide between a Contributor License Agreement (CLA) and a
               Developer Certificate of Origin (DCO) before accepting the first outside contribution, and document it
               in the repository.
+            </p>
+            <p className="leading-relaxed text-muted">
+              To work on the code,{" "}
+              <Link href="/docs/#install" className={externalLink}>
+                set up Run Hound from source
+              </Link>
+              : it runs with Node from a clone of the repository.
             </p>
           </Card>
         </div>

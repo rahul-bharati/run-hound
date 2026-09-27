@@ -3,30 +3,71 @@ import Link from "next/link";
 import { ArrowIcon, ButtonLink } from "@/components/button-link";
 import { Icon, groupIcons } from "@/components/icon";
 import { AdvisoryBadge, CheckCard, StageBadge, isShipped } from "@/components/checks/check-card";
-import { aiFlowCheck, categories, notVisible, previewGroups, stageMeaning, type Stage } from "@/components/checks/data";
+import {
+  aiFlowCheck,
+  builtInChecks,
+  categories,
+  notVisible,
+  previewGroups,
+  stageMeaning,
+  type Stage,
+} from "@/components/checks/data";
+import { ReleaseLine } from "@/components/docs/release";
+import { JsonLd } from "@/components/json-ld";
 import { Container, Eyebrow, NewTag, PageHeader, Section } from "@/components/layout";
-import { pageMetadata } from "@/lib/metadata";
+import { pageMetadata, pageTitle } from "@/lib/metadata";
 import { site } from "@/lib/site";
+import { breadcrumbNode, graph, itemListNode, webPageId, webPageNode } from "@/lib/structured-data";
 import { SeverityLabel } from "@/components/finding";
 
-const previewTotal = previewGroups.reduce((sum, g) => sum + g.checks.length, 0);
-const v2Total = previewGroups.reduce((sum, g) => sum + g.checks.filter((c) => c.since === "V2").length, 0);
-const signedInTotal = previewGroups.reduce((sum, g) => sum + g.checks.filter((c) => c.signedIn).length, 0);
+const previewTotal = builtInChecks.length;
+const v2Total = builtInChecks.filter((c) => c.since === "V2").length;
+const signedInTotal = builtInChecks.filter((c) => c.signedIn).length;
 
-export const metadata = pageMetadata({
+// The catalog's entries are gaps (what can go wrong), not checks: "checks" always means the built-in ones, as on the
+// home page and in the docs. Every gap covered in this release is covered by a built-in check.
+const gapTotal = categories.reduce((sum, c) => sum + c.checks.length, 0);
+const gapsCovered = categories.reduce((sum, c) => sum + c.checks.filter(isShipped).length, 0);
+
+const page = {
   path: "/checks/",
-  title: "Checks",
-  description: `The ${previewTotal} built-in checks in Run Hound ${site.version}, in three groups, and the full catalog of gaps in AI-built apps it hunts for, with severity and roadmap stage.`,
+  title: "UI, accessibility and security checks",
+  description: `${previewTotal} built-in accessibility, feature and security checks for AI-built apps, run in a real browser, plus the full catalog of gaps Run Hound hunts for.`,
+};
+
+export const metadata = pageMetadata(page);
+
+// The page, where it sits, and the built-in checks as a list, from the same data the page renders. Each item links
+// to the check's own anchor below, where its text is; the items carry no description, since the block ships twice
+// (the script and the RSC payload).
+const builtInList = itemListNode({
+  path: page.path,
+  name: `Built-in checks in ${site.name} ${site.version}`,
+  items: builtInChecks.map((c) => ({ name: `${c.name} (${c.id})`, url: `${page.path}#${c.id}` })),
 });
+
+const jsonLd = graph(
+  // Dated like the release the hero shows (ReleaseLine).
+  webPageNode({
+    path: page.path,
+    name: pageTitle(page),
+    description: page.description,
+    type: "CollectionPage",
+    dateModified: site.releasedIso,
+  }),
+  { "@id": webPageId(page.path), mainEntity: { "@id": builtInList["@id"] } },
+  breadcrumbNode([
+    { name: "Home", path: "/" },
+    { name: "Checks", path: page.path },
+  ]),
+  builtInList,
+);
 
 const stages = Object.keys(stageMeaning) as Stage[];
 
 const linkClass = "text-accent underline underline-offset-4 hover:text-accent-strong";
 
 export default function ChecksPage() {
-  const total = categories.reduce((sum, c) => sum + c.checks.length, 0);
-  const available = categories.reduce((sum, c) => sum + c.checks.filter(isShipped).length, 0);
-
   return (
     <>
       <PageHeader
@@ -36,8 +77,18 @@ export default function ChecksPage() {
             Everything <span className="text-accent">it hunts for.</span>
           </>
         }
-        lede="What Run Hound checks today, then the full catalog: the gaps AI-built apps tend to ship with, grouped the way you'd notice them, with typical severity and the roadmap stage each check is in or planned for."
+        lede={
+          <>
+            What Run Hound checks today, then the full catalog: the gaps{" "}
+            <Link href="/ai-built-apps/" className={linkClass}>
+              AI-built apps
+            </Link>{" "}
+            tend to ship with, grouped the way you&apos;d notice them, with typical severity and the roadmap stage
+            for each.
+          </>
+        }
       >
+        <ReleaseLine />
         <nav aria-label="Check categories">
           <ul className="flex flex-wrap gap-2">
             <li>
@@ -46,7 +97,10 @@ export default function ChecksPage() {
                 className="inline-flex min-h-11 items-center gap-2 rounded-full border border-accent/50 px-4 text-sm text-fg transition-colors hover:border-accent hover:text-accent"
               >
                 In {site.version} today
-                <span className="font-mono text-xs text-accent">{previewTotal}</span>
+                <span className="font-mono text-xs text-accent">
+                  {previewTotal}
+                  <span className="sr-only"> checks</span>
+                </span>
               </Link>
             </li>
             {categories.map((c) => (
@@ -56,7 +110,10 @@ export default function ChecksPage() {
                   className="inline-flex min-h-11 items-center gap-2 rounded-full border border-line px-4 text-sm text-muted transition-colors hover:border-accent hover:text-accent"
                 >
                   {c.title}
-                  <span className="font-mono text-xs text-dim">{c.checks.length}</span>
+                  <span className="font-mono text-xs text-dim">
+                    {c.checks.length}
+                    <span className="sr-only"> gaps</span>
+                  </span>
                 </Link>
               </li>
             ))}
@@ -98,7 +155,7 @@ export default function ChecksPage() {
               </div>
               <ul className="flex flex-col divide-y divide-line-soft border-t border-line-soft">
                 {g.checks.map((c) => (
-                  <li key={c.id} className="flex flex-col gap-1.5 py-4 last:pb-0">
+                  <li key={c.id} id={c.id} className="flex flex-col gap-1.5 py-4 last:pb-0">
                     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
                       <p className="font-semibold text-fg">{c.name}</p>
                       {c.since === "V2" ? <NewTag>{site.preview}</NewTag> : null}
@@ -118,6 +175,7 @@ export default function ChecksPage() {
         </div>
 
         <section
+          id={aiFlowCheck.id}
           aria-labelledby="preview-ai-flow"
           className="flex flex-col gap-3 rounded-2xl border border-dashed border-line-strong bg-surface p-6 sm:p-7"
         >
@@ -142,8 +200,8 @@ export default function ChecksPage() {
           <div className="flex flex-col gap-2 text-[15px] leading-relaxed text-muted">
             <p className="font-semibold text-fg">The access checks need test accounts</p>
             <p>
-              Access control and mass assignment run only when Run Hound signs in first, with a test account you own on
-              your app (account A). Checking that another account can&apos;t read your data also needs account B, a
+              Access control, mass assignment and the CSRF check run only when Run Hound signs in first, with a test
+              account you own on your app (account A). Checking that another account can&apos;t read your data also needs account B, a
               different user. Signed out, the plan says how to set them up instead.{" "}
               <Link href="/docs#accounts" className={linkClass}>
                 Signed-in runs and test accounts
@@ -182,7 +240,7 @@ export default function ChecksPage() {
         id="catalog"
         eyebrow="THE FULL CATALOG"
         title="How to read the catalog"
-        intro={`${total} checks across ${categories.length} categories, ${available} of them available in ${site.version}. Severity is the typical level when the check fails; a real report grades each finding on its evidence. The signal is what Run Hound looks at, never a recipe.`}
+        intro={`The catalog lists ${gapTotal} gaps across ${categories.length} categories; ${gapsCovered} of them are covered in ${site.version} by the ${previewTotal} built-in checks above, and the other ${gapTotal - gapsCovered} are planned for the roadmap stage on their badge. Severity is the typical level when a gap is found; a real report grades each finding on its evidence. The signal is what Run Hound looks at, never a recipe.`}
       >
         <div className="grid gap-8 rounded-2xl border border-line bg-surface p-6 sm:p-7 lg:grid-cols-[1fr_1.5fr] lg:gap-10">
           <div className="flex flex-col gap-4">
@@ -200,7 +258,7 @@ export default function ChecksPage() {
                 <dt>
                   <StageBadge stage="V1" shipped />
                 </dt>
-                <dd className="text-sm text-muted">Lit: runs in {site.version} today</dd>
+                <dd className="text-sm text-muted">Lit: covered in {site.version} today</dd>
               </div>
               <div className="flex items-center gap-3">
                 <dt>
@@ -248,12 +306,12 @@ export default function ChecksPage() {
               </h2>
               <p className="text-pretty text-lg leading-relaxed text-muted">{category.intro}</p>
               <p className="font-mono text-xs tracking-widest text-dim">
-                {category.checks.filter(isShipped).length} OF {category.checks.length} AVAILABLE IN {site.version}
+                {category.checks.filter(isShipped).length} OF {category.checks.length} COVERED IN {site.version}
               </p>
             </div>
             <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {category.checks.map((check) => (
-                <CheckCard key={check.name} check={check} />
+                <CheckCard key={check.id} check={check} />
               ))}
             </ul>
           </Container>
@@ -295,7 +353,23 @@ export default function ChecksPage() {
         </p>
       </Section>
 
-      <Section title="See how a check becomes a finding">
+      <Section
+        title="See how a check becomes a finding"
+        intro={
+          <>
+            Every finding comes with its evidence and a Playwright test, and the demo shows real ones from a run on
+            Kennel. For what these checks cover beside other testing and scanning tools, see{" "}
+            <Link href="/compare/" className={linkClass}>
+              how Run Hound compares
+            </Link>
+            ; for the rest,{" "}
+            <Link href="/faq/" className={linkClass}>
+              answers to common questions
+            </Link>
+            .
+          </>
+        }
+      >
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
           <ButtonLink href={site.testingGuide}>
             {site.cta}
@@ -309,6 +383,8 @@ export default function ChecksPage() {
           </ButtonLink>
         </div>
       </Section>
+      {/* Last, so the h1 and the page's text arrive before the structured data; search engines read it anywhere. */}
+      <JsonLd data={jsonLd} />
     </>
   );
 }

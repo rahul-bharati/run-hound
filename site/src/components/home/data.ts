@@ -7,11 +7,13 @@ export const links = {
   github: site.github,
   changelog: site.changelog,
   issues: site.issues,
+  // The research behind the home page's numbers (docs/research.md), with every source it cites.
+  research: `${site.github}/blob/main/docs/research.md`,
 } as const;
 
 const intros: Record<string, string> = {
   Accessibility: "Can everyone use the page: keyboard users, screen reader users, people on small screens?",
-  Features: "Does it actually work: every form, every button on the page, every save, every failure path?",
+  Features: "Does it actually work: the forms and buttons on the page, each save and each failure path?",
   Security: "Does the page leak what it shouldn't, or leave standard protections switched off?",
 };
 

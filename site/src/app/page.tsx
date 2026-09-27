@@ -13,8 +13,11 @@ import { ArrowIcon, GitHubIcon } from "@/components/button-link";
 import { CommandCopy } from "@/components/command-copy";
 import { GetStarted } from "@/components/get-started";
 import { Icon } from "@/components/icon";
-import { pageMetadata } from "@/lib/metadata";
+import { JsonLd } from "@/components/json-ld";
+import { screens } from "@/components/screens";
+import { pageMetadata, pageTitle } from "@/lib/metadata";
 import { site } from "@/lib/site";
+import { graph, maintainerNode, softwareNode, webPageNode, websiteNode } from "@/lib/structured-data";
 import {
   AppWindow,
   Container as Box,
@@ -32,13 +35,29 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-export const metadata = pageMetadata({
+// The title says what Run Hound is in the words people search for (the h1 stays the pitch); the description names
+// the builders and the three groups of checks, in at most about 155 characters. No version number: snippets outlive
+// releases.
+const page = {
   path: "/",
-  title: `${site.name}: Find the bugs your AI forgot to test`,
+  title: `${site.name}: AI-assisted UI testing for AI-built apps`,
   absoluteTitle: true,
   description:
-    "Open-source, AI-assisted UI testing for AI-built apps: real checks in a real browser, with evidence and a Playwright test. Runs on your machine.",
-});
+    "Test apps built with Lovable, Bolt or v0 on your machine: open-source accessibility, feature and security checks in a real browser, with evidence.",
+};
+
+export const metadata = pageMetadata(page);
+
+/**
+ * The home page defines the site, its maintainer and the app (lib/structured-data.ts); every other page refers to
+ * them by id. The app's screenshots are the plan and the report, the two screens that show what it does.
+ */
+const structuredData = graph(
+  websiteNode(),
+  maintainerNode(),
+  softwareNode({ screenshots: [screens.plan, screens.report] }),
+  webPageNode({ path: page.path, name: pageTitle(page), description: page.description }),
+);
 
 /** The V2 preview's checks (0.4.0, and 0.5.0's csrf; docs/v2-spec.md), as the questions they answer. */
 const accessChecks: { icon: LucideIcon; id: string; title: string; text: string }[] = [
@@ -139,23 +158,33 @@ const principles = [
   },
 ];
 
+/** Numbers from docs/research.md §2.1 ("Strong" evidence), each linked to the source §7 lists for it. */
 const stats = [
   {
     value: "45%",
     text: "of AI-generated code samples failed security tests, and newer or larger models did no better.",
     source: "Veracode, 2025",
+    href: "https://www.veracode.com/blog/genai-code-security-report/",
   },
   {
     value: "95.9%",
     text: "of the top million home pages fail automated WCAG checks. WebAIM names vibe coding as a likely contributor.",
     source: "WebAIM Million, 2026",
+    href: "https://webaim.org/projects/million/",
   },
   {
     value: "2,000+",
     text: "vulnerabilities, 400+ exposed secrets and 175 personal data exposures across about 5,600 live vibe-coded apps.",
     source: "Escape.tech, 2025",
+    // research.md: cite the methodology post (about 5,600 apps), not the landing page (about 1,400).
+    href: "https://escape.tech/blog/methodology-how-we-discovered-vulnerabilities-apps-built-with-vibe-coding/",
   },
 ];
+
+/** An inline link in body text, and a quieter one for captions and source lines. */
+const accentLink = "text-accent underline underline-offset-4 hover:text-accent-strong";
+const subtleLink =
+  "text-muted underline decoration-line-strong underline-offset-4 hover:text-accent hover:decoration-accent";
 
 function ArrowLink({ href, children }: { href: string; children: ReactNode }) {
   return (
@@ -169,9 +198,82 @@ function ArrowLink({ href, children }: { href: string; children: ReactNode }) {
   );
 }
 
+/**
+ * The facts people (and AI assistants) ask about first, as a definition list: what it is, who it's for, the license,
+ * the release, where it runs, the checks, the AI, the output and the source. From docs/overview.md, README.md,
+ * docs/business-model.md ("never paywall a check") and the same data the rest of the page uses.
+ */
+const glance: { term: string; detail: ReactNode }[] = [
+  {
+    term: "What it is",
+    detail: "AI-assisted UI testing for apps built with Lovable, Bolt, v0 and similar tools, one page at a time.",
+  },
+  { term: "Who it's for", detail: "Solo developers, small teams and QA testers." },
+  {
+    term: "License",
+    detail: (
+      <>
+        Open source under the{" "}
+        <a href={site.licenseUrl} className={accentLink}>
+          {site.license} license
+        </a>
+        , every check included.
+      </>
+    ),
+  },
+  {
+    term: "Latest release",
+    detail: (
+      <>
+        {site.version}, released <time dateTime={site.releasedIso}>{site.released}</time>.{" "}
+        <a href={links.changelog} className={accentLink}>
+          What changed in each release
+        </a>
+        .
+      </>
+    ),
+  },
+  {
+    term: "Runs on",
+    detail:
+      "Your machine: Docker or Podman on Linux, macOS or Windows, amd64 or arm64. Only localhost and private addresses, or hosts you list yourself, are tested.",
+  },
+  {
+    term: "Checks",
+    detail: (
+      <>
+        <Link href="/checks/" className={accentLink}>
+          {totalChecks} built-in checks
+        </Link>{" "}
+        in three groups: accessibility (with the axe-core WCAG 2.2 AA rules), features and security. {previewChecks} of
+        them are in the {site.preview}.
+      </>
+    ),
+  },
+  {
+    term: "AI",
+    detail:
+      "Optional and off by default. Your own model, local or cloud, reviews the plan, suggests extra flows and explains findings; real checks decide pass or fail.",
+  },
+  {
+    term: "Output",
+    detail:
+      "HTML, Markdown and JSON reports with annotated evidence, and a Playwright test for every finding. Run it from the local web UI, or from the CLI in CI.",
+  },
+  {
+    term: "Source code",
+    detail: (
+      <a href={site.github} className={accentLink}>
+        {site.github.replace(/^https:\/\//, "")}
+      </a>
+    ),
+  },
+];
+
 export default function Home() {
   return (
     <>
+      <JsonLd data={structuredData} />
       <Hero />
 
       <Section
@@ -236,7 +338,7 @@ export default function Home() {
             Works on apps built with <span className="text-accent">Lovable, Bolt and v0.</span>
           </>
         }
-        intro="Apps from AI builders rarely use plain HTML form fields: their selects are buttons, their forms open in dialogs and their errors arrive as toasts. Run Hound finds and fills them the way a person would, and a test app built the same way keeps it honest."
+        intro="Apps from AI builders mix plain fields with custom widgets: their selects are buttons, their forms open in dialogs and their errors arrive as toasts. Run Hound finds and fills them the way a person would, and a test app built the same way keeps it honest."
         className="border-t border-line-soft bg-band"
       >
         <ul className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -251,14 +353,17 @@ export default function Home() {
           ))}
         </ul>
         <AiBuiltTour />
-        <p className="max-w-3xl text-[15px] leading-relaxed text-muted">
-          Limits: a multi-step form is tested on its first step only, and a form that opens some other way (from a menu,
-          for example) isn&apos;t found.{" "}
-          <Link href="/docs#ai-built" className="text-accent underline underline-offset-4 hover:text-accent-strong">
-            What discovery covers, and what it doesn&apos;t
-          </Link>
-          .
-        </p>
+        <div className="flex flex-col gap-4">
+          <p className="max-w-3xl text-[15px] leading-relaxed text-muted">
+            Limits: a multi-step form is tested on its first step only, and a form that opens some other way (from a
+            menu, for example) isn&apos;t found.{" "}
+            <Link href="/docs#ai-built" className={accentLink}>
+              What discovery covers, and what it doesn&apos;t
+            </Link>
+            .
+          </p>
+          <ArrowLink href="/ai-built-apps/">How to test an app built with Lovable, Bolt or v0</ArrowLink>
+        </div>
         <div className="flex flex-col gap-3">
           <p className="font-mono text-xs tracking-widest text-dim">
             TRY IT WITH THE TEST APPS (KENNEL, FERNWAY AND FIVE SAMPLE APPS), FROM AN EMPTY FOLDER
@@ -354,12 +459,43 @@ export default function Home() {
             <li key={s.source} className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-6 sm:p-7">
               <p className="font-display text-5xl font-extrabold tracking-[-0.03em] text-fg">{s.value}</p>
               <p className="leading-relaxed text-muted">{s.text}</p>
-              <p className="mt-auto pt-2 font-mono text-xs tracking-widest text-dim">
-                SOURCE: {s.source.toUpperCase()}
+              <p className="mt-auto pt-2 font-mono text-xs uppercase tracking-widest text-dim">
+                Source:{" "}
+                <a href={s.href} className={subtleLink}>
+                  {s.source}
+                </a>
               </p>
             </li>
           ))}
         </ul>
+        <p className="max-w-3xl text-[15px] leading-relaxed text-muted">
+          <a href={links.research} className={accentLink}>
+            The research behind Run Hound, with every source
+          </a>
+          : the evidence of need, the tools already out there and a catalog of the gaps AI-built apps ship with. See also{" "}
+          <Link href="/compare/" className={accentLink}>
+            how Run Hound compares with those tools
+          </Link>
+          .
+        </p>
+      </Section>
+
+      <Section id="at-a-glance" title={`${site.name} at a glance`} className="border-t border-line-soft">
+        <dl className="grid gap-x-12 lg:grid-cols-2">
+          {glance.map(({ term, detail }) => (
+            <div
+              key={term}
+              className="flex flex-col gap-1.5 border-t border-line-soft py-4 sm:grid sm:grid-cols-[9.5rem_1fr] sm:gap-4"
+            >
+              <dt className="pt-1 font-mono text-xs uppercase tracking-widest text-dim">{term}</dt>
+              <dd className="min-w-0 break-words text-[15px] leading-relaxed text-muted">{detail}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="flex flex-col gap-x-10 gap-y-2 sm:flex-row sm:flex-wrap">
+          <ArrowLink href="/faq/">Questions and answers about Run Hound</ArrowLink>
+          <ArrowLink href="/compare/">How it compares with other testing tools</ArrowLink>
+        </div>
       </Section>
 
       <Section

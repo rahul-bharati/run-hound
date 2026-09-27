@@ -59,3 +59,6 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-09-21: [The roadmap's V0 to V4 are feature stages, not version numbers, and 1.0.0 is the release that completes V4](docs/decisions/09-2026.md#2026-09-21-stages-are-feature-sets)
 - 2026-09-27: [Where the site shows a version it shows the release number, and it names V0 to V4 only as stages](docs/decisions/09-2026.md#2026-09-27-site-shows-release-not-stage)
 - 2026-09-27: [0.6.0 finishes V2's write side, adds two-step and sessionStorage sign-in, and gets Run Hound ready for live alpha testers](docs/decisions/09-2026.md#2026-09-27-0-6-0-scope)
+- 2026-09-27: [The site lets AI crawlers and answer engines read it, and publishes /llms.txt and /llms-full.txt](docs/decisions/09-2026.md#2026-09-27-ai-crawlers-allowed)
+- 2026-09-27: [The site keeps Next's standalone output; tab images are preloaded and the image cache is warmed in the Docker build](docs/decisions/09-2026.md#2026-09-27-site-images-warm-and-preload)
+- 2026-09-27: [The site describes Run Hound for search engines and AI assistants from its own data, and the build fails when that breaks](docs/decisions/09-2026.md#2026-09-27-site-seo-geo)

@@ -32,12 +32,17 @@ export function isShipped(check: Check) {
   return check.stage === "V0" || check.shipped === true;
 }
 
-/** One catalog entry: name, plain-language line, typical severity, roadmap stage and signal phrase. */
+/**
+ * One catalog entry: name, plain-language line, typical severity, roadmap stage and signal phrase. Its id makes it a
+ * link target (/checks/#duplicate-submissions; the global :target rules keep it clear of the sticky header), and its
+ * border lights up when linked to.
+ */
 export function CheckCard({ check }: { check: Check }) {
   const shipped = isShipped(check);
   return (
     <li
-      className={`flex flex-col gap-3 rounded-2xl border bg-surface p-5 sm:p-6 ${
+      id={check.id}
+      className={`flex flex-col gap-3 rounded-2xl border bg-surface p-5 target:border-accent sm:p-6 ${
         shipped ? "border-line-strong" : "border-line"
       }`}
     >

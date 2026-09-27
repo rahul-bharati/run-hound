@@ -1,14 +1,12 @@
 import Link from "next/link";
 import { LegalDoc, LegalHeading, type LegalTocItem, MailLink } from "@/components/legal/legal";
+import { legalPages } from "@/components/legal/pages";
 import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
-export const metadata = pageMetadata({
-  path: "/security/",
-  title: "Security",
-  description:
-    "How to report a vulnerability in Run Hound or this website, what to include, what is in scope and how we respond.",
-});
+const page = legalPages.security;
+
+export const metadata = pageMetadata(page);
 
 const toc: LegalTocItem[] = [
   { id: "how-to-report", label: "How to report" },
@@ -22,7 +20,7 @@ const toc: LegalTocItem[] = [
 export default function SecurityPage() {
   return (
     <LegalDoc
-      title="Security and vulnerability disclosure"
+      page={page}
       lede={
         <>
           We want to hear about security problems in {site.name} and this website. This page explains how to report

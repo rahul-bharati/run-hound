@@ -1,14 +1,12 @@
 import Link from "next/link";
 import { LegalDoc, LegalHeading, type LegalTocItem, MailLink, Summary } from "@/components/legal/legal";
+import { legalPages } from "@/components/legal/pages";
 import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
-export const metadata = pageMetadata({
-  path: "/privacy/",
-  title: "Privacy",
-  description:
-    "How the Run Hound website and software handle personal data: hosting logs, Cloudflare, analytics only with consent, feedback, and software on your machine.",
-});
+const page = legalPages.privacy;
+
+export const metadata = pageMetadata(page);
 
 const toc: LegalTocItem[] = [
   { id: "who-we-are", label: "Who we are" },
@@ -24,7 +22,7 @@ const toc: LegalTocItem[] = [
 export default function PrivacyPage() {
   return (
     <LegalDoc
-      title="Privacy policy"
+      page={page}
       lede={
         <>
           This policy covers this website, the feedback you send us as a tester, and the {site.name} software. The
@@ -66,10 +64,10 @@ export default function PrivacyPage() {
 
       <LegalHeading id="who-we-are">Who we are</LegalHeading>
       <p>
-        {site.name} is run by <strong>Rahul Bharati</strong>, an individual based in <strong>Mumbai, India</strong>,
-        who decides how personal data connected with {site.name} is used (the &ldquo;data controller&rdquo;, or
-        &ldquo;data fiduciary&rdquo; under India&apos;s Digital Personal Data Protection Act, 2023). You can reach
-        us about privacy at <MailLink address={site.contactEmail} />.
+        {site.name} is run by <strong>{site.maintainer.name}</strong>, an individual based in{" "}
+        <strong>Mumbai, India</strong>, who decides how personal data connected with {site.name} is used (the
+        &ldquo;data controller&rdquo;, or &ldquo;data fiduciary&rdquo; under India&apos;s Digital Personal Data
+        Protection Act, 2023). You can reach us about privacy at <MailLink address={site.contactEmail} />.
       </p>
 
       <LegalHeading id="website">This website</LegalHeading>
@@ -278,7 +276,7 @@ export default function PrivacyPage() {
       <LegalHeading id="contact">Contact</LegalHeading>
       <p>
         Questions about this policy: <MailLink address={site.contactEmail} />. Data controller:{" "}
-        <strong>Rahul Bharati</strong>, <strong>Mumbai, India</strong>.
+        <strong>{site.maintainer.name}</strong>, <strong>Mumbai, India</strong>.
       </p>
     </LegalDoc>
   );

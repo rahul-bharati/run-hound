@@ -31,6 +31,10 @@ export const site = {
   previewName: "Signed-in runs and access checks",
   version,
   tag,
+  // The day `version` was released (its tag), as displayed and machine-readable: "Release 0.5.0 · 26 September 2026"
+  // in the footer, dateModified in the structured data and lastModified in sitemap.xml. Update both with every release.
+  released: "26 September 2026",
+  releasedIso: "2026-09-26",
   // Label for the main call to action, used in the header, heroes and page footers.
   cta: "Try it locally",
   // `||`, not `??`: Docker passes an unset build arg as an empty string. A production build needs the real address
@@ -38,6 +42,9 @@ export const site = {
   // warns when `next build` runs without it.
   url: process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
   github,
+  // Who makes Run Hound and runs this site: an individual, as LICENSE and the legal pages say. The author in each
+  // page's metadata and the Person in its structured data (lib/structured-data.ts).
+  maintainer: { name: "Rahul Bharati", url: "https://github.com/rahul-bharati" },
   // The repository is public: anyone can clone it, try it and file issues.
   testingGuide: `${github}/blob/main/TESTING.md`,
   changelog: `${github}/blob/main/CHANGELOG.md`,

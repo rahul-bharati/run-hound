@@ -1,14 +1,12 @@
 import Link from "next/link";
 import { LegalDoc, LegalHeading, type LegalTocItem, MailLink } from "@/components/legal/legal";
+import { legalPages } from "@/components/legal/pages";
 import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
-export const metadata = pageMetadata({
-  path: "/acceptable-use/",
-  title: "Acceptable use",
-  description:
-    "Run Hound is for testing apps you own or are authorized to test. How it enforces that, and which uses are prohibited.",
-});
+const page = legalPages.acceptableUse;
+
+export const metadata = pageMetadata(page);
 
 const toc: LegalTocItem[] = [
   { id: "the-rule", label: "The rule" },
@@ -22,7 +20,7 @@ const toc: LegalTocItem[] = [
 export default function AcceptableUsePage() {
   return (
     <LegalDoc
-      title="Acceptable use policy"
+      page={page}
       lede={
         <>
           {site.name} is built to test your own apps. This policy sets out what you may point it at, how the software

@@ -1,5 +1,6 @@
 # Run Hound marketing site: Next.js "standalone" server. Pages are prerendered at build time; images are resized
-# and converted to AVIF/WebP on request by next/image (sharp), then cached on disk.
+# and converted to AVIF/WebP by next/image (sharp) and cached on disk. The build fills that cache for every image
+# the pages use, so a new deployment doesn't make its first visitors wait for the encodes.
 #
 # Coolify: Base Directory "/site", Build Pack "Dockerfile", Port 8080.
 # Build variables: NEXT_PUBLIC_SITE_URL (required, e.g. https://runhound.dev; the build stops without it) and,
@@ -42,6 +43,17 @@ ENV NEXT_PUBLIC_GA_MEASUREMENT_ID=${NEXT_PUBLIC_GA_MEASUREMENT_ID}
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
+# Put the static assets and public/ next to server.js (it serves them itself from there), then fill the image cache:
+# scripts/warm-images.mjs starts the standalone server on 127.0.0.1, requests every /_next/image URL in the
+# prerendered pages as AVIF and as WebP, one request per CPU but at most 8 at a time, and stops it. The server's
+# memory grows with the requests in flight (measured: about 2.7 GB at 8, 5.5 GB at 24) and a build step has no memory
+# limit, so on a build host with little memory pass a lower cap: --build-arg WARM_IMAGES_CONCURRENCY=4. The server
+# writes the results to .next/standalone/.next/cache/images, which ships below. Any failed image fails the build.
+ARG WARM_IMAGES_CONCURRENCY
+RUN cp -r public .next/standalone/ \
+ && cp -r .next/static .next/standalone/.next/ \
+ && node scripts/warm-images.mjs
+
 # ---- Run ------------------------------------------------------------------
 FROM docker.io/library/node:24.21.0-alpine3.24 AS run
 WORKDIR /app
@@ -51,12 +63,9 @@ ENV NODE_ENV=production \
     PORT=8080 \
     HOSTNAME=0.0.0.0
 
-# The standalone server with only the files it needs (sharp included), plus the static assets and public/,
-# which server.js serves itself when they sit next to it. Owned by "node" so the image cache
-# (.next/cache/images) is writable.
+# The standalone server with only the files it needs (sharp included), the static assets, public/ and the filled
+# image cache (.next/cache/images). Owned by "node" so the server can keep writing to the cache.
 COPY --from=build --chown=node:node /site/.next/standalone ./
-COPY --from=build --chown=node:node /site/.next/static ./.next/static
-COPY --from=build --chown=node:node /site/public ./public
 
 # The official node image's unprivileged user (uid 1000).
 USER node

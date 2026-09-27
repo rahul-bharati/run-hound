@@ -14,12 +14,32 @@ export const socialImage = {
 };
 
 /**
+ * Fields every page carries: its author (meta name="author" and link rel="author", plus meta name="creator"), and
+ * permission for search engines to show a large image preview (meta name="robots" content="max-image-preview:large";
+ * indexing and following stay at their defaults). Every page gets these through pageMetadata; the root layout sets no
+ * robots, so the 404 page carries only the noindex Next.js adds.
+ */
+export const sharedMetadata = {
+  authors: [{ name: site.maintainer.name, url: site.maintainer.url }],
+  creator: site.maintainer.name,
+  robots: { "max-image-preview": "large" },
+} satisfies Metadata;
+
+/** The page's title as the browser shows it: the layout's title template adds " · Run Hound" unless it's absolute. */
+export function pageTitle({ title, absoluteTitle = false }: { title: string; absoluteTitle?: boolean }): string {
+  return absoluteTitle ? title : `${title} · ${site.name}`;
+}
+
+/**
  * Metadata for one page: its title, a description short enough for a search snippet (about 155 characters at most),
  * and its canonical URL, also used as og:url. `path` ends with "/" like every URL on the site (trailingSlash in
  * next.config.ts); the layout's metadataBase (site.url) makes it absolute.
  *
  * A page's `openGraph` replaces the layout's whole object (Next.js merges metadata shallowly), so the shared fields and
  * the preview image are repeated here. twitter:image comes from the layout, which no page overrides.
+ *
+ * Keep the same path, title and description for the page's structured data (webPageNode in lib/structured-data.ts,
+ * with `name: pageTitle(page)`): scripts/check-seo.mjs fails the build when its WebPage url and the canonical differ.
  */
 export function pageMetadata({
   path,
@@ -37,12 +57,13 @@ export function pageMetadata({
     title: absoluteTitle ? { absolute: title } : title,
     description,
     alternates: { canonical: path },
+    ...sharedMetadata,
     openGraph: {
       siteName: site.name,
       type: "website",
       locale: "en_US",
       url: path,
-      title: absoluteTitle ? title : `${title} · ${site.name}`,
+      title: pageTitle({ title, absoluteTitle }),
       description,
       images: [socialImage],
     },

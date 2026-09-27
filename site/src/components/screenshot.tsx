@@ -1,14 +1,32 @@
-import Image from "next/image";
-import type { CSSProperties } from "react";
+"use client";
+
+import Image, { getImageProps } from "next/image";
+import { createContext, use, type CSSProperties } from "react";
+import { preload } from "react-dom";
 import type { Screen } from "@/components/screens";
 
 /** A region of a 1920 x 1080 capture, in CSS px of that window (the master is 2x). */
 type Crop = { left: number; top?: number; width: number; height: number };
 
 /**
+ * Screenshots inside this provider start downloading now, at low priority, instead of when they near the viewport.
+ * The home page tours wrap each hidden panel in it once the tour is close or a tab is hovered or focused, so
+ * opening a tab shows an image that is already there. It is the same <img>, so it picks the same file from its
+ * srcset and nothing is fetched twice.
+ */
+export const PrefetchScreenshots = createContext(false);
+
+/**
  * A real Run Hound screenshot in a dark window frame. `sizes` must describe the rendered width so next/image picks
- * the right file from the srcset; `preload` only for the hero. The blur placeholder and the static import's
- * width and height keep the layout from shifting while it loads.
+ * the right file from the srcset. Screenshots load lazily: even the home hero's starts below the fold on phones and
+ * laptops, where a preload took bandwidth from the fonts, and lazy loading fetches it as soon as it nears the
+ * viewport. The blur placeholder and the static import's width and height keep the layout from shifting while it
+ * loads.
+ *
+ * `preloadMedia` preloads the image only on screens that match it (a media-scoped <link rel="preload"> in the head,
+ * through react-dom's preload), for a screenshot that is above the fold there and may be the largest paint. The
+ * preload names the same srcset and sizes as the <img>, so the browser reuses its response. Its priority is left to
+ * the browser, so it stays behind the page's high-priority requests.
  *
  * `phoneCrop` shows only that region on phones (below 640 px), zoomed to the frame's width, so the UI text stays
  * readable instead of shrinking the whole 1920 px window to 350 px. It is the same image, so the 4K master
@@ -17,16 +35,17 @@ type Crop = { left: number; top?: number; width: number; height: number };
 export function Screenshot({
   screen,
   sizes,
-  preload = false,
   phoneCrop,
+  preloadMedia,
   className = "",
 }: {
   screen: Screen;
   sizes: string;
-  preload?: boolean;
   phoneCrop?: Crop;
+  preloadMedia?: string;
   className?: string;
 }) {
+  const prefetch = use(PrefetchScreenshots);
   const zoom = phoneCrop ? 1920 / phoneCrop.width : 1;
   const cropStyle = phoneCrop
     ? ({
@@ -40,6 +59,10 @@ export function Screenshot({
   const allSizes = phoneCrop
     ? `(max-width: 639px) calc(${(zoom * 100).toFixed(1)}vw - ${Math.round(32 * zoom)}px), ${sizes}`
     : sizes;
+  if (preloadMedia) {
+    const { props } = getImageProps({ src: screen.src, alt: screen.alt, sizes: allSizes, quality: 90 });
+    preload(props.src, { as: "image", imageSrcSet: props.srcSet, imageSizes: allSizes, media: preloadMedia });
+  }
 
   return (
     <div
@@ -57,7 +80,8 @@ export function Screenshot({
           sizes={allSizes}
           quality={90}
           placeholder="blur"
-          preload={preload}
+          loading={prefetch ? "eager" : undefined}
+          fetchPriority={prefetch ? "low" : undefined}
           className={`block h-auto w-full ${
             phoneCrop ? "max-sm:mt-(--crop-mt) max-sm:ml-(--crop-ml) max-sm:w-(--crop-w) max-sm:max-w-none" : ""
           }`}

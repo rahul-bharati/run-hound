@@ -4,21 +4,47 @@ import { aiFlowCheck, previewGroups } from "@/components/checks/data";
 import { Callout } from "@/components/docs/callout";
 import { CodeBlock } from "@/components/docs/code-block";
 import { DocSection } from "@/components/docs/doc-section";
+import { ReleaseLine } from "@/components/docs/release";
 import { DocsToc } from "@/components/docs/toc";
 import { SeverityLabel, type Severity } from "@/components/finding";
+import { JsonLd } from "@/components/json-ld";
 import { Container, NewTag, PageHeader } from "@/components/layout";
 import { aiBuiltScreens, aiScreens, v2Screens, type Screen } from "@/components/screens";
 import { Screenshot } from "@/components/screenshot";
-import { pageMetadata } from "@/lib/metadata";
+import { pageMetadata, pageTitle } from "@/lib/metadata";
 import { site } from "@/lib/site";
+import { breadcrumbNode, graph, maintainerNode, techArticleNode, webPageNode } from "@/lib/structured-data";
 
 const checkTotal = previewGroups.reduce((sum, g) => sum + g.checks.length, 0);
 
-export const metadata = pageMetadata({
+// No version in the description: search results keep it until the page is crawled again. The hero shows the release.
+const page = {
   path: "/docs/",
-  title: "Docs",
-  description: `Run Hound ${site.version} guide: the Docker quick start, the demo apps, your own app, test accounts and signed-in runs, optional AI, the report and every check.`,
-});
+  title: "Docs: test your app locally with Docker",
+  description:
+    "How to run Run Hound on your machine: the Docker or Podman quick start, demo apps, your own app, test accounts, optional AI, the report and every check.",
+};
+
+export const metadata = pageMetadata(page);
+
+// The page, where it sits, and the article it holds: its headline is the visible h1, its date the release it
+// describes (shown in the hero), and its dependencies the requirements table below.
+const jsonLd = graph(
+  webPageNode({ path: page.path, name: pageTitle(page), description: page.description }),
+  breadcrumbNode([
+    { name: "Home", path: "/" },
+    { name: "Docs", path: page.path },
+  ]),
+  techArticleNode({
+    path: page.path,
+    headline: "Run Hound docs: run it on your machine",
+    description: page.description,
+    dateModified: site.releasedIso,
+    dependencies: "Docker 24+, Docker Desktop or Podman; or Node.js 22.12 or newer, pnpm and git to run from source",
+  }),
+  // The article's author, in full: search engines don't follow an @id to another page.
+  maintainerNode(),
+);
 
 const toc = [
   { id: "overview", label: "What it does" },
@@ -137,7 +163,7 @@ const accessFigures: Figure[] = [
 ];
 
 const aiBuiltFigures: Figure[] = [
-  { screen: aiBuiltScreens.plan, caption: "Fernway's landing page planned: the waitlist, the newsletter form and the Book a demo form, which appears only in its dialog; 40 scenarios, each tagged with its form." },
+  { screen: aiBuiltScreens.plan, caption: "Fernway's landing page planned: the waitlist, the newsletter form and the Book a demo form, which appears only in its dialog; 40 scenarios in all, each form's own tagged with its name." },
   { screen: aiBuiltScreens.dialog, caption: "Mid-run, the golden path of the Book a demo form: Run Hound opened the dialog and filled it, the Radix Company size select and the consent checkbox included." },
 ];
 
@@ -250,8 +276,9 @@ const runFiles: { name: string; body: string }[] = [
 export default function DocsPage() {
   return (
     <>
+      <JsonLd data={jsonLd} />
       <PageHeader
-        eyebrow={`DOCS · RELEASE ${site.version}`}
+        eyebrow="DOCS"
         title={
           <>
             Run it <span className="text-accent">on your machine.</span>
@@ -259,6 +286,7 @@ export default function DocsPage() {
         }
         lede="How to run Run Hound on your own machine: start it with the test apps in one command, try it on Kennel, our deliberately broken demo app, point it at a page of your own, sign in with test accounts, and read a report where every finding comes with evidence."
       >
+        <ReleaseLine />
         <Callout
           label="Open source"
           title="The repository is public on GitHub."
@@ -329,6 +357,10 @@ export default function DocsPage() {
                   What we most want to learn: <strong>is every finding real, and did it miss a bug you
                   know about?</strong> A wrong finding costs you time, so we treat each false positive as a bug in Run
                   Hound.
+                </p>
+                <p>
+                  Deciding whether it fits? <Link href="/faq/">Answers to common questions</Link> are on their own
+                  page, and so is <Link href="/compare/">how Run Hound compares with other testing tools</Link>.
                 </p>
               </div>
             </DocSection>
@@ -824,9 +856,11 @@ export default function DocsPage() {
             <DocSection id="ai-built" step="08" title="Apps from AI builders">
               <div className="prose-night">
                 <p>
-                  Apps built with Lovable, Bolt, v0 and similar tools rarely use plain HTML form fields: their selects
-                  are buttons, their forms open in dialogs, and their errors arrive as toasts. Since 0.4.0,
-                  discovery handles them, and Fernway, a test app built the same way, keeps it honest.
+                  Apps built with Lovable, Bolt, v0 and similar tools mix plain fields with custom widgets: their
+                  selects are buttons, their forms open in dialogs, and their errors arrive as toasts. Since 0.4.0,
+                  discovery handles them, and Fernway, a test app built the same way, keeps it honest. The set-up for
+                  such an app, from the builder to a run, is on its own page:{" "}
+                  <Link href="/ai-built-apps/">testing apps built with Lovable, Bolt and v0</Link>.
                 </p>
                 <h3>What discovery finds</h3>
                 <ul>
@@ -1106,6 +1140,11 @@ export default function DocsPage() {
                   <code>{aiFlowCheck.id}</code>. It isn&apos;t counted in the {checkTotal} because it runs only the flows
                   your model suggests and you tick.
                 </p>
+                <p>
+                  The checks page lists these {checkTotal} beside{" "}
+                  <Link href="/checks/#catalog">the full catalog of gaps Run Hound hunts for</Link>, each with its
+                  roadmap stage.
+                </p>
               </div>
               <div className="flex flex-col gap-8">
                 {previewGroups.map((g) => (
@@ -1220,8 +1259,8 @@ export default function DocsPage() {
                   <strong>Run Hound never deletes them. Point it at a development database you can throw away.</strong>
                 </p>
                 <p>
-                  See also the <Link href="/acceptable-use">acceptable use policy</Link> and{" "}
-                  <Link href="/security">security</Link>.
+                  See also the <Link href="/acceptable-use/">acceptable use policy</Link> and the{" "}
+                  <Link href="/security/">security and vulnerability disclosure policy</Link>.
                 </p>
               </div>
             </DocSection>

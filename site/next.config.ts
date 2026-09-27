@@ -21,7 +21,8 @@ const nextConfig: NextConfig = {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },
   // A small Node server (.next/standalone/server.js) that serves the prerendered pages and optimises images on
-  // request. Every page is still prerendered at build time; see the Dockerfile for how it runs.
+  // request. Every page is still prerendered at build time; see the Dockerfile for how it runs and how the build
+  // fills the image cache. (A static export would drop the image optimiser, headers() and the per-page CSP.)
   output: "standalone",
   trailingSlash: true,
   outputFileTracingRoot: root,
@@ -32,9 +33,11 @@ const nextConfig: NextConfig = {
     // Required since Next 16. 75 is the default for photos and small marks; 90 keeps the small UI text in
     // product screenshots and evidence frames crisp.
     qualities: [75, 90],
-    // Up to 3840 so a 4K screen (or a 1920 px wide window at 2x) gets a full-resolution screenshot. 1440, 2560
-    // and 3200 fill the gaps that laptops at 2x would otherwise round up to the next, much larger, size.
-    deviceSizes: [640, 750, 828, 1080, 1200, 1440, 1920, 2048, 2560, 3200, 3840],
+    // Up to 3840 so a 4K screen (or a 1920 px wide window at 2x) gets a full-resolution screenshot. 1440, 1536,
+    // 2560 and 3200 fill the gaps that laptops at 2x would otherwise round up to the next, much larger, size (1536:
+    // the 768 px docs screenshots at 2x). Every width here is one more file per image in the image cache, which the
+    // Docker build fills (scripts/warm-images.mjs).
+    deviceSizes: [640, 750, 828, 1080, 1200, 1440, 1536, 1920, 2048, 2560, 3200, 3840],
     // Every raster image is a static import (hashed, served from /_next/static/media/). Only those may be
     // optimised, so nobody can make the server resize arbitrary files.
     localPatterns: [{ pathname: "/_next/static/media/**", search: "" }],

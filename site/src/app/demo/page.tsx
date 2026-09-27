@@ -4,18 +4,41 @@ import { ArrowIcon, ButtonLink } from "@/components/button-link";
 import { EvidenceFigure } from "@/components/demo/evidence-figure";
 import { CodeBlock } from "@/components/docs/code-block";
 import { evidence } from "@/components/evidence";
+import { JsonLd } from "@/components/json-ld";
 import { Card, Eyebrow, PageHeader, Section } from "@/components/layout";
 import { aiBuiltScreens, v2Screens } from "@/components/screens";
 import { Screenshot } from "@/components/screenshot";
-import { pageMetadata } from "@/lib/metadata";
+import { pageMetadata, pageTitle } from "@/lib/metadata";
 import { site } from "@/lib/site";
+import { breadcrumbNode, graph, webPageNode } from "@/lib/structured-data";
 
-export const metadata = pageMetadata({
+const page = {
   path: "/demo/",
-  title: "Demo",
+  title: "Demo: real findings, with evidence",
   description:
-    "Real evidence from a Run Hound run on Kennel, a deliberately broken booking app: a double submit, a silent failure, missing focus, leaked keys and more.",
-});
+    "Real evidence from Run Hound runs on Kennel, a deliberately broken booking app, and Fernway, a Lovable-style app: double submits, leaked keys and more.",
+};
+
+export const metadata = pageMetadata(page);
+
+const jsonLd = graph(
+  webPageNode({ path: page.path, name: pageTitle(page), description: page.description }),
+  breadcrumbNode([
+    { name: "Home", path: "/" },
+    { name: "Demo", path: page.path },
+  ]),
+);
+
+const linkClass = "text-accent underline underline-offset-4 hover:text-accent-strong";
+
+/** A link to a built-in check's entry on /checks/, named by its id as the report and the frames below name it. */
+function CheckLink({ id }: { id: string }) {
+  return (
+    <Link href={`/checks/#${id}`} className={linkClass}>
+      {id} check
+    </Link>
+  );
+}
 
 // Planted bugs per test app and stage: fixtures/kennel/bugs.json and fixtures/fernway/bugs.json.
 const planted = [
@@ -107,6 +130,7 @@ docker compose -f run-hound.compose.yml up   # or: podman compose -f run-hound.c
 export default function DemoPage() {
   return (
     <>
+      <JsonLd data={jsonLd} />
       <PageHeader
         eyebrow="DEMO · REAL OUTPUT"
         title={
@@ -126,7 +150,13 @@ export default function DemoPage() {
       <Section
         id="features"
         title="One click, two bookings"
-        intro="The double-submit check double-clicks “Book” and counts the save requests that reach the server. Kennel accepted both, so the report shows the recording and the two requests, 0.2 ms apart, with two different record ids."
+        intro={
+          <>
+            The <CheckLink id="double-submit" /> double-clicks “Book” and counts the save requests that reach the
+            server. Kennel accepted both, so the report shows the recording and the two requests, 0.2 ms apart, with
+            two different record ids.
+          </>
+        }
         className="border-t border-line-soft"
       >
         <div className="grid items-start gap-5 lg:grid-cols-2">
@@ -147,7 +177,12 @@ export default function DemoPage() {
         id="silent-failure"
         className="bg-band"
         title="A save that fails in silence"
-        intro="The silent-failure check answers the save with a simulated 500 (the request never reaches your server) and waits for an error the user can see and a screen reader can hear."
+        intro={
+          <>
+            The <CheckLink id="silent-failure" /> answers the save with a simulated 500 (the request never reaches
+            your server) and waits for an error the user can see and a screen reader can hear.
+          </>
+        }
       >
         <div className="grid items-center gap-8 lg:grid-cols-[1.4fr_1fr]">
           <EvidenceFigure
@@ -169,7 +204,13 @@ export default function DemoPage() {
       <Section
         id="accessibility"
         title="Focus you can't see, measured"
-        intro="The focus-visible check tabs through the page and compares each control focused and at rest. On Kennel, “Pet name” changes 0 of 37,296 pixels around it: no outline, shadow, border or background change."
+        intro={
+          <>
+            The <CheckLink id="focus-visible" /> tabs through the page and compares each control focused and at rest.
+            On Kennel, “Pet name” changes 0 of 37,296 pixels around it: no outline, shadow, border or background
+            change.
+          </>
+        }
       >
         <EvidenceFigure
           shot={evidence.noVisibleFocus}
@@ -183,7 +224,12 @@ export default function DemoPage() {
         id="security"
         className="bg-band"
         title="Leaks, with the line that proves them"
-        intro="Security checks read every script the page loads and watch every request the form triggers."
+        intro={
+          <>
+            Security checks read every script the page loads and watch every request the form triggers: here the{" "}
+            <CheckLink id="bundle-secrets" /> and the <CheckLink id="pii-leak" />.
+          </>
+        }
       >
         <div className="grid items-start gap-5 lg:grid-cols-2">
           <EvidenceFigure
@@ -202,7 +248,13 @@ export default function DemoPage() {
       <Section
         id="whole-page"
         title="The page as a whole"
-        intro="Since 0.2.0 (the V1 stage), Run Hound also looks past the form, at how the server answers and who may read it. These checks run once for the whole page."
+        intro={
+          <>
+            Since 0.2.0 (the V1 stage), Run Hound also looks past the form, at how the server answers and who may read
+            it. These checks run once for the whole page: here the <CheckLink id="cors" /> and the{" "}
+            <CheckLink id="security-headers" />.
+          </>
+        }
       >
         <div className="grid items-start gap-5 lg:grid-cols-2">
           <EvidenceFigure
@@ -234,11 +286,15 @@ export default function DemoPage() {
               With Docker, the clean Kennel is <code className="font-mono text-fg">http://kennel-clean:3000/book</code>
               ; from source, enter <code className="font-mono text-fg">http://localhost:5310/book</code>, and restart
               Kennel with <code className="font-mono text-fg">KENNEL_BUGS=none</code> for the clean run. Approve the
-              plan and watch the live view. The{" "}
-              <Link href="/docs#quick-start" className="text-accent underline underline-offset-4 hover:text-accent-strong">
-                docs
+              plan and watch the live view. Both paths are in the docs, step by step:{" "}
+              <Link href="/docs/#quick-start" className={linkClass}>
+                the quick start with Docker or Podman
               </Link>{" "}
-              have both paths step by step.
+              and{" "}
+              <Link href="/docs/#install" className={linkClass}>
+                the install from source
+              </Link>
+              .
             </p>
             <div className="flex flex-col gap-3 sm:flex-row lg:flex-col xl:flex-row">
               <ButtonLink href={site.testingGuide}>
@@ -258,7 +314,11 @@ export default function DemoPage() {
               <Link href="/docs#ai" className="text-muted underline underline-offset-4 hover:text-accent">
                 AI setup
               </Link>
-              ).
+              ). More questions?{" "}
+              <Link href="/faq/" className="text-muted underline underline-offset-4 hover:text-accent">
+                Answers to common questions
+              </Link>
+              .
             </p>
           </div>
         </div>
@@ -268,7 +328,18 @@ export default function DemoPage() {
         id="fernway"
         className="border-t border-line-soft"
         title="Fernway: an app built the way AI builders build them"
-        intro="Kennel is one booking form. Fernway asks a different question: does Run Hound work on the kind of app people generate today? It is a small project-planning app for studios, built with Vite, React 19, Tailwind, Radix and shadcn/ui-style components, sonner toasts and react-hook-form with zod, in light and dark mode."
+        intro={
+          <>
+            Kennel is one booking form. Fernway asks a different question: does Run Hound work on the kind of app
+            people generate today? It is a small project-planning app for studios, built with Vite, React 19,
+            Tailwind, Radix and shadcn/ui-style components, sonner toasts and react-hook-form with zod, in light and
+            dark mode. Built your own with Lovable, Bolt or v0? See{" "}
+            <Link href="/ai-built-apps/" className={linkClass}>
+              how to test apps from AI app builders
+            </Link>
+            .
+          </>
+        }
       >
         <div className="grid items-start gap-8 lg:grid-cols-2 lg:gap-12">
           <ul className="flex list-disc flex-col gap-3 pl-5 leading-relaxed text-muted marker:text-dim">
