@@ -20,10 +20,19 @@
  *   record: its id and every field the snapshot has, with the same run-token values (the write's own answer is never
  *   enough). Another of Account A's records that shares the id is never written to, even when its write mentions a
  *   test value, copies one in verbatim under the record's own key, or its answer names one or holds the whole record.
+ *   Outside the record's collections and its resource (PATCH /api/notes/3 for a task read at /api/tasks), a write is
+ *   the record's own only when the snapshot shows more than the id and the values Run Hound typed, and its URL reads
+ *   with the snapshot's own values (another createdAt is another record); otherwise it is left untried, with a note.
  *   A body with a password or email key is never sent.
  * - As the scenario's identity, send each observed update with one field set to a fresh run-token marker that can't
  *   be confused with the created value or another scenario's marker, where the app's body holds the record (at the
- *   top, or one level down: {"task": {...}}); DELETE last, only when the app showed one.
+ *   top, or one level down: {"task": {...}}; in a form, under the key the app sent: task[title]); never a field the
+ *   app's body doesn't send in a form. DELETE last, only when the app showed one.
+ *   A credential in the write's URL (?access_token=, ?api_token=, ?auth=: cross-site-query.ts) is Account A's: it
+ *   goes as the identity's own value where a page opened as that identity sent the same parameter, else it is left
+ *   out; those values are secrets while the scenario runs (steps, notes, cards and specs are redacted). A version or
+ *   lock the app's update carried (lock_version, version, __v, _rev, etag, updatedAt) goes at its value in the re-read
+ *   just before the attempt: the app's own save made the observed one stale.
  * - Verdict from a re-read as A, never a status code, judged against a re-read taken just before the attempt: changed
  *   or gone → critical, confirmed; otherwise pass, naming the requests tried. After every attempt, restore and re-read;
  *   anything not restored is named, no further write is sent, and the scenario is not a pass while that note stands.
@@ -32,12 +41,25 @@
  *   Fields that change on their own (they differ between two reads with no write in between) are left out of every
  *   comparison, never a run-token field or one a probe sets. A DELETE that leaves the record there counts only through
  *   a field that says it was removed. An attempt that changed anything else of the record (and not what it set) is put
- *   back and makes the scenario inconclusive: not a finding, never a pass.
+ *   back and makes the scenario inconclusive: not a finding, never a pass. So does a conflict (409, 412, 428) on an
+ *   attempt that left the record unchanged, and Account B's refusal (401, 403) of a write whose URL credential it had
+ *   none of its own for.
+ * - Late effects (0.6.0 round 3): an attempt the app accepted (2xx, or no answer) that shows no effect yet is looked at
+ *   once more after a quiet wait (LATE_MS) before it is judged, and before the verdict one more look follows when a write
+ *   the app accepted wasn't the last one looked at that way. A change that lands late (202 Accepted, a queued job) is a
+ *   confirmed finding, put back like any other, with a note that it came a moment later; a failed late look is
+ *   inconclusive, never a pass. A put-back the app applies late counts once it reads back.
+ * - A field the app's update doesn't send (0.6.0 round 3): when the app's own JSON update carries no run-token field
+ *   ({position: 0}), the marker goes into one of the record's run-token fields the app never sent (addedField). A strict
+ *   schema may accept that write and ignore the field, so an accepted write (2xx) that leaves the record unchanged makes
+ *   the scenario inconclusive, never a pass. A refusal (401, 403, 404) still passes.
  */
 import { setTimeout as delay } from "node:timers/promises";
 import { isLocalOrigin, isSameOrigin, tokenKey } from "../core/saves.js";
 import type { Capture, Check, CheckContext, Evidence, Finding, Identity, PlanEnv, Scenario } from "../core/types.js";
-import { redactSecrets } from "../engine/redact.js";
+import { redactDeep, redactSecrets, registerSecretLiterals } from "../engine/redact.js";
+import { queryParamKind } from "./lib/cross-site-query.js";
+import { isTokenField, tokenSources, type TokenSource } from "./lib/csrf-tokens.js";
 import { endpointOf, errorResult, guarded, result, tryCard } from "./lib/functional-finding.js";
 import { canaryValues, createRequests, fillForm, settle, submitControl, submitForm, waitForCreates, type FieldValue } from "./lib/functional-form.js";
 import {
@@ -49,14 +71,17 @@ import {
   getsBefore,
   holdExistingEdits,
   jsonObjectBody,
+  NESTED_FORM_KEY,
   neverWritten,
   parseJson,
   putBackEdited,
+  readsBefore,
   readsList,
   recordId,
   recordWrites,
   rereadRecord,
   restoreRecord,
+  saveStamp,
   savesOwnRecord,
   snapshotFrom,
   snapshotRecord,
@@ -137,6 +162,24 @@ interface Write {
   value?: string;
   /** For a JSON update whose body holds the record one level down ({"task": {...}}): that key ("task"). */
   nest?: string;
+  /** For a form update that nests the record under the model's name (Rails' task[title]): the key the marker went in. */
+  formKey?: string;
+  /**
+   * For a JSON update: `field` isn't a key of the app's own body, so Run Hound added it. An app with a strict schema
+   * (zod, strong params) may accept the write and ignore the field, so an accepted write that left the record unchanged
+   * proves nothing.
+   */
+  addedField?: boolean;
+  /**
+   * The body's anti-CSRF token fields (csrf-tokens.ts isTokenField): each by name, and whether this identity's own
+   * token was put in it (`swapped`) or it still holds Account A's.
+   */
+  tokens?: { field: string; swapped: boolean }[];
+  /**
+   * The credentials the app's URL carried in its query (?access_token=: credentialParams), each by name, and whether
+   * this identity's own value was put in it (`swapped`) or it was left out.
+   */
+  credentials?: { param: string; swapped: boolean }[];
   /** The app's own request this write was made from. */
   observed: CapturedRequest;
 }
@@ -208,9 +251,46 @@ function pathCollectionOf(url: string): string | null {
   return `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}/`;
 }
 
+/**
+ * The resource a URL addresses, as bare singular and plural names: the path segment before the record's id when it
+ * names the id ("tasks" and "task" for /api/tasks/3 or /api/task/3), else its last segment (/api/tasks).
+ */
+function resourceOf(url: string, id: RecordIdOf): string[] {
+  let segs: string[];
+  try {
+    segs = new URL(url, "http://x").pathname.split("/").filter(Boolean).map(decodeSegment);
+  } catch {
+    return [];
+  }
+  const at = segs.lastIndexOf(String(id.value));
+  const seg = (at > 0 ? segs[at - 1] : segs[segs.length - 1]) ?? "";
+  const n = seg.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!n) return [];
+  return [...new Set([n, n.replace(/ies$/, "y"), n.replace(/(ch|sh|ss|x)es$/, "$1"), n.replace(/s$/, "")])];
+}
+
 /** True when `value` is the record's id: the same value, or the same number or text in the other form (a form body's "3"). */
 const isIdValue = (value: unknown, id: RecordIdOf) =>
   sameValue(value, id.value) || ((typeof value === "string" || typeof value === "number") && String(value) === String(id.value));
+
+/**
+ * A form-encoded body as an object: its flat keys, and each model's nested keys (Rails' task[title]=…) as an object
+ * under the model's name ({task: {title}}), as a JSON body nests them.
+ */
+function formObject(text: string): JsonObject {
+  const out: JsonObject = {};
+  for (const [k, v] of new URLSearchParams(text)) {
+    const m = NESTED_FORM_KEY.exec(k);
+    if (!m) {
+      out[k] = v;
+      continue;
+    }
+    const inner = out[m[1]!];
+    if (inner && typeof inner === "object" && !Array.isArray(inner)) (inner as JsonObject)[m[2]!] = v;
+    else if (inner === undefined) out[m[1]!] = { [m[2]!]: v };
+  }
+  return out;
+}
 
 /**
  * True when the JSON (or, for a request body, form-encoded) text `text` is the test record itself, or holds it one
@@ -222,7 +302,7 @@ const isIdValue = (value: unknown, id: RecordIdOf) =>
  */
 function isTheRecord(text: string | null, snap: RecordSnapshot, id: RecordIdOf, key: string, needsId: boolean): boolean {
   const kind = kindOf(text);
-  const top = kind === "form" ? Object.fromEntries(new URLSearchParams(text!)) : kind === "json" ? jsonObjectBody(text) : null;
+  const top = kind === "form" ? formObject(text!) : kind === "json" ? jsonObjectBody(text) : null;
   if (!top) return false;
   const tokenFields = Object.keys(snap.record).filter((k) => typeof snap.record[k] === "string" && (snap.record[k] as string).toLowerCase().includes(key));
   const inner = recordId(top) === null ? Object.values(top).filter((v): v is JsonObject => !!v && typeof v === "object" && !Array.isArray(v)) : [];
@@ -233,24 +313,37 @@ function isTheRecord(text: string | null, snap: RecordSnapshot, id: RecordIdOf, 
 }
 
 /**
- * True when `json` (a read's answer, parsed) is the test record in full: an object with the record's id under its key,
- * every field the snapshot has, and each of its run-token fields with the snapshot's value. At the top, or one level
- * down ({"task": {...}}) when the top has no id and that is the only object under it with an id of its own; never
- * inside an array. Another of Account A's records that shares the id and was given a test value (a note's {id: 3,
- * title}) lacks the record's other fields, and an answer that holds the record beside another one ({note: {id: 3},
- * latest: {id: 3, title, done}}) is not the record's.
+ * Whether `json` (a read's answer, parsed) is the test record in full, and if so, how it differs from the snapshot.
+ * In full: an object with the record's id under its key, every field the snapshot has, and each of its run-token
+ * fields with the snapshot's value. At the top, or one level down ({"task": {...}}) when the top has no id and that is
+ * the only object under it with an id of its own; never inside an array. Another of Account A's records that shares
+ * the id and was given a test value (a note's {id: 3, title}) lacks the record's other fields, and an answer that holds
+ * the record beside another one ({note: {id: 3}, latest: {id: 3, title, done}}) is not the record's. Null when it
+ * isn't the record in full.
+ *
+ * Otherwise the snapshot's other fields it holds another value for, leaving out the id, the run-token fields and those
+ * the app sets itself on every save (updatedAt, version: SERVER_MANAGED, changesOnSave). A read of the record itself
+ * holds none; another of Account A's records that has every key of a list's projection ({id, title, createdAt})
+ * differs in the values it was not given (its own createdAt).
  */
-function holdsWholeRecord(json: unknown, snap: RecordSnapshot, id: RecordIdOf, key: string): boolean {
+function wholeRecordDiff(json: unknown, snap: RecordSnapshot, id: RecordIdOf, key: string, runToken: string): string[] | null {
   const isObj = (v: unknown): v is JsonObject => !!v && typeof v === "object" && !Array.isArray(v);
-  if (!isObj(json)) return false;
+  if (!isObj(json)) return null;
   const tokenFields = Object.keys(snap.record).filter((k) => typeof snap.record[k] === "string" && (snap.record[k] as string).toLowerCase().includes(key));
-  if (tokenFields.length === 0) return false;
+  if (tokenFields.length === 0) return null;
   const withIds = recordId(json) === null ? Object.values(json).filter(isObj).filter((o) => recordId(o) !== null) : [];
   const inner = withIds.length === 1 ? withIds : [];
   const has = (o: JsonObject, k: string) => Object.prototype.hasOwnProperty.call(o, k);
-  return [json, ...inner].some(
-    (o) => has(o, id.key) && isIdValue(o[id.key], id) && Object.keys(snap.record).every((k) => has(o, k)) && tokenFields.every((k) => sameValue(o[k], snap.record[k])),
+  const others = Object.keys(snap.record).filter(
+    (k) => k !== id.key && !tokenFields.includes(k) && !SERVER_MANAGED.test(k) && !changesOnSave(snap, k, runToken),
   );
+  let best: string[] | null = null;
+  for (const o of [json, ...inner]) {
+    if (!(has(o, id.key) && isIdValue(o[id.key], id) && Object.keys(snap.record).every((k) => has(o, k)) && tokenFields.every((k) => sameValue(o[k], snap.record[k])))) continue;
+    const diff = others.filter((k) => !sameValue(o[k], snap.record[k]));
+    if (best === null || diff.length < best.length) best = diff;
+  }
+  return best;
 }
 
 /**
@@ -294,38 +387,56 @@ function sensitiveBody(body: string | null): boolean {
  * JSON nor form-encoded, has a password or email key, or the record has no run-token text field. `observed` is always
  * a write for the test record (the `own` writes in run): in the test record's own collection, or at a URL naming its id
  * whose body or answer is the record itself (isTheRecord) and that reads, as Account A, as the whole record
- * (holdsWholeRecord). So the fallback to a run-token field the app's body doesn't send only ever goes to the test
+ * (wholeRecordDiff). So the fallback to a run-token field the app's body doesn't send only ever goes to the test
  * record's own URL, never to another record that shares the id and merely mentions, or copies in, a test value.
  */
 function updateFrom(observed: CapturedRequest, snap: RecordSnapshot, key: string, tag: string): Write | null {
   const kind = kindOf(observed.postData);
   if (!kind || sensitiveBody(observed.postData)) return null;
   const record = snap.record;
-  const sent = kind === "json" ? jsonObjectBody(observed.postData)! : Object.fromEntries(new URLSearchParams(observed.postData ?? ""));
   const carriesToken = (k: string) => typeof record[k] === "string" && (record[k] as string).toLowerCase().includes(key);
+  if (kind === "form") {
+    // The key the app sent that holds a run-token field of the record: flat (title) or nested under the model's name
+    // (Rails' task[title]). The marker goes there, where the server reads it: a new top-level field the app never sent
+    // (title beside task[title]) is one a server with strong params ignores, and would read as a pass.
+    const params = new URLSearchParams(observed.postData ?? "");
+    const sentKey = [...params.keys()].find((k) => carriesToken(NESTED_FORM_KEY.exec(k)?.[2] ?? k));
+    if (!sentKey) return null;
+    const field = NESTED_FORM_KEY.exec(sentKey)?.[2] ?? sentKey;
+    if (SENSITIVE_KEY.test(field)) return null;
+    const value = markValue(record[field] as string, key, tag);
+    params.set(sentKey, value);
+    return { method: observed.method.toUpperCase(), url: observed.url, body: params.toString(), kind, field, value, ...(sentKey !== field ? { formKey: sentKey } : {}), observed };
+  }
+  const sent = jsonObjectBody(observed.postData)!;
   const isObject = (v: unknown): v is JsonObject => !!v && typeof v === "object" && !Array.isArray(v);
   // Where the app's own JSON body holds the record: at the top, or one level down when the top has no run-token field.
   const nest =
-    kind === "json" && !Object.keys(sent).some(carriesToken)
+    !Object.keys(sent).some(carriesToken)
       ? Object.keys(sent).find((k) => {
           const v = sent[k];
           return isObject(v) && Object.keys(v).some(carriesToken);
         })
       : undefined;
   const holder: JsonObject = nest ? (sent[nest] as JsonObject) : sent;
-  // A field the app's own update sends and the record holds, else any run-token field of the record.
-  const field = Object.keys(holder).find(carriesToken) ?? Object.keys(record).find(carriesToken);
+  // A field the app's own update sends and the record holds, else any run-token field of the record (addedField: an
+  // accepted write that leaves the record unchanged then proves nothing, see run).
+  const sentField = Object.keys(holder).find(carriesToken);
+  const field = sentField ?? Object.keys(record).find(carriesToken);
   if (!field || SENSITIVE_KEY.test(field)) return null;
   const value = markValue(record[field] as string, key, tag);
-  let body: string;
-  if (kind === "json") {
-    body = JSON.stringify(nest ? { ...sent, [nest]: { ...holder, [field]: value } } : { ...sent, [field]: value });
-  } else {
-    const params = new URLSearchParams(observed.postData ?? "");
-    params.set(field, value);
-    body = params.toString();
-  }
-  return { method: observed.method.toUpperCase(), url: observed.url, body, kind, field, value, ...(nest ? { nest } : {}), observed };
+  const body = JSON.stringify(nest ? { ...sent, [nest]: { ...holder, [field]: value } } : { ...sent, [field]: value });
+  return {
+    method: observed.method.toUpperCase(),
+    url: observed.url,
+    body,
+    kind,
+    field,
+    value,
+    ...(nest ? { nest } : {}),
+    ...(sentField ? {} : { addedField: true }),
+    observed,
+  };
 }
 
 /** Sends `w` as `who`; its status, or null when no answer came. */
@@ -399,6 +510,15 @@ const SERVER_MANAGED = /^(last_?)?(updated|modified|changed|edited)(_?(at|on|dat
 
 /** How long Run Hound watches the record, sending nothing, to tell a field that changes on its own from one a write left. */
 const WATCH_MS = 2_500;
+
+/**
+ * How long Run Hound waits, sending nothing, before it looks at the record once more after a write the app accepted
+ * (2xx, or no answer) that showed no effect yet: an app may apply a write a moment later (202 Accepted, a queued job).
+ */
+const LATE_MS = 2_500;
+
+/** True for a status that says the app accepted a write (2xx), or no answer (the write may still have been applied). */
+const acceptedOrUnknown = (status: number | null) => status === null || (status >= 200 && status < 300);
 
 /**
  * Of `fields`, those that change on their own: the record re-read as Account A WATCH_MS after `first` (a read of it,
@@ -482,7 +602,12 @@ async function putBack(
     const watched = await stillMoving(ctx, snap, left);
     if (watched) {
       for (const k of watched.moving) if (!pinned.has(k)) volatile.add(k);
-      left = left.filter((k) => !volatile.has(k));
+      // A put-back the app applies a moment later (202 Accepted, a queued job): a field that reads as it did before the
+      // attempt by the end of the watch was put back.
+      const later = watched.again === "gone" ? null : watched.again[0]!;
+      const late = later ? left.filter((k) => !volatile.has(k) && sameValue(later[k], before[k])) : [];
+      restored.push(...late);
+      left = left.filter((k) => !volatile.has(k) && !late.includes(k));
     }
   }
   if (restored.length > 0) notes.push(`Restored ${restored.join(", ")} of Account A's test record.`);
@@ -497,6 +622,214 @@ async function putBack(
       : `Could not be undone: ${left.join(", ")} of Account A's test record changed, and the app sent no update for it that Run Hound could reuse: check Account A.`,
   );
   return { notes, failed: true, serverOnly: false, recreated: false, left };
+}
+
+/** The anti-CSRF token fields of a JSON or form body, at any depth (a JSON key path is joined with "."). */
+function tokenFieldsOf(body: string | null, kind: Write["kind"], tokens: ReadonlySet<string>, runKey: string): { field: string; value: string }[] {
+  if (!body || !kind) return [];
+  if (kind === "form") {
+    return [...new URLSearchParams(body)].filter(([k, v]) => isTokenField(k, v, tokens, runKey)).map(([field, value]) => ({ field, value }));
+  }
+  const out: { field: string; value: string }[] = [];
+  const walk = (n: unknown, path: string[], depth: number) => {
+    if (depth > 6 || !n || typeof n !== "object" || Array.isArray(n)) return;
+    for (const [k, v] of Object.entries(n as JsonObject)) {
+      if (typeof v === "string" && isTokenField(k, v, tokens, runKey)) out.push({ field: [...path, k].join("."), value: v });
+      else walk(v, [...path, k], depth + 1);
+    }
+  };
+  walk(parseJson(body), [], 0);
+  return out;
+}
+
+/** `body` (JSON or form) with each token field's value `from` replaced by `to`, wherever a field holds exactly it. */
+function swapToken(body: string, kind: "json" | "form", from: string, to: string): string {
+  if (kind === "form") {
+    const params = new URLSearchParams(body);
+    for (const [k, v] of [...params]) if (v === from) params.set(k, to);
+    return params.toString();
+  }
+  const walk = (n: unknown): unknown => {
+    if (typeof n === "string") return n === from ? to : n;
+    if (Array.isArray(n)) return n.map(walk);
+    if (n && typeof n === "object") return Object.fromEntries(Object.entries(n as JsonObject).map(([k, v]) => [k, walk(v)]));
+    return n;
+  };
+  return JSON.stringify(walk(parseJson(body)));
+}
+
+/**
+ * Gives each write that carries an anti-CSRF token field (Django's csrfmiddlewaretoken, Rails' authenticity_token, a
+ * _csrf field) the scenario identity's own token where Run Hound can read one (`theirs`: the tokens a page opened as
+ * that identity holds, paired with Account A's, `ours`, by where they came from, or a hidden input of the field's
+ * name). A write whose token can't be swapped still carries Account A's: its `tokens` say so, and a refusal of it
+ * (403, 419) is then no proof of an ownership check.
+ */
+function withOwnTokens(writes: Write[], ours: TokenSource[], theirs: TokenSource[], runKey: string): Write[] {
+  const values = new Set(ours.map((t) => t.value));
+  return writes.map((w) => {
+    const fields = tokenFieldsOf(w.body, w.kind, values, runKey);
+    if (fields.length === 0 || !w.body || !w.kind) return w;
+    let body = w.body;
+    const tokens = fields.map(({ field, value }) => {
+      const source = ours.find((t) => t.value === value);
+      const name = field.split(".").pop()!;
+      const mine = (source && theirs.find((t) => t.kind === source.kind && t.name === source.name)) ?? theirs.find((t) => t.kind === "input" && t.name === name);
+      if (!mine || mine.value === value) return { field, swapped: false };
+      body = swapToken(body, w.kind!, value, mine.value);
+      return { field, swapped: true };
+    });
+    return { ...w, body, tokens };
+  });
+}
+
+/**
+ * The credentials `url` carries in its query: each parameter the shared helper names a credential (cross-site-query.ts
+ * queryParamKind: access_token, api_token, auth, api_key, jwt, sid …), never a value carrying the run token (`runToken`,
+ * text Run Hound typed). An app that takes its session as ?access_token= (Laravel's api_token, Firebase REST's ?auth=)
+ * puts the account's own credential in every API request's URL.
+ */
+function credentialParams(url: string, runToken: string): { name: string; value: string }[] {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return [];
+  }
+  const key = tokenKey(runToken);
+  return [...parsed.searchParams].filter(([name, value]) => queryParamKind(name, value, NO_TOKENS, key) === "credential").map(([name, value]) => ({ name, value }));
+}
+
+const NO_TOKENS: ReadonlySet<string> = new Set();
+
+/**
+ * A value random enough to be a credential, not a placeholder ("null", "undefined") or a setting ("dark", a page
+ * number), as auth.ts judges a session value: only such a value is registered as a secret, or taken as an identity's own.
+ */
+function looksLikeCredential(value: string): boolean {
+  if (value.length < 8 || /\s/.test(value)) return false;
+  return value.length >= 24 || (/\d/.test(value) && /[A-Za-z]/.test(value));
+}
+
+/** Every credential value the requests of `capture` carried in their query (credentialParams) that looks like one. */
+function credentialValues(capture: Capture, runToken: string): string[] {
+  return capture.requests.flatMap((r) => credentialParams(r.url, runToken).map((c) => c.value)).filter(looksLikeCredential);
+}
+
+/**
+ * The credentials the requests of `capture` carried in their query (credentialParams), by origin and name: the last one
+ * sent that looks like one (a signed-out page's ?access_token=null is none).
+ */
+function credentialsSent(capture: Capture, runToken: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const r of capture.requests) {
+    let origin: string;
+    try {
+      origin = new URL(r.url).origin;
+    } catch {
+      continue;
+    }
+    for (const { name, value } of credentialParams(r.url, runToken)) if (looksLikeCredential(value)) out.set(`${origin} ${name}`, value);
+  }
+  return out;
+}
+
+/**
+ * `w` with the credentials its URL carries in the query (credentialParams: ?access_token=, ?api_token=, ?auth=) made
+ * the scenario identity's own: its value where a page opened as that identity sent the same parameter to the same
+ * origin (`theirs`, from credentialsSent), else left out. Account A's URL sent as it is would still be Account A's own
+ * request, whatever cookies go with it. Its `credentials` name each parameter and whether the identity's own value
+ * went in.
+ */
+function withOwnCredentials(w: Write, theirs: ReadonlyMap<string, string>, runToken: string): Write {
+  const found = credentialParams(w.url, runToken);
+  if (found.length === 0) return w;
+  const url = new URL(w.url);
+  const credentials = [...new Set(found.map((c) => c.name))].map((param) => {
+    const own = theirs.get(`${url.origin} ${param}`);
+    if (own !== undefined) url.searchParams.set(param, own);
+    else url.searchParams.delete(param);
+    return { param, swapped: own !== undefined };
+  });
+  return { ...w, url: url.href, credentials };
+}
+
+/** A form value as text: a string as it is, null or undefined as "", an object as JSON. */
+const formText = (v: unknown) => (typeof v === "string" ? v : v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v));
+
+/**
+ * `w` with each stamp the app changes on every save (saveStamp: lock_version, version, __v, _rev, etag, updatedAt) at
+ * its value in `pre`, the record re-read as Account A just before the attempt, as record-state's put-back sends them:
+ * at the body's top, where the body holds the record one level down ({"task": {...}}; task[lock_version] in a form),
+ * and in one of the record's object fields ({meta: {version}}, meta[version]). The app's own update carried the value
+ * the record had then, which its own save made stale: with optimistic locking the replay would be a conflict (409)
+ * whoever sent it, and read as a refusal. A stamp the re-read doesn't show is left as the app sent it.
+ */
+function withFreshStamps(w: Write, pre: JsonObject, runToken: string): Write {
+  if (!w.body || !w.kind) return w;
+  const isObject = (v: unknown): v is JsonObject => !!v && typeof v === "object" && !Array.isArray(v);
+  const has = (o: unknown, k: string): o is JsonObject => isObject(o) && Object.prototype.hasOwnProperty.call(o, k);
+  if (w.kind === "form") {
+    const params = new URLSearchParams(w.body);
+    let changed = false;
+    for (const k of new Set(params.keys())) {
+      const m = NESTED_FORM_KEY.exec(k);
+      const field = m ? m[2]! : k;
+      if (!saveStamp(field, params.get(k), runToken)) continue;
+      // meta[version]: a stamp of the record's object field meta. task[lock_version] (the model's name, which the record
+      // doesn't hold) and a flat lock_version: the record's own.
+      const outer = m && isObject(pre[m[1]!]) ? (pre[m[1]!] as JsonObject) : pre;
+      if (!has(outer, field)) continue;
+      const now = formText(outer[field]);
+      if (params.get(k) !== now) {
+        params.set(k, now);
+        changed = true;
+      }
+    }
+    return changed ? { ...w, body: params.toString() } : w;
+  }
+  const sent = jsonObjectBody(w.body);
+  if (!sent) return w;
+  const fresh = (obj: JsonObject, now: JsonObject | undefined, nested: boolean): JsonObject => {
+    const out: JsonObject = { ...obj };
+    for (const [k, v] of Object.entries(obj)) {
+      if (saveStamp(k, v, runToken)) {
+        if (now && has(now, k)) out[k] = now[k];
+      } else if (!nested && isObject(v)) {
+        out[k] = fresh(v, now && isObject(now[k]) ? (now[k] as JsonObject) : undefined, true);
+      }
+    }
+    return out;
+  };
+  let body = fresh(sent, pre, false);
+  if (w.nest && isObject(sent[w.nest])) body = { ...body, [w.nest]: fresh(sent[w.nest] as JsonObject, pre, false) };
+  const text = JSON.stringify(body);
+  return text === w.body ? w : { ...w, body: text };
+}
+
+/** Statuses that answer a write with a conflict with the record's version (optimistic locking, If-Match): 409, 412, 428. */
+const CONFLICT = new Set([409, 412, 428]);
+
+/**
+ * The credentials Run Hound saw in the app's URLs (credentialParams), registered as secrets while the scenario runs so
+ * that its steps, notes, cards and specs are redacted; the result is redacted before they are released.
+ */
+function heldSecrets() {
+  const seen = new Set<string>();
+  const held: (() => void)[] = [];
+  return {
+    add(values: Iterable<string>): void {
+      const added = [...values].filter((v) => !seen.has(v));
+      for (const v of added) seen.add(v);
+      if (added.length > 0) held.push(registerSecretLiterals(added));
+    },
+    redact<T>(value: T): T {
+      return held.length > 0 ? redactDeep(value) : value;
+    },
+    release(): void {
+      for (const unregister of held.splice(0)) unregister();
+    },
+  };
 }
 
 export const check: Check = {
@@ -538,7 +871,9 @@ export const check: Check = {
     // Decided as the runner decides whether Account B signs in (identityOf): on a page's later form ("@form-<n>") and
     // under a collided id ("#<n>") the other-account scenario still runs as Account B, never signed out.
     const identity = identityOf(scenario);
-    return guarded(ID, scenario, ctx, async (started) => {
+    // Credentials the app puts in its URLs (?access_token=) are secrets for as long as this scenario runs.
+    const secrets = heldSecrets();
+    const outcome = guarded(ID, scenario, ctx, async (started) => {
       const form = ctx.form;
       const skip = (notes: string) => errorResult(ID, scenario, started, notes, "skipped");
       if (!identity) return skip("Skipped: this scenario names neither Account B nor a signed-out visitor, so Run Hound doesn't know who to send its writes as.");
@@ -562,6 +897,7 @@ export const check: Check = {
       } finally {
         await hold.release();
       }
+      secrets.add(credentialValues(capture, ctx.runToken));
       const stopped = hold.verdict();
       if (stopped) return skip(stopped);
       const creates = createRequests(capture, ctx.targetUrl, ctx.runToken).filter(
@@ -576,14 +912,18 @@ export const check: Check = {
       // while the save was held): a record id it held then belongs to one of Account A's own records.
       const heldBefore = hold.before();
       const before = heldBefore.length > 0 ? heldBefore : getsBefore(capture, save);
+      const reads = heldBefore.length > 0 ? hold.reads() : readsBefore(capture, save);
       const saveAt = capture.requests.indexOf(save);
 
       // 2. The record endpoint and a snapshot of the new test record, read as Account A.
       ctx.step("Reloading to read the saved record", page);
       await page.reload({ waitUntil: "load" }).catch(() => undefined);
       await settle(page);
+      secrets.add(credentialValues(capture, ctx.runToken));
       const testValues = values.filter((v) => v.canary && v.value).map((v) => v.value);
-      const recordGet = await findOwnRecord(ctx, capture, testValues, { arrays: true });
+      // A GET after the save (the record didn't exist before it), the reload's first: never a search that echoes the
+      // typed value back.
+      const recordGet = await findOwnRecord(ctx, capture, testValues, { arrays: true, save });
       const snap = recordGet ? await snapshotRecord(ctx, recordGet.url, testValues) : null;
       if (!recordGet || !snap) {
         return skip("Skipped: Run Hound couldn't read the saved record back as Account A, so it couldn't tell whether a write as someone else changed it.");
@@ -591,7 +931,7 @@ export const check: Check = {
       // The save went through and turned out to change a record Account A already had (its id was in an answer from
       // before the save, its URL or body named the id, or the record is a single one read at a URL without its id):
       // put it back as the page read it before the save, and say what the save changed.
-      if (editsExistingRecord(save, snap, recordGet, before, ctx.runToken)) {
+      if (editsExistingRecord(save, snap, recordGet, before, ctx.runToken, reads)) {
         ctx.step("Putting back the record the form changed", page);
         return skip([EXISTING_RECORD, ...(await putBackEdited(ctx, { capture, save, snap, before }))].join(" "));
       }
@@ -605,7 +945,7 @@ export const check: Check = {
       //    didn't exist before the save, so only what the app sent after it counts; and a write must belong to the
       //    test record: to its collection (the save's, or the record read's), or, at a URL that names the id itself,
       //    with the record itself in its body or answer (isTheRecord: the same run-token field and value, never an
-      //    object that only mentions a test value) and a URL that reads as the whole record (holdsWholeRecord, below).
+      //    object that only mentions a test value) and a URL that reads as the whole record (wholeRecordDiff, below).
       //    Another of Account A's records that shares the id (numeric ids, another table), even one the page copied the
       //    new title into verbatim, or a create into one named by a foreign key (?listId=3), is never taken for it.
       const key = tokenKey(ctx.runToken);
@@ -621,23 +961,49 @@ export const check: Check = {
         inCollection(r) || (namesOwnId(r.url, id) && (isTheRecord(r.postData, snap, id, key, false) || isTheRecord(r.responseBody, snap, id, key, true)));
       const candidates = recordWrites(afterSave, snap, ctx.targetUrl).filter((r) => addressesRecord(r.url, id) && forRecord(r));
       // Outside the record's collections, a write is the record's only when its URL reads, as Account A, as the record
-      // itself in full (holdsWholeRecord): its id and every field the snapshot has, with the same run-token values. A
+      // itself in full (wholeRecordDiff): its id and every field the snapshot has, with the same run-token values. A
       // write to another of Account A's records that shares the id (a note the page copied the new title into, verbatim,
       // under the same key) reads as that record, not this one. The write's own answer is never enough on its own: an
       // answer may hold the new record beside, or instead of, the one written. Each URL is read once, a GET as Account A
       // (recordWrites has already left out every URL that acts when loaded).
-      const readsAsRecord = new Map<string, boolean>();
+      const readsAsRecord = new Map<string, string[] | null>();
       const own: CapturedRequest[] = [];
+      // A thin snapshot (the record read shows only its id and the values Run Hound typed, as a list's {id, title}
+      // projection does) can't tell the test record from another of Account A's records that shares its id and was
+      // given the same values (a note the page copied the new title into). Outside the record's collections, a write is
+      // then the record's own only in a collection of the same resource (PATCH /api/task/3 for /api/tasks), never in
+      // another one (PATCH /api/notes/3): that one is left untried, with a note.
+      const runFields = new Set(Object.keys(snap.record).filter((k) => typeof snap.record[k] === "string" && (snap.record[k] as string).toLowerCase().includes(key)));
+      const thin = Object.keys(snap.record).every((k) => k === id.key || runFields.has(k));
+      const ownResources = new Set([resourceOf(save.url, id), resourceOf(recordGet.url, id)].flatMap((r) => r));
+      const sameResource = (r: CapturedRequest) => resourceOf(r.url, id).some((n) => ownResources.has(n));
+      // A fuller snapshot ({id, title, createdAt}) still can't, when the other record has each of its keys: in another
+      // resource, a write is the record's own only when its URL reads with the snapshot's own values too (never
+      // another createdAt), leaving out the fields the app sets on every save. One that differs is left untried, with
+      // a note naming what differs.
+      const elsewhere: CapturedRequest[] = [];
+      const differing: { r: CapturedRequest; fields: string[] }[] = [];
       for (const r of candidates) {
         if (inCollection(r)) {
           own.push(r);
           continue;
         }
+        const same = sameResource(r);
+        if (thin && !same) {
+          if (!elsewhere.some((e) => e.method === r.method && e.url === r.url)) elsewhere.push(r);
+          continue;
+        }
         if (!readsAsRecord.has(r.url)) {
           const read = await ctx.request("self", { method: "GET", url: r.url }).catch(() => null);
-          readsAsRecord.set(r.url, !!read && read.status >= 200 && read.status < 300 && holdsWholeRecord(parseJson(read.body), snap, id, key));
+          readsAsRecord.set(
+            r.url,
+            !!read && read.status >= 200 && read.status < 300 ? wholeRecordDiff(parseJson(read.body), snap, id, key, ctx.runToken) : null,
+          );
         }
-        if (readsAsRecord.get(r.url)) own.push(r);
+        const diff = readsAsRecord.get(r.url) ?? null;
+        if (diff === null) continue;
+        if (same || diff.length === 0) own.push(r);
+        else if (!differing.some((e) => e.r.method === r.method && e.r.url === r.url)) differing.push({ r, fields: diff });
       }
       const observedUpdates = own.filter((r) => r.method.toUpperCase() !== "DELETE");
       const observedDelete = own.find((r) => r.method.toUpperCase() === "DELETE");
@@ -656,8 +1022,55 @@ export const check: Check = {
         ...(noField.length > 0 ? [why(noField, "no field Run Hound can set to a test value")] : []),
         ...(sensitive.length > 0 ? [why(sensitive, "a password or email field, which Run Hound never sends")] : []),
       ];
-      const writes: Write[] = [...updates, ...(observedDelete ? [{ method: "DELETE", url: observedDelete.url, body: null, kind: null, observed: observedDelete }] : [])];
+      let writes: Write[] = [...updates, ...(observedDelete ? [{ method: "DELETE", url: observedDelete.url, body: null, kind: null, observed: observedDelete }] : [])];
+      // An anti-CSRF token in a write's body is Account A's: Account B's replay carries B's own token where a page
+      // opened as B shows one, so a refusal is the app's ownership check and not A's token being refused.
+      // A page opened as the scenario's identity, once: where its own anti-CSRF token and URL credentials are read.
+      let opened: Awaited<ReturnType<CheckContext["openPage"]>> | null | undefined;
+      const identityPage = async () => {
+        if (opened === undefined) {
+          opened = await ctx.openPage({ as: who }).catch(() => null);
+          if (opened) await settle(opened.page);
+        }
+        return opened;
+      };
+      const ours = await tokenSources(page, key);
+      const oursSet = new Set(ours.map((t) => t.value));
+      if (writes.some((w) => tokenFieldsOf(w.body, w.kind, oursSet, key).length > 0)) {
+        let theirs: TokenSource[] = [];
+        if (who === "other") {
+          ctx.step("Reading Account B's own anti-CSRF token", page);
+          const mine = await identityPage();
+          if (mine) theirs = await tokenSources(mine.page, key);
+        }
+        writes = withOwnTokens(writes, ours, theirs, key);
+      }
+      // A credential in a write's URL (?access_token=, ?api_token=, ?auth=) is Account A's: sent as it is, the replay
+      // would still be Account A's own request. It goes as the identity's own where a page opened as it sent the same
+      // parameter, and is left out otherwise (a signed-out visitor has none). A write whose URL then no longer names
+      // the test record is not tried.
+      const carried = [...new Set(writes.flatMap((w) => credentialParams(w.url, ctx.runToken).map((c) => c.name)))];
+      let lost: Write[] = [];
+      if (carried.length > 0) {
+        ctx.step(who === "other" ? "Reading Account B's own credentials" : "Opening the app signed out", page);
+        const mine = await identityPage();
+        if (mine) secrets.add(credentialValues(mine.capture, ctx.runToken));
+        const theirs = mine ? credentialsSent(mine.capture, ctx.runToken) : new Map<string, string>();
+        const rewritten = writes.map((w) => withOwnCredentials(w, theirs, ctx.runToken));
+        lost = rewritten.filter((w) => w.credentials && !addressesRecord(w.url, id));
+        writes = rewritten.filter((w) => !lost.includes(w));
+        if (lost.length > 0) {
+          reasons.push(
+            `${endpoints(lost.map((w) => w.observed))} (its URL carries Account A's credential in ${joinFields(carried)}, and without it no longer names the test record)`,
+          );
+        }
+      }
       if (writes.length === 0) {
+        if (lost.length > 0) {
+          return skip(
+            `Skipped: the app's update for its test record carries Account A's credential in its URL (${joinFields(carried)}), and without it the request no longer names the test record, so there is nothing to try as ${WHO[who].words}. Not tried: ${reasons.join("; ")}.`,
+          );
+        }
         if (sensitive.length === 0) {
           const one = unusable.length === 1;
           return skip(
@@ -665,6 +1078,16 @@ export const check: Check = {
           );
         }
         return skip(`Skipped: none of the app's updates for its test record can be sent, so there is nothing to try as ${WHO[who].words}. Not tried: ${reasons.join("; ")}.`);
+      }
+      if (elsewhere.length > 0) {
+        reasons.push(
+          `${endpoints(elsewhere)} (outside the test record's collection, and the record as read shows only its id and the values Run Hound typed, so another of Account A's records with the same id can't be told from it)`,
+        );
+      }
+      for (const { r, fields } of differing) {
+        reasons.push(
+          `${endpointOf(r.method, r.url)} (outside the test record's collection, and its URL reads as Account A with another ${joinFields(fields)} than the test record, so it may be another of Account A's records with the same id)`,
+        );
       }
       const unusableNote = reasons.length > 0 ? `Not tried: ${reasons.join("; ")}.` : "";
       // The app's own update with a body, for putting changed fields back (never one with a password or email key).
@@ -705,8 +1128,30 @@ export const check: Check = {
       /** Set when writes were left untried because Account A's test record couldn't be read before them. */
       let unread = "";
       let sentAny = false;
+      /** Every write sent as the identity, in order, with the app's answer. */
+      const sent: Sent[] = [];
+      /** Whether the last write sent was looked at once more after a quiet wait (LATE_MS). */
+      let lookedAfterLast = false;
+      /** Set when the record was deleted and created again (a new id): no later look can find it by the old one. */
+      let recreated = false;
+      /** Set when the look after a quiet wait, before the verdict, failed. */
+      let lateUnread = "";
+      /**
+       * Writes the app accepted (2xx) that left the record unchanged, whose field Run Hound added to the app's own body
+       * (Write.addedField): no proof either way.
+       */
+      const ignoredFields: { write: string; field: string }[] = [];
       /** The read just before the attempt under way: what a put-back is judged against. */
       let lastPre: JsonObject = snap.record;
+      /** Writes refused (403, 419) while they still carried Account A's anti-CSRF token: no proof either way. */
+      const tokenRefusals: string[] = [];
+      /** Writes answered with a conflict (409, 412, 428) that left the record unchanged: no proof either way. */
+      const conflicts: string[] = [];
+      /**
+       * Writes Account B sent without Account A's URL credential and with none of its own, that the app refused (401,
+       * 403): the refusal may be the app asking for a credential, not checking who owns the record.
+       */
+      const credentialRefusals: { write: string; params: string[] }[] = [];
       try {
         for (const [i, w] of writes.entries()) {
           const rest = writes.slice(i + 1);
@@ -724,9 +1169,20 @@ export const check: Check = {
 
           ctx.step(`Sending ${endpointOf(w.method, w.url)} as ${WHO[who].words}`, page);
           sentAny = true;
-          const status = await send(ctx, who, w);
+          // A version or lock the app's own update carried is stale by now: the replay carries the record's current one.
+          const status = await send(ctx, who, withFreshStamps(w, lastPre, ctx.runToken));
           tried.push(`${endpointOf(w.method, w.url)} (${status ?? "no answer"})`);
-          const now = await rereadRecord(ctx, snap);
+          sent.push({ w, status });
+          let now = await rereadRecord(ctx, snap);
+          // The app may accept a write and apply it a moment later (202 Accepted, a queued job): an accepted write (or
+          // one with no answer) that shows no effect yet is looked at once more after a quiet wait before it is judged.
+          let lookedLate = false;
+          if (now !== null && now !== "gone" && acceptedOrUnknown(status) && !effectOf(w, lastPre, now, volatile)) {
+            await delay(LATE_MS);
+            now = await rereadRecord(ctx, snap);
+            lookedLate = true;
+          }
+          lookedAfterLast = lookedLate;
           if (now === null) {
             const back = await putBack(ctx, snap, lastPre, restoreWith, save, volatile, pinned);
             noteOnce(back.notes);
@@ -736,6 +1192,7 @@ export const check: Check = {
             return skip([unknown, ...sideChanges, ...notes].join(" "));
           }
           let effect = effectOf(w, lastPre, now, volatile);
+          if (effect && lookedLate) notes.push(lateNote(who, w, status));
           if (w.method === "DELETE" && effect && !effect.gone && now !== "gone") {
             // A DELETE that left the record there, changed (a soft delete): confirm the change holds while nothing is
             // sent, so a field that changes on its own now and then is never taken for one.
@@ -768,6 +1225,20 @@ export const check: Check = {
               }
             }
           }
+          const unswapped = (w.tokens ?? []).filter((t) => !t.swapped).map((t) => t.field);
+          if (!effect && (status === 403 || status === 419) && unswapped.length > 0) {
+            tokenRefusals.push(`${endpointOf(w.method, w.url)} (${status}), whose body still carried Account A's anti-CSRF token in ${joinFields(unswapped)}`);
+          }
+          if (!effect && status !== null && CONFLICT.has(status)) conflicts.push(`${endpointOf(w.method, w.url)} (${status})`);
+          // Accepted, and the record unchanged, but the field Run Hound set isn't one the app's own update sends: an app
+          // with a strict schema ignores it, so nothing here shows an ownership check. A refusal (401, 403, 404) still can.
+          if (!effect && w.addedField && status !== null && status >= 200 && status < 300) {
+            ignoredFields.push({ write: `${endpointOf(w.method, w.url)} (${status})`, field: w.field! });
+          }
+          const dropped = (w.credentials ?? []).filter((c) => !c.swapped).map((c) => c.param);
+          if (!effect && who === "other" && (status === 401 || status === 403) && dropped.length > 0) {
+            credentialRefusals.push({ write: `${endpointOf(w.method, w.url)} (${status})`, params: dropped });
+          }
           // Put the record back first, then write the finding up (rendering its evidence takes a while).
           const back = await putBack(ctx, snap, lastPre, restoreWith, save, volatile, pinned);
           noteOnce(back.notes);
@@ -786,8 +1257,28 @@ export const check: Check = {
           }
           if (back.recreated) {
             // The record made again has a new id, and the app's remaining writes name the old one.
+            recreated = true;
             if (rest.length > 0) notes.push(`Not tried after Account A's test record was deleted and created again with a new id: ${endpoints(rest)}.`);
             break;
+          }
+        }
+        // Before the verdict, one more look after a quiet wait when a write the app accepted wasn't the last one looked
+        // at that way: its effect may land later still (a queued job). A late change is a finding, and is put back.
+        if (sent.some((s) => acceptedOrUnknown(s.status)) && !lookedAfterLast && !unread && leftover !== "values" && !recreated) {
+          await delay(LATE_MS);
+          const later = await rereadRecord(ctx, snap);
+          if (later === null) {
+            lateUnread = `Inconclusive: Run Hound couldn't read Account A's test record again a moment after it sent ${tried.join(", ")} as ${WHO[who].words}, so it can't tell whether one of them was applied later: check Account A.`;
+          } else {
+            const hit = lateHit(sent, later, lastPre, volatile);
+            if (hit) {
+              const back = await putBack(ctx, snap, lastPre, restoreWith, save, volatile, pinned);
+              notes.push(lateNote(who, hit.w, hit.status));
+              noteOnce(back.notes);
+              findings.push(await finding(ctx, scenario, who, hit.w, hit.status, findings.length + 1, hit.effect, snap.url, id));
+              if (back.failed) leftover = back.serverOnly ? (leftover === "none" ? "server" : leftover) : "values";
+              for (const k of back.serverOnly ? back.left : []) serverLeft.add(k);
+            }
           }
         }
       } catch (error) {
@@ -802,8 +1293,15 @@ export const check: Check = {
       if (unusableNote) notes.push(unusableNote);
 
       if (findings.length > 0) {
-        return result(ID, scenario, started, findings, [changedSummary(who, findings), ...sideChanges, ...(unread ? [unread] : []), ...notes].join(" "));
+        return result(
+          ID,
+          scenario,
+          started,
+          findings,
+          [changedSummary(who, findings), ...sideChanges, ...(unread ? [unread] : []), ...(lateUnread ? [lateUnread] : []), ...notes].join(" "),
+        );
       }
+      if (lateUnread) return skip([lateUnread, ...sideChanges, ...(unread ? [unread] : []), ...notes].join(" "));
       if (leftover === "values") {
         return skip(
           [
@@ -835,12 +1333,86 @@ export const check: Check = {
           ].join(" "),
         );
       }
+      if (tokenRefusals.length > 0) {
+        // The app refused a write that carried Account A's token, not one of the identity's own: its CSRF check may be
+        // what refused it, so nothing here shows an ownership check. Never a pass.
+        return skip(
+          [
+            `Inconclusive: the app refused ${tokenRefusals.join("; ")}. Run Hound couldn't read a token of ${WHO[who].words}'s own to put there, so the refusal may be the app's CSRF check rather than a check that the record belongs to the sender, and Run Hound can't call this a pass.`,
+            ...(unread ? [unread] : []),
+            ...notes,
+          ].join(" "),
+        );
+      }
+      if (conflicts.length > 0) {
+        // A conflict with the record's version (optimistic locking) comes before any check of who sends the write: the
+        // record is unchanged, but nothing here shows an ownership check. Never a pass.
+        return skip(
+          [
+            `Inconclusive: the app answered ${conflicts.join(", ")}, a conflict with the test record's version (optimistic locking: a version the record as read doesn't show, or an If-Match) rather than a refusal of ${WHO[who].words}, and Account A's test record was unchanged, so Run Hound can't call this a pass.`,
+            ...(unread ? [unread] : []),
+            ...notes,
+          ].join(" "),
+        );
+      }
+      if (credentialRefusals.length > 0) {
+        const params = [...new Set(credentialRefusals.flatMap((c) => c.params))];
+        return skip(
+          [
+            `Inconclusive: the app refused ${credentialRefusals.map((c) => c.write).join(", ")}, sent without Account A's credential in its URL (${joinFields(params)}) and with none of Account B's own (no page opened as Account B sent one), so the refusal may be the app asking for a credential rather than a check that the record belongs to the sender, and Run Hound can't call this a pass.`,
+            ...(unread ? [unread] : []),
+            ...notes,
+          ].join(" "),
+        );
+      }
+      if (ignoredFields.length > 0) {
+        // The app accepted the write, but the field Run Hound set isn't one its own update sends: a strict schema ignores
+        // it, so the record being unchanged shows nothing about who may change it. Never a pass.
+        const fields = [...new Set(ignoredFields.map((f) => f.field))];
+        return skip(
+          [
+            `Inconclusive: the app accepted ${ignoredFields.map((f) => f.write).join(", ")} from ${WHO[who].words}, but the field Run Hound set (${joinFields(fields)}) isn't one the app's own update sends, so the app may have ignored it. Account A's test record was unchanged, and Run Hound can't call this a pass.`,
+            ...(unread ? [unread] : []),
+            ...notes,
+          ].join(" "),
+        );
+      }
       if (unread) return skip([unread, ...(tried.length > 0 ? [`Sent as ${WHO[who].words}: ${tried.join(", ")}.`] : []), ...notes].join(" "));
       const summary = `Account A's test record was unchanged after ${WHO[who].words} sent ${tried.join(", ")}.`;
       return result(ID, scenario, started, [], [summary, ...notes].join(" "));
     });
+    return outcome.then((r) => secrets.redact(r)).finally(() => secrets.release());
   },
 };
+
+/** A write sent as the scenario's identity, with the app's answer (null: none came). */
+interface Sent {
+  w: Write;
+  status: number | null;
+}
+
+/** The note for a write whose effect showed only after a quiet wait (LATE_MS). */
+function lateNote(who: Who, w: Write, status: number | null): string {
+  return `${WHO[who].words.replace(/^a /, "A ")}'s ${endpointOf(w.method, w.url)} (${status ?? "no answer"}) changed Account A's test record a moment later: a re-read right after it showed no change yet.`;
+}
+
+/**
+ * The write a look after a quiet wait shows landed late, with what it did, judged against `pre` (the record read just
+ * before the last attempt, which every earlier put-back left it as): the record gone (the DELETE sent, else the last
+ * write), else an update whose field no longer holds its value in `pre` (the one whose marker it holds first). Null when
+ * nothing changed.
+ */
+function lateHit(sent: Sent[], later: JsonObject[] | "gone", pre: JsonObject, volatile: ReadonlySet<string>): (Sent & { effect: Effect }) | null {
+  if (sent.length === 0) return null;
+  if (later === "gone") {
+    const by = sent.find((s) => s.w.method === "DELETE") ?? sent[sent.length - 1]!;
+    return { ...by, effect: { gone: true, changed: [] } };
+  }
+  const now = later[0]!;
+  const moved = sent.filter((s) => s.w.field !== undefined && !volatile.has(s.w.field) && !sameValue(now[s.w.field], pre[s.w.field]));
+  const by = moved.find((s) => sameValue(now[s.w.field!], s.w.value)) ?? moved[0];
+  return by ? { ...by, effect: { gone: false, changed: [by.w.field!] } } : null;
+}
 
 /** The notes' first sentence when `who` got writes through: the requests that did. */
 function changedSummary(who: Who, findings: Finding[]): string {
@@ -955,7 +1527,8 @@ function replaySpec(o: SpecInput): string {
       : q(`${parsed.pathname}${parsed.search}`);
   };
   // The value goes where the app's own update holds the record: one level down ({"task": {...}}) when it nests it.
-  const value = `{ [FIELD]: "runhound-" + Date.now() }`;
+  // A form update that nests the record under the model's name (Rails' task[title]) sends the value under that key.
+  const value = w.formKey ? `{ ${q(w.formKey)}: "runhound-" + Date.now() }` : `{ [FIELD]: "runhound-" + Date.now() }`;
   const payload = isDelete ? "" : `, ${w.kind === "form" ? "form" : "data"}: ${w.nest ? `{ ${q(w.nest)}: ${value} }` : value}`;
   const identity = o.who === "other" ? "Account B" : "a visitor with no session";
   return [

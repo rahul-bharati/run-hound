@@ -320,7 +320,9 @@ enforces them.
 - **Restore, then confirm.** After each attempt the scenario puts the test record back: it writes the original values
   back, or creates it again when it was deleted. It then re-reads as A and compares with the snapshot taken before the
   attempt. Anything that could not be restored is named in the notes ("… could not be undone: check Account A"), and
-  the scenario is not "pass" while such a note stands.
+  the scenario is not "pass" while such a note stands. When the page left the allowed targets, the scenario is an
+  error and its notes are the navigation guard's summary followed by the check's own notes, so the note is never lost
+  (0.6.0; any other check's notes are the summary alone).
 - **Credentials and evidence.** Account credentials come only from the configured accounts (env vars or
   `accounts.json`) and exported specs read them from environment variables. Evidence redacts cookies, bearer tokens,
   CSRF tokens and both passwords (`redactSecrets`, with the session values registered as in [Test accounts](#test-accounts)).
@@ -400,6 +402,14 @@ sends whatever cookies the browser would send.
   token, SameSite=None, no Origin check). When the stored forge carried no cookie at all, the save needs no session:
   the title ends "(the save needs no session)" instead, and the fix says to require Account A's session on the save
   first, then add a CSRF defence. Then restore. A rejected request, or no change on re-read, is a pass.
+- **Reading the answer (0.6.0).** The `text/plain` forge is a `no-cors` fetch, so its status and the cookies it
+  carried are seen like a form post's. Every run-token value is forged, at any depth of a JSON body, keeping the length
+  of the value the app accepted; a multipart save is forged as a multipart form. A 3xx is an answer (a redirect to a
+  sign-in page is a refusal); a `400` to a forge sent the save's own way that carried A's cookie, with nothing left out,
+  is inconclusive (it refuses the value, not the request); a 2xx with nothing stored passes without naming a defence.
+  A new record carrying the run's values after an accepted forge is a stored forge, even when the app rewrote the
+  forged value. CORS that allows the attacker page but not `http://run-hound-other-site.invalid` trusts loopback
+  origins only: a stored JSON forge is then an **advisory** finding, never "any site".
 
 ### `paywall-trust`
 

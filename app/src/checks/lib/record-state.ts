@@ -86,46 +86,159 @@ export function nearest(chain: JsonObject[], key: string): { found: boolean; val
   return { found: false };
 }
 
+/** The decoded values of `url`'s query, empty ones left out. */
+function queryValues(url: string): string[] {
+  try {
+    return [...new URL(url).searchParams.values()].filter((v) => v !== "");
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * True when every string of `json` (a GET's answer, parsed) that holds a test value holds it only as an echo of the
+ * GET's own query (`asked`): with each query value cut out it holds no test value, and the object holding it has no id
+ * (a search's {query, matches}, "Results for …"). A record read by its value (GET /api/tasks?title=…) holds it in an
+ * object with an id, so it is the record, not an echo.
+ */
+function echoesQuery(json: unknown, asked: string[], testValues: string[]): boolean {
+  if (asked.length === 0) return false;
+  let echoed = false;
+  const walk = (n: unknown, holder: JsonObject | null, depth: number): boolean => {
+    if (depth > 12) return true;
+    if (typeof n === "string") {
+      if (!testValues.some((v) => n.includes(v))) return true;
+      const rest = asked.reduce((text, q) => text.split(q).join(""), n);
+      if (testValues.some((v) => rest.includes(v)) || (holder && recordId(holder) !== null)) return false;
+      echoed = true;
+      return true;
+    }
+    if (Array.isArray(n)) return n.every((item) => walk(item, holder, depth + 1));
+    if (n && typeof n === "object") return Object.values(n as JsonObject).every((v) => walk(v, n as JsonObject, depth + 1));
+    return true;
+  };
+  return walk(json, null, 0) && echoed;
+}
+
+/** True for a write: a request that isn't a GET, HEAD or OPTIONS. */
+const isWrite = (r: CapturedRequest) => !["GET", "HEAD", "OPTIONS"].includes(r.method.toUpperCase());
+
 /**
  * The record endpoint: a GET the page made after the save whose JSON object holds a test value. A read from the app's
  * API on another local origin has no body in the capture, so those are read again as Account A (at most 10).
  * `arrays` (the write-side checks) also takes a JSON array, such as a bare `GET /api/tasks` list, when a record in it
  * holds a test value; mass-assignment keeps the object-only rule it had.
+ *
+ * "After the save" in capture order (0.6.0 round 2): the save is `options.save`, else the first write whose body holds
+ * a test value; a capture with neither is read whole. A GET made before it (a search-as-you-type hint, a
+ * name-availability check that echoes the typed value) is never the record endpoint: the record didn't exist yet. Of
+ * the GETs after the save, those after the reload (the first document request after it) come first. An answer whose
+ * test value is only an echo of the GET's own query ({query, matches}: echoesQuery) is never taken.
  */
 export async function findOwnRecord(
   ctx: CheckContext,
   capture: Capture,
   testValues: string[],
-  options: { arrays?: boolean } = {},
+  options: { arrays?: boolean; save?: CapturedRequest } = {},
 ): Promise<{ url: string; body: string } | null> {
-  const holdsTestValue = (body: string | null | undefined): body is string => {
+  const holdsTestValue = (url: string, body: string | null | undefined): body is string => {
     if (!body || !testValues.some((v) => body.includes(v))) return false;
+    const json = parseJson(body);
+    if (echoesQuery(json, queryValues(url), testValues)) return false;
     if (jsonObjectBody(body)) return true;
-    return Boolean(options.arrays) && recordChains(parseJson(body), testValues).length > 0;
+    return Boolean(options.arrays) && recordChains(json, testValues).length > 0;
   };
   const ok = (r: CapturedRequest) => r.method.toUpperCase() === "GET" && typeof r.status === "number" && r.status >= 200 && r.status < 300;
-  for (const r of capture.requests) if (ok(r) && holdsTestValue(r.responseBody)) return { url: r.url, body: r.responseBody };
+  const requests = capture.requests;
+  const saveAt = options.save
+    ? requests.indexOf(options.save)
+    : requests.findIndex((r) => isWrite(r) && !!r.postData && testValues.some((v) => r.postData!.includes(v)));
+  const after = saveAt < 0 ? requests : requests.slice(saveAt + 1);
+  const reloadAt = saveAt < 0 ? -1 : after.findIndex((r) => r.resourceType === "document" && r.method.toUpperCase() === "GET");
+  const ordered = reloadAt < 0 ? after : [...after.slice(reloadAt + 1), ...after.slice(0, reloadAt + 1)];
+  for (const r of ordered) if (ok(r) && holdsTestValue(r.url, r.responseBody)) return { url: r.url, body: r.responseBody };
   const tried = new Set<string>();
-  for (const r of [...capture.requests]) {
+  for (const r of ordered) {
     if (!ok(r) || r.responseBody || !["fetch", "xhr"].includes(r.resourceType) || tried.has(r.url) || tried.size >= 10) continue;
     if (isSameOrigin(r.url, ctx.targetUrl) || !isLocalOrigin(r.url, ctx.targetUrl)) continue;
     tried.add(r.url);
     const again = await ctx.request("self", { method: "GET", url: r.url }).catch(() => null);
-    if (again && again.status >= 200 && again.status < 300 && holdsTestValue(again.body)) return { url: r.url, body: again.body };
+    if (again && again.status >= 200 && again.status < 300 && holdsTestValue(r.url, again.body)) return { url: r.url, body: again.body };
   }
   return null;
 }
 
-/** Keys a record's own id goes by, in the order they are looked for. */
-const ID_KEYS = ["id", "_id", "uuid"];
+/**
+ * Keys that are a record's own id whatever the record is, in the order they are looked for: id, _id, uuid, Django's pk,
+ * Parse's objectId, guid.
+ */
+const ID_KEYS = ["id", "_id", "uuid", "pk", "objectId", "guid"];
 
-/** The record's own id (`id`, `_id` or `uuid`, a string or a number), or null when it has none. */
-export function recordId(record: JsonObject): { key: string; value: string | number } | null {
+/** A string or number an id can be. */
+const idValue = (v: unknown): v is string | number => (typeof v === "string" && v !== "") || (typeof v === "number" && Number.isFinite(v));
+
+/**
+ * True when `key` names an id: one of ID_KEYS, or a name that ends in one (taskId, task_id, task-id, TaskID), the rule
+ * write-access's isIdParam uses. A reference to another record (projectId) is one too: idResource tells them apart.
+ */
+export function idLikeKey(key: string): boolean {
+  return ID_KEYS.includes(key) || /(^|[_-])id$/i.test(key) || /[a-z0-9]I[dD]$/.test(key);
+}
+
+/** The resource an id-like key names, bare ("task" for taskId, task_id, TaskID), or "" for one of ID_KEYS. */
+function idResource(key: string): string {
+  if (ID_KEYS.includes(key)) return "";
+  return bare(key.replace(/[_-]?id$/i, ""));
+}
+
+/** A name's singular and plural forms, bare: "tasks" and "task" for either, "people" and "person" (IRREGULAR_PLURALS). */
+function nameForms(name: string): string[] {
+  const n = bare(name);
+  if (!n) return [];
+  const singular = [IRREGULAR_PLURALS.get(n), n.replace(/ies$/, "y"), n.replace(/(ch|sh|ss|x)es$/, "$1"), n.replace(/s$/, "")];
+  return [n, ...singular.filter((s): s is string => Boolean(s))];
+}
+
+/** The resource names `url`'s path segments give (singular and plural): {api, tasks, task, rename} for /api/tasks/rename. */
+function resourceNames(url: string): Set<string> {
+  let segs: string[];
+  try {
+    segs = new URL(url, "http://x").pathname.split("/").filter(Boolean);
+  } catch {
+    return new Set();
+  }
+  return new Set(segs.flatMap((seg) => nameForms(seg)));
+}
+
+/**
+ * The record's own id, a string or a number, or null when it has none: one of ID_KEYS, else the one id-like key that
+ * names the resource the record is read as (`names`: the read's URL and the keys it sits under, see idNames), such as
+ * taskId in GET /api/tasks. A reference to another record (projectId on a task) is never taken for its own id.
+ */
+export function recordId(record: JsonObject, names: ReadonlySet<string> = new Set()): { key: string; value: string | number } | null {
   for (const key of ID_KEYS) {
     const value = record[key];
-    if ((typeof value === "string" && value !== "") || (typeof value === "number" && Number.isFinite(value))) return { key, value };
+    if (idValue(value)) return { key, value };
   }
-  return null;
+  if (names.size === 0) return null;
+  const own = Object.keys(record).filter((k) => idLikeKey(k) && idValue(record[k]) && names.has(idResource(k)));
+  return own.length === 1 ? { key: own[0]!, value: record[own[0]!] as string | number } : null;
+}
+
+/**
+ * The names a record in `chain` (the record, then its parents) is read as: the read's URL (resourceNames) and each key
+ * on the way down to it ({tasks: [...]} gives "tasks" and "task").
+ */
+function idNames(url: string, chain: JsonObject[]): Set<string> {
+  const names = resourceNames(url);
+  const holds = (v: unknown, child: JsonObject, depth = 0): boolean =>
+    v === child || (depth < 3 && Array.isArray(v) && v.some((item) => holds(item, child, depth + 1)));
+  for (let i = 1; i < chain.length; i += 1) {
+    const parent = chain[i]!;
+    const child = chain[i - 1]!;
+    for (const [k, v] of Object.entries(parent)) if (holds(v, child)) for (const f of nameForms(k)) names.add(f);
+  }
+  return names;
 }
 
 /** Account A's test record as it was before an attempt: where it is read, how it is recognised, and its values. */
@@ -222,7 +335,7 @@ export function snapshotFrom(url: string, json: unknown, testValues: string[], r
   const chain = recordChains(json, own)[0];
   if (!chain || chain.length === 0) return null;
   const record = chain[0]!;
-  return { url, testValues: own, id: recordId(record), chain, record };
+  return { url, testValues: own, id: recordId(record, idNames(url, chain)), chain, record };
 }
 
 /**
@@ -411,8 +524,18 @@ export function changesOnSave(snap: RecordSnapshot, key: string, runToken: strin
   return serverSetField(snap, key, runToken) && !fixedServerSet(key);
 }
 
+/**
+ * True when `key` holding `value` is a stamp the app changes again on every save, by its name: a version, lock or
+ * update stamp (lock_version, version, __v, _rev, etag, updatedAt), never an id or creation stamp, and never a value
+ * carrying the run token (text Run Hound typed). With optimistic locking, a body that carries such a stamp at a value
+ * read before the record's last save is a conflict (409), whoever sends it.
+ */
+export function saveStamp(key: string, value: unknown, runToken: string): boolean {
+  return serverManaged(key) && !fixedServerSet(key) && !typedByRun(value, runToken);
+}
+
 /** A form key that nests a field under the model's name (Rails, PHP): task[title] is the record's `title`. */
-const NESTED_FORM_KEY = /^([^[\]]+)\[([^[\]]+)\]$/;
+export const NESTED_FORM_KEY = /^([^[\]]+)\[([^[\]]+)\]$/;
 
 /** Lower case, letters and digits only: "assignee_attributes" and "assigneeAttributes" compare the same. */
 const bare = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -757,12 +880,61 @@ export function getsBefore(capture: Capture, save: CapturedRequest): string[] {
     .map((r) => r.responseBody!);
 }
 
+/** The GETs (2xx, with a body) the page made before `save`, in order, with their URLs: what it had read when it saved. */
+export function readsBefore(capture: Capture, save: CapturedRequest): { url: string; body: string }[] {
+  const at = capture.requests.indexOf(save);
+  return capture.requests
+    .slice(0, at < 0 ? 0 : at)
+    .filter((r) => r.method.toUpperCase() === "GET" && typeof r.status === "number" && r.status >= 200 && r.status < 300 && r.responseBody)
+    .map((r) => ({ url: r.url, body: r.responseBody! }));
+}
+
+/** The keys from `json` down to the array that holds `record` itself ([] for a bare array), or null when none does. */
+function listPath(json: unknown, record: JsonObject): string[] | null {
+  const walk = (n: unknown, path: string[], depth: number): string[] | null => {
+    if (depth > 12 || !n || typeof n !== "object") return null;
+    if (Array.isArray(n)) return n.includes(record) ? path : null;
+    for (const [k, v] of Object.entries(n as JsonObject)) {
+      const found = walk(v, [...path, k], depth + 1);
+      if (found) return found;
+    }
+    return null;
+  };
+  return walk(json, [], 0);
+}
+
+/** The value at `path` (object keys) in `json`, or undefined. */
+function at(json: unknown, path: string[]): unknown {
+  let n: unknown = json;
+  for (const k of path) n = plainObject(n) ? n[k] : undefined;
+  return n;
+}
+
+/**
+ * True when the list the record endpoint reads (`recordGet`, its parsed answer holding `record`) has more records than when the
+ * page read it before the save (`reads`, the reads before the save with their URLs): the save added one. False when
+ * the page didn't read that list before the save, or it had as many records then.
+ */
+function listGained(recordGet: { url: string; json: unknown }, record: JsonObject, reads: { url: string; body: string }[]): boolean {
+  const json = recordGet.json;
+  const path = listPath(json, record);
+  if (!path) return false;
+  const now = at(json, path);
+  const where = pathKey(recordGet.url);
+  const earlier = [...reads].reverse().find((r) => pathKey(r.url) === where);
+  if (!earlier || !Array.isArray(now)) return false;
+  const was = at(parseJson(earlier.body), path);
+  return Array.isArray(was) && was.length < now.length;
+}
+
 /**
  * True when the form's save (which went through) turned out to change a record Account A already had rather than create
  * the run's test record, judged once the record is read back (`snap`, found at `recordGet`), against what the page
- * read before the save (`before`, getsBefore or SaveHold.before): a PATCH or PUT save; the record's id in an answer
- * from before the save; a save whose URL or body already names the id (a create can't know it); or a single record read
- * at a URL that doesn't name its id (a profile, a settings object), which is the account's own record, not a new one.
+ * read before the save (`before`, getsBefore or SaveHold.before; `reads`, the same with their URLs: readsBefore or
+ * SaveHold.reads): a PATCH or PUT save; the record's id in an answer from before the save; a save whose URL or body
+ * already names the id (a create can't know it); a single record read at a URL that doesn't name its id (a profile, a
+ * settings object), which is the account's own record, not a new one; or a record with no id Run Hound recognises in a
+ * list that didn't gain a record (nothing shows the save created it, so it is taken for an edit: the safe side).
  */
 export function editsExistingRecord(
   save: CapturedRequest,
@@ -770,6 +942,7 @@ export function editsExistingRecord(
   recordGet: { url: string; body: string },
   before: string[],
   runToken: string,
+  reads: { url: string; body: string }[] = [],
 ): boolean {
   const method = save.method.toUpperCase();
   if (method === "PATCH" || method === "PUT") return true;
@@ -777,14 +950,17 @@ export function editsExistingRecord(
   const json = parseJson(recordGet.body);
   const first = snapshotFrom(recordGet.url, json, snap.testValues, runToken);
   const listed = first ? readsList(json, first.record) : false;
-  return !listed && !(snap.id && urlNamesId(recordGet.url, snap.id.value));
+  if (!listed) return !(snap.id && urlNamesId(recordGet.url, snap.id.value));
+  return !snap.id && !(first && listGained({ url: recordGet.url, json }, first.record, reads));
 }
 
 /**
  * Puts back a record Account A already had that the form's own save changed (editsExistingRecord), as the page read it
  * before the save (`before`, the answers getsBefore or SaveHold.before give; a read of the record endpoint itself is
  * preferred), only through the app's own update for that record's id (recordWrites: the save itself when its URL names
- * the id, or an update the page sent), never by replaying a create. Returns the notes: what was put back, and what
+ * the id, or an update the page sent), never by replaying a create. When the app sent no such update that reached it,
+ * one the page sent that never reached the app (heldUpdate: the hold stopped it) is used: the app's own update for that
+ * id, only ever sent with the record's values as the page read them. Returns the notes: what was put back, and what
  * could not be undone, naming the form's save and "check Account A". The form's save did reach the app, so no note
  * ever says nothing was written.
  */
@@ -793,7 +969,7 @@ export async function putBackEdited(
   o: { capture: Capture; save: CapturedRequest; snap: RecordSnapshot; before: string[]; io?: RecordIO },
 ): Promise<string[]> {
   const endpoint = endpointText(o.save.method, o.save.url);
-  const lead = `The form's own save (${endpoint}) had already reached the app.`;
+  const lead = `The form's own save (${endpoint}) had already reached the app and changed a record Account A already had: check Account A.`;
   const id = o.snap.id;
   const readBefore = (bodies: string[]) => {
     if (!id) return null;
@@ -821,7 +997,7 @@ export async function putBackEdited(
   const had = (k: string) => Object.prototype.hasOwnProperty.call(was, k);
   const changed = changedFields(was, now[0]!).filter(had);
   if (changed.length === 0) return [lead, "That record reads as it did before the save."];
-  const update = recordWrites(o.capture, o.snap, ctx.targetUrl).find((r) => r.method.toUpperCase() !== "DELETE");
+  const update = recordWrites(o.capture, o.snap, ctx.targetUrl).find((r) => r.method.toUpperCase() !== "DELETE") ?? heldUpdate(o.capture, o.snap, ctx.targetUrl);
   const outcome = update ? await restoreRecord(ctx, pre, { save: update }, io) : { restored: [], notRestored: changed };
   const restored = outcome.restored.filter(had);
   const left = outcome.notRestored.filter(had);
@@ -834,10 +1010,34 @@ export async function putBackEdited(
   return notes;
 }
 
+/**
+ * An update the page sent for the record's id that never reached the app (the hold stopped it, or it failed): a PUT,
+ * PATCH or POST with a JSON or form body, to a URL naming the id, on the target's origin or its local API, never to an
+ * endpoint in neverWritten. Only putBackEdited uses one, to put back a record the form's own save had already changed.
+ */
+function heldUpdate(capture: Capture, snap: RecordSnapshot, targetUrl: string): CapturedRequest | undefined {
+  const id = snap.id;
+  if (!id) return undefined;
+  return capture.requests.find(
+    (r) =>
+      ["PUT", "PATCH", "POST"].includes(r.method.toUpperCase()) &&
+      r.failure !== null &&
+      bodyKind(r.postData) !== null &&
+      (isSameOrigin(r.url, targetUrl) || isLocalOrigin(r.url, targetUrl)) &&
+      urlNamesId(r.url, id.value) &&
+      !neverWritten(r.url),
+  );
+}
+
 /** What the page had read before a save: every record id in a JSON answer, and each read's path as a list or one record. */
 interface ReadBeforeSave {
-  /** Every id (id, _id, uuid) of an object in a JSON answer, as text. */
+  /** Every id of an object in a JSON answer, as text: under one of ID_KEYS or any other id-like key (projectId too). */
   ids: Set<string>;
+  /**
+   * The ids read as an object's own id (recordId, with the names the object is read as: taskId of a task in
+   * GET /api/tasks), by the key they were read under.
+   */
+  own: Map<string, Set<string>>;
   /** origin + path (no query, no trailing "/") of each read that answered a list. */
   lists: Set<string>;
   /** The same for each read that answered one record, and never a list. */
@@ -857,33 +1057,45 @@ function pathKey(url: string): string | null {
 /**
  * True when a JSON answer is a list: an array, or an object with no id of its own that holds one ({tasks: [...]},
  * {data: [], total: 0}). An object with an id of its own is one record, whatever arrays it holds ({id, title, tags}).
+ * Only ID_KEYS count here: {workspaceId, tasks: [...]} is still a list.
  */
 function answersList(json: unknown): boolean {
   if (Array.isArray(json)) return true;
   return plainObject(json) && recordId(json) === null && Object.values(json).some(Array.isArray);
 }
 
-/** Every id of an object in `node` (parsed JSON), as text. */
-function idsIn(node: unknown, into: Set<string>, depth = 0): void {
+/**
+ * Every id of an object in `node` (parsed JSON), as text, into `read.ids`; and each object's own id (recordId, with the
+ * names it is read as: `names`, the read's URL and the keys on the way down) into `read.own` under its key.
+ */
+function idsIn(node: unknown, read: ReadBeforeSave, names: ReadonlySet<string>, depth = 0): void {
   if (depth > 12 || !node || typeof node !== "object") return;
   if (Array.isArray(node)) {
-    for (const item of node) idsIn(item, into, depth + 1);
+    for (const item of node) idsIn(item, read, names, depth + 1);
     return;
   }
   const obj = node as JsonObject;
-  for (const key of ID_KEYS) {
-    const v = obj[key];
-    if ((typeof v === "string" && v !== "") || (typeof v === "number" && Number.isFinite(v))) into.add(String(v));
+  for (const [k, v] of Object.entries(obj)) if (idLikeKey(k) && idValue(v)) read.ids.add(String(v));
+  const addOwn = (key: string, value: string | number) => {
+    const values = read.own.get(key) ?? new Set<string>();
+    values.add(String(value));
+    read.own.set(key, values);
+  };
+  for (const key of ID_KEYS) if (idValue(obj[key])) addOwn(key, obj[key] as string | number);
+  const own = recordId(obj, names);
+  if (own && !ID_KEYS.includes(own.key)) addOwn(own.key, own.value);
+  for (const [k, v] of Object.entries(obj)) {
+    if (!v || typeof v !== "object") continue;
+    idsIn(v, read, new Set([...names, ...nameForms(k)]), depth + 1);
   }
-  for (const v of Object.values(obj)) idsIn(v, into, depth + 1);
 }
 
 function readBeforeSave(answers: { url: string; body: string }[]): ReadBeforeSave {
-  const out: ReadBeforeSave = { ids: new Set(), lists: new Set(), records: new Set() };
+  const out: ReadBeforeSave = { ids: new Set(), own: new Map(), lists: new Set(), records: new Set() };
   for (const a of answers) {
     const json = parseJson(a.body);
     if (json === null || typeof json !== "object") continue;
-    idsIn(json, out.ids);
+    idsIn(json, out, resourceNames(a.url));
     const path = pathKey(a.url);
     if (!path) continue;
     if (answersList(json)) out.lists.add(path);
@@ -894,16 +1106,65 @@ function readBeforeSave(answers: { url: string; body: string }[]): ReadBeforeSav
 }
 
 /**
+ * True when `key` (a query parameter, a body field, a form or multipart name) holding `value` names a record the page
+ * read, as a save's own record rather than a reference to another one:
+ * - one of ID_KEYS ({id: "t1"}) holding any id the page read;
+ * - another id-like key (taskId, task_id) holding an id the page read, when the key names the resource the save's URL
+ *   addresses (taskId on /api/tasks/rename), or when the page read that value as an object's own id under this very
+ *   key (a list keyed taskId). A reference to another record (projectId on a task's create) is neither.
+ */
+function namesReadRecord(key: string, value: unknown, read: ReadBeforeSave, saveNames: ReadonlySet<string>): boolean {
+  if (!idLikeKey(key) || !idValue(value)) return false;
+  const text = String(value);
+  if (!read.ids.has(text)) return false;
+  if (ID_KEYS.includes(key)) return true;
+  return saveNames.has(idResource(key)) || Boolean(read.own.get(key)?.has(text));
+}
+
+/**
+ * The objects of `node` (a parsed JSON body) on the way down to a string that holds `key` (the run token, lower case):
+ * the object holding the typed value and every object above it, to any depth (at most 12 levels, as idsIn reads). An
+ * array is passed through, never an object on the way ([{id, title}] gives the item). A sibling of the way down ({project:
+ * {id}} beside the typed title) is never one. Empty when `key` is empty or no string holds it.
+ */
+function pathToValues(node: unknown, key: string): JsonObject[] {
+  if (key === "") return [];
+  const out = new Set<JsonObject>();
+  const walk = (n: unknown, path: JsonObject[], depth: number) => {
+    if (depth > 12) return;
+    if (typeof n === "string") {
+      if (n.toLowerCase().includes(key)) for (const o of path) out.add(o);
+      return;
+    }
+    if (Array.isArray(n)) {
+      for (const item of n) walk(item, path, depth + 1);
+      return;
+    }
+    if (plainObject(n)) for (const v of Object.values(n)) walk(v, [...path, n], depth + 1);
+  };
+  walk(node, [], 0);
+  return [...out];
+}
+
+/** The part names of a multipart body. */
+function multipartNames(body: string): string[] {
+  return [...body.matchAll(/[;\s]name="([^"]*)"/g)].map((m) => m[1]!);
+}
+
+/**
  * True when a write the form's submit sends would change a record Account A already had, judged before it reaches the
  * app from what the page read before it (`answers`: the JSON GETs it made, with their URLs):
  * - any method but POST (PATCH, PUT, DELETE …): it changes or removes a record that is already there;
  * - a POST whose path names an id the page read (as any segment: /api/tasks/t1, /api/tasks/t1/rename), unless the page
  *   read that same path as a list (a POST to a list the page reads is a create in it: /api/projects/p1/tasks);
  * - a POST to a path the page read as one record (GET /api/profile, then POST /api/profile);
- * - a POST whose query names such an id under an id key (?id=t1);
- * - a POST whose body names such an id under an id key: at its top ({id: "t1", title}), one level down in the object
- *   that carries the run's test values ({task: {id: "t1", title}}), as a form field (id=t1, task[id]=t1) or a
- *   multipart part. A reference to another record beside the typed values ({project: {id: "p1"}, title}) is not.
+ * - a POST whose query names such an id under an id key (?id=t1, ?taskId=t1: namesReadRecord);
+ * - a POST whose body names such an id under an id key (namesReadRecord): at its top ({id: "t1", title},
+ *   {taskId: "t1", title}), on the object that holds the run's test values or any object on the way down to it, at any
+ *   depth (pathToValues: {task: {id: "t1", title}}, tRPC's {"0": {"json": {id: "t1", title}}}, Relay's {variables:
+ *   {input: {id: "t1", title}}}, JSON:API's {data: {id: "t1", attributes: {title}}}, a bulk [{id: "t1", title}]), as a
+ *   form field (id=t1, task_id=t1, task[id]=t1) or a multipart part. A reference to another record beside the typed
+ *   values ({project: {id: "p1"}, title}, {projectId: "p1", title}) is not.
  */
 export function changesReadRecord(
   req: { method: string; url: string; postData: string | null },
@@ -929,23 +1190,28 @@ export function changesReadRecord(
         return s;
       }
     };
-    if (parsed.pathname.split("/").filter(Boolean).some((seg) => read.ids.has(decode(seg)))) return true;
+    const ownIds = new Set([...read.own.values()].flatMap((v) => [...v]));
+    if (parsed.pathname.split("/").filter(Boolean).some((seg) => ownIds.has(decode(seg)))) return true;
     if (read.records.has(path)) return true;
   }
-  for (const [name, value] of parsed.searchParams) if (ID_KEYS.includes(name) && read.ids.has(value)) return true;
+  const saveNames = resourceNames(req.url);
+  const names = (key: string, value: unknown) => namesReadRecord(key, value, read, saveNames);
+  for (const [name, value] of parsed.searchParams) if (names(name, value)) return true;
   const body = req.postData;
   if (!body) return false;
-  const named = (o: JsonObject) => ID_KEYS.some((k) => (typeof o[k] === "string" || typeof o[k] === "number") && read.ids.has(String(o[k])));
-  const json = jsonObjectBody(body);
-  if (json) {
-    if (named(json)) return true;
-    const key = tokenKey(runToken);
-    return Object.values(json).some((v) => plainObject(v) && named(v) && key !== "" && JSON.stringify(v).toLowerCase().includes(key));
+  const named = (o: JsonObject) => Object.entries(o).some(([k, v]) => names(k, v));
+  const json = parseJson(body);
+  if (json !== null && typeof json === "object") {
+    if (plainObject(json) && named(json)) return true;
+    return pathToValues(json, tokenKey(runToken)).some(named);
   }
   if (bodyKind(body) === "form") {
-    return [...new URLSearchParams(body)].some(([k, v]) => ID_KEYS.includes(NESTED_FORM_KEY.exec(k)?.[2] ?? k) && read.ids.has(v));
+    return [...new URLSearchParams(body)].some(([k, v]) => names(NESTED_FORM_KEY.exec(k)?.[2] ?? k, v));
   }
-  return ID_KEYS.some((k) => [...read.ids].some((v) => multipartHas(body, k, v)));
+  return [...new Set(multipartNames(body))].some((name) => {
+    const field = NESTED_FORM_KEY.exec(name)?.[2] ?? name;
+    return idLikeKey(field) && [...read.ids].some((v) => multipartHas(body, name, v) && names(field, v));
+  });
 }
 
 /** A write the hold stopped before it reached the app. */
@@ -964,28 +1230,51 @@ export interface SaveHold {
   readonly stopped: StoppedWrite[];
   /** The answers the page had read (as Account A) when the form's save was judged, for editsExistingRecord and putBackEdited. */
   before(): string[];
-  /** The note for a form whose save was stopped (its save changes a record Account A already had), or null to go on. */
+  /** The same answers with their URLs, for editsExistingRecord. */
+  reads(): { url: string; body: string }[];
+  /**
+   * The note for a form whose save was stopped (its save changes a record Account A already had), or null to go on. Also
+   * null when an earlier write carrying the test values went through and, read again on release(), a record the page
+   * had read now holds them (or the re-read failed): the caller then reads the record back and puts it back.
+   */
   verdict(): string | null;
-  /** Ends the hold: later requests reach the app as usual. */
+  /**
+   * Ends the hold: later requests reach the app as usual. When a write carrying the test values was stopped after one
+   * went through, first re-reads what the page had read, as Account A (see verdict).
+   */
   release(): Promise<void>;
 }
 
 /**
  * Before the form's submit, as Account A: judges each write the page sends to the app (the target's origin or its local
- * API) before it leaves the page, until the form's own save (the first write that carries the run's test values) has
- * gone through; after that, everything goes on as usual (the app's own update for its new record, say). A write that
- * would change a record Account A already had (changesReadRecord, against every JSON answer the page read before it,
- * with a read of the app's API on another local origin, whose body the capture doesn't keep, made again as Account A)
- * is stopped: it never reaches the app. So a form that edits one of Account A's records is skipped with nothing
- * written, and the safety contract's "A's pre-existing records are never written to" holds for the form's own save too.
+ * API) before it leaves the page, until release(). A write that would change a record Account A already had
+ * (changesReadRecord, against every JSON answer the page read before it, with a read of the app's API on another local
+ * origin, whose body the capture doesn't keep, made again as Account A) is stopped: it never reaches the app. So a form
+ * that edits one of Account A's records is skipped with nothing written, and the safety contract's "A's pre-existing
+ * records are never written to" holds for the form's own save too.
+ *
+ * Once a write that carries the run's test values has gone through (the form's save), a later write that doesn't carry
+ * them goes on unjudged (a DELETE check, a counter), and one that does is still judged (0.6.0 round 3): against what the
+ * page had read before that save, by the ids and paths it names and never by its method. The app's own update for the
+ * record the save just created (PATCH /api/tasks/t3) names an id the page hadn't read, so it goes; the real save after a
+ * pre-save check (POST /api/profile/check, then POST /api/profile the page read as one record), or an edit of a task the
+ * page read (PATCH /api/tasks/t1), is stopped.
  * Requests go on through the context's own routes (the safety gate) with route.fallback. Call release() once the save
  * has been waited for.
  */
 export async function holdExistingEdits(ctx: CheckContext, page: Page, capture: Capture): Promise<SaveHold> {
   const stopped: StoppedWrite[] = [];
-  let saved = false;
+  /** The writes carrying the test values that went through, in order: the first is the form's save. */
+  const went: { method: string; url: string }[] = [];
   let released = false;
   let answers: { url: string; body: string }[] = [];
+  /** What the page had read when the first write carrying the test values went through (null until then). */
+  let readAtSave: { url: string; body: string }[] | null = null;
+  /**
+   * Set on release when a write carrying the test values was stopped after another one went through: whether a record
+   * the page had read now holds the run token (that earlier write changed it), or null when a re-read failed.
+   */
+  let earlierChanged: boolean | null | undefined;
   /** Bodies of the app's API reads on another local origin, read again as Account A (at most 10, once each). */
   const rereads = new Map<string, string | null>();
 
@@ -1011,13 +1300,24 @@ export async function holdExistingEdits(ctx: CheckContext, page: Page, capture: 
 
   /** Whether a write goes on to the app: judged, and stopped on the safe side when judging itself fails. */
   const decide = async (method: string, url: string, postData: string | null): Promise<"go" | "stop"> => {
-    if (released || saved || method === "GET" || method === "HEAD" || method === "OPTIONS") return "go";
+    if (released || method === "GET" || method === "HEAD" || method === "OPTIONS") return "go";
     if (!isSameOrigin(url, ctx.targetUrl) && !isLocalOrigin(url, ctx.targetUrl)) return "go";
     const carriesValues = carriesTestValues(postData, ctx.runToken);
+    // After the form's save went through, only a write that doesn't carry the test values goes unjudged (the app's
+    // own follow-up: a DELETE check, a counter).
+    if (readAtSave && !carriesValues) return "go";
     let changes: boolean;
     try {
-      answers = await readSoFar();
-      changes = changesReadRecord({ method, url, postData }, answers, ctx.runToken);
+      if (readAtSave) {
+        // A later write carrying the values (a pre-save check went first; the app's own update for the record the save
+        // just created) is judged against what the page had read before that save, and by the ids and paths it names,
+        // never by its method: PATCH /api/tasks/t3 for the new task goes, POST /api/profile or PATCH /api/tasks/t1 for a
+        // record the page read is stopped.
+        changes = changesReadRecord({ method: "POST", url, postData }, readAtSave, ctx.runToken);
+      } else {
+        answers = await readSoFar();
+        changes = changesReadRecord({ method, url, postData }, answers, ctx.runToken);
+      }
     } catch {
       changes = true;
     }
@@ -1025,7 +1325,10 @@ export async function holdExistingEdits(ctx: CheckContext, page: Page, capture: 
       stopped.push({ method, url, carriesValues });
       return "stop";
     }
-    if (carriesValues) saved = true;
+    if (carriesValues) {
+      went.push({ method, url });
+      readAtSave ??= [...answers];
+    }
     return "go";
   };
   const handler = async (route: Route, request: Request) => {
@@ -1042,17 +1345,78 @@ export async function holdExistingEdits(ctx: CheckContext, page: Page, capture: 
   return {
     stopped,
     before: () => answers.map((a) => a.body),
+    reads: () => [...answers],
     verdict() {
-      // The form's own save was stopped, or nothing that carries the test values went through and a write was stopped.
-      const save = stopped.find((w) => w.carriesValues) ?? (saved ? undefined : stopped[0]);
+      // A write that carries the test values was stopped, or nothing that carries them went through and a write was stopped.
+      const save = stopped.find((w) => w.carriesValues) ?? (went.length > 0 ? undefined : stopped[0]);
       if (!save) return null;
-      return `${EXISTING_RECORD} Run Hound stopped the form's save (${endpointText(save.method, save.url)}) before it reached the app, so nothing was changed.`;
+      const stoppedNote = `${EXISTING_RECORD} Run Hound stopped the form's save (${endpointText(save.method, save.url)}) before it reached the app`;
+      const earlier = went.map((w) => endpointText(w.method, w.url));
+      if (earlier.length === 0) return `${stoppedNote}, so nothing was changed.`;
+      // An earlier write with the typed values did reach the app (a check before the save, a save at another URL). When
+      // it changed a record the page had read (or a re-read failed), there is no verdict here: the caller reads the
+      // record back and puts it back (editsExistingRecord, putBackEdited). Never say that nothing was written.
+      if (earlierChanged !== false) return null;
+      return `${stoppedNote}, so that record wasn't changed. ${joinWords(earlier)}, which the form sent before it with the values Run Hound typed, did reach the app; the page hadn't read a record ${earlier.length === 1 ? "it changes" : "they change"}.`;
     },
     async release() {
       released = true;
       await page.unroute("**/*", handler).catch(() => undefined);
+      if (readAtSave && went.length > 0 && stopped.some((w) => w.carriesValues)) {
+        earlierChanged = await readRecordChanged(ctx, page, readAtSave).catch(() => null);
+      }
     },
   };
+}
+
+/**
+ * True when a record the page read before the form's save (`reads`) now holds the run token, each read made again as
+ * Account A (at most 10 URLs; through CheckContext.request, else a fetch in Account A's own page for a same-origin one):
+ * one the page read at a path as one record, or an object whose own id it read. So a write that went through before the
+ * stopped save (POST /api/today renaming task t1) changed that record. False when none does, null when a re-read failed.
+ */
+async function readRecordChanged(ctx: CheckContext, page: Page, reads: { url: string; body: string }[]): Promise<boolean | null> {
+  const key = tokenKey(ctx.runToken);
+  if (!key) return null;
+  const read = readBeforeSave(reads);
+  const again = async (url: string): Promise<string | null> => {
+    const answer = await ctx.request("self", { method: "GET", url }).catch(() => null);
+    if (answer && answer.status >= 200 && answer.status < 300) return answer.body;
+    if (!isSameOrigin(url, page.url())) return null;
+    return page
+      .evaluate(async (u) => {
+        try {
+          const r = await fetch(u, { credentials: "include" });
+          return r.ok ? await r.text() : null;
+        } catch {
+          return null;
+        }
+      }, url)
+      .catch(() => null);
+  };
+  let unknown = false;
+  for (const url of [...new Set(reads.map((r) => r.url))].slice(0, 10)) {
+    const body = await again(url);
+    if (body === null) {
+      unknown = true;
+      continue;
+    }
+    if (!body.toLowerCase().includes(key)) continue;
+    const path = pathKey(url);
+    if (path && read.records.has(path)) return true;
+    if (ownIdHoldsToken(parseJson(body), read, key)) return true;
+  }
+  return unknown ? null : false;
+}
+
+/** True when an object of `node` whose own id the page read (`read.own`, under the key it was read under) holds `key`. */
+function ownIdHoldsToken(node: unknown, read: ReadBeforeSave, key: string, depth = 0): boolean {
+  if (depth > 12 || !node || typeof node !== "object") return false;
+  if (Array.isArray(node)) return node.some((item) => ownIdHoldsToken(item, read, key, depth + 1));
+  const obj = node as JsonObject;
+  const own = [...read.own].some(([k, values]) => idValue(obj[k]) && values.has(String(obj[k])));
+  if (own && Object.values(obj).some((v) => typeof v === "string" && v.toLowerCase().includes(key))) return true;
+  return Object.values(obj).some((v) => ownIdHoldsToken(v, read, key, depth + 1));
 }
 
 /** True when the capture's `r` is a write the hold stopped (it never reached the app): never the form's save. */

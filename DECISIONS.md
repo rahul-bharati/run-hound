@@ -68,3 +68,6 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-09-27: [paywall-trust confirms only a gain, never any change to the plan](docs/decisions/09-2026.md#2026-09-27-paywall-trust-confirms-only-a-gain)
 - 2026-09-27: [The write-side checks hold the form's own save in the page and stop one that would change a record Account A already had](docs/decisions/09-2026.md#2026-09-27-form-save-held-before-it-reaches-the-app)
 - 2026-09-27: [paywall-trust confirms a credits-only gain with a quiet re-read, and a named trial of a paid tier is never a gain](docs/decisions/09-2026.md#2026-09-27-paywall-trust-quiet-reread-and-trials)
+- 2026-09-28: [After the page leaves the allowed targets, only the checks that change Account A keep their own notes](docs/decisions/09-2026.md#2026-09-28-escape-notes-only-for-checks-that-change-account-a)
+- 2026-09-28: [A test holds the docs that list Fernway's bugs to fixtures/fernway/bugs.json](docs/decisions/09-2026.md#2026-09-28-fernway-docs-follow-bugs-json)
+- 2026-09-28: [csrf reads the answer to every forge and forges every run-token value](docs/decisions/09-2026.md#2026-09-28-csrf-reads-the-forges-answer)

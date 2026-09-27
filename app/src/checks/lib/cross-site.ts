@@ -8,8 +8,8 @@
  * The attacker page is served from a real loopback HTTP server, not a routed/fulfilled response: a fulfilled page has
  * no IP address space, so Chromium's Private Network Access checks treat it as public and block its request to the
  * loopback target. A page served over real loopback shares the target's "local" address space, so the request goes
- * through. Only requests a cross-site page can send without a CORS preflight are sent (a form post, or a text/plain
- * body). A JSON body with a real content-type is sent only after the app's own server answered a real preflight (sent
+ * through. Only requests a cross-site page can send without a CORS preflight are sent (a form post, form-encoded or
+ * multipart, or a text/plain body). A JSON body with a real content-type is sent only after the app's own server answered a real preflight (sent
  * by the caller, outside the browser) for the attacker origin with credentials allowed: Run Hound's request
  * interception makes Playwright answer the browser's preflight itself, so the browser's own preflight can't decide.
  *
@@ -21,14 +21,17 @@ import type { AddressInfo } from "node:net";
 import type { Page } from "playwright";
 import type { CheckContext } from "../../core/types.js";
 
-/** How a forged body is encoded on the wire. "form"/"text" need no preflight; "json" only after a real one allowed it. */
-export type ForgeEncoding = "form" | "text" | "json";
+/**
+ * How a forged body is encoded on the wire. "form" (form-encoded), "multipart" (a multipart form) and "text" (a
+ * text/plain body) need no preflight; "json" is sent only after a real one allowed it.
+ */
+export type ForgeEncoding = "form" | "multipart" | "text" | "json";
 
 /** One request the cross-site page is asked to send to the app's own origin. */
 export interface ForgedRequest {
   method: string;
   url: string;
-  /** For "form"/"text" a URL-encoded `a=1&b=2` body; for "json" a JSON string. */
+  /** For "form"/"multipart" the fields as a URL-encoded `a=1&b=2` string; for "text" and "json" the JSON string. */
   body: string;
   encoding: ForgeEncoding;
 }
@@ -37,8 +40,13 @@ export interface ForgedRequest {
 export interface ForgeOutcome {
   /** True when the browser sent the request (a form post always is; a preflighted JSON fetch may be blocked first). */
   sent: boolean;
-  /** The status the app answered, when the response could be read (a form post or a text/plain fetch is opaque, so null). */
+  /**
+   * The status the app answered, as the browser's network layer saw it (a form post into an iframe, or a no-cors
+   * text/plain fetch, is opaque to the page but not to the network), or null when no answer arrived.
+   */
   status: number | null;
+  /** The Location the app redirected the forge to, for a 3xx answer. */
+  location?: string;
   /** Why the browser did not send it (a blocked preflight), when it didn't. */
   blocked?: string;
   /** The names (never the values) of the cookies the browser attached to it; empty when it sent none. */
@@ -145,9 +153,10 @@ export async function crossSitePage(ctx: CheckContext, target: string): Promise<
 /**
  * Sends one request from the already-open attacker `page` and waits for the app's response, so the write is committed
  * before the caller re-reads. A "form" body goes through a hidden <form> submitted into an off-screen iframe (a
- * cross-site POST with no custom headers, so no preflight, and never a top-level navigation). A "text" body goes
- * through a text/plain fetch (CORS-safelisted, so also no preflight: the classic JSON-sent-as-text vector); reading the
- * response back is blocked without CORS headers, but the server still processed the request. A "json" body goes
+ * cross-site POST with no custom headers, so no preflight, and never a top-level navigation); a "multipart" body the same
+ * way with enctype="multipart/form-data". A "text" body goes through a no-cors text/plain fetch (CORS-safelisted, so
+ * also no preflight: the classic JSON-sent-as-text vector); the page can't read the answer, but the network layer sees
+ * its status, and the cookies the browser attached, as for a form post. A "json" body goes
  * through a fetch with a real JSON content-type; the caller sends it only when the app's own preflight answer allowed
  * the attacker origin with credentials. The verdict is always the re-read; the response is awaited only to order the
  * write before it, and to learn which cookies (by name) the browser attached. Throws when the page can't run the
@@ -161,13 +170,20 @@ async function forgeFrom(page: Page, request: ForgedRequest): Promise<ForgeOutco
     .then(
       async (r) => {
         const headers = await r.request().allHeaders().catch(() => ({}) as Record<string, string>);
-        return { status: r.status(), cookies: cookieNames(headers["cookie"]) };
+        const location = r.status() >= 300 && r.status() < 400 ? r.headers()["location"] : undefined;
+        return { status: r.status(), cookies: cookieNames(headers["cookie"]), ...(location ? { location } : {}) };
       },
       () => null,
     );
   const outcome = async (extra: Partial<ForgeOutcome> = {}): Promise<ForgeOutcome> => {
     const answer = await answered;
-    return { sent: answer !== null, status: answer?.status ?? null, cookies: answer?.cookies ?? [], ...extra };
+    return {
+      sent: answer !== null,
+      status: answer?.status ?? null,
+      cookies: answer?.cookies ?? [],
+      ...(answer?.location ? { location: answer.location } : {}),
+      ...extra,
+    };
   };
 
   if (request.encoding === "json") {
@@ -189,8 +205,10 @@ async function forgeFrom(page: Page, request: ForgedRequest): Promise<ForgeOutco
   if (request.encoding === "text") {
     await page.evaluate(
       async ({ url, m, body }) => {
-        // A simple cross-origin request is dispatched and processed by the server even when the CORS read fails.
-        await fetch(url, { method: m, credentials: "include", headers: { "content-type": "text/plain" }, body }).catch(() => undefined);
+        // no-cors: a simple request whose answer is opaque to the page, as a real attacker page sends it. The browser's
+        // network layer still sees the answer (its status and the cookies attached), which a CORS-mode fetch the app
+        // answers without CORS headers never reports.
+        await fetch(url, { method: m, mode: "no-cors", credentials: "include", headers: { "content-type": "text/plain" }, body }).catch(() => undefined);
       },
       { url: request.url, m: method, body: request.body },
     );
@@ -199,7 +217,7 @@ async function forgeFrom(page: Page, request: ForgedRequest): Promise<ForgeOutco
 
   // A form can only send GET or POST; the save this forges is always a POST (a create), so a form fits.
   await page.evaluate(
-    ({ url, body }) => {
+    ({ url, body, multipart }) => {
       const iframe = document.createElement("iframe");
       iframe.name = `rh_${Math.random().toString(36).slice(2)}`;
       iframe.style.display = "none";
@@ -208,6 +226,7 @@ async function forgeFrom(page: Page, request: ForgedRequest): Promise<ForgeOutco
       form.method = "POST";
       form.action = url;
       form.target = iframe.name;
+      if (multipart) form.enctype = "multipart/form-data";
       for (const [name, value] of new URLSearchParams(body)) {
         const input = document.createElement("input");
         input.type = "hidden";
@@ -218,7 +237,7 @@ async function forgeFrom(page: Page, request: ForgedRequest): Promise<ForgeOutco
       document.body.appendChild(form);
       form.submit();
     },
-    { url: request.url, body: request.body },
+    { url: request.url, body: request.body, multipart: request.encoding === "multipart" },
   );
   return outcome();
 }

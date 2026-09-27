@@ -3,9 +3,10 @@
  * A real browser page on a different *site* from the target (localhost vs 127.0.0.1) submits the save this form makes
  * for the run's test record, with a new run-token value, in Account A's own browser context. The browser attaches
  * cookies for itself, so a SameSite=Lax cookie stays home and a SameSite=None cookie rides along. Only requests a
- * cross-site page can send without a CORS preflight are sent (form-encoded, then a JSON save's payload as text/plain;
- * a JSON body only when the app's own answer to a real preflight allows the attacker origin with credentials), and
- * never with a CSRF token. The verdict is a re-read as Account A (through A's own browser page for a cookie session,
+ * cross-site page can send without a CORS preflight are sent (form-encoded, a multipart form for a multipart save, then
+ * a JSON save's payload as text/plain; a JSON body only when the app's own answer to a real preflight allows the
+ * attacker origin with credentials), with every run-token value forged at any depth, and never with a CSRF token. The
+ * app's answer to each forge is read from the network (3xx, 400 and 2xx each weigh on the verdict). The verdict is a re-read as Account A (through A's own browser page for a cookie session,
  * through CheckContext.request and the app's own credential headers for a session its scripts send as a header, such
  * as a bearer token kept in sessionStorage): a finding only when the forged value is stored; a failed re-read is
  * inconclusive, never a pass. Then the test record is restored, only through an update the app
@@ -15,10 +16,12 @@
  * record is put back and skipped before anything is forged. Unticked by default: it changes Account A's data and
  * restores it.
  */
-import { isLocalOrigin, isSameOrigin, tokenKey } from "../core/saves.js";
+import { carriesTestValues, isLocalOrigin, isSameOrigin, tokenKey } from "../core/saves.js";
 import type { Page } from "playwright";
 import type { Check, CheckContext, Evidence, Finding, PlanEnv, Scenario } from "../core/types.js";
 import { crossSitePage, type ForgeEncoding, type ForgeOutcome, type TargetCookie } from "./lib/cross-site.js";
+import { redactValues, withoutQueryCredentials, type DroppedParam } from "./lib/cross-site-query.js";
+import { isTokenField, tokenSources } from "./lib/csrf-tokens.js";
 import { endpointOf, errorResult, guarded, result, tryCard } from "./lib/functional-finding.js";
 import { canaryValues, createRequests, fillForm, settle, submitControl, submitForm, waitForCreates, type FieldValue } from "./lib/functional-form.js";
 import {
@@ -29,10 +32,12 @@ import {
   findOwnRecord,
   getsBefore,
   holdExistingEdits,
+  holdsId,
   jsonObjectBody,
   locateRecord,
   neverWritten,
   putBackEdited,
+  readsBefore,
   readsList,
   recordChains,
   recordWrites,
@@ -42,6 +47,7 @@ import {
   snapshotFrom,
   stoppedByHold,
   type CapturedRequest,
+  type JsonObject,
   type RecordIO,
   type RecordSnapshot,
 } from "./lib/record-state.js";
@@ -51,91 +57,144 @@ const ID = "csrf" as const;
 const INTERRUPTED_NOTE =
   "If Run Hound had already sent the forged request, Account A's test record may still hold the value it changed: check Account A.";
 
-/**
- * Body fields that carry an anti-CSRF token (a hidden `_csrf`, `authenticity_token` or `__RequestVerificationToken`
- * input, a `csrfToken`/`_token` JSON key). A page on another site can't know Account A's token, so the forged body
- * never carries one: it is left out, and the notes say so.
- */
-const TOKEN_FIELD = /csrf|xsrf|authenticity_token|requestverificationtoken|^_token$/i;
-
 /** A body encoded as `application/x-www-form-urlencoded` (name=value pairs joined by "&"), judged from the body itself. */
 function looksFormEncoded(body: string | null | undefined): body is string {
   return Boolean(body) && /^[^=&\s]+=[^&\s]*(&[^=&\s]+=[^&\s]*)*$/.test(body!);
 }
 
-/** A value with "csrf" inserted right after the run token, so it still carries the token but is a new, unique value. */
+/**
+ * A value with "csrf" right after the run token, so it still carries the token but is a new, unique value, and as long
+ * as the value the app accepted: "csrf" takes the place of the four characters after the token (or, when fewer follow
+ * it, of the last ones before it), so a maxlength the server enforces never refuses the forge for its length alone.
+ */
 function markValue(value: string, key: string): string {
   const i = value.toLowerCase().indexOf(key);
   if (i < 0) return `${value}${key}csrf`;
-  return `${value.slice(0, i + key.length)}csrf${value.slice(i + key.length)}`;
+  const token = value.slice(i, i + key.length);
+  const tail = value.slice(i + key.length);
+  if (tail.length >= 4) return `${value.slice(0, i)}${token}csrf${tail.slice(4)}`;
+  const before = value.slice(0, i);
+  return `${before.slice(Math.min(before.length, 4 - tail.length))}${token}csrf`;
 }
 
 const asText = (v: unknown): string => (typeof v === "string" ? v : v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v));
 
 /** The forged bodies of a save, the field that carries the forged value, and the token fields left out. */
 interface ForgedBodies {
+  /** How the app's own save was encoded. */
+  kind: "form" | "multipart" | "json";
   /** Form-encoded: for a form post, and for a JSON save's form-encoded attempt (its top-level fields). */
   form: string;
   /** The JSON payload (a JSON save only): sent as text/plain, or as JSON when CORS allows it. */
   json?: string;
-  /** The field whose value was changed to the forged one. */
+  /** The top-level field that carries the (first) forged value. */
   marked: string;
-  /** The fields the forged body keeps (token fields left out), in order. */
+  /** The top-level fields the forged body keeps (token fields left out), in order. */
   fields: string[];
   /** Fields left out because they carry an anti-CSRF token. */
   dropped: string[];
 }
 
 /**
- * The forged bodies for `save`, with one run-token field changed to a new value that carries `marker`. Every field that
- * carries an anti-CSRF token is left out: by name (TOKEN_FIELD), or by value (`tokens`, the token values the app gave
- * Account A's page), since a page on another site can't read them. Null when the body is neither JSON nor form-encoded
- * (a multipart body can't be rebuilt without its headers).
+ * A multipart/form-data body's text fields in order, read from the body itself (its first line is the boundary). An
+ * empty file part (a file input left empty) is left out; null when the body isn't multipart or carries a file, which a
+ * page on another site can't rebuild from here.
  */
-function forgedBodies(save: CapturedRequest, key: string, tokens: Set<string>): ForgedBodies | null {
-  const isToken = (k: string, v: unknown) => TOKEN_FIELD.test(k) || (typeof v === "string" && v !== "" && tokens.has(v));
-  let entries: [string, unknown][];
-  const json = jsonObjectBody(save.postData);
-  if (json) entries = Object.entries(json);
-  else if (looksFormEncoded(save.postData)) entries = [...new URLSearchParams(save.postData)];
-  else return null;
+function multipartEntries(body: string | null | undefined): [string, string][] | null {
+  const first = body ? /^--([^\r\n]+)\r?\n/.exec(body) : null;
+  if (!body || !first) return null;
+  const entries: [string, string][] = [];
+  for (const part of body.split(`--${first[1]!}`).slice(1)) {
+    if (part.startsWith("--")) break;
+    const m = /^\r?\n([\s\S]*?)\r?\n\r?\n([\s\S]*?)\r?\n$/.exec(part);
+    if (!m) return null;
+    const name = /\bname="([^"]*)"/i.exec(m[1]!)?.[1];
+    if (name === undefined) return null;
+    const file = /\bfilename="([^"]*)"/i.exec(m[1]!);
+    if (file) {
+      if (file[1] === "" && m[2] === "") continue;
+      return null;
+    }
+    entries.push([name, m[2]!]);
+  }
+  return entries.length > 0 ? entries : null;
+}
 
-  const dropped = [...new Set(entries.filter(([k, v]) => isToken(k, v)).map(([k]) => k))];
+/**
+ * The forged bodies for `save`, with every run-token value, at any depth, changed to a new value that carries `marker`
+ * (a field the app doesn't keep never hides the forge), or, when none carries the run token, the first text value.
+ * Every field that carries an anti-CSRF token is left out (a page on another site can't read it): by name (csrf-tokens.ts
+ * TOKEN_FIELD: _csrf, authenticity_token, task[_token], _wpnonce, form_key, token, nonce …, unless Run Hound typed the
+ * value), or by value (`tokens`: the token values the app gave Account A's page, a random value in a hidden input, and
+ * the credentials left out of the save's URL). Null when the body is neither JSON, form-encoded nor multipart text fields.
+ */
+function forgedBodies(save: CapturedRequest, key: string, tokens: ReadonlySet<string>): ForgedBodies | null {
+  const isToken = (k: string, v: unknown) => isTokenField(k, v, tokens, key);
+  const json = jsonObjectBody(save.postData);
+  const dropped = new Set<string>();
+  const marked: string[] = [];
+
+  if (json) {
+    // Every string that carries the run token is marked, however deep; token fields are left out at every level.
+    const walk = (v: unknown, top: string): unknown => {
+      if (typeof v === "string") {
+        if (!v.toLowerCase().includes(key)) return v;
+        marked.push(top);
+        return markValue(v, key);
+      }
+      if (Array.isArray(v)) return v.map((x) => walk(x, top));
+      if (v && typeof v === "object") {
+        const out: Record<string, unknown> = {};
+        for (const [k, x] of Object.entries(v)) {
+          if (isToken(k, x)) dropped.add(k);
+          else out[k] = walk(x, top);
+        }
+        return out;
+      }
+      return v;
+    };
+    const forged: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(json)) {
+      if (isToken(k, v)) dropped.add(k);
+      else forged[k] = walk(v, k);
+    }
+    if (marked.length === 0) {
+      const first = Object.keys(forged).find((k) => typeof forged[k] === "string");
+      if (first === undefined) return null;
+      forged[first] = markValue(forged[first] as string, key);
+      marked.push(first);
+    }
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(forged)) params.append(k, asText(v));
+    return { kind: "json", form: params.toString(), json: JSON.stringify(forged), marked: marked[0]!, fields: Object.keys(forged), dropped: [...dropped] };
+  }
+
+  const multipart = looksFormEncoded(save.postData) ? null : multipartEntries(save.postData);
+  const entries = multipart ?? (looksFormEncoded(save.postData) ? [...new URLSearchParams(save.postData)] : null);
+  if (!entries) return null;
+  for (const [k, v] of entries) if (isToken(k, v)) dropped.add(k);
   const kept = entries.filter(([k, v]) => !isToken(k, v));
-  // The field that carries the forged value: the first run-token value, else the first text value.
-  const withToken = kept.findIndex(([, v]) => typeof v === "string" && v.toLowerCase().includes(key));
-  const at = withToken >= 0 ? withToken : kept.findIndex(([, v]) => typeof v === "string");
-  if (at < 0) return null;
-  const forged = kept.map(([k, v], i): [string, unknown] => [k, i === at ? markValue(v as string, key) : v]);
-  const params = new URLSearchParams();
-  for (const [k, v] of forged) params.append(k, asText(v));
+  const withToken = kept.map(([, v], i) => (v.toLowerCase().includes(key) ? i : -1)).filter((i) => i >= 0);
+  const at = withToken.length > 0 ? withToken : kept.length > 0 ? [0] : [];
+  if (at.length === 0) return null;
+  const forged = kept.map(([k, v], i): [string, string] => [k, at.includes(i) ? markValue(v, key) : v]);
   return {
-    form: params.toString(),
-    ...(json ? { json: JSON.stringify(Object.fromEntries(forged)) } : {}),
-    marked: forged[at]![0],
+    kind: multipart ? "multipart" : "form",
+    form: new URLSearchParams(forged).toString(),
+    marked: forged[at[0]!]![0],
     fields: [...new Set(forged.map(([k]) => k))],
-    dropped,
+    dropped: [...dropped],
   };
 }
 
 /**
- * Anti-CSRF token values the app gave Account A: a <meta> whose name says csrf/xsrf (Rails, Laravel, Django templates)
- * and a cookie whose name does (double-submit cookies). Held in memory only, to leave them out of the forged body;
- * never put in a page Run Hound serves, never written anywhere.
+ * Anti-CSRF token values the app gave Account A (csrf-tokens.ts tokenSources): a <meta> whose name says csrf/xsrf
+ * (Rails, Laravel, Django templates), a cookie whose name does (double-submit cookies), and a hidden input with a
+ * token's name or a random-looking value Run Hound didn't type (Moodle's sesskey, a home-made formToken). Held in
+ * memory only, to leave them out of the forged body; never put in a page Run Hound serves, never written anywhere.
  */
-async function tokenValues(page: Page): Promise<Set<string>> {
-  const meta = await page
-    .evaluate(() =>
-      [...document.querySelectorAll("meta[name]")]
-        .filter((m) => /csrf|xsrf/i.test(m.getAttribute("name") ?? ""))
-        .map((m) => m.getAttribute("content") ?? ""),
-    )
-    .catch(() => [] as string[]);
-  const cookies = await page
-    .context()
-    .cookies()
-    .catch(() => []);
-  return new Set([...meta, ...cookies.filter((c) => /csrf|xsrf/i.test(c.name)).map((c) => c.value)].filter(Boolean));
+async function tokenValues(page: Page, key: string): Promise<Set<string>> {
+  return new Set((await tokenSources(page, key)).map((s) => s.value));
 }
 
 /** A read of the record endpoint as Account A: its JSON, "gone" for a 404 or 410, null when the read failed. */
@@ -262,7 +321,18 @@ function tried(attempts: { note: string; outcome: ForgeOutcome }[]): string {
   return attempts.map((a) => `${a.note} (${a.outcome.status ?? "no answer Run Hound could see"})`).join(", ");
 }
 
-const answeredOk = (o: ForgeOutcome) => o.status === null || (o.status >= 200 && o.status < 300);
+/** A redirect to a sign-in page: the app's answer to a request that isn't signed in, so a refusal. */
+const SIGN_IN_PATH = /\/(?:log[-_]?in|sign[-_]?in|auth|authenticate|sessions?\/new|users\/sign_in)(?:[/?#.]|$)/i;
+
+/**
+ * True when the app may have taken the forge: a 2xx, a 3xx that isn't a redirect to a sign-in page (Post/Redirect/Get
+ * answers a stored post with a 303), or no answer Run Hound could see.
+ */
+const answeredOk = (o: ForgeOutcome) =>
+  o.status === null || (o.status >= 200 && o.status < 300) || (o.status >= 300 && o.status < 400 && !SIGN_IN_PATH.test(o.location ?? ""));
+
+/** An origin that is no loopback name or address: a CORS allowlist that trusts it trusts any site. */
+const OTHER_SITE = "http://run-hound-other-site.invalid";
 
 /**
  * Puts the test record back after the forge, from a re-read as Account A (the same way as every other read, `via`): it
@@ -273,7 +343,15 @@ const answeredOk = (o: ForgeOutcome) => o.status === null || (o.status >= 200 &&
 async function putBack(
   ctx: CheckContext,
   page: Page,
-  o: { snap: RecordSnapshot; updates: CapturedRequest[]; create: CapturedRequest; marker: string; via: ReadVia },
+  o: {
+    snap: RecordSnapshot;
+    updates: CapturedRequest[];
+    create: CapturedRequest;
+    marker: string;
+    via: ReadVia;
+    /** True when a read shows a record carrying the run's values that the first read didn't (see newRunRecord). */
+    fresh: (json: unknown) => boolean;
+  },
 ): Promise<string[]> {
   const read = await readAsA(ctx, page, o.snap.url, o.via);
   if (read === null) return ["Run Hound couldn't read Account A's test record back to put it back, so it may still hold the forged value: check Account A."];
@@ -313,11 +391,60 @@ async function putBack(
   }
   if (read !== "gone") {
     const created = recordChains(read.json, [o.marker]).filter((c) => !(o.snap.id && c[0]![o.snap.id.key] === o.snap.id.value));
-    if (created.length > 0) {
+    if (created.length > 0 || o.fresh(read.json)) {
       notes.push("The forged request created a new test record under Account A (it carries the run's test values, and Run Hound doesn't delete records): check Account A.");
     }
   }
   return notes;
+}
+
+/**
+ * The save this form made for the test record, among `candidates` (the POSTs it sent that carry the typed values, in
+ * the order sent): the one whose answer holds the record's id, answered 201 Created, or holds the typed values (in that
+ * order of weight; the last one on a tie), so a POST sent before the save (a validation or a lookup that stores
+ * nothing) is never taken for it. `tied` is false when several carry the values and no answer ties any of them to the
+ * record: then it is the last one sent before the record first showed in a read the page made, and the caller never
+ * calls the result a pass.
+ */
+function pickSave(
+  candidates: CapturedRequest[],
+  requests: CapturedRequest[],
+  testValues: string[],
+  snap: RecordSnapshot,
+): { save: CapturedRequest; tied: boolean } {
+  if (candidates.length === 1) return { save: candidates[0]!, tied: true };
+  const holdsValues = (body: string) => testValues.some((v) => v !== "" && body.includes(v));
+  const score = (r: CapturedRequest) => {
+    const body = r.responseBody ?? "";
+    return (snap.id && body && holdsId(body, snap.id) ? 4 : 0) + (r.status === 201 ? 2 : 0) + (body && holdsValues(body) ? 1 : 0);
+  };
+  let best: CapturedRequest | null = null;
+  let bestScore = 0;
+  for (const r of candidates) {
+    const s = score(r);
+    if (s > 0 && s >= bestScore) {
+      best = r;
+      bestScore = s;
+    }
+  }
+  if (best) return { save: best, tied: true };
+  const appears = requests.findIndex((r) => r.method.toUpperCase() === "GET" && Boolean(r.responseBody) && holdsValues(r.responseBody!));
+  const before = appears >= 0 ? candidates.filter((r) => requests.indexOf(r) < appears) : [];
+  return { save: (before.length > 0 ? before : candidates).at(-1)!, tied: false };
+}
+
+/** "a, b and c". */
+const listed = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+
+/** The note naming the query parameters left out of the forged request's URL, by what they carry; "" when none was. */
+function queryNote(dropped: DroppedParam[]): string {
+  if (dropped.length === 0) return "";
+  const what = [
+    dropped.some((d) => d.kind === "csrf") ? "Account A's anti-CSRF token" : "",
+    dropped.some((d) => d.kind === "credential") ? "Account A's credential" : "",
+    dropped.some((d) => d.kind === "secret") ? "a random value the app's own page added" : "",
+  ].filter(Boolean);
+  return `The forged request's URL left out ${listed(dropped.map((d) => d.name))}, which carr${dropped.length === 1 ? "ies" : "y"} ${listed(what)}: a page on another site can't know ${dropped.length === 1 ? "it" : "them"}.`;
 }
 
 export const check: Check = {
@@ -354,16 +481,17 @@ export const check: Check = {
       }
 
       // 1. As Account A, create the test record through the form and capture its save request. The form's writes are
-      //    held and judged before they reach the app (holdExistingEdits): a save that would change a record Account A
+      //    held and judged before they reach the app (holdExistingEdits) from the first keystroke, so a write the page
+      //    fires while Run Hound types (an autosave on change) is judged too: a save that would change a record Account A
       //    already had is stopped, and the scenario is skipped with nothing written.
       const { page, capture } = await ctx.openPage({ as: "self" });
       ctx.step("Saving a test record as Account A", page);
       // Salt "xsite": the marker below inserts "csrf" after the run token, so the salt must not itself contain "csrf",
       // or Account A's own saved values would already match the marker and every run would look like a finding.
       const values: FieldValue[] = canaryValues(form, ctx.runToken, "xsite");
-      await fillForm(page, values);
       const hold = await holdExistingEdits(ctx, page, capture);
       try {
+        await fillForm(page, values);
         await submitForm(page, form);
         await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
       } finally {
@@ -375,17 +503,28 @@ export const check: Check = {
       const creates = createRequests(capture, ctx.targetUrl, ctx.runToken).filter(
         (r) => (isSameOrigin(r.url, ctx.targetUrl) || isLocalOrigin(r.url, ctx.targetUrl)) && !stoppedByHold(hold, r),
       );
-      // A cross-site page can only send a GET or a POST without a preflight, so only a POST save can be forged.
-      const save = creates.find((r) => r.postData && r.method.toUpperCase() === "POST");
-      if (!save) {
+      // A cross-site page can only send a GET or a POST without a preflight, so only a POST save can be forged. Which of
+      // the POSTs is the save for the test record is decided once the record is read back (pickSave): a POST the form
+      // sends before its save (a validation that stores nothing) is never the one forged.
+      const posts = creates.filter((r) => r.postData && r.method.toUpperCase() === "POST");
+      if (posts.length === 0) {
         if (creates.length > 0) {
           return skip("Skipped: this form's save isn't a POST (a cross-site page can only send a GET or a POST without a preflight), so it can't be forged from another site.");
         }
         return skip("Skipped: submitting the form sent no save request, so there was nothing a cross-site page could forge.");
       }
-      const saveEndpoint = endpointOf(save.method, save.url);
-      if (neverWritten(save.url)) {
-        return skip(`Skipped: this form saves to ${saveEndpoint}, an endpoint Run Hound never writes to from another site (sign-out, password, email, payment, invitations or sharing).`);
+      const carrying = posts.filter((r) => carriesTestValues(r.postData, ctx.runToken));
+      const candidates = carrying.length > 0 ? carrying : posts;
+      // Anti-CSRF token values the app gave Account A's page: left out of the forged body and the forged URL.
+      const key = tokenKey(ctx.runToken);
+      const tokens = await tokenValues(page, key);
+      // Every URL the finding, the notes or the spec names is cleaned of the tokens and credentials the app's own page
+      // put in its query (Spring's ?_csrf=, ?access_token=): none of them is ever written anywhere.
+      const clean = (url: string) => withoutQueryCredentials(url, tokens, key);
+      const endpoint = (r: CapturedRequest) => endpointOf(r.method, clean(r.url).url);
+      const neverAt = candidates.find((r) => neverWritten(r.url));
+      if (neverAt) {
+        return skip(`Skipped: this form saves to ${endpoint(neverAt)}, an endpoint Run Hound never writes to from another site (sign-out, password, email, payment, invitations or sharing).`);
       }
 
       // 2. Reload, find the record endpoint (a list such as GET /api/tasks counts) and snapshot the test record, so the
@@ -395,33 +534,49 @@ export const check: Check = {
       await settle(page);
       const testValues = values.filter((v) => v.canary && v.value).map((v) => v.value);
       const recordGet = await findOwnRecord(ctx, capture, testValues, { arrays: true });
+      // The form's own writes reached the app (none was held): without a read, Run Hound can't tell what they changed,
+      // so the note never lets it pass for "nothing was changed".
+      const reached = [...new Set(creates.filter((r) => r.status !== null).map(endpoint))];
+      const reachedNote =
+        reached.length > 0
+          ? ` The form's own save (${listed(reached)}) reached the app, and without a read Run Hound can't tell whether it changed a record Account A already had: check Account A.`
+          : "";
       if (!recordGet) {
-        return skip("Skipped: Run Hound couldn't find an endpoint that reads the saved record back as Account A, so it can't tell whether a forged write worked.");
+        return skip(`Skipped: Run Hound couldn't find an endpoint that reads the saved record back as Account A, so it can't tell whether a forged write worked.${reachedNote}`);
       }
       // The first read picks how every later one is made: through A's page (a cookie session) or, when that doesn't
       // show the test record, through CheckContext.request (a session the app's scripts send as a header).
       const first = await firstRead(ctx, page, recordGet.url, testValues);
       if (!first) {
-        return skip("Skipped: Run Hound couldn't read the test record back as Account A, so it can't tell whether a forged write worked.");
+        return skip(`Skipped: Run Hound couldn't read the test record back as Account A, so it can't tell whether a forged write worked.${reachedNote}`);
       }
       const { via, snap } = first;
+      const { save, tied } = pickSave(candidates, capture.requests, testValues, snap);
+      const saveEndpoint = endpoint(save);
       // The save went through and turned out to change a record Account A already had (as write-access judges it):
       // nothing is forged at it. Put it back as the page read it before the save, and say what the save changed.
       const heldBefore = hold.before();
       const before = heldBefore.length > 0 ? heldBefore : getsBefore(capture, save);
-      if (editsExistingRecord(save, snap, recordGet, before, ctx.runToken)) {
+      const reads = heldBefore.length > 0 ? hold.reads() : readsBefore(capture, save);
+      if (editsExistingRecord(save, snap, recordGet, before, ctx.runToken, reads)) {
         ctx.step("Putting back the record the form changed", page);
         return skip([EXISTING_RECORD, ...(await putBackEdited(ctx, { capture, save, snap, before, io: ioAsA(ctx, page, via) }))].join(" "));
       }
       // The app's own updates of the test record: the only requests a restore may use (the create would add a record).
       const updates = recordWrites(capture, snap, ctx.targetUrl).filter((r) => r.method.toUpperCase() !== "DELETE");
 
-      // 3. Build the forged bodies (no CSRF token: a page on another site can't know it) and a page on a different site.
-      const key = tokenKey(ctx.runToken);
+      // 3. Build the forged request (no CSRF token and no credential: a page on another site can't know them, in its
+      //    body or its URL) and a page on a different site.
       const marker = `${key}csrf`;
-      const bodies = forgedBodies(save, key, await tokenValues(page));
+      const forgedUrl = clean(save.url);
+      const recordUrl = clean(recordGet.url);
+      // Values that must never be written: a finding, a note or the spec built below from the cleaned URLs never holds
+      // them, and every text is also passed through `hide` in case one rides somewhere else (an error message).
+      const secrets = [...new Set([...forgedUrl.values, ...recordUrl.values])];
+      const hide = (text: string) => (secrets.length > 0 ? redactValues(text, secrets) : text);
+      const bodies = forgedBodies(save, key, new Set([...tokens, ...forgedUrl.values]));
       if (!bodies) {
-        return skip("Skipped: this form's save isn't form-encoded or JSON, so a cross-site page can't rebuild it (a multipart body needs a preflight).");
+        return skip("Skipped: this form's save isn't form-encoded, multipart text fields or JSON, so a cross-site page can't rebuild it.");
       }
       const cross = await crossSitePage(ctx, ctx.targetUrl);
       if ("inconclusive" in cross) {
@@ -429,16 +584,39 @@ export const check: Check = {
         return errorResult(ID, scenario, started, `Inconclusive. ${cross.inconclusive}`, "skipped");
       }
 
-      const wasJson = Boolean(bodies.json);
+      const wasJson = bodies.kind === "json";
       // A JSON save can only be a finding when the app also takes it form-encoded or as text/plain (the classic
       // JSON-sent-as-text vector: the JSON payload with a CORS-safelisted content-type), which a real cross-site page can
       // send without a preflight, or when the app's CORS lets the attacker origin send the JSON with credentials.
-      const cors = wasJson ? await corsAllows(ctx, save.url, cross.origin) : false;
-      const attempts: { encoding: ForgeEncoding; body: string; note: string }[] = [
-        { encoding: "form", body: bodies.form, note: "form-encoded" },
-        ...(wasJson ? [{ encoding: "text" as ForgeEncoding, body: bodies.json!, note: "JSON sent as text/plain" }] : []),
-        ...(cors ? [{ encoding: "json" as ForgeEncoding, body: bodies.json!, note: "JSON (the app's CORS allows this origin with credentials)" }] : []),
-      ];
+      const cors = wasJson ? await corsAllows(ctx, forgedUrl.url, cross.origin) : false;
+      // The attacker page is on loopback too, so CORS that allows it may trust loopback origins only: a second preflight
+      // from an origin that is no loopback name tells an allowlist of loopback origins from one that reflects any site.
+      const loopbackOnly = cors && !(await corsAllows(ctx, forgedUrl.url, OTHER_SITE));
+      // A multipart save is forged as a multipart form (a page on another site posts one without a preflight).
+      const attempts: { encoding: ForgeEncoding; body: string; note: string }[] =
+        bodies.kind === "multipart"
+          ? [{ encoding: "multipart", body: bodies.form, note: "multipart form" }]
+          : [
+              { encoding: "form", body: bodies.form, note: "form-encoded" },
+              ...(wasJson ? [{ encoding: "text" as ForgeEncoding, body: bodies.json!, note: "JSON sent as text/plain" }] : []),
+              ...(cors
+                ? [{ encoding: "json" as ForgeEncoding, body: bodies.json!, note: `JSON (the app's CORS allows this origin with credentials${loopbackOnly ? ", as it allows loopback origins" : ""})` }]
+                : []),
+            ];
+      // The encoding of the app's own save: a 400 to a forge sent that way refuses the value, not the request.
+      const ownEncoding: ForgeEncoding = bodies.kind === "multipart" ? "multipart" : wasJson ? "json" : "form";
+
+      // A record carrying the run's values that the first read didn't show: the forge made it, even when the app
+      // rewrote the forged value (a sanitiser, a slug) so the marker isn't there. By the test record's id key when it has
+      // one, else by count; never without the run token (every value would match).
+      const runRecords = (json: unknown) => (key ? recordChains(json, [key]).map((c) => c[0]!) : []);
+      const idKey = snap.id?.key;
+      const firstRun = runRecords(first.json);
+      const firstIds = new Set(idKey ? firstRun.map((r) => JSON.stringify(r[idKey])) : []);
+      const fresh = (json: unknown): boolean => {
+        const now = runRecords(json);
+        return idKey ? now.some((r: JsonObject) => r[idKey] !== undefined && !firstIds.has(JSON.stringify(r[idKey]))) : now.length > firstRun.length;
+      };
 
       // Chromium's 2-minute window for a new Lax-by-default cookie (docs/v2-spec.md "Cookies") only opens for a
       // top-level cross-site POST navigation. Every forge here is a form posted into an iframe, or a fetch, never a
@@ -447,11 +625,13 @@ export const check: Check = {
       const cookies: TargetCookie[] = await cross.targetCookies();
       const sent: { note: string; encoding: ForgeEncoding; outcome: ForgeOutcome }[] = [];
       let stored: (typeof sent)[number] | null = null;
+      /** The forge was found by a new record carrying the run's values, not by the forged value. */
+      let storedAsNew = false;
       let rereadFailed = false;
       try {
         for (const attempt of attempts) {
           ctx.step(`Sending the forged save from another site (${attempt.note})`, page);
-          const outcome = await cross.forge({ method: "POST", url: save.url, body: attempt.body, encoding: attempt.encoding });
+          const outcome = await cross.forge({ method: "POST", url: forgedUrl.url, body: attempt.body, encoding: attempt.encoding });
           sent.push({ note: attempt.note, encoding: attempt.encoding, outcome });
           const read = await readAsA(ctx, page, recordGet.url, via);
           if (read === null) {
@@ -462,22 +642,73 @@ export const check: Check = {
             stored = sent[sent.length - 1]!;
             break;
           }
+          // Only a forge the app may have taken counts: a record that shows up after a refusal came from elsewhere.
+          if (read !== "gone" && answeredOk(outcome) && fresh(read.json)) {
+            stored = sent[sent.length - 1]!;
+            storedAsNew = true;
+            break;
+          }
         }
       } catch (error) {
         // A forge may already have been sent: put the test record back first, then say what may be left.
         const message = error instanceof Error ? error.message : String(error);
-        const put = sent.length > 0 ? await putBack(ctx, page, { snap, updates, create: save, marker, via }).catch(() => [] as string[]) : [];
-        throw new Error([message.replace(/\.?$/, "."), ...put, sent.length > 0 ? INTERRUPTED_NOTE : ""].filter(Boolean).join(" "));
+        const put = sent.length > 0 ? await putBack(ctx, page, { snap, updates, create: save, marker, via, fresh }).catch(() => [] as string[]) : [];
+        throw new Error(hide([message.replace(/\.?$/, "."), ...put, sent.length > 0 ? INTERRUPTED_NOTE : ""].filter(Boolean).join(" ")));
       } finally {
         await cross.dispose();
       }
 
       // 4. Restore when something may have changed, then the verdict from the re-read.
-      const restoreNotes = stored || rereadFailed ? await putBack(ctx, page, { snap, updates, create: save, marker, via }) : [];
+      const restoreNotes = stored || rereadFailed ? await putBack(ctx, page, { snap, updates, create: save, marker, via, fresh }) : [];
       const droppedNote =
         bodies.dropped.length > 0
           ? `The forged body left out ${bodies.dropped.join(", ")}, which carr${bodies.dropped.length === 1 ? "ies" : "y"} Account A's anti-CSRF token: a page on another site can't know it.`
           : "";
+      const urlNote = queryNote(forgedUrl.dropped);
+      const credentials = forgedUrl.dropped.filter((d) => d.kind === "credential").map((d) => d.name);
+
+      if (stored && stored.outcome.cookies.length === 0 && credentials.length > 0) {
+        // No cookie rode and the credential the app's own page put in the URL was left out, yet the value was stored:
+        // "the save needs no session" can't be claimed, since the credential may also ride elsewhere in the request (a
+        // body field, a path segment) that Run Hound didn't strip. Never confirmed, never a pass.
+        return skip(
+          hide(
+            [
+              `Inconclusive: the save's URL carried Account A's credential (${listed(credentials)}), which Run Hound left out of the forged request, and the forged ${stored.note} request from ${cross.origin} was still stored with no cookie attached, so Run Hound can't tell what signed it in as Account A: check who may send ${saveEndpoint}.`,
+              droppedNote,
+              ...restoreNotes,
+            ]
+              .filter(Boolean)
+              .join(" "),
+          ),
+        );
+      }
+
+      if (stored && stored.encoding === "json" && loopbackOnly) {
+        // CORS allowed the attacker page because it is on loopback, and refused an origin that isn't: an allowlist of
+        // loopback origins (every localhost and 127.0.0.1 port), never "any site". Only a page served from Account A's
+        // own machine can send it, so the finding is advisory.
+        const evidence = await forgedCard(ctx, saveEndpoint, stored.note, stored.outcome.cookies, cookies, bodies.dropped);
+        const finding: Finding = {
+          checkId: ID,
+          id: `${ID}#${scenario.id}-1`,
+          title: "Another local origin can change Account A's data (CORS trusts loopback origins)",
+          severity: "medium",
+          category: "security",
+          confidence: "advisory",
+          meaning:
+            `Run Hound opened a page on ${cross.origin} in Account A's browser and sent ${saveEndpoint} again as JSON with a new value, and re-reading the record as Account A showed it: the app's CORS answer allows that origin with credentials. ` +
+            `The same preflight from ${OTHER_SITE} was refused, so the allowlist trusts loopback origins (localhost and 127.0.0.1, on any port) rather than only the app's own origin. ` +
+            "Only a page served from Account A's own machine (another local app or dev server) can send this save, so this is advisory.",
+          impact: "Any other app or tool Account A runs on localhost or 127.0.0.1 could change Account A's data through this save, without Account A submitting the form.",
+          fix: `Ask your AI or developer: "The CORS config for ${saveEndpoint} allows every localhost and 127.0.0.1 origin with credentials. Allow only the app's own origin (its exact scheme, host and port), and add a CSRF defence: a SameSite=Lax (or Strict) session cookie plus a CSRF token or an Origin check."`,
+          location: saveEndpoint,
+          evidence,
+        };
+        const notes = [`The forged ${stored.note} request from ${cross.origin} was stored.`, urlNote, droppedNote, ...restoreNotes].filter(Boolean).join(" ");
+        const hidden: Finding = { ...finding, title: hide(finding.title), meaning: hide(finding.meaning), fix: hide(finding.fix), location: hide(finding.location ?? "") };
+        return result(ID, scenario, started, [hidden], hide(notes));
+      }
 
       if (stored) {
         const carried = stored.outcome.cookies;
@@ -502,7 +733,9 @@ export const check: Check = {
           confidence: "confirmed",
           meaning:
             `Run Hound opened a page on a different site (${cross.origin}) in Account A's browser and sent ${saveEndpoint} again with a new value (${stored.note}). ` +
-            `Re-reading the record as Account A showed the new value: ${why}.` +
+            (storedAsNew
+              ? `Re-reading Account A's records showed a new record carrying the run's test values that only the forged request could have made (the app stored it with the value changed): ${why}.`
+              : `Re-reading the record as Account A showed the new value: ${why}.`) +
             (viaCors ? " The app's CORS answer allows that origin with credentials, which is also a CORS issue (cors): any site can send this JSON save and read the answer." : ""),
           impact: noSession
             ? "Any web page Account A visits, or anyone at all, can make this change (or any other this form makes) in Account A's data without Account A's session: the save doesn't check who sends it. A page on another site can do it silently, without Account A ever submitting the form."
@@ -520,8 +753,10 @@ export const check: Check = {
             filename: `${ID}-cross-site.spec.ts`,
             source: replaySpec({
               target: ctx.targetUrl,
-              save: save.url,
-              record: recordGet.url,
+              save: forgedUrl.url,
+              record: recordUrl.url,
+              saveLeftOut: forgedUrl.dropped.map((d) => d.name),
+              recordLeftOut: recordUrl.dropped.map((d) => d.name),
               fields: bodies.fields,
               marked: bodies.marked,
               encoding: stored.encoding,
@@ -533,16 +768,19 @@ export const check: Check = {
             }),
           },
         };
-        const notes = [`The forged ${stored.note} request from ${cross.origin} was stored.`, droppedNote, ...restoreNotes].filter(Boolean).join(" ");
-        return result(ID, scenario, started, [finding], notes);
+        const notes = [`The forged ${stored.note} request from ${cross.origin} was stored.`, urlNote, droppedNote, ...restoreNotes].filter(Boolean).join(" ");
+        const hidden: Finding = { ...finding, title: hide(finding.title), meaning: hide(finding.meaning), fix: hide(finding.fix), location: hide(finding.location ?? "") };
+        return result(ID, scenario, started, [hidden], hide(notes));
       }
 
       if (rereadFailed) {
         return skip(
-          [
-            "Inconclusive: the re-read as Account A failed after the forged request was sent, so Run Hound can't tell whether it was stored: check Account A.",
-            ...restoreNotes,
-          ].join(" "),
+          hide(
+            [
+              "Inconclusive: the re-read as Account A failed after the forged request was sent, so Run Hound can't tell whether it was stored: check Account A.",
+              ...restoreNotes,
+            ].join(" "),
+          ),
         );
       }
 
@@ -551,7 +789,26 @@ export const check: Check = {
       const unseen = sent.filter((a) => answeredOk(a.outcome));
       if (unseen.length > 0 && !readsList(first.json, snap.record)) {
         return skip(
-          `Inconclusive: the app answered the forged ${tried(unseen)} request from ${cross.origin}, and the record endpoint reads only the test record, so Run Hound can't see whether the forged request created a new one: check Account A.`,
+          hide(
+            `Inconclusive: the app answered the forged ${tried(unseen)} request from ${cross.origin}, and the record endpoint reads only the test record, so Run Hound can't see whether the forged request created a new one: check Account A.`,
+          ),
+        );
+      }
+
+      // A forge sent the way the app's own save is (form-encoded for a form post), carrying Account A's cookie and with
+      // nothing left out, answered 400: the app refused the forged value (a rule it breaks that the value the app
+      // accepted didn't), not the request, so no defence was seen. Never a pass. With a token field or a query token left
+      // out, a 400 may be the app's CSRF defence answering (ASP.NET's), so the usual verdict stands.
+      const valueRefused = sent.filter((a) => a.encoding === ownEncoding && a.outcome.status === 400 && a.outcome.cookies.length > 0);
+      if (valueRefused.length > 0 && bodies.dropped.length === 0 && forgedUrl.dropped.length === 0) {
+        const names = [...new Set(valueRefused.flatMap((a) => a.outcome.cookies))];
+        return skip(
+          hide(
+            [
+              `Inconclusive: the app answered the forged ${tried(valueRefused)} request from ${cross.origin} with 400 although the browser attached Account A's cookie${names.length === 1 ? "" : "s"} ${listed(names)}. A 400 refuses the forged value, not a request from another site, so Run Hound can't tell whether a forge with a value the app accepts would be stored: check who may send ${saveEndpoint}.`,
+              `Tried: ${tried(sent)}.`,
+            ].join(" "),
+          ),
         );
       }
 
@@ -566,9 +823,50 @@ export const check: Check = {
           (wasJson && !cors ? " The save is also sent as JSON, which needs a preflight from another site." : "")
         : wasJson
           ? `A page on ${cross.origin} could not change Account A's data. The save is sent as JSON, which needs a preflight from another site${cors ? "" : " (the app's CORS doesn't allow that origin)"}, and the app didn't take the forged save otherwise.`
-          : `A page on ${cross.origin} could not change Account A's data: the forged cross-site request was rejected or had no effect (a SameSite cookie, a CSRF token or an Origin check stopped it).`;
-      const notes = [passNote, `Tried: ${tried(sent)}.`, droppedNote].filter(Boolean).join(" ");
-      return result(ID, scenario, started, [], notes);
+          : sent.some((a) => a.outcome.status !== null && answeredOk(a.outcome))
+            ? // The app said yes and stored nothing: no defence was seen, so none is named.
+              `A page on ${cross.origin} could not change Account A's data: the app answered the forged cross-site request as if it succeeded, but re-reading as Account A shows nothing it sent was stored.`
+            : `A page on ${cross.origin} could not change Account A's data: the forged cross-site request was rejected or had no effect (a SameSite cookie, a CSRF token or an Origin check stopped it).`;
+      const triedNote = `Tried: ${tried(sent)}.`;
+
+      // Several POSTs carried the typed values and no answer tied one to the test record: the one forged may not be the
+      // save, so nothing stored is not a pass.
+      if (!tied) {
+        const others = candidates.filter((r) => r !== save).map(endpoint);
+        return skip(
+          hide(
+            [
+              `Inconclusive: the form sent ${candidates.length} POSTs that carry the typed values (${listed([...new Set([...others, saveEndpoint])])}), and no answer ties one of them to the test record, so Run Hound forged the last one sent before the record appeared (${saveEndpoint}). A page on ${cross.origin} could not change Account A's data through it, but another of them may be the save, so this is not a pass.`,
+              triedNote,
+              urlNote,
+              droppedNote,
+            ]
+              .filter(Boolean)
+              .join(" "),
+          ),
+        );
+      }
+
+      // A random value the app's own page put in the URL was left out, and the forge carried Account A's cookie and was
+      // refused: the value may be an identifier a page on another site could know, not a token, so the refusal may be
+      // the missing value rather than a CSRF defence.
+      const unplaced = forgedUrl.dropped.filter((d) => d.kind === "secret").map((d) => d.name);
+      if (unplaced.length > 0 && sent.some((a) => a.outcome.cookies.length > 0)) {
+        return skip(
+          hide(
+            [
+              `Inconclusive: the save's URL carries ${listed(unplaced)}, a random value the app's own page added that Run Hound can't place (a token, or an identifier a page on another site could know). Run Hound left it out, and the forged request from ${cross.origin} carried Account A's cookie and wasn't stored, so it can't tell whether a CSRF defence or the missing value stopped it.`,
+              triedNote,
+              droppedNote,
+            ]
+              .filter(Boolean)
+              .join(" "),
+          ),
+        );
+      }
+
+      const notes = [passNote, triedNote, urlNote, droppedNote].filter(Boolean).join(" ");
+      return result(ID, scenario, started, [], hide(notes));
     });
   },
 };
@@ -619,6 +917,9 @@ function replaySpec(o: {
   attackerOrigin: string;
   tokenSession?: boolean;
   headerRead?: boolean;
+  /** Query parameters left out of SAVE and RECORD (a token or a credential the app's own page put there). */
+  saveLeftOut?: string[];
+  recordLeftOut?: string[];
 }): string {
   const q = (v: unknown) => JSON.stringify(v);
   const path = (u: string) => {
@@ -632,13 +933,19 @@ function replaySpec(o: {
     ``,
     `// Exported by Run Hound. Set Account A's environment variables before running:`,
     `//   RUNHOUND_ACCOUNT_A_LOGIN_URL, RUNHOUND_ACCOUNT_A_USERNAME, RUNHOUND_ACCOUNT_A_PASSWORD.`,
-    `// The save was stored when sent ${o.encoding === "form" ? "form-encoded" : o.encoding === "text" ? "as JSON with a text/plain content-type" : "as JSON (CORS allowed the other site)"} from another site.`,
+    `// The save was stored when sent ${o.encoding === "form" ? "form-encoded" : o.encoding === "multipart" ? "as a multipart form (multipart/form-data)" : o.encoding === "text" ? "as JSON with a text/plain content-type" : "as JSON (CORS allowed the other site)"} from another site.`,
     `const TARGET = ${q(o.target)};`,
     `const SAVE = ${q(path(o.save))}; // the form's own save`,
+    ...(o.saveLeftOut && o.saveLeftOut.length > 0
+      ? [`// Run Hound left ${o.saveLeftOut.join(", ")} out of SAVE: the app's own page adds Account A's token or credential there, which a page on another site can't know.`]
+      : []),
     `const RECORD = ${q(path(o.record))}; // reads the saved record back as Account A`,
+    ...(o.recordLeftOut && o.recordLeftOut.length > 0
+      ? [`// Run Hound left ${o.recordLeftOut.join(", ")} out of RECORD: add Account A's own value${o.recordLeftOut.length === 1 ? "" : "s"} to the re-read.`]
+      : []),
     `const FIELDS = ${q(o.fields)} as string[];`,
     `const FORGED_FIELD = ${q(o.marked)};`,
-    `const ENCODING = ${q(o.encoding)} as "form" | "text" | "json";`,
+    `const ENCODING = ${q(o.encoding)} as "form" | "multipart" | "text" | "json";`,
     `// A different SITE from the target: localhost and 127.0.0.1 are different sites of each other.`,
     `const ATTACKER_HOST = ${q(new URL(o.attackerOrigin).hostname)};`,
     ``,
@@ -670,9 +977,10 @@ function replaySpec(o: {
     `    await page.goto(attacker + "/");`,
     `    const values = Object.fromEntries(FIELDS.map((f) => [f, f === FORGED_FIELD ? forged : ""]));`,
     `    await page.evaluate(async ({ url, values, encoding }) => {`,
-    `      if (encoding === "form") {`,
+    `      if (encoding === "form" || encoding === "multipart") {`,
     `        const iframe = document.createElement("iframe"); iframe.name = "forged"; document.body.append(iframe);`,
     `        const form = document.createElement("form"); form.method = "POST"; form.action = url; form.target = "forged";`,
+    `        if (encoding === "multipart") form.enctype = "multipart/form-data";`,
     `        for (const [k, v] of Object.entries(values)) { const i = document.createElement("input"); i.type = "hidden"; i.name = k; i.value = String(v); form.append(i); }`,
     `        document.body.append(form);`,
     `        await new Promise((resolve) => { iframe.addEventListener("load", resolve); form.submit(); setTimeout(resolve, 5000); });`,
