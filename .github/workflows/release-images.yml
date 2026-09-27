@@ -7,7 +7,7 @@
 # manual run), for linux/amd64 and linux/arm64.
 #
 # Order: check-version (the tag matches app/package.json, the site, both compose files, the Dockerfile comments and
-# the tag-pinned download links in the compose file headers, README.md and TESTING.md), then the whole CI workflow
+# the tag-pinned download links in the compose file headers, README.md, TESTING.md and docs/), then the whole CI workflow
 # (every test suite, the image build and smoke test, the site build), and only then the images are built for both
 # platforms and pushed. After the push, each image's arm64 variant is pulled and started under QEMU as a sanity check.
 #
@@ -104,10 +104,12 @@ jobs:
           done
 
           # The download links (curl of raw.githubusercontent.com/rahul-bharati/run-hound/vX.Y.Z/run-hound.compose.yml
-          # and .env.example; github.com/.../blob/vX.Y.Z/...) in the compose file headers, README.md and TESTING.md are
-          # pinned to a release tag: every one must be this release's, so the docs hand out this release's compose file.
+          # and .env.example; github.com/.../blob/vX.Y.Z/...) in the compose file headers, README.md, TESTING.md and the
+          # guides in docs/ are pinned to a release tag: every one must be this release's, so the docs hand out this
+          # release's compose file.
           link='(raw\.githubusercontent\.com/rahul-bharati/run-hound|github\.com/rahul-bharati/run-hound/(blob|tree|raw))'
-          for file in run-hound.compose.yml docker-compose.yml README.md TESTING.md; do
+          for file in run-hound.compose.yml docker-compose.yml README.md TESTING.md docs/install.md docs/usage.md docs/ai.md \
+            docs/signed-in-runs.md docs/ai-built-apps.md docs/security.md docs/development.md; do
             while IFS=: read -r line ref; do
               [ -n "$ref" ] || continue
               ref=${ref%/}

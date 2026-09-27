@@ -1,18 +1,44 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { ArrowIcon, ButtonLink } from "@/components/button-link";
+import { builtInChecks } from "@/components/checks/data";
 import { GetStarted } from "@/components/get-started";
+import { JsonLd } from "@/components/json-ld";
 import { stepScreens } from "@/components/screens";
 import { Screenshot } from "@/components/screenshot";
 import { Card, Container, Eyebrow, PageHeader, Section } from "@/components/layout";
-import { pageMetadata } from "@/lib/metadata";
+import { pageMetadata, pageTitle } from "@/lib/metadata";
 import { site } from "@/lib/site";
+import { breadcrumbNode, graph, maintainerNode, techArticleNode, webPageNode } from "@/lib/structured-data";
 
-export const metadata = pageMetadata({
+const page = {
   path: "/how-it-works/",
-  title: "How it works",
+  title: "How AI-assisted UI testing works",
   description:
-    "Run Hound explores your local page, plans checks you approve, runs them in a real browser and reports each defect with evidence and a Playwright test.",
-});
+    "How Run Hound tests an AI-built app: it explores your page, plans checks you approve, runs them in a real browser and proves each finding with evidence.",
+};
+
+export const metadata = pageMetadata(page);
+
+// The page, where it sits, and the article it holds: its headline is the visible h1, its date the release it
+// describes (the footer shows it).
+const jsonLd = graph(
+  webPageNode({ path: page.path, name: pageTitle(page), description: page.description }),
+  breadcrumbNode([
+    { name: "Home", path: "/" },
+    { name: "How it works", path: page.path },
+  ]),
+  techArticleNode({
+    path: page.path,
+    headline: "How Run Hound works: it asks before it tests",
+    description: page.description,
+    dateModified: site.releasedIso,
+  }),
+  // The article's author, in full: search engines don't follow an @id to another page.
+  maintainerNode(),
+);
+
+const linkClass = "text-accent underline underline-offset-4 hover:text-accent-strong";
 
 // The step's screenshot column: 7/12 of the 1136 px container from xl, 7/12 of the viewport on lg, full width below.
 const shotSizes =
@@ -43,7 +69,11 @@ const steps: { number: string; name: string; title: string; body: ReactNode; sho
       <>
         From what it found, it plans form checks for each form, plus page-wide checks such as security headers, cookie
         flags, CORS, public source maps, dead controls anywhere on the page and links that break when opened directly,
-        under three groups: Accessibility, Features and Security. Signed in, it adds the access checks: can another
+        under three groups: Accessibility, Features and Security, which hold{" "}
+        <Link href="/checks/" className={linkClass}>
+          the {builtInChecks.length} built-in checks
+        </Link>
+        . Signed in, it adds the access checks: can another
         account, or a visitor who isn&apos;t signed in, read your data? Golden paths are what a real user does; danger paths are what breaks things, like
         double clicks, server errors and invalid input. The plan comes from what it found on the page. If you turn
         on AI, your own model reviews it, recommending and ranking each scenario with a reason, and suggests up to 5
@@ -89,14 +119,18 @@ const steps: { number: string; name: string; title: string; body: ReactNode; sho
         GIFs, request and response cards) and an exported Playwright test. It also tells you what to ask your AI to
         fix. Re-run repeats the same scenarios once you have fixed something, and the Runs page lists every run on this
         machine. On the command line the exit code says it all: 0 with no confirmed findings, 1 with at least one, 2
-        on an error. With AI on, each finding also gets an AI explanation beside the built-in one, labelled advisory.
+        on an error. With AI on, each finding also gets an AI explanation beside the built-in one, labelled advisory.{" "}
+        <Link href="/demo/" className={linkClass}>
+          See real findings from a run on Kennel, with their evidence
+        </Link>
+        .
       </>
     ),
     shot: <Screenshot screen={stepScreens.report} sizes={shotSizes} />,
   },
 ];
 
-const principles = [
+const principles: { title: string; body: ReactNode }[] = [
   {
     title: "AI plans and explains. Real checks decide.",
     body: "Pass or fail comes from Playwright assertions, axe-core and captured traffic in a real browser, never from a model guessing. With AI on (it is off by default), your own model reviews the plan, suggests flows and explains findings, but a real check with evidence still decides every result, and findings from AI-suggested flows are advisory. Findings that rely on judgement, or on production values a dev server doesn't send, are marked advisory.",
@@ -107,7 +141,16 @@ const principles = [
   },
   {
     title: "Build on Playwright and axe-core.",
-    body: "Proven tools do the heavy lifting. Run Hound adds exploration, approval, triage and plain-language reporting on top instead of reinventing them.",
+    body: (
+      <>
+        Proven tools do the heavy lifting. Run Hound adds exploration, approval, triage and plain-language reporting on
+        top instead of reinventing them.{" "}
+        <Link href="/compare/" className={linkClass}>
+          How that compares with other testing tools
+        </Link>
+        .
+      </>
+    ),
   },
   {
     title: "Only owned targets, safe by default.",
@@ -144,6 +187,7 @@ const notVisible = [
 export default function HowItWorksPage() {
   return (
     <>
+      <JsonLd data={jsonLd} />
       <PageHeader
         eyebrow="HOW IT WORKS"
         title={
@@ -256,6 +300,13 @@ export default function HowItWorksPage() {
               Read the docs
             </ButtonLink>
           </div>
+          <p className="max-w-2xl leading-relaxed text-muted">
+            Questions first?{" "}
+            <Link href="/faq/" className={linkClass}>
+              Answers to common questions about Run Hound
+            </Link>
+            .
+          </p>
         </div>
       </Section>
     </>

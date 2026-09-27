@@ -1,6 +1,6 @@
 # V0 spec: single form on localhost
 
-The build contract for V0 (0.1.0). The engine, the check library and the Kennel fixture are built against this document; the acceptance tests enforce it. Later versions extend it ([v1-spec.md](v1-spec.md), [ai-spec.md](ai-spec.md), [v2-spec.md](v2-spec.md)); rules added since 0.1.0 are written into this page where they belong.
+The build contract for V0 (0.1.0). The engine, the check library and the Kennel fixture are built against this document; the acceptance tests enforce it. Later stages and releases extend it ([v1-spec.md](v1-spec.md), [ai-spec.md](ai-spec.md), [v2-spec.md](v2-spec.md)); rules added since 0.1.0 are written into this page where they belong.
 
 ## Layout
 

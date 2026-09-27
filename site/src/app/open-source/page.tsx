@@ -1,16 +1,13 @@
 import Link from "next/link";
 import { ButtonLink, GitHubIcon } from "@/components/button-link";
+import { JsonLd } from "@/components/json-ld";
 import { Card, PageHeader, Section } from "@/components/layout";
+import { openSourceJsonLd, openSourcePage } from "@/components/oss/open-source";
 import { RoadmapList, type RoadmapStage } from "@/components/oss/roadmap-list";
 import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
-export const metadata = pageMetadata({
-  path: "/open-source/",
-  title: "Open source",
-  description:
-    "Run Hound is open source under the MIT license, every check included. The roadmap, the test apps it is scored against, and how to contribute.",
-});
+export const metadata = pageMetadata(openSourcePage);
 
 const openCore: { core: string; later: string }[] = [
   {
@@ -41,33 +38,33 @@ const openCore: { core: string; later: string }[] = [
 
 const roadmap: RoadmapStage[] = [
   {
-    version: "V0",
+    stage: "V0",
     name: "Single form",
     status: "shipped",
-    release: "0.1.0",
+    release: "Release 0.1.0",
     summary:
       "Point it at a form on localhost. It plans golden- and danger-path scenarios, you approve them, it runs them and reports with evidence and exported Playwright tests.",
     adds: "15 checks. Shipped as 0.1.0.",
   },
   {
-    version: "V1",
+    stage: "V1",
     name: "Single page",
-    status: "current",
-    release: `0.2.0 – ${site.version}`,
+    status: "shipped",
+    release: "Releases 0.2.0–0.4.0",
     summary:
       "Point it at a page. It finds the forms and controls on it, plans form checks for each form plus page-wide checks, you approve, and it runs them in a real browser. Local only.",
     adds: `0.2.0 adds security headers, cookie flags, CORS, public source maps and dead controls across the whole page, and one Docker or Podman command starts it with the test apps. 0.3.0 adds optional AI with your own model: plan review, up to 5 suggested flows and explanations, off by default and never the judge of pass or fail. 0.4.0 finds and fills the custom widgets and dialog forms of AI-built apps.`,
   },
   {
-    version: "V2",
+    stage: "V2",
     name: "Single feature",
     status: "preview",
-    release: site.version,
+    release: "Since 0.4.0",
     summary: "Give it a feature such as signup or checkout and it tests that feature end to end across pages.",
     adds: `A preview ships in 0.4.0: test accounts and signed-in runs, access checks (can another account, or a visitor who isn't signed in, read your data?), mass assignment and deep links. 0.5.0 adds the CSRF check: can another website change your data? Still planned: checks that another account or a visitor can't change your data and that a paid plan needs a payment, testing a feature across pages, rate limits, file uploads and prompt injection.`,
   },
   {
-    version: "V3",
+    stage: "V3",
     name: "Whole app",
     status: "planned",
     summary:
@@ -75,10 +72,12 @@ const roadmap: RoadmapStage[] = [
     adds: "Adds a dead-link crawl, cross-browser runs, Core Web Vitals, SEO and social previews.",
   },
   {
-    version: "V4",
+    stage: "V4",
     name: "Live staging",
     status: "planned",
-    summary: "Support for testing live staging and dev sites behind ownership verification.",
+    release: "Release 1.0.0",
+    summary:
+      "Support for testing live staging and dev sites behind ownership verification. Completing it is the 1.0.0 release.",
     adds: "Adds checks for live hosts, such as mixed content and email DNS records.",
   },
 ];
@@ -96,6 +95,7 @@ const externalLink = "text-accent underline underline-offset-4 hover:text-accent
 export default function OpenSourcePage() {
   return (
     <>
+      <JsonLd data={openSourceJsonLd()} />
       <PageHeader
         eyebrow="OPEN SOURCE"
         title={
@@ -192,7 +192,15 @@ export default function OpenSourcePage() {
       <Section
         id="roadmap"
         title="Roadmap"
-        intro={`Each stage widens what Run Hound can test, from one form to a whole app. V0 has shipped, V1 is current, and 0.4.0 and 0.5.0 add a preview of V2: signed-in runs, access checks and a CSRF check. The rest of V2, the whole app and live staging are planned.`}
+        intro={
+          <>
+            V0 to V4 are stages of what Run Hound can test, from one form to a live staging site; they are not version
+            numbers. V0 and V1 have shipped, and V2 is in preview: 0.4.0 and 0.5.0 add signed-in runs, access checks
+            and a CSRF check. The rest of V2, the whole app (V3) and live staging (V4) are planned. Releases stay 0.x
+            while the stages are built: 1.0.0 is the release that completes V4, and 0.9.9, right before it, is the{" "}
+            <code className="font-mono text-base text-fg">npx run-hound</code> release.
+          </>
+        }
       >
         <RoadmapList stages={roadmap} />
       </Section>
@@ -227,6 +235,11 @@ export default function OpenSourcePage() {
             Fernway&apos;s
           </a>
           . Five sample apps, built well on purpose, complete the set: any confirmed finding on them is a false positive.
+          The demo shows{" "}
+          <Link href="/demo/" className={externalLink}>
+            the findings and evidence from real runs on Kennel and Fernway
+          </Link>
+          .
         </p>
       </Section>
 
@@ -254,6 +267,13 @@ export default function OpenSourcePage() {
               Contribution guidelines are coming. We will decide between a Contributor License Agreement (CLA) and a
               Developer Certificate of Origin (DCO) before accepting the first outside contribution, and document it
               in the repository.
+            </p>
+            <p className="leading-relaxed text-muted">
+              To work on the code,{" "}
+              <Link href="/docs/#install" className={externalLink}>
+                set up Run Hound from source
+              </Link>
+              : it runs with Node from a clone of the repository.
             </p>
           </Card>
         </div>

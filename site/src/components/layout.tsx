@@ -30,12 +30,14 @@ export function PageHeader({
 }) {
   return (
     <div className="hero-glow relative overflow-hidden">
-      {/* Faint hound centred behind the title, as on the homepage hero. Decorative; hidden on small screens. */}
+      {/* Faint hound centred behind the title, as on the homepage hero. Decorative; hidden on small screens. On
+          desktop it is the largest image in view, so it loads at once and first; phones (1px) fetch only the
+          smallest file of an image they never show. */}
       <div
         aria-hidden="true"
         className="pointer-events-none absolute left-1/2 top-0 hidden -translate-x-1/2 opacity-[0.05] md:block lg:-top-10 lg:opacity-[0.07]"
       >
-        <LogoMark size={420} />
+        <LogoMark size={420} loading="eager" fetchPriority="high" sizes="(min-width: 768px) 730px, 1px" />
       </div>
       <Container className="relative flex flex-col gap-6 pb-12 pt-14 sm:pb-16 sm:pt-24">
         {eyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}

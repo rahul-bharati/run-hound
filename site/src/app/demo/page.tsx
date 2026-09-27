@@ -1,28 +1,52 @@
 import Link from "next/link";
+import { Fragment } from "react";
 import { ArrowIcon, ButtonLink } from "@/components/button-link";
 import { EvidenceFigure } from "@/components/demo/evidence-figure";
 import { CodeBlock } from "@/components/docs/code-block";
 import { evidence } from "@/components/evidence";
+import { JsonLd } from "@/components/json-ld";
 import { Card, Eyebrow, PageHeader, Section } from "@/components/layout";
 import { aiBuiltScreens, v2Screens } from "@/components/screens";
 import { Screenshot } from "@/components/screenshot";
-import { pageMetadata } from "@/lib/metadata";
+import { pageMetadata, pageTitle } from "@/lib/metadata";
 import { site } from "@/lib/site";
+import { breadcrumbNode, graph, webPageNode } from "@/lib/structured-data";
 
-export const metadata = pageMetadata({
+const page = {
   path: "/demo/",
-  title: "Demo",
+  title: "Demo: real findings, with evidence",
   description:
-    "Real evidence from a Run Hound run on Kennel, a deliberately broken booking app: a double submit, a silent failure, missing focus, leaked keys and more.",
-});
+    "Real evidence from Run Hound runs on Kennel, a deliberately broken booking app, and Fernway, a Lovable-style app: double submits, leaked keys and more.",
+};
+
+export const metadata = pageMetadata(page);
+
+const jsonLd = graph(
+  webPageNode({ path: page.path, name: pageTitle(page), description: page.description }),
+  breadcrumbNode([
+    { name: "Home", path: "/" },
+    { name: "Demo", path: page.path },
+  ]),
+);
+
+const linkClass = "text-accent underline underline-offset-4 hover:text-accent-strong";
+
+/** A link to a built-in check's entry on /checks/, named by its id as the report and the frames below name it. */
+function CheckLink({ id }: { id: string }) {
+  return (
+    <Link href={`/checks/#${id}`} className={linkClass}>
+      {id} check
+    </Link>
+  );
+}
 
 // Planted bugs per test app and stage: fixtures/kennel/bugs.json and fixtures/fernway/bugs.json.
 const planted = [
   {
-    label: "KENNEL · V0",
+    label: "KENNEL · STAGE V0",
     count: 19,
     title: "Booking form bugs",
-    body: "Defects in a single form on localhost, the ones V0 was scored against. In clean mode the target is zero confirmed findings.",
+    body: "Defects in a single form on localhost, the ones the V0 stage was scored against. In clean mode the target is zero confirmed findings.",
     groups: [
       { name: "Broken features", count: 5 },
       { name: "Validation", count: 1 },
@@ -31,10 +55,10 @@ const planted = [
     ],
   },
   {
-    label: "KENNEL · V1",
+    label: "KENNEL · STAGE V1",
     count: 5,
     title: "Whole-page bugs",
-    body: "Defects outside the form and in how the server answers, the ones V1 is scored against. Clean Kennel sends proper headers and cookies, so the target is still zero confirmed findings.",
+    body: "Defects outside the form and in how the server answers, the ones the V1 stage is scored against. Clean Kennel sends proper headers and cookies, so the target is still zero confirmed findings.",
     groups: [
       { name: "Button outside the form", count: 1 },
       { name: "Security headers", count: 1 },
@@ -44,10 +68,10 @@ const planted = [
     ],
   },
   {
-    label: "FERNWAY · W01–W10",
+    label: "FERNWAY · BUGS W01–W10",
     count: 10,
     title: "Bugs AI builders ship",
-    body: "The usual defects, planted in an app built like the ones Lovable, Bolt and v0 generate: custom selects, toasts, dialogs and a dashboard behind a sign-in. Each is caught by one of the V0 and V1 checks.",
+    body: "The usual defects, planted in an app built like the ones Lovable, Bolt and v0 generate: custom selects, toasts, dialogs and a dashboard behind a sign-in. Each is caught by one of the checks of the V0 and V1 stages.",
     groups: [
       { name: "Accessibility", count: 4 },
       { name: "Broken features", count: 3 },
@@ -55,7 +79,7 @@ const planted = [
     ],
   },
   {
-    label: `FERNWAY · V01–V05 · ${site.preview.toUpperCase()}`,
+    label: `FERNWAY · BUGS V01–V05 · ${site.preview.toUpperCase()}`,
     count: 5,
     title: "Access bugs",
     body: "Caught by the checks of the V2 preview, with Run Hound signed in as one Fernway account (A) and a second one (B): who can read whose data, extra fields the server stores, and pages that break when opened directly.",
@@ -67,6 +91,22 @@ const planted = [
     ],
   },
 ];
+
+// A planted-bug label, its parts kept whole with their separators, so on a phone it wraps as balanced lines and never
+// splits a part ("V2 PREVIEW") or starts a line with a separator.
+function PlantedLabel({ label }: { label: string }) {
+  const parts = label.split(" · ");
+  return (
+    <Eyebrow className="text-balance">
+      {parts.map((part, i) => (
+        <Fragment key={part}>
+          <span className="whitespace-nowrap">{i < parts.length - 1 ? `${part} ·` : part}</span>
+          {i < parts.length - 1 ? " " : null}
+        </Fragment>
+      ))}
+    </Eyebrow>
+  );
+}
 
 // Two screenshots side by side from lg: half the 1136 px container, full width below.
 const halfShotSizes =
@@ -90,6 +130,7 @@ docker compose -f run-hound.compose.yml up   # or: podman compose -f run-hound.c
 export default function DemoPage() {
   return (
     <>
+      <JsonLd data={jsonLd} />
       <PageHeader
         eyebrow="DEMO · REAL OUTPUT"
         title={
@@ -100,8 +141,8 @@ export default function DemoPage() {
         lede={
           <>
             Everything on this page was captured from a real run of Run Hound against Kennel, our deliberately broken
-            pet-sitting booking app, with all 24 of its V0 and V1 bugs switched on, and AI off. The keys and email
-            addresses are fake test values.
+            pet-sitting booking app, with all 24 of its bugs for the V0 and V1 stages switched on, and AI off. The keys
+            and email addresses are fake test values.
           </>
         }
       />
@@ -109,7 +150,13 @@ export default function DemoPage() {
       <Section
         id="features"
         title="One click, two bookings"
-        intro="The double-submit check double-clicks “Book” and counts the save requests that reach the server. Kennel accepted both, so the report shows the recording and the two requests, 0.2 ms apart, with two different record ids."
+        intro={
+          <>
+            The <CheckLink id="double-submit" /> double-clicks “Book” and counts the save requests that reach the
+            server. Kennel accepted both, so the report shows the recording and the two requests, 0.2 ms apart, with
+            two different record ids.
+          </>
+        }
         className="border-t border-line-soft"
       >
         <div className="grid items-start gap-5 lg:grid-cols-2">
@@ -130,7 +177,12 @@ export default function DemoPage() {
         id="silent-failure"
         className="bg-band"
         title="A save that fails in silence"
-        intro="The silent-failure check answers the save with a simulated 500 (the request never reaches your server) and waits for an error the user can see and a screen reader can hear."
+        intro={
+          <>
+            The <CheckLink id="silent-failure" /> answers the save with a simulated 500 (the request never reaches
+            your server) and waits for an error the user can see and a screen reader can hear.
+          </>
+        }
       >
         <div className="grid items-center gap-8 lg:grid-cols-[1.4fr_1fr]">
           <EvidenceFigure
@@ -152,7 +204,13 @@ export default function DemoPage() {
       <Section
         id="accessibility"
         title="Focus you can't see, measured"
-        intro="The focus-visible check tabs through the page and compares each control focused and at rest. On Kennel, “Pet name” changes 0 of 37,296 pixels around it: no outline, shadow, border or background change."
+        intro={
+          <>
+            The <CheckLink id="focus-visible" /> tabs through the page and compares each control focused and at rest.
+            On Kennel, “Pet name” changes 0 of 37,296 pixels around it: no outline, shadow, border or background
+            change.
+          </>
+        }
       >
         <EvidenceFigure
           shot={evidence.noVisibleFocus}
@@ -166,7 +224,12 @@ export default function DemoPage() {
         id="security"
         className="bg-band"
         title="Leaks, with the line that proves them"
-        intro="Security checks read every script the page loads and watch every request the form triggers."
+        intro={
+          <>
+            Security checks read every script the page loads and watch every request the form triggers: here the{" "}
+            <CheckLink id="bundle-secrets" /> and the <CheckLink id="pii-leak" />.
+          </>
+        }
       >
         <div className="grid items-start gap-5 lg:grid-cols-2">
           <EvidenceFigure
@@ -185,7 +248,13 @@ export default function DemoPage() {
       <Section
         id="whole-page"
         title="The page as a whole"
-        intro="Since V1, Run Hound also looks past the form, at how the server answers and who may read it. These checks run once for the whole page."
+        intro={
+          <>
+            Since 0.2.0 (the V1 stage), Run Hound also looks past the form, at how the server answers and who may read
+            it. These checks run once for the whole page: here the <CheckLink id="cors" /> and the{" "}
+            <CheckLink id="security-headers" />.
+          </>
+        }
       >
         <div className="grid items-start gap-5 lg:grid-cols-2">
           <EvidenceFigure
@@ -217,11 +286,15 @@ export default function DemoPage() {
               With Docker, the clean Kennel is <code className="font-mono text-fg">http://kennel-clean:3000/book</code>
               ; from source, enter <code className="font-mono text-fg">http://localhost:5310/book</code>, and restart
               Kennel with <code className="font-mono text-fg">KENNEL_BUGS=none</code> for the clean run. Approve the
-              plan and watch the live view. The{" "}
-              <Link href="/docs#quick-start" className="text-accent underline underline-offset-4 hover:text-accent-strong">
-                docs
+              plan and watch the live view. Both paths are in the docs, step by step:{" "}
+              <Link href="/docs/#quick-start" className={linkClass}>
+                the quick start with Docker or Podman
               </Link>{" "}
-              have both paths step by step.
+              and{" "}
+              <Link href="/docs/#install" className={linkClass}>
+                the install from source
+              </Link>
+              .
             </p>
             <div className="flex flex-col gap-3 sm:flex-row lg:flex-col xl:flex-row">
               <ButtonLink href={site.testingGuide}>
@@ -241,7 +314,11 @@ export default function DemoPage() {
               <Link href="/docs#ai" className="text-muted underline underline-offset-4 hover:text-accent">
                 AI setup
               </Link>
-              ).
+              ). More questions?{" "}
+              <Link href="/faq/" className="text-muted underline underline-offset-4 hover:text-accent">
+                Answers to common questions
+              </Link>
+              .
             </p>
           </div>
         </div>
@@ -251,7 +328,18 @@ export default function DemoPage() {
         id="fernway"
         className="border-t border-line-soft"
         title="Fernway: an app built the way AI builders build them"
-        intro="Kennel is one booking form. Fernway asks a different question: does Run Hound work on the kind of app people generate today? It is a small project-planning app for studios, built with Vite, React 19, Tailwind, Radix and shadcn/ui-style components, sonner toasts and react-hook-form with zod, in light and dark mode."
+        intro={
+          <>
+            Kennel is one booking form. Fernway asks a different question: does Run Hound work on the kind of app
+            people generate today? It is a small project-planning app for studios, built with Vite, React 19,
+            Tailwind, Radix and shadcn/ui-style components, sonner toasts and react-hook-form with zod, in light and
+            dark mode. Built your own with Lovable, Bolt or v0? See{" "}
+            <Link href="/ai-built-apps/" className={linkClass}>
+              how to test apps from AI app builders
+            </Link>
+            .
+          </>
+        }
       >
         <div className="grid items-start gap-8 lg:grid-cols-2 lg:gap-12">
           <ul className="flex list-disc flex-col gap-3 pl-5 leading-relaxed text-muted marker:text-dim">
@@ -319,7 +407,7 @@ export default function DemoPage() {
           {planted.map((set) => (
             <Card key={set.label} className="flex flex-col gap-5">
               <div className="flex items-baseline justify-between gap-4">
-                <Eyebrow>{set.label}</Eyebrow>
+                <PlantedLabel label={set.label} />
                 <p className="font-display text-4xl font-extrabold tracking-tight">
                   {set.count}
                   <span className="sr-only"> planted bugs</span>

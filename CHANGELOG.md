@@ -2,6 +2,19 @@
 
 All notable changes to Run Hound. Versions follow [Semantic Versioning](https://semver.org/); while the version is 0.x, any release may change behaviour.
 
+## Unreleased
+
+### Docs
+
+- **The README is a short front page**: what Run Hound is, the quick start, the test lab, what it checks, how it works, a table of the documents and a short roadmap. The rest moved, nearly word for word, into guides in `docs/`: [install](docs/install.md), [usage](docs/usage.md), [AI](docs/ai.md), [signed-in runs](docs/signed-in-runs.md), [AI-built apps](docs/ai-built-apps.md), [safety and security](docs/security.md), [overview](docs/overview.md), [roadmap](docs/roadmap.md) and [development](docs/development.md). The release workflow's check of tag-pinned download links covers the guides too.
+- **Decision log**: [DECISIONS.md](DECISIONS.md) indexes an append-only log, one file per month in `docs/decisions/` (`MM-YYYY.md`); AGENTS.md asks every agent to record its decisions there. The decisions made before it were backfilled from the repository, each naming its source.
+- **The roadmap's stages are feature sets, not versions**: V0 to V4 widen what Run Hound can test; releases stay 0.x while they are built, 1.0.0 completes V4 (live staging), and 0.9.9, right before it, is the `npx run-hound` release.
+
+### Website
+
+- **Search and AI assistants**: structured data (JSON-LD) on every page, keyword titles and descriptions, new `/faq/`, `/ai-built-apps/` and `/compare/` pages, `/llms.txt` and `/llms-full.txt`, a web manifest, a favicon and dated sitemap entries. `pnpm build` fails when a page loses its title, description, canonical or structured data.
+- **Faster pages**: tour screenshots load before the tab is clicked, the Docker image ships a warmed image cache, the decorative mark and logo load eagerly (desktop LCP about 600 ms faster), and no layout shift from web fonts.
+
 ## 0.5.0 (V2 preview: CSRF check)
 
 The second slice of V2. One new check uses the test accounts to test a **write**, not a read: can a page on another site make account A's browser change A's data (CSRF)? It changes account A's data on purpose, so it is unticked by default and follows the write-side safety contract: it writes only the test record Run Hound created as A in the same scenario, decides from a re-read as A (never a status code), and puts back what it changed, naming anything it couldn't. The other two write-side checks in the 0.5.0 plan, `write-access` (can another account or a signed-out visitor change A's data) and `paywall-trust` (can A get a paid plan without paying), are not in this release; they stay planned. Contract: [docs/v2-spec.md](docs/v2-spec.md#050-write-side-checks); how to try it: [TESTING.md](TESTING.md#the-csrf-check-050).

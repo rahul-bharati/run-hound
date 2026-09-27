@@ -1,14 +1,12 @@
 import Link from "next/link";
 import { LegalDoc, LegalHeading, type LegalTocItem, MailLink } from "@/components/legal/legal";
+import { legalPages } from "@/components/legal/pages";
 import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
-export const metadata = pageMetadata({
-  path: "/terms/",
-  title: "Terms",
-  description:
-    "Terms of use for the Run Hound website, and how the MIT license governs the Run Hound software.",
-});
+const page = legalPages.terms;
+
+export const metadata = pageMetadata(page);
 
 const toc: LegalTocItem[] = [
   { id: "agreement", label: "Agreement" },
@@ -26,7 +24,7 @@ const toc: LegalTocItem[] = [
 export default function TermsPage() {
   return (
     <LegalDoc
-      title="Terms of use"
+      page={page}
       lede={
         <>
           These terms cover your use of this website. The {site.name} software itself is governed by its open-source
@@ -37,8 +35,8 @@ export default function TermsPage() {
     >
       <LegalHeading id="agreement">Agreement</LegalHeading>
       <p>
-        This website is operated by <strong>RAHUL BHARATI</strong> (&ldquo;we&rdquo;, &ldquo;us&rdquo;). By
-        using it, you agree to these terms. If you do not agree, please do not use the site.
+        This website is operated by <strong>{site.maintainer.name.toUpperCase()}</strong> (&ldquo;we&rdquo;,
+        &ldquo;us&rdquo;). By using it, you agree to these terms. If you do not agree, please do not use the site.
       </p>
 
       <LegalHeading id="software-license">The software and its license</LegalHeading>

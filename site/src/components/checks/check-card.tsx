@@ -1,18 +1,19 @@
 import { SeverityLabel } from "@/components/finding";
-import type { Check, Version } from "@/components/checks/data";
+import type { Check, Stage } from "@/components/checks/data";
 
 /**
- * Small mono roadmap badge ("V0", "V1"). Checks in the current preview are lit in the accent; planned ones stay
- * neutral, and screen readers hear which is which.
+ * Small mono badge for the roadmap stage a check is in or planned for ("V0", "V1"): a stage, never a release number.
+ * Checks in the current release are lit in the accent; planned ones stay neutral, and screen readers hear which is
+ * which ("Available since stage V0", "Planned for stage V3").
  */
-export function VersionBadge({ version, note, shipped }: { version: Version; note?: string; shipped?: boolean }) {
+export function StageBadge({ stage, note, shipped }: { stage: Stage; note?: string; shipped?: boolean }) {
   const tone = shipped ? "border-accent/60 text-accent" : "border-line-strong text-muted";
   return (
     <span
       className={`inline-flex items-center rounded-md border px-2 py-0.5 font-mono text-[11px] tracking-widest ${tone}`}
     >
-      <span className="sr-only">{shipped ? "Available since " : "Planned for "}</span>
-      {version}
+      <span className="sr-only">{shipped ? "Available since stage " : "Planned for stage "}</span>
+      {stage}
       {note ? <span className="ml-1.5 lowercase tracking-normal text-dim">{note}</span> : null}
     </span>
   );
@@ -26,23 +27,28 @@ export function AdvisoryBadge() {
   );
 }
 
-/** Whether a catalog check runs in the current preview: every V0 check, and the V1 checks that have shipped. */
+/** Whether a catalog check runs in the current release: every V0 check, and later stages' checks marked shipped. */
 export function isShipped(check: Check) {
-  return check.version === "V0" || check.shipped === true;
+  return check.stage === "V0" || check.shipped === true;
 }
 
-/** One catalog entry: name, plain-language line, typical severity, roadmap version and signal phrase. */
+/**
+ * One catalog entry: name, plain-language line, typical severity, roadmap stage and signal phrase. Its id makes it a
+ * link target (/checks/#duplicate-submissions; the global :target rules keep it clear of the sticky header), and its
+ * border lights up when linked to.
+ */
 export function CheckCard({ check }: { check: Check }) {
   const shipped = isShipped(check);
   return (
     <li
-      className={`flex flex-col gap-3 rounded-2xl border bg-surface p-5 sm:p-6 ${
+      id={check.id}
+      className={`flex flex-col gap-3 rounded-2xl border bg-surface p-5 target:border-accent sm:p-6 ${
         shipped ? "border-line-strong" : "border-line"
       }`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <VersionBadge version={check.version} note={check.note} shipped={shipped} />
+          <StageBadge stage={check.stage} note={check.note} shipped={shipped} />
           {check.advisory ? <AdvisoryBadge /> : null}
         </div>
         <span className="flex items-center gap-1.5">

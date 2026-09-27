@@ -3,19 +3,25 @@ import { Bricolage_Grotesque, Geist, Geist_Mono } from "next/font/google";
 import { Consent } from "@/components/consent/consent";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
-import { socialImage } from "@/lib/metadata";
+import { sharedMetadata, socialImage } from "@/lib/metadata";
 import { site } from "@/lib/site";
 import "./globals.css";
 
+// On a slow link the fonts arrive after the first paint, and swapping them in re-wraps the text and shifts what
+// follows: the display font's big headings on phones, Geist's body text on the long legal pages on desktop.
+// "optional" gives each font a short block period and otherwise keeps the size-adjusted fallback until the next
+// full page load, which uses the cached font. Geist Mono only sets short labels and code, which don't re-wrap.
 const bricolage = Bricolage_Grotesque({
   variable: "--font-bricolage",
   subsets: ["latin"],
   axes: ["opsz"],
+  display: "optional",
 });
 
 const geist = Geist({
   variable: "--font-geist",
   subsets: ["latin"],
+  display: "optional",
 });
 
 const geistMono = Geist_Mono({
@@ -32,6 +38,9 @@ export const metadata: Metadata = {
     default: `${site.name}: ${site.tagline}`,
   },
   description: site.description,
+  // No robots here: every page gets it through pageMetadata, and the 404 page keeps only the noindex Next.js adds.
+  authors: sharedMetadata.authors,
+  creator: sharedMetadata.creator,
   openGraph: {
     siteName: site.name,
     type: "website",

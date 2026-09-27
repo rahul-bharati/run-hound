@@ -5,9 +5,10 @@
   "license": "MIT",
   "scripts": {
     "dev": "next dev",
-    "build": "next build && node scripts/csp.mjs",
+    "build": "next build && node scripts/csp.mjs && node scripts/check-seo.mjs --strict",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --test --import ./scripts/test-hooks.mjs \"src/**/*.test.ts\" \"scripts/**/*.test.mjs\""
   },
   "dependencies": {
     "lucide-react": "1.48.0",

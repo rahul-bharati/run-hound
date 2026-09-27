@@ -8,7 +8,7 @@ const github = "https://github.com/rahul-bharati/run-hound";
 const composeFileUrl = raw("run-hound.compose.yml");
 // Run Hound's image without a tag, i.e. `latest`: the main pull-and-run commands use it, so they never go stale.
 const imageName = "ghcr.io/rahul-bharati/run-hound";
-// The main way to run it (README.md "Quickest start"): the web UI on http://localhost:4000, reports in ./runs, apps on
+// The main way to run it (README.md "Quick start", docs/install.md): the web UI on http://localhost:4000, reports in ./runs, apps on
 // your machine reached as http://host.docker.internal:<port>. The image sets RUNHOUND_ALLOWED_HOSTS
 // (host.docker.internal,host.containers.internal) and RUNHOUND_CONFIG_DIR (/repo/app/runs/.config) itself, and its
 // entrypoint prints the address to open; -e still overrides either. Podman: the same with `podman`.
@@ -21,16 +21,20 @@ export const site = {
   // Default meta description: at most about 155 characters, so search results show it whole.
   description:
     "Open-source, AI-assisted UI testing for AI-built apps. Real checks in a real browser, with evidence and a Playwright test for every finding.",
-  // Current stage: V1 ("Single page"), open source under MIT, with optional AI since 0.3.0. V0 ("Single form",
-  // 0.1.0) shipped before it. 0.4.0 adds the first slice of V2 as a preview (docs/v2-spec.md): test accounts and
-  // signed-in runs, access checks, mass assignment and deep links; 0.5.0 adds the CSRF check
-  // (csrf). The web UI and reports call it "V2 preview".
-  release: "V1",
-  releaseName: "Single page",
+  // The release is `version`. V0 to V4 are stages of what Run Hound can test, not releases: V0 (single form) shipped
+  // in 0.1.0, V1 (single page) in 0.2.0 to 0.4.0, V2 is in preview since 0.4.0, V3 is planned, and V4 is planned as
+  // 1.0.0, with 0.9.9, right before it, the `npx run-hound` release. The open-source page and docs/roadmap.md list
+  // them. `preview` is the stage in preview, named as the web UI and reports name it: test accounts and signed-in
+  // runs, access checks, mass assignment and deep links since 0.4.0 (docs/v2-spec.md), and the CSRF check (csrf)
+  // since 0.5.0.
   preview: "V2 preview",
   previewName: "Signed-in runs and access checks",
   version,
   tag,
+  // The day `version` was released (its tag), as displayed and machine-readable: "Release 0.5.0 · 26 September 2026"
+  // in the footer, dateModified in the structured data and lastModified in sitemap.xml. Update both with every release.
+  released: "26 September 2026",
+  releasedIso: "2026-09-26",
   // Label for the main call to action, used in the header, heroes and page footers.
   cta: "Try it locally",
   // `||`, not `??`: Docker passes an unset build arg as an empty string. A production build needs the real address
@@ -38,6 +42,9 @@ export const site = {
   // warns when `next build` runs without it.
   url: process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
   github,
+  // Who makes Run Hound and runs this site: an individual, as LICENSE and the legal pages say. The author in each
+  // page's metadata and the Person in its structured data (lib/structured-data.ts).
+  maintainer: { name: "Rahul Bharati", url: "https://github.com/rahul-bharati" },
   // The repository is public: anyone can clone it, try it and file issues.
   testingGuide: `${github}/blob/main/TESTING.md`,
   changelog: `${github}/blob/main/CHANGELOG.md`,

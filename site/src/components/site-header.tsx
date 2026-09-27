@@ -26,7 +26,8 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-line-soft bg-bg/85 backdrop-blur-md">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-4 py-3.5 sm:px-6 lg:px-[72px]">
-        <Logo />
+        {/* On the home page the logo links to the page already open: don't prefetch it. */}
+        <Logo prefetch={pathname === "/" ? false : undefined} />
 
         <div className="flex items-center gap-3 lg:gap-8">
           <nav aria-label="Main" className="hidden lg:block">
@@ -37,6 +38,8 @@ export function SiteHeader() {
                   <li key={item.href}>
                     <Link
                       href={item.href}
+                      // The page already open isn't prefetched again.
+                      prefetch={active ? false : undefined}
                       aria-current={active ? "page" : undefined}
                       className={`inline-flex min-h-11 items-center ${active ? "text-accent" : "text-muted hover:text-fg"}`}
                     >
@@ -75,6 +78,7 @@ export function SiteHeader() {
                     <li key={item.href}>
                       <Link
                         href={item.href}
+                        prefetch={active ? false : undefined}
                         aria-current={active ? "page" : undefined}
                         className={`flex min-h-11 items-center rounded-xl px-4 ${active ? "bg-surface-3 text-accent" : "text-fg hover:bg-surface-2"}`}
                       >

@@ -279,6 +279,12 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # Unit tests for the structured data, the SEO build guard (scripts/check-seo.mjs) and the site's data modules.
+      - name: Test
+        run: pnpm test
+
+      # pnpm build also runs scripts/csp.mjs and scripts/check-seo.mjs --strict, which fails on a page without a
+      # title, description, canonical or valid JSON-LD.
       - name: Build
         env:
           NEXT_TELEMETRY_DISABLED: "1"

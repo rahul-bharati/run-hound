@@ -1,25 +1,34 @@
 import type { Severity } from "@/components/finding";
 
 /**
- * Roadmap stage a check is in or planned for. V0 = single form on localhost (shipped, 0.1.0); V1 = single page
- * (current; page-wide checks since 0.2.0, optional AI since 0.3.0); V2 = single feature (a preview since 0.4.0:
- * signed-in runs, access checks, mass assignment and deep links, plus the CSRF check since 0.5.0; the rest is
- * planned); V4 = live staging behind domain verification.
+ * Roadmap stage a check is in or planned for. Stages are not releases (docs/roadmap.md): the release is `site.version`.
+ * V0 = single form on localhost (shipped, 0.1.0); V1 = single page (shipped: page-wide checks in 0.2.0, optional AI in
+ * 0.3.0, AI-built UIs in 0.4.0); V2 = single feature (a preview since 0.4.0: signed-in runs, access checks, mass
+ * assignment and deep links, plus the CSRF check since 0.5.0; the rest is planned); V3 = the whole app (planned);
+ * V4 = live staging behind domain verification (planned: 1.0.0).
  */
-export type Version = "V0" | "V1" | "V2" | "V3" | "V4";
+export type Stage = "V0" | "V1" | "V2" | "V3" | "V4";
 
 export type Check = {
+  /**
+   * The entry's anchor on /checks/ (/checks/#duplicate-submissions links straight to it): lower case and hyphens,
+   * unique on the page, and never a built-in check's id. Keep it when the name is reworded, so links keep working.
+   */
+  id: string;
   name: string;
   /** One plain-language line. */
   line: string;
   /** Typical severity when the check fails. */
   severity: Severity;
-  version: Version;
+  stage: Stage;
   /** Short signal phrase only, never a procedure. */
   signal: string;
-  /** Relies on model judgement; reported as advisory, never as a confirmed defect. */
+  /**
+   * Relies on judgement (a heuristic or, for planned checks, a model); reported as advisory, never as a confirmed
+   * defect.
+   */
   advisory?: boolean;
-  /** Extra qualifier shown beside the version (e.g. "stretch"). */
+  /** Extra qualifier shown beside the stage badge (e.g. "stretch"). */
   note?: string;
   /**
    * In the current release. Every V0 check is; for V1 and V2 only the checks marked shipped are (V1's page-wide checks
@@ -36,12 +45,12 @@ export type CheckCategory = {
   checks: Check[];
 };
 
-export const versionMeaning: Record<Version, string> = {
+export const stageMeaning: Record<Stage, string> = {
   V0: "One form on localhost: shipped",
   V1: "One page: available now, more to come",
   V2: "One feature, end to end: a preview is available now (signed-in runs, access checks and a CSRF check)",
-  V3: "The whole app",
-  V4: "Live staging, domain verified",
+  V3: "The whole app: planned",
+  V4: "Live staging, domain verified: planned for 1.0.0",
 };
 
 export const categories: CheckCategory[] = [
@@ -53,124 +62,141 @@ export const categories: CheckCategory[] = [
       "The things your AI said were done. Run Hound clicks, types and reloads like a user would, and records what actually happened.",
     checks: [
       {
+        id: "dead-buttons-and-controls",
         name: "Dead buttons and controls",
-        line: "A button or control that does nothing when you use it: no request, no change on screen, no navigation. In the form since V0, and across the whole page since V1.",
+        line: "A button or control that does nothing when you use it: no request, no change on screen, no navigation. In the form since 0.1.0, and across the whole page since 0.2.0.",
         severity: "high",
-        version: "V0",
+        stage: "V0",
         signal: "activation with no effect",
       },
       {
+        id: "forms-that-fail-silently",
         name: "Forms that fail silently",
         line: "When a save fails on the server, the form should say so and keep what you typed.",
         severity: "high",
-        version: "V0",
+        stage: "V0",
         signal: "simulated server error",
       },
       {
+        id: "looks-saved-isnt",
         name: "Looks saved, isn't",
         line: "Data that appears saved but is gone after a reload.",
         severity: "critical",
-        version: "V0",
+        stage: "V0",
         signal: "reload and re-read",
       },
       {
+        id: "duplicate-submissions",
         name: "Double submit",
         line: "Clicking twice quickly creates two orders, two posts or two charges.",
         severity: "high",
-        version: "V0",
+        stage: "V0",
         signal: "request count",
       },
       {
+        id: "calls-to-things-that-dont-exist",
         name: "Calls to things that don't exist",
         line: "Console errors and failed requests, including code that calls functions or endpoints that were never built.",
         severity: "medium",
-        version: "V0",
+        stage: "V0",
         signal: "console and network capture",
       },
       {
+        id: "missing-loading-and-empty-states",
         name: "Missing loading and empty states",
         line: "Blank screens while data loads, or nothing helpful when there is no data yet.",
         severity: "medium",
-        version: "V1",
+        stage: "V1",
         signal: "throttled network, fresh account",
       },
       {
+        id: "stale-results",
         name: "Stale results",
         line: "Slow responses arrive out of order and the screen shows results for an older search.",
         severity: "medium",
-        version: "V1",
+        stage: "V1",
         signal: "latency emulation",
       },
       {
+        id: "hydration-errors",
         name: "Hydration errors",
         line: "Server-rendered pages that don't match what the browser renders, causing flicker or broken UI.",
         severity: "medium",
-        version: "V1",
+        stage: "V1",
         signal: "console capture",
       },
       {
+        id: "timezone-and-locale-bugs",
         name: "Timezone and locale bugs",
         line: "Dates, times and numbers that go wrong for people outside your own timezone or language.",
         severity: "medium",
-        version: "V1",
+        stage: "V1",
         signal: "timezone and locale emulation",
       },
       {
+        id: "broken-mobile-layouts",
         name: "Broken mobile layouts",
         line: "Pages that break on a phone, or block pinch-to-zoom.",
         severity: "high",
-        version: "V1",
+        stage: "V1",
         signal: "mobile viewport run",
       },
       {
+        id: "dead-links-and-missing-assets",
         name: "Dead links and missing assets",
         line: "Links that go nowhere and images or files that fail to load.",
         severity: "medium",
-        version: "V1",
+        stage: "V1",
         signal: "link and asset check",
       },
       {
+        id: "refresh-deep-links-and-back",
         name: "Refresh, deep links and Back",
         line: "Pages that break when you reload them or open them from a shared link. Checking the Back button is planned.",
         severity: "high",
-        version: "V2",
+        stage: "V2",
         shipped: true,
         signal: "direct load of each route",
       },
       {
+        id: "sign-in-emails-and-redirects",
         name: "Sign-in emails and redirects",
         line: "Password reset, email verification or social sign-in that fails in production, or sends people to localhost.",
         severity: "critical",
-        version: "V2",
+        stage: "V2",
         signal: "auth flow run with an inbox you own",
       },
       {
+        id: "placeholder-data-shipped-as-real",
         name: "Placeholder data shipped as real",
         line: "Demo names, sample numbers or lorem ipsum that made it into the live app.",
         severity: "high",
-        version: "V2",
+        stage: "V2",
         signal: "seed-data heuristics",
         advisory: true,
       },
       {
+        id: "works-in-chrome-only",
         name: "Works in Chrome only",
         line: "Features that break in Safari or Firefox.",
         severity: "medium",
-        version: "V3",
+        stage: "V3",
         signal: "cross-engine rerun",
       },
       {
+        id: "regressions-after-ai-edits",
         name: "Regressions after AI edits",
         line: "Something that worked last week broke when your AI changed something else.",
         severity: "high",
-        version: "V3",
+        stage: "V3",
         signal: "re-run exported specs",
       },
       {
+        id: "production-config-missing",
         name: "Production config missing",
         line: "The deployed build still points at localhost, uses undefined settings, or runs with test-mode keys.",
         severity: "high",
-        version: "V4",
+        stage: "V4",
         signal: "request-host check",
       },
     ],
@@ -183,47 +209,53 @@ export const categories: CheckCategory[] = [
       "What happens when people type the wrong thing, too much, or nothing at all. Checks stay non-destructive and run only against apps you own.",
     checks: [
       {
+        id: "validation-only-in-the-browser",
         name: "Validation only in the browser",
         line: "The form rejects bad input, but the server quietly accepts it anyway.",
         severity: "high",
-        version: "V0",
+        stage: "V0",
         note: "localhost only",
         signal: "server accepts what the form rejects",
       },
       {
+        id: "input-shown-back-unsafely",
         name: "Input shown back unsafely",
         line: "Text people enter, or text an AI generates, is rendered as live page content instead of plain text.",
         severity: "high",
-        version: "V1",
+        stage: "V1",
         signal: "harmless marker rendering check",
       },
       {
+        id: "server-trusts-extra-fields",
         name: "Server trusts extra fields",
         line: "The server stores fields the form never sends, such as a role, a plan or a verified flag (mass assignment).",
         severity: "high",
-        version: "V2",
+        stage: "V2",
         shipped: true,
         signal: "replayed save on a test account you own",
       },
       {
+        id: "search-sort-and-pagination-edges",
         name: "Search, sort and pagination edges",
         line: "Empty, oversized or unusual input, or the last page of results, breaks the list.",
         severity: "medium",
-        version: "V2",
+        stage: "V2",
         signal: "boundary inputs",
       },
       {
+        id: "unsafe-file-uploads",
         name: "Unsafe file uploads",
         line: "Uploaded files that are accepted without checks or served back in a risky way.",
         severity: "high",
-        version: "V2",
+        stage: "V2",
         signal: "upload handling check",
       },
       {
+        id: "upload-limits-that-fail-silently",
         name: "Upload limits that fail silently",
         line: "A file that is too large disappears with no message.",
         severity: "medium",
-        version: "V3",
+        stage: "V3",
         signal: "visible error expected",
       },
     ],
@@ -236,153 +268,174 @@ export const categories: CheckCategory[] = [
       "Can everyone use it, including people on a keyboard or a screen reader? Run Hound reports WCAG failures with evidence. It does not certify legal compliance.",
     checks: [
       {
+        id: "unlabeled-inputs",
         name: "Unlabeled inputs",
         line: "Fields with no label, or a placeholder as the only label, so screen readers can't say what to type.",
         severity: "high",
-        version: "V0",
+        stage: "V0",
         signal: "axe-core rule",
       },
       {
+        id: "controls-with-no-name",
         name: "Controls with no name",
         line: "Buttons and links a screen reader announces as just \"button\".",
         severity: "high",
-        version: "V0",
+        stage: "V0",
         signal: "axe-core rule",
       },
       {
+        id: "low-contrast-in-any-form-state",
         name: "Low contrast in any form state",
         line: "Text too faint to read, with the form empty, showing errors or after a save.",
         severity: "high",
-        version: "V0",
+        stage: "V0",
         signal: "contrast rule per state",
       },
       {
+        id: "focus-outline-removed",
         name: "Focus outline removed",
         line: "Keyboard users can't see where they are on the page.",
         severity: "high",
-        version: "V0",
+        stage: "V0",
         signal: "keyboard traversal",
       },
       {
+        id: "cant-finish-with-a-keyboard",
         name: "Can't finish with a keyboard",
         line: "The form can't be filled in and sent without a mouse: a field can't be reached with Tab or set from the keyboard.",
         severity: "high",
-        version: "V0",
+        stage: "V0",
         signal: "keyboard traversal",
       },
       {
+        id: "errors-not-announced",
         name: "Errors not announced",
         line: "Validation and save errors that screen reader users never hear.",
         severity: "high",
-        version: "V0",
+        stage: "V0",
         signal: "live-region check after submit",
       },
       {
+        id: "paste-blocked-on-passwords",
         name: "Paste blocked on passwords",
         line: "Login or one-time-code fields that stop password managers and pasting.",
         severity: "medium",
-        version: "V0",
+        stage: "V0",
         signal: "paste check on credential fields",
       },
       {
+        id: "missing-autocomplete",
         name: "Missing autocomplete",
         line: "Password and one-time-code fields that don't tell the browser what they hold, so password managers can't fill them.",
         severity: "low",
-        version: "V0",
+        stage: "V0",
         signal: "autocomplete check on credential fields",
         advisory: true,
       },
       {
+        id: "label-doesnt-match-what-you-see",
         name: "Label doesn't match what you see",
         line: "A button's spoken name differs from its visible text, which confuses voice control users.",
         severity: "medium",
-        version: "V1",
+        stage: "V1",
         signal: "Label in Name rule",
       },
       {
+        id: "small-targets",
         name: "Small targets",
         line: "Buttons and links smaller than 24 by 24 pixels, hard to hit on touch screens.",
         severity: "medium",
-        version: "V0",
+        stage: "V0",
         signal: "axe-core target-size rule",
       },
       {
+        id: "breaks-at-320px",
         name: "Breaks at 320px",
         line: "Layouts that scroll sideways on a narrow phone or when zoomed in.",
         severity: "medium",
-        version: "V0",
+        stage: "V0",
         signal: "viewport reflow check",
       },
       {
+        id: "clickable-divs",
         name: "Clickable divs",
         line: "Things that look like buttons but can't be reached or used with a keyboard.",
         severity: "critical",
-        version: "V1",
+        stage: "V1",
         signal: "keyboard activation diff",
       },
       {
+        id: "custom-widgets",
         name: "Custom widgets",
         line: "Menus, tabs and pickers that don't follow the expected keyboard patterns.",
         severity: "high",
-        version: "V1",
+        stage: "V1",
         signal: "keyboard traversal",
       },
       {
+        id: "modal-focus",
         name: "Modal focus",
         line: "Dialogs that don't move focus in, let it escape, or lose your place when they close.",
         severity: "high",
-        version: "V1",
+        stage: "V1",
         signal: "keyboard traversal",
       },
       {
+        id: "page-structure",
         name: "Page structure",
         line: "Broken heading order, missing landmarks, missing page language or a broken skip link.",
         severity: "medium",
-        version: "V1",
+        stage: "V1",
         signal: "axe-core rules",
       },
       {
+        id: "focus-hidden-under-sticky-bars",
         name: "Focus hidden under sticky bars",
         line: "The focused element slides under a sticky header or cookie banner.",
         severity: "medium",
-        version: "V1",
+        stage: "V1",
         signal: "keyboard traversal",
       },
       {
+        id: "alt-text-quality",
         name: "Alt text quality",
         line: "Images with missing alt text, or alt text that doesn't describe anything useful.",
         severity: "medium",
-        version: "V1",
+        stage: "V1",
         signal: "axe-core rule plus model review",
         advisory: true,
       },
       {
+        id: "generic-link-and-button-text",
         name: "Generic link and button text",
         line: "Many links called \"click here\" or \"learn more\" with nothing to tell them apart.",
         severity: "medium",
-        version: "V1",
+        stage: "V1",
         signal: "duplicate name detection",
         advisory: true,
       },
       {
+        id: "motion-ignores-preferences",
         name: "Motion ignores preferences",
         line: "Animations that keep running for people who asked their device to reduce motion.",
         severity: "low",
-        version: "V1",
+        stage: "V1",
         signal: "reduced-motion emulation",
       },
       {
+        id: "route-changes-not-announced",
         name: "Route changes not announced",
         line: "In single-page apps, screen reader users aren't told the page changed.",
         severity: "medium",
-        version: "V2",
+        stage: "V2",
         signal: "title and focus after navigation",
       },
       {
+        id: "overlays-sold-as-compliance",
         name: "Overlays sold as compliance",
         line: "Accessibility overlay widgets or automated scores treated as proof the app is accessible.",
         severity: "high",
-        version: "V3",
+        stage: "V3",
         signal: "overlay script detection",
       },
     ],
@@ -395,84 +448,95 @@ export const categories: CheckCategory[] = [
       "Can people see or do things they shouldn't? These checks only use test accounts you create on an app you own, and confirm findings by comparison rather than guessing.",
     checks: [
       {
+        id: "data-readable-without-signing-in",
         name: "Data readable without signing in",
         line: "Your app's own database calls return data to anyone, for example with Supabase RLS off or open Firebase rules.",
         severity: "critical",
-        version: "V1",
+        stage: "V1",
         signal: "anonymous access check on your own app",
       },
       {
+        id: "other-users-data-exposed",
         name: "Other users' data exposed",
         line: "One account can read another account's records. Checking that it can't change or delete them is planned.",
         severity: "critical",
-        version: "V2",
+        stage: "V2",
         shipped: true,
         signal: "compare two test accounts you own",
       },
       {
+        id: "auth-only-in-the-frontend",
         name: "Auth only in the frontend",
         line: "Pages hide things from logged-out users, but the server hands them over anyway. Checking that it refuses their changes is planned.",
         severity: "critical",
-        version: "V2",
+        stage: "V2",
         shipped: true,
         signal: "replay without a session",
       },
       {
+        id: "paid-features-without-paying",
         name: "Paid features without paying",
         line: "The paid state can be reached without a confirmed payment, for example by trusting the success page.",
         severity: "critical",
-        version: "V2",
+        stage: "V2",
         signal: "payment state check, no provider called",
       },
       {
+        id: "cross-site-request-forgery",
         name: "Cross-site request forgery",
         line: "A page on another site can make a signed-in user's browser change their data: no CSRF token, no Origin check, and a session cookie sent cross-site.",
         severity: "high",
-        version: "V2",
+        stage: "V2",
         shipped: true,
         signal: "forged save from a cross-site page",
       },
       {
+        id: "sign-in-weaknesses",
         name: "Sign-in weaknesses",
         line: "Logout that doesn't end the session, sign-up left wide open, or login pages that reveal which emails have accounts.",
         severity: "medium",
-        version: "V2",
+        stage: "V2",
         signal: "auth flow review",
       },
       {
+        id: "no-rate-limiting",
         name: "No rate limiting",
         line: "Login, one-time-code and AI endpoints that accept unlimited attempts.",
         severity: "high",
-        version: "V2",
+        stage: "V2",
         signal: "small, bounded burst",
       },
       {
+        id: "chatbot-prompt-injection",
         name: "Chatbot prompt injection",
         line: "Your own AI chatbot can be talked into ignoring its instructions.",
         severity: "high",
-        version: "V2",
+        stage: "V2",
         signal: "canned probes on your own chatbot",
       },
       {
+        id: "admin-pages-left-public",
         name: "Admin pages left public",
         line: "Internal or admin screens that open without logging in.",
         severity: "high",
-        version: "V3",
+        stage: "V3",
         signal: "logged-out route crawl",
       },
       {
+        id: "permissive-cross-origin-access",
         name: "Permissive cross-origin access",
         line: "Your API echoes whatever Origin it is sent, or trusts the null origin any website can send, so other websites can read its answers, even signed-in ones.",
         severity: "high",
-        version: "V1",
+        stage: "V1",
         shipped: true,
         signal: "requests from a sandboxed frame",
       },
       {
+        id: "open-redirects",
         name: "Open redirects",
         line: "Login links that can send people on to any site.",
         severity: "medium",
-        version: "V4",
+        stage: "V4",
         signal: "redirect allowlist check",
       },
     ],
@@ -484,53 +548,60 @@ export const categories: CheckCategory[] = [
     intro: "Secrets and personal data ending up somewhere public: your JavaScript bundle, the URL, or someone else's servers.",
     checks: [
       {
+        id: "secret-keys-in-the-javascript",
         name: "Secret keys in the JavaScript",
         line: "API keys that should stay on the server are shipped to every visitor. Publishable keys are allowed.",
         severity: "critical",
-        version: "V0",
+        stage: "V0",
         signal: "bundle scan",
       },
       {
+        id: "database-admin-key-in-the-browser",
         name: "Database admin key in the browser",
         line: "A Supabase service_role key in the client gives anyone full database access.",
         severity: "critical",
-        version: "V0",
+        stage: "V0",
         signal: "bundle scan with key role check",
       },
       {
+        id: "personal-data-sent-to-trackers",
         name: "Personal data sent to trackers",
         line: "Emails or phone numbers typed into forms end up in analytics, ad pixels or other third-party requests, as plain text or hashed.",
         severity: "high",
-        version: "V0",
+        stage: "V0",
         signal: "canary value in third-party requests",
       },
       {
+        id: "stack-traces-shown-to-users",
         name: "Stack traces shown to users",
         line: "Error pages that reveal internal details about how your app is built.",
         severity: "medium",
-        version: "V0",
+        stage: "V0",
         signal: "error response check",
       },
       {
+        id: "public-source-maps",
         name: "Public source maps",
         line: "Public .map files next to your scripts let anyone download your original source code.",
         severity: "medium",
-        version: "V1",
+        stage: "V1",
         shipped: true,
         signal: "source-map presence check",
       },
       {
+        id: "unpinned-third-party-scripts",
         name: "Unpinned third-party scripts",
         line: "Scripts loaded from other domains without integrity checks, so a compromised CDN can change them.",
         severity: "medium",
-        version: "V1",
+        stage: "V1",
         signal: "script inventory",
       },
       {
+        id: "exposed-dotfiles-and-build-files",
         name: "Exposed dotfiles and build files",
         line: "Configuration files or backups reachable on the real host.",
         severity: "high",
-        version: "V4",
+        stage: "V4",
         signal: "presence check on the verified host",
       },
     ],
@@ -543,82 +614,93 @@ export const categories: CheckCategory[] = [
       "Things nobody tells you to ask your AI about. Most are quick to fix once you know they exist.",
     checks: [
       {
+        id: "tracking-before-consent",
         name: "Tracking before consent",
         line: "Analytics and ad scripts fire before someone accepts cookies, or after they click Reject.",
         severity: "high",
-        version: "V1",
+        stage: "V1",
         signal: "third-party requests before consent",
       },
       {
+        id: "outdated-framework-with-known-holes",
         name: "Outdated framework with known holes",
         line: "Your Next.js or React version has published security vulnerabilities.",
         severity: "critical",
-        version: "V1",
+        stage: "V1",
         signal: "version fingerprint",
       },
       {
+        id: "missing-security-headers",
         name: "Missing security headers",
         line: "Standard browser protections your server never switched on: a Content-Security-Policy, nosniff, clickjacking protection and, on https, HSTS. A Referrer-Policy that leaks full URLs counts too.",
         severity: "medium",
-        version: "V1",
+        stage: "V1",
         shipped: true,
         signal: "response header check",
       },
       {
+        id: "session-cookie-flags",
         name: "Session cookie flags",
         line: "Session-like cookies without HttpOnly, set to SameSite=None, or without Secure on https, so scripts can read them or other sites can send them.",
         severity: "high",
-        version: "V1",
+        stage: "V1",
         shipped: true,
         signal: "cookie inspection",
       },
       {
+        id: "login-tokens-in-page-storage",
         name: "Login tokens in page storage",
         line: "Login tokens kept in localStorage or other places any script on the page can read.",
         severity: "medium",
-        version: "V2",
+        stage: "V2",
         signal: "storage inspection",
       },
       {
+        id: "runaway-ai-or-api-bills",
         name: "Runaway AI or API bills",
         line: "AI features anyone can call without limits, on your account.",
         severity: "high",
-        version: "V2",
+        stage: "V2",
         signal: "small, bounded burst",
       },
       {
+        id: "invisible-to-search-and-social",
         name: "Invisible to search and social",
         line: "Pages that show nothing without JavaScript, are marked noindex, or have no link preview.",
         severity: "medium",
-        version: "V3",
+        stage: "V3",
         signal: "fetch without JavaScript",
       },
       {
+        id: "slow-pages",
         name: "Slow pages",
         line: "Load times and layout shifts that make the app feel broken.",
         severity: "medium",
-        version: "V3",
+        stage: "V3",
         signal: "Lighthouse lab metrics",
       },
       {
+        id: "no-privacy-policy-or-account-deletion",
         name: "No privacy policy or account deletion",
         line: "App stores and privacy laws expect both. Many AI-built apps have neither.",
         severity: "medium",
-        version: "V3",
+        stage: "V3",
         signal: "link and flow presence",
       },
       {
+        id: "staging-wired-to-production",
         name: "Staging wired to production",
         line: "Your test environment writes to the real database. Run Hound checks this first, as a safety gate.",
         severity: "high",
-        version: "V4",
+        stage: "V4",
         signal: "environment fingerprint",
       },
       {
+        id: "mixed-content-and-indexed-previews",
         name: "Mixed content and indexed previews",
         line: "Insecure resources on secure pages, or preview deployments showing up in search results.",
         severity: "medium",
-        version: "V4",
+        stage: "V4",
         signal: "console and index check",
       },
     ],
@@ -628,7 +710,7 @@ export const categories: CheckCategory[] = [
 export type PreviewGroup = "Accessibility" | "Features" | "Security";
 
 export type PreviewCheck = {
-  /** The check id as it appears in plans, reports and the CLI. */
+  /** The check id as it appears in plans, reports and the CLI, and its anchor on /checks/ (/checks/#csrf). */
   id: string;
   name: string;
   /** What it does, in plain words (from TESTING.md). */
@@ -636,8 +718,8 @@ export type PreviewCheck = {
   /** Test records a run of this check can create in the app under test. */
   records: string;
   /**
-   * Stage that added the check: V0 (0.1.0) for the form checks, V1 (0.2.0) for the page-wide checks, V2 for the
-   * checks of the V2 preview (0.4.0 and 0.5.0).
+   * Stage that added the check: V0 (release 0.1.0), V1 (0.2.0) or V2 for the checks of the V2 preview (0.4.0, and
+   * 0.5.0 for csrf). Shown by release, never as "since V0" (a stage is named only as a stage).
    */
   since: "V0" | "V1" | "V2";
   /** Findings are marked advisory when the target looks like a dev server, which doesn't send production values. */
@@ -650,7 +732,7 @@ export type PreviewCheck = {
 
 /**
  * The built-in checks in the current release, in the three groups the plan, run and report follow, in run order:
- * V0's form checks, V1's page-wide checks and the V2 preview's checks (0.4.0 and 0.5.0). Source of truth: app/src/checks and
+ * the V0 checks, the V1 checks and the V2 preview's checks (0.4.0 and 0.5.0). Source of truth: app/src/checks and
  * app/src/core/types.ts (CHECK_IDS); the V2 checks in docs/v2-spec.md.
  */
 export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = [
@@ -846,6 +928,14 @@ export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = 
     ],
   },
 ];
+
+/**
+ * Every built-in check in the order /checks/ shows them, with its group: the list behind the page's structured data
+ * (an ItemList, so search engines and AI answer engines read the same checks visitors see).
+ */
+export const builtInChecks: (PreviewCheck & { group: PreviewGroup })[] = previewGroups.flatMap((g) =>
+  g.checks.map((c) => ({ ...c, group: g.group })),
+);
 
 /**
  * The optional check added in 0.3.0. It runs only when AI is on and you tick a suggested flow, so it is listed

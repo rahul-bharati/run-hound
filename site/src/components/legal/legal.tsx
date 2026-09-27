@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { DocsToc } from "@/components/docs/toc";
+import { JsonLd } from "@/components/json-ld";
 import { Container, Eyebrow } from "@/components/layout";
+import { legalJsonLd, type LegalPage } from "@/components/legal/pages";
 import { site } from "@/lib/site";
 
 export type LegalTocItem = { id: string; label: string };
@@ -8,25 +10,27 @@ export type LegalTocItem = { id: string; label: string };
 /**
  * Long-form layout shared by the legal pages: a title block with the "Last updated" date, a table of contents
  * (inline on phones, sticky beside the text on wide screens) and a reading column capped near 70 characters.
+ * `page` (components/legal/pages.ts) gives the h1, which is also the page's title, and the page's structured data.
  */
 export function LegalDoc({
-  title,
+  page,
   lede,
   toc,
   children,
 }: {
-  title: ReactNode;
+  page: LegalPage;
   lede?: ReactNode;
   toc: readonly LegalTocItem[];
   children: ReactNode;
 }) {
   return (
     <Container className="pb-24 pt-12 sm:pt-20">
+      <JsonLd data={legalJsonLd(page)} />
       <div className="flex flex-col gap-10 lg:gap-14">
         <header className="flex max-w-[70ch] flex-col gap-5">
           <Eyebrow>LEGAL</Eyebrow>
           <h1 className="text-balance font-display text-[2.5rem] font-extrabold leading-[1.02] tracking-[-0.03em] text-fg sm:text-6xl">
-            {title}
+            {page.title}
           </h1>
           {lede ? <p className="text-pretty text-lg leading-relaxed text-muted">{lede}</p> : null}
           <p className="font-mono text-xs tracking-widest text-dim">
@@ -46,7 +50,11 @@ export function LegalDoc({
   );
 }
 
-/** Section heading with a visible "#" link to itself, so any part of a policy can be linked to. */
+/**
+ * Section heading with a visible "#" link to itself, so any part of a policy can be linked to. The "#" is drawn by CSS
+ * (::after), not written in the link, so the heading's text is only its title: search engines and AI answer engines
+ * read "Who we are", not "Who we are#". The link's name for screen readers comes from its aria-label.
+ */
 export function LegalHeading({
   id,
   level = 2,
@@ -60,9 +68,7 @@ export function LegalHeading({
   return (
     <Tag id={id}>
       {children}
-      <a href={`#${id}`} className="heading-anchor" aria-label="Link to this section">
-        #
-      </a>
+      <a href={`#${id}`} className="heading-anchor after:content-['#']" aria-label="Link to this section" />
     </Tag>
   );
 }
