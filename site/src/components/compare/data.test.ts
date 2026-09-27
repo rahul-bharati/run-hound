@@ -5,7 +5,7 @@ import { describe, test } from "node:test";
 // A deployed address, with the trailing slash that every URL must drop. Set before lib/site.ts reads it.
 process.env.NEXT_PUBLIC_SITE_URL = "https://run-hound.example/";
 const { site } = await import("@/lib/site");
-const { capabilities, compareJsonLd, comparePage, tools } = await import("@/components/compare/data");
+const { capabilities, compareJsonLd, comparePage, notYet, tools } = await import("@/components/compare/data");
 
 const base = "https://run-hound.example";
 
@@ -32,6 +32,12 @@ describe("compare", () => {
     assert.equal(comparePage.absoluteTitle, true);
     assert.ok(comparePage.title.length <= 60, `${comparePage.title.length} characters`);
     assert.ok(comparePage.description.length <= 155, `${comparePage.description.length} characters`);
+  });
+
+  test("what it doesn't do yet leaves out what 0.6.0 built: write-access, paywall-trust, two-step and sessionStorage sign-in", () => {
+    const text = notYet.join("\n");
+    assert.doesNotMatch(text, /write-access|paywall-trust/);
+    assert.doesNotMatch(text, /sessionStorage|split over two pages|two-step/i);
   });
 
   test("the structured data is a WebPage dated by the release, and its breadcrumb", () => {

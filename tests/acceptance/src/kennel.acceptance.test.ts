@@ -49,6 +49,9 @@ describe.concurrent("Run Hound against Kennel", () => {
       // with links to other pages; Kennel's signed-out runs stay as they were in 0.3.0.
       const unplannedByDesign = [...AI_CHECK_IDS, ...V2_CHECK_IDS];
       expect(CHECK_IDS.filter((id) => !planned.has(id) && !unplannedByDesign.includes(id)), "checks with no planned scenario").toEqual([]);
+      // And they really plan nothing: the write-side checks (csrf 0.5.0, write-access and paywall-trust 0.6.0) and the
+      // access checks need a signed-in run (docs/v2-spec.md "Acceptance (0.6.0)": Kennel unchanged).
+      expect(plan.scenarios.filter((s) => V2_CHECK_IDS.includes(s.checkId)).map((s) => s.id), "V2 scenarios planned on Kennel (signed out)").toEqual([]);
 
       const approved = plan.scenarios.map((s) => s.id);
       const { report, dir } = await runPlan(plan, {

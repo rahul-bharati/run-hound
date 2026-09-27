@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { Capture, CheckContext, IdentityRequest, IdentityResponse } from "../../core/types.js";
 import {
   changedFields,
+  changesReadRecord,
   findOwnRecord,
   jsonObjectBody,
   locateRecord,
@@ -377,5 +378,53 @@ describe("recordWrites, readsList, snapshotFrom and locateRecord", () => {
     expect(locateRecord([{ id: 1, title: "own" }], snap, RUN_TOKEN)).toBe("gone");
     // Never a record without the run token.
     expect(snapshotFrom(LIST, list, ["own"], RUN_TOKEN)).toBeNull();
+  });
+});
+
+describe("changesReadRecord: the form's save judged before it reaches the app", () => {
+  const API = "http://localhost:4100";
+  const tasks = { url: `${API}/api/tasks`, body: JSON.stringify({ tasks: [{ id: "t1", title: "Groceries" }] }) };
+  const projects = { url: `${API}/api/projects`, body: JSON.stringify([{ id: "p1", name: "Home" }]) };
+  const projectTasks = { url: `${API}/api/projects/p1/tasks`, body: JSON.stringify([]) };
+  const profile = { url: `${API}/api/profile`, body: JSON.stringify({ name: "Alex", bio: "" }) };
+  const post = (url: string, body: unknown, method = "POST") => ({
+    method,
+    url: `${API}${url}`,
+    postData: typeof body === "string" ? body : JSON.stringify(body),
+  });
+  const judge = (req: ReturnType<typeof post>, answers = [tasks, projects, projectTasks, profile]) => changesReadRecord(req, answers, RUN_TOKEN);
+
+  it("lets a create through: a POST to a list, with a reference to another record beside the typed values", () => {
+    expect(judge(post("/api/tasks", { title: TEST_VALUE }))).toBe(false);
+    expect(judge(post("/api/tasks", { title: TEST_VALUE, projectId: "p1" }))).toBe(false);
+    expect(judge(post("/api/tasks", { title: TEST_VALUE, project: { id: "p1", name: "Home" } }))).toBe(false);
+    expect(judge(post("/api/tasks", `title=${encodeURIComponent(TEST_VALUE)}&projectId=p1`))).toBe(false);
+    // A create in a list the page reads under another record's id: POST /api/projects/p1/tasks.
+    expect(judge(post("/api/projects/p1/tasks", { title: TEST_VALUE }))).toBe(false);
+    // Reads and preflights are never judged.
+    expect(judge(post("/api/tasks/t1", null, "GET"))).toBe(false);
+    expect(judge(post("/api/tasks/t1", null, "OPTIONS"))).toBe(false);
+  });
+
+  it("stops a write that changes a record the page read: any method but POST, an id in the path, query or body, a POST to one record", () => {
+    expect(judge(post("/api/tasks/t1", { title: TEST_VALUE }, "PATCH"))).toBe(true);
+    expect(judge(post("/api/tasks/t9", { title: TEST_VALUE }, "PUT"))).toBe(true);
+    expect(judge(post("/api/tasks/t1", null, "DELETE"))).toBe(true);
+    expect(judge(post("/api/tasks/t1", { title: TEST_VALUE }))).toBe(true);
+    expect(judge(post("/api/tasks/t1/rename", { title: TEST_VALUE }))).toBe(true);
+    // Under a record the page read, into a path it never read as a list: the safe side.
+    expect(judge(post("/api/projects/p1/archive", { note: TEST_VALUE }))).toBe(true);
+    expect(judge(post("/api/tasks/update?id=t1", { title: TEST_VALUE }))).toBe(true);
+    expect(judge(post("/api/tasks/update", { id: "t1", title: TEST_VALUE }))).toBe(true);
+    expect(judge(post("/api/tasks/update", { task: { id: "t1", title: TEST_VALUE } }))).toBe(true);
+    expect(judge(post("/api/tasks/update", `id=t1&title=${encodeURIComponent(TEST_VALUE)}`))).toBe(true);
+    expect(judge(post("/api/tasks/update", `task%5Bid%5D=t1&task%5Btitle%5D=x`))).toBe(true);
+    // The page read one record at /api/profile: a POST there changes it.
+    expect(judge(post("/api/profile", { bio: TEST_VALUE }))).toBe(true);
+  });
+
+  it("knows nothing the page didn't read: an id it never saw is a new one", () => {
+    expect(judge(post("/api/tasks/t1", { title: TEST_VALUE }), [])).toBe(false);
+    expect(judge(post("/api/tasks/update", { id: "t77", title: TEST_VALUE }))).toBe(false);
   });
 });

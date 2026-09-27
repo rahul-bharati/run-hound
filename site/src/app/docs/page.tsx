@@ -326,7 +326,10 @@ export default function DocsPage() {
                   New in 0.4.0, as a preview of the V2 stage: <strong>test accounts and signed-in runs</strong>. Run Hound
                   signs in with an account you own before it tests, so pages behind a login get every check, and the
                   access checks ask whether another account, or a visitor who isn&apos;t signed in, can read your data.
-                  New in 0.5.0: the <strong>CSRF check</strong> asks whether another website can change it. See <a href="#accounts">Test accounts</a>. Also new: discovery that handles the widgets, dialogs and
+                  New in 0.5.0: the <strong>CSRF check</strong> asks whether another website can change it. New in
+                  0.6.0: <strong>write-access</strong> asks whether another account, or a visitor, can change or delete
+                  it, <strong>paywall-trust</strong> whether a free account can get the paid plan without paying, and
+                  sign-in handles a page that asks for the email first and a session kept in sessionStorage. See <a href="#accounts">Test accounts</a>. Also new: discovery that handles the widgets, dialogs and
                   form libraries of apps built with Lovable, Bolt and v0 (see{" "}
                   <a href="#ai-built">Apps from AI builders</a>), and a Docker image about a quarter of its old size.
                 </p>
@@ -704,8 +707,9 @@ export default function DocsPage() {
                   and it signs in before it tests: every check then runs signed in, so pages behind a login get tested
                   too, and the plan adds the access checks. Use accounts made for testing, on a development database,
                   never a real customer&apos;s. Sign-in uses the app&apos;s own form with a username (usually an email)
-                  and a password; sign-in with Google or another provider, magic links, codes and captchas aren&apos;t
-                  supported.
+                  and a password, on one page or (since 0.6.0) the email first and the password next; a session kept in
+                  cookies, localStorage, IndexedDB or (since 0.6.0) sessionStorage carries over. Sign-in with Google or
+                  another provider, magic links, codes and captchas aren&apos;t supported.
                 </p>
                 <h3>In the web UI</h3>
                 <ol>
@@ -803,12 +807,34 @@ export default function DocsPage() {
                     <code>localhost</code> app, and the other way round) sends the form&apos;s save from account A&apos;s
                     own browser, which attaches only the cookies it would for any website. A forged value that sticks
                     is a high finding. When no cross-site address can be set up (a private host name), the result is
-                    inconclusive, never a pass.
+                    inconclusive, never a pass. On an app whose session is a bearer token rather than a cookie, no
+                    cookie rides along, so it passes, unless the save needs no session at all.
+                  </li>
+                </ul>
+                <h3>The write-access and paywall-trust checks (0.6.0)</h3>
+                <p>
+                  Both follow the same rules as <code>csrf</code>: unticked until you tick them, a verdict from a
+                  re-read as account A, and a put-back that says what it couldn&apos;t undo.
+                </p>
+                <ul>
+                  <li>
+                    <code>write-access</code> (Security, signed in): as account A it saves a test record, then sends the
+                    update and delete requests your app itself sent for that record, never a guessed one, as account B
+                    and as a visitor who isn&apos;t signed in, and reads the record back as A. A change or a deletion is
+                    a critical finding. When your app sent no update or delete for the new record, it is skipped and
+                    says so.
+                  </li>
+                  <li>
+                    <code>paywall-trust</code> (Security, signed in): as account A on the free plan, it opens your
+                    app&apos;s own success, upgraded and thank-you pages, with every request to a known payment provider
+                    blocked, and reads A&apos;s plan again after each. A paid plan, more credits or more features without
+                    a payment is a critical finding; any other change is inconclusive. It is the only check that may
+                    change A&apos;s plan, and it puts it back with your app&apos;s own cancel or downgrade control.
                   </li>
                 </ul>
                 <p>
-                  Still planned: checks that account B, or a visitor who isn&apos;t signed in, can&apos;t change or
-                  delete account A&apos;s data, and that a paid plan needs a real payment.
+                  Still planned: replaying a checkout with a changed price or plan, and calling the APIs only paid
+                  accounts use.
                 </p>
               </div>
               <Figures items={accessFigures} />
@@ -1129,8 +1155,8 @@ export default function DocsPage() {
                 <p>
                   The plan, the run, the progress and the report all follow the same three groups. Form checks are
                   planned once for each form on the page; page-wide checks are planned once for the whole page. The
-                  checks tagged {site.preview} arrived in 0.4.0 and 0.5.0; access-control, mass-assignment and csrf
-                  are planned only on a{" "}
+                  checks tagged {site.preview} arrived in 0.4.0, 0.5.0 and 0.6.0; access-control, mass-assignment,
+                  csrf, write-access and paywall-trust are planned only on a{" "}
                   <a href="#accounts">signed-in run</a>. Scenarios that don&apos;t apply to your page (no
                   form, no password field, no JSON save request) are <strong>skipped with a plain reason</strong>, never
                   silently dropped.
@@ -1245,9 +1271,11 @@ export default function DocsPage() {
                     and never submits a form that sets a password, even then.
                   </li>
                   <li>
-                    <code>mass-assignment</code> and <code>csrf</code> change account A&apos;s data on purpose, so
-                    they are unticked until you tick them. They put back what they changed and say in the report what
-                    they couldn&apos;t (a field that wasn&apos;t there before can&apos;t be removed).
+                    <code>mass-assignment</code>, <code>csrf</code>, <code>write-access</code> and{" "}
+                    <code>paywall-trust</code> change account A&apos;s data on purpose (<code>paywall-trust</code> may
+                    change A&apos;s plan), so they are unticked until you tick them. They put back what they changed and
+                    say in the report what they couldn&apos;t (a field that wasn&apos;t there before can&apos;t be
+                    removed).
                   </li>
                 </ul>
                 <h3>Test records it creates</h3>
@@ -1275,8 +1303,9 @@ export default function DocsPage() {
                     login form tested instead (check Pages tested).
                   </li>
                   <li>
-                    <strong>Sign-in</strong> works with the app&apos;s own form and a password only: not with Google or
-                    another provider, magic links, one-time codes or captchas. <code>csrf</code> needs the app on{" "}
+                    <strong>Sign-in</strong> works with the app&apos;s own form and a password, on one page or the email
+                    first and the password next: not with Google or another provider, magic links, one-time codes,
+                    captchas, a password page on another site, or a sign-in form that opens a new tab. <code>csrf</code> needs the app on{" "}
                     <code>localhost</code> or <code>127.0.0.1</code>: on any other host name it is inconclusive.
                   </li>
                   <li>

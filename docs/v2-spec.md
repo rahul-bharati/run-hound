@@ -1,8 +1,9 @@
-# V2 spec (0.4.0 preview, 0.5.0): signed-in runs, access checks and the CSRF check
+# V2 spec (0.4.0 preview, 0.5.0, 0.6.0): signed-in runs, access checks and the write-side checks
 
-Status: the first V2 slice, shipped in 0.4.0 as a preview (the web UI and the HTML report say "V2 preview"). This
-is its build contract. It extends [v0-spec.md](v0-spec.md) and [v1-spec.md](v1-spec.md), which still hold for
-everything not changed here (safety gate, navigation guard, evidence, groups, reports, tester-release rules), and
+Status: the V2 preview (the web UI and the HTML report say "V2 preview"). Its first slice shipped in 0.4.0, `csrf` in
+0.5.0, and `write-access`, `paywall-trust` and two-step and sessionStorage sign-in in 0.6.0. This is its build
+contract. It extends [v0-spec.md](v0-spec.md) and [v1-spec.md](v1-spec.md), which still hold for everything not changed
+here (safety gate, navigation guard, evidence, groups, reports, tester-release rules), and
 [ai-spec.md](ai-spec.md) for the optional AI layer. The acceptance suite enforces all of them.
 
 V2 is "single feature end to end" ([roadmap](roadmap.md#v2-single-feature-preview-since-040)). 0.4.0 ships its foundation and its headline:
@@ -13,10 +14,10 @@ V2 is "single feature end to end" ([roadmap](roadmap.md#v2-single-feature-previe
 - **Mass assignment**: does the server accept fields the form never sends, such as `role` or `plan`?
 - **Deep links**: do the app's own pages load when opened directly (a reload, a shared link)?
 
-Not in 0.4.0: write-side access checks, CSRF and paywall/success-page trust. 0.5.0 ships `csrf`; `write-access` and
-`paywall-trust` are specified but still planned (see [0.5.0: write-side checks](#050-write-side-checks)). Still
-planned: multi-page feature runs (a feature named by the user, tested across its pages), rate limits, file upload,
-prompt injection.
+Not in 0.4.0: write-side access checks, CSRF and paywall/success-page trust. 0.5.0 ships `csrf`; 0.6.0 ships
+`write-access` and `paywall-trust` (see [0.5.0: write-side checks](#050-write-side-checks) and its
+[0.6.0 amendments](#060-write-side-checks-and-sign-in)). Still planned: multi-page feature runs (a feature named by the
+user, tested across its pages), the two other `paywall-trust` probes, rate limits, file upload, prompt injection.
 
 ## Test accounts
 
@@ -105,7 +106,10 @@ prompt injection.
    the password field.
 4. Fill identifier and password; activate the form's submit control (else press Enter in the password field). A
    request whose query carries the password (a GET form) is stopped before it leaves the browser and sign-in fails:
-   "…sends the password in the page address (a GET form)…".
+   "…sends the password in the page address (a GET form)…". One exception (0.6.0): a weak password (under 8
+   characters, letters, digits and `_` only, such as "demo") is often one of the app's own words, so in a script's
+   same-origin request (a fetch, an image, not a page navigation) it is stopped only under a query key that names a
+   password (`password`, `pwd`, `pin` …); `?user=demo` goes through. In a navigation any query value is stopped.
 5. Wait up to 15 s for the URL to change or the password field to disappear, then up to 5 s of network idle.
 6. Success: the password field is gone (detached or hidden). Otherwise fail with the visible `role="alert"`/error text
    near the form (redacted), or "The sign-in form was still shown after submitting." Multi-factor codes, captchas and
@@ -347,13 +351,13 @@ do neither.
 
 | Check id | Group | Scope | Planned when | Default |
 |---|---|---|---|---|
-| `write-access` (planned) | Security | form | signed in, a form that saves a record; scenario `other-account` also needs B and `isolated` | **unticked** |
+| `write-access` (shipped in 0.6.0) | Security | form | signed in, a form that saves a record; scenario `other-account` also needs B and `isolated` | **unticked** |
 | `csrf` (shipped in 0.5.0) | Security | form | signed in, a form that saves a record | **unticked** |
-| `paywall-trust` (planned) | Security | page | signed in, and an entitlement endpoint was found (below) | **unticked** |
+| `paywall-trust` (shipped in 0.6.0) | Security | page | signed in (0.6.0: planned on every signed-in page, and skipped at run time when no entitlement endpoint is found) | **unticked** |
 
 ### `write-access`
 
-Planned, not in 0.5.0.
+Shipped in 0.6.0, with the [`write-access` amendments](#write-access-amendments), which win where they differ.
 
 Scenarios `other-account` (as B) and `signed-out`.
 
@@ -393,11 +397,16 @@ sends whatever cookies the browser would send.
   request only once A's session is more than 2 minutes old, or it records that window and does not count the result.
 - **Verdict.** Re-read the record as A. Finding when the forged value is stored: **high**, confirmed, "A page on
   another site can change Account A's data (no CSRF protection)". The notes explain which defense was missing (no
-  token, SameSite=None, no Origin check). Then restore. A rejected request, or no change on re-read, is a pass.
+  token, SameSite=None, no Origin check). When the stored forge carried no cookie at all, the save needs no session:
+  the title ends "(the save needs no session)" instead, and the fix says to require Account A's session on the save
+  first, then add a CSRF defence. Then restore. A rejected request, or no change on re-read, is a pass.
 
 ### `paywall-trust`
 
-Planned, not in 0.5.0.
+Shipped in 0.6.0 with the success-page probe only. The [`paywall-trust` amendments](#paywall-trust-amendments) win where
+they differ: the exception that lets it change and restore Account A's plan, the entitlement endpoint (only the app's
+own GETs), the candidate routes, the verdict, the restore through the app's own cancel control, and the two probes
+below that are not in 0.6.0 (the client-sent price or plan, and the paid-feature API).
 
 Run Hound never enters payment details, and never loads or calls a payment provider. The navigation guard blocks any
 third-party checkout host. A request to one is listed in the notes as "blocked (payment provider)".
@@ -426,10 +435,10 @@ checks on writes, and a server-side entitlement. New bugs (ids to be confirmed i
 
 | Id | Bug | Caught by (page) |
 |---|---|---|
-| V06 | `PATCH /api/tasks/:id` updates another user's task | `write-access:other-account` (`/app`, planned) |
-| V07 | Writes to `/api/tasks/:id` work without a session | `write-access:signed-out` (`/app`, planned) |
+| V06 | `PATCH /api/tasks/:id` updates another user's task | `write-access:other-account` (`/app`, 0.6.0) |
+| V07 | Writes to `/api/tasks/:id` work without a session | `write-access:signed-out` (`/app`, 0.6.0) |
 | V08 | Session cookie set `SameSite=None; Secure` (Chromium accepts Secure on `http://localhost`), and the task save accepts a form-encoded body with no token or Origin check | `csrf` (`/app`) |
-| V09 | `/app/upgraded` sets `plan: "pro"` on load (a fake local checkout, no provider) | `paywall-trust` (`/app/settings`, planned) |
+| V09 | `/app/upgraded` sets `plan: "pro"` on load (a fake local checkout, no provider) | `paywall-trust` (`/app/settings`, 0.6.0) |
 
 ### Build plan (0.5.0)
 
@@ -464,7 +473,7 @@ Built in this order; each step owns the files named and touches no others.
 
 ## 0.6.0: write-side checks and sign-in
 
-**Status: in progress (branch `feat/0.6.0`).** 0.6.0 builds `write-access` and `paywall-trust` as specified in
+**Status: shipped in 0.6.0.** 0.6.0 builds `write-access` and `paywall-trust` as specified in
 [0.5.0: write-side checks](#050-write-side-checks), with the amendments below, adds two sign-in forms that 0.5.0
 refuses, and gets Run Hound ready for live alpha testers. Decisions: [scope](decisions/09-2026.md#2026-09-27-0-6-0-scope),
 [paywall-trust](decisions/09-2026.md#2026-09-27-paywall-trust-changes-and-restores-the-plan),
@@ -492,6 +501,15 @@ check Account A. `write-access` has form scope; `paywall-trust` has page scope.
 - **Distinct markers.** Each probe writes a fresh run-token value that can't be confused with the value the record was
   created with or with another scenario's marker (the lesson from `csrf`). A clean server that ignores the write
   passes.
+- **Records Account A already had (`write-access` and `csrf`).** The form's own save as A is held in the page and judged
+  before it reaches the app: a write that isn't a POST, or a POST whose path, id query or body names a record id the
+  page read before the submit (unless it posts to a path the page read as a list), or that posts to a path the page read
+  as one record, is stopped, and the scenario is skipped with "Skipped: this form changes a record Account A already
+  had, …" and a note that the save was stopped, so nothing was changed. A save that went through and only then shows it
+  changed such a record (its id was read before the save, its URL or body names the id, or the record endpoint reads one
+  record at a URL without its id) is skipped before any write as another identity or from another site, and the record
+  is put back as the page read it before the save, through the app's own update for its id; what can't be put back is
+  named with the form's save and "check Account A". No note ever says nothing was written when the save went through.
 - Everything else as in `write-access` above: A creates the record, snapshot, each observed update as the scenario's
   identity, DELETE last and only when the app showed one, verdict from a re-read as A, restore, notes.
 
@@ -514,9 +532,20 @@ check Account A. `write-access` has form scope; `paywall-trust` has page scope.
   Hound itself sends no request other than these page loads and the re-reads; whatever the page sends on load is the
   app's own behaviour, and requests to a payment provider are blocked by the guard and listed as "blocked (payment
   provider)".
-- **Verdict.** The entitlement differs from the snapshot after a probe: **critical**, confirmed, "Account A got a paid
-  plan without paying", naming the route. Page text alone ("Pro", "You're upgraded") with no entitlement change is at
-  most **advisory**.
+- **Verdict.** Account A **gained** something after a probe: **critical**, confirmed, "Account A got a paid plan
+  without paying", naming the route and the fields gained. A gain is a paid plan the snapshot didn't have (`isPaid`
+  after and not before), `isPro`/`pro` turning true, a numeric `credits` value that went up, or `entitlements` or
+  `features` that gained an entry (a list item, a flag turned on, a limit raised). A gain in credits, entitlements or
+  features alone (no plan field changed) is read once more after a pause with nothing opened (the time since the
+  snapshot, 5 to 30 s): a further change means the value moves on its own (a balance that refills on a timer), and the
+  probing ends inconclusive, naming both changes, with nothing clicked or put back. Any other difference from the
+  snapshot (credits spent, a free plan moved to a trial, a named trial of a paid tier such as `pro_trial` or a
+  `trialing` subscription included, a role, an entry taken away) ends the probing
+  **inconclusive**: skipped, never a pass, naming the fields, and put back as below where a cancel can do it, else
+  "check Account A". So does a gain after a route that showed the page under test itself (the same fingerprint, or a
+  route that went on to the page under test): that is the app's own page (a single-page app's catch-all), not a
+  success page, so it is never credited with a grant. Page text alone ("Pro", "You're upgraded") with no entitlement
+  change is at most **advisory**. The exported spec checks only the fields gained.
 - **Restore.** When a probe changed the entitlement, go back through the app's own UI: on the page under test, or the
   app's billing or settings page among its links, click a control whose name says it cancels or downgrades the plan
   ("Cancel plan", "Cancel subscription", "Downgrade", "Switch to Free"), follow a confirmation the app asks for, then
@@ -539,7 +568,8 @@ their messages, and session values are registered for redaction.
   fails: "The sign-in continued on another site (<host>), so Run Hound won't type the password there."). Then continue
   as a one-step sign-in. A code or captcha after the first step fails with the existing messages.
 - **sessionStorage sessions.** After a successful sign-in, read `sessionStorage` for the sign-in origin and the
-  landing origin; register token-like values as session secrets. Every new browser context for that identity seeds
+  landing origin; register token-like values as session secrets (a whole value, and every string in the JSON a value
+  holds, whatever its key: `{id: …}`, a storage wrapper's `{value: …, expires}`). Every new browser context for that identity seeds
   those items before any page script runs (an init script per origin), so a new tab is signed in as the app expects.
   `CheckContext.request` keeps authenticating with the credential headers harvested from the app's own requests.
 - **Types.** `SignedIn` gains `sessionStorage?: { origin: string; items: { name: string; value: string }[] }[]`.

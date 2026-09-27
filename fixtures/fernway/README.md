@@ -99,9 +99,9 @@ known ones), and prints `fernway listening` with the bugs and modes once it acce
 With Docker or Podman, from the repository root:
 
 ```sh
-docker build -f fixtures/fernway/Dockerfile -t ghcr.io/rahul-bharati/run-hound-fernway:0.5.0 .
-docker run --rm -p 127.0.0.1:4110:4110 ghcr.io/rahul-bharati/run-hound-fernway:0.5.0                       # clean
-docker run --rm -p 127.0.0.1:4111:4110 -e FERNWAY_BUGS=all ghcr.io/rahul-bharati/run-hound-fernway:0.5.0   # bugs
+docker build -f fixtures/fernway/Dockerfile -t ghcr.io/rahul-bharati/run-hound-fernway:0.6.0 .
+docker run --rm -p 127.0.0.1:4110:4110 ghcr.io/rahul-bharati/run-hound-fernway:0.6.0                       # clean
+docker run --rm -p 127.0.0.1:4111:4110 -e FERNWAY_BUGS=all ghcr.io/rahul-bharati/run-hound-fernway:0.6.0   # bugs
 ```
 
 Both compose files at the repository root start it next to Run Hound as two services: `fernway` (clean,

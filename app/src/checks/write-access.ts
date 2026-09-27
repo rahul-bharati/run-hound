@@ -4,14 +4,26 @@
  *
  * - Scenarios `other-account` (as B; needs B set up and `isolated`) and `signed-out`, planned per form only on a
  *   signed-in run and only for a form that saves a record (`savesOwnRecord`). Unticked by default, not destructive.
+ *   Who a scenario runs as comes from its id the way the runner reads it to sign B in (identityOf): on a later form
+ *   ("@form-<n>") and under a collided id ("#<n>") too. An id that names neither identity is skipped.
  * - As A, create the run's test record through the form, find its record endpoint and snapshot it
- *   (lib/record-state.ts). A form that edits a record Account A already had is skipped. The update and delete requests
+ *   (lib/record-state.ts). A form that edits a record Account A already had is skipped: its save is held in the page
+ *   and stopped before it reaches the app (holdExistingEdits), so nothing is written; one that went through and only
+ *   then shows it changed such a record (editsExistingRecord) is put back as the page read it before the save
+ *   (putBackEdited), and what can't be is named with "check Account A". The update and delete requests
  *   are only those the app itself sent for that record: never a guessed endpoint. None observed → skipped with the reason.
  *   "For that record" means sent after the save, to a URL whose last segment (or an id-named query value) is its id,
- *   and in its collection or carrying the record in its body or answer: another of Account A's records that shares the
- *   id is never written to. A body with a password or email key is never sent.
+ *   and either in its collection (the save's path; the read's, with the id cut out only when the read is the record at
+ *   its own URL, never from a list read's URL, which may name another record by the same id: ?listId=3, /api/lists/3),
+ *   or naming the id itself (last segment, or ?<id key>=) with the record itself in its body or answer (the same
+ *   run-token field with the same value, and in an answer its id) and a URL that reads, as Account A, as the whole
+ *   record: its id and every field the snapshot has, with the same run-token values (the write's own answer is never
+ *   enough). Another of Account A's records that shares the id is never written to, even when its write mentions a
+ *   test value, copies one in verbatim under the record's own key, or its answer names one or holds the whole record.
+ *   A body with a password or email key is never sent.
  * - As the scenario's identity, send each observed update with one field set to a fresh run-token marker that can't
- *   be confused with the created value or another scenario's marker; DELETE last, only when the app showed one.
+ *   be confused with the created value or another scenario's marker, where the app's body holds the record (at the
+ *   top, or one level down: {"task": {...}}); DELETE last, only when the app showed one.
  * - Verdict from a re-read as A, never a status code, judged against a re-read taken just before the attempt: changed
  *   or gone → critical, confirmed; otherwise pass, naming the requests tried. After every attempt, restore and re-read;
  *   anything not restored is named, no further write is sent, and the scenario is not a pass while that note stands.
@@ -30,12 +42,17 @@ import { endpointOf, errorResult, guarded, result, tryCard } from "./lib/functio
 import { canaryValues, createRequests, fillForm, settle, submitControl, submitForm, waitForCreates, type FieldValue } from "./lib/functional-form.js";
 import {
   changedFields,
+  changesOnSave,
+  editsExistingRecord,
+  EXISTING_RECORD,
   findOwnRecord,
+  getsBefore,
+  holdExistingEdits,
   jsonObjectBody,
   neverWritten,
   parseJson,
+  putBackEdited,
   readsList,
-  recordChains,
   recordId,
   recordWrites,
   rereadRecord,
@@ -43,7 +60,7 @@ import {
   savesOwnRecord,
   snapshotFrom,
   snapshotRecord,
-  urlNamesId,
+  stoppedByHold,
   type CapturedRequest,
   type JsonObject,
   type RecordSnapshot,
@@ -61,6 +78,26 @@ const WHO: Record<Who, { words: string; subject: string; slug: string }> = {
   other: { words: "Account B", subject: "Account B", slug: "other-account" },
   "signed-out": { words: "a signed-out visitor", subject: "Signed-out visitors", slug: "signed-out" },
 };
+
+/**
+ * A scenario id that ends in `slug`, as the planner makes it (plan.ts buildPlan): after a colon (the check's id, and
+ * again on a collision), then a later form's "@form-<n>" and a collision's "#<n>". The same shape
+ * runner.needsOtherAccount matches to sign Account B in.
+ */
+const idEndingIn = (slug: string) => new RegExp(`(?:^|:)${slug}(?:@form-\\d+)?(?:#\\d+)?$`);
+const SCENARIO_ID: Record<Who, RegExp> = { other: idEndingIn(WHO.other.slug), "signed-out": idEndingIn(WHO["signed-out"].slug) };
+
+/**
+ * Who a write-access scenario sends its writes as, decided from the scenario the way runner.needsOtherAccount decides
+ * that Account B signs in for it: "other" for the other-account scenario on any form and under any collision suffix,
+ * "signed-out" for the signed-out one. Null for an id that names neither (such a scenario is skipped, never run as a
+ * guessed identity).
+ */
+export function identityOf(scenario: Pick<Scenario, "id">): Who | null {
+  if (SCENARIO_ID.other.test(scenario.id)) return "other";
+  if (SCENARIO_ID["signed-out"].test(scenario.id)) return "signed-out";
+  return null;
+}
 
 /**
  * Per scenario: the salt of the values the test record is created with, and the tag its markers carry. A marker is the
@@ -98,6 +135,8 @@ interface Write {
   /** For an update: the record field set to `value`. */
   field?: string;
   value?: string;
+  /** For a JSON update whose body holds the record one level down ({"task": {...}}): that key ("task"). */
+  nest?: string;
   /** The app's own request this write was made from. */
   observed: CapturedRequest;
 }
@@ -155,23 +194,80 @@ function collectionOf(url: string, id: RecordIdOf): string | null {
 }
 
 /**
- * True when the JSON text `text` holds the test record itself: an object carrying the record's id under its key and
- * one of its test values, inside no other object that has an id of its own (so a parent that embeds the record, or
- * another record that happens to share its id, doesn't count).
+ * The collection a list read at `url` is: its origin and path with one trailing "/", its query left out and nothing cut
+ * out. A list read's URL may name another record by the test record's id (GET /api/tasks?listId=3, GET /api/lists/3),
+ * so no id is cut from it as if it were the record's own. Null when `url` doesn't parse.
  */
-function answerHoldsRecord(text: string | null, snap: RecordSnapshot, id: RecordIdOf): boolean {
-  if (!text) return false;
-  return recordChains(parseJson(text), snap.testValues).some(
-    (chain) => sameValue(chain[0]![id.key], id.value) && chain.slice(1).every((parent) => recordId(parent) === null),
+function pathCollectionOf(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  return `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}/`;
+}
+
+/** True when `value` is the record's id: the same value, or the same number or text in the other form (a form body's "3"). */
+const isIdValue = (value: unknown, id: RecordIdOf) =>
+  sameValue(value, id.value) || ((typeof value === "string" || typeof value === "number") && String(value) === String(id.value));
+
+/**
+ * True when the JSON (or, for a request body, form-encoded) text `text` is the test record itself, or holds it one
+ * level down ({"task": {...}}; never inside an array, and never under a parent with an id of its own): an object with
+ * one of the record's run-token fields (`key` is the run token) under the same key and with the same value as in the
+ * snapshot, and the record's id under its key, which an answer must have (`needsId`) and a body may leave out. Another
+ * record that only mentions a test value (a note's "Latest task: …", a list's items, a "latest" field) or merely
+ * shares the id never counts.
+ */
+function isTheRecord(text: string | null, snap: RecordSnapshot, id: RecordIdOf, key: string, needsId: boolean): boolean {
+  const kind = kindOf(text);
+  const top = kind === "form" ? Object.fromEntries(new URLSearchParams(text!)) : kind === "json" ? jsonObjectBody(text) : null;
+  if (!top) return false;
+  const tokenFields = Object.keys(snap.record).filter((k) => typeof snap.record[k] === "string" && (snap.record[k] as string).toLowerCase().includes(key));
+  const inner = recordId(top) === null ? Object.values(top).filter((v): v is JsonObject => !!v && typeof v === "object" && !Array.isArray(v)) : [];
+  return [top, ...inner].some(
+    (o) =>
+      (Object.prototype.hasOwnProperty.call(o, id.key) ? isIdValue(o[id.key], id) : !needsId) && tokenFields.some((k) => sameValue(o[k], snap.record[k])),
   );
 }
 
-/** True when a request body (JSON or form-encoded) sends one of the test record's own test values. */
-function bodyHoldsTestValue(body: string | null, snap: RecordSnapshot): boolean {
-  const kind = kindOf(body);
-  if (kind === "json") return recordChains(parseJson(body!), snap.testValues).length > 0;
-  if (kind === "form") return [...new URLSearchParams(body!).values()].some((v) => snap.testValues.some((t) => v.includes(t)));
-  return false;
+/**
+ * True when `json` (a read's answer, parsed) is the test record in full: an object with the record's id under its key,
+ * every field the snapshot has, and each of its run-token fields with the snapshot's value. At the top, or one level
+ * down ({"task": {...}}) when the top has no id and that is the only object under it with an id of its own; never
+ * inside an array. Another of Account A's records that shares the id and was given a test value (a note's {id: 3,
+ * title}) lacks the record's other fields, and an answer that holds the record beside another one ({note: {id: 3},
+ * latest: {id: 3, title, done}}) is not the record's.
+ */
+function holdsWholeRecord(json: unknown, snap: RecordSnapshot, id: RecordIdOf, key: string): boolean {
+  const isObj = (v: unknown): v is JsonObject => !!v && typeof v === "object" && !Array.isArray(v);
+  if (!isObj(json)) return false;
+  const tokenFields = Object.keys(snap.record).filter((k) => typeof snap.record[k] === "string" && (snap.record[k] as string).toLowerCase().includes(key));
+  if (tokenFields.length === 0) return false;
+  const withIds = recordId(json) === null ? Object.values(json).filter(isObj).filter((o) => recordId(o) !== null) : [];
+  const inner = withIds.length === 1 ? withIds : [];
+  const has = (o: JsonObject, k: string) => Object.prototype.hasOwnProperty.call(o, k);
+  return [json, ...inner].some(
+    (o) => has(o, id.key) && isIdValue(o[id.key], id) && Object.keys(snap.record).every((k) => has(o, k)) && tokenFields.every((k) => sameValue(o[k], snap.record[k])),
+  );
+}
+
+/**
+ * True when `url` names the record's id itself: as its last path segment, or in its query under the record's own id
+ * key (?id=3). Not only under another name (?listId=3, ?projectId=3), which may be a different record's id.
+ */
+function namesOwnId(url: string, id: RecordIdOf): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url, "http://x");
+  } catch {
+    return false;
+  }
+  const want = String(id.value);
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  const last = segments[segments.length - 1];
+  return (last !== undefined && decodeSegment(last) === want) || parsed.searchParams.getAll(id.key).includes(want);
 }
 
 /** A key that holds a password or an email address: a body that has one is never sent, as anyone. */
@@ -192,9 +288,14 @@ function sensitiveBody(body: string | null): boolean {
 
 /**
  * The update this scenario sends for an observed one: the app's own body with one run-token field of the record set to
- * a new marker. Null when the body is neither JSON nor form-encoded, has a password or email key, or the record has no
- * run-token text field. `observed` is always a write for the test record (forRecord in run), so the fallback to a
- * run-token field the app's body doesn't send only ever goes to the test record's own URL.
+ * a new marker, where the app's body holds the record: at the top, or one level down ({"task": {...}}) when the top has
+ * no run-token field and one object under it does (as isTheRecord reads it; never inside an array). A server that
+ * reads the record from body.task would ignore a marker set beside it and read as a pass. Null when the body is neither
+ * JSON nor form-encoded, has a password or email key, or the record has no run-token text field. `observed` is always
+ * a write for the test record (the `own` writes in run): in the test record's own collection, or at a URL naming its id
+ * whose body or answer is the record itself (isTheRecord) and that reads, as Account A, as the whole record
+ * (holdsWholeRecord). So the fallback to a run-token field the app's body doesn't send only ever goes to the test
+ * record's own URL, never to another record that shares the id and merely mentions, or copies in, a test value.
  */
 function updateFrom(observed: CapturedRequest, snap: RecordSnapshot, key: string, tag: string): Write | null {
   const kind = kindOf(observed.postData);
@@ -202,19 +303,29 @@ function updateFrom(observed: CapturedRequest, snap: RecordSnapshot, key: string
   const record = snap.record;
   const sent = kind === "json" ? jsonObjectBody(observed.postData)! : Object.fromEntries(new URLSearchParams(observed.postData ?? ""));
   const carriesToken = (k: string) => typeof record[k] === "string" && (record[k] as string).toLowerCase().includes(key);
+  const isObject = (v: unknown): v is JsonObject => !!v && typeof v === "object" && !Array.isArray(v);
+  // Where the app's own JSON body holds the record: at the top, or one level down when the top has no run-token field.
+  const nest =
+    kind === "json" && !Object.keys(sent).some(carriesToken)
+      ? Object.keys(sent).find((k) => {
+          const v = sent[k];
+          return isObject(v) && Object.keys(v).some(carriesToken);
+        })
+      : undefined;
+  const holder: JsonObject = nest ? (sent[nest] as JsonObject) : sent;
   // A field the app's own update sends and the record holds, else any run-token field of the record.
-  const field = Object.keys(sent).find(carriesToken) ?? Object.keys(record).find(carriesToken);
+  const field = Object.keys(holder).find(carriesToken) ?? Object.keys(record).find(carriesToken);
   if (!field || SENSITIVE_KEY.test(field)) return null;
   const value = markValue(record[field] as string, key, tag);
   let body: string;
   if (kind === "json") {
-    body = JSON.stringify({ ...sent, [field]: value });
+    body = JSON.stringify(nest ? { ...sent, [nest]: { ...holder, [field]: value } } : { ...sent, [field]: value });
   } else {
     const params = new URLSearchParams(observed.postData ?? "");
     params.set(field, value);
     body = params.toString();
   }
-  return { method: observed.method.toUpperCase(), url: observed.url, body, kind, field, value, observed };
+  return { method: observed.method.toUpperCase(), url: observed.url, body, kind, field, value, ...(nest ? { nest } : {}), observed };
 }
 
 /** Sends `w` as `who`; its status, or null when no answer came. */
@@ -279,42 +390,10 @@ function effectOf(w: Write, before: JsonObject, now: JsonObject[] | "gone", vola
 }
 
 /**
- * True when the JSON text `text` holds the record's id under its key (`"id":"t1"`), at any depth, whitespace aside.
- * A number id must end there: `"id":7` is not in `"id":70`.
- */
-function holdsId(text: string, id: { key: string; value: string | number }): boolean {
-  const needle = `${JSON.stringify(id.key)}:${JSON.stringify(id.value)}`.replace(/\s+/g, "");
-  const flat = text.replace(/\s+/g, "");
-  if (typeof id.value === "string") return flat.includes(needle);
-  for (let at = flat.indexOf(needle); at >= 0; at = flat.indexOf(needle, at + 1)) {
-    if (!/[0-9.eE]/.test(flat.charAt(at + needle.length))) return true;
-  }
-  return false;
-}
-
-/** True when `id` appeared in any answer the page got before the save: the form changed an existing record. */
-function seenBefore(bodies: string[], id: { key: string; value: string | number }): boolean {
-  return bodies.some((b) => holdsId(b, id));
-}
-
-const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-/**
- * True when a save's own body names the record's id: a JSON body holding it under its key, a form-encoded field of
- * that name, or a multipart part of that name. A create can't know an id the server assigns, so such a save edits a
- * record that was already there. An app that makes its ids in the browser is taken for an edit too: the safe side.
- */
-function bodyNamesId(body: string | null, id: { key: string; value: string | number }): boolean {
-  if (!body) return false;
-  if (holdsId(body, id)) return true;
-  const want = String(id.value);
-  if (kindOf(body) === "form") return new URLSearchParams(body).getAll(id.key).includes(want);
-  return new RegExp(`[;\\s]name="${escapeRegExp(id.key)}"[^\\r\\n]*\\r?\\n(?:[^\\r\\n]+\\r?\\n)*\\r?\\n${escapeRegExp(want)}\\r?\\n`).test(body);
-}
-
-/**
  * Fields the app sets itself whenever the record is saved (updatedAt, modified_on, version, etag): the put-back is a
- * save too, so it changes them again and they can never read as they did before.
+ * save too, so it changes them again and they can never read as they did before. putBack also takes every field
+ * record-state's changesOnSave names (rowVersion, updateTime, lastUpdate, _ts, concurrencyStamp …), the rule
+ * restoreRecord itself uses, so both classify a field the same way.
  */
 const SERVER_MANAGED = /^(last_?)?(updated|modified|changed|edited)(_?(at|on|date|time))?$|^(version|lock_?version|etag|_?rev|__v)$/i;
 
@@ -408,7 +487,7 @@ async function putBack(
   }
   if (restored.length > 0) notes.push(`Restored ${restored.join(", ")} of Account A's test record.`);
   if (left.length === 0) return { ...PUT_BACK_NOTHING, notes };
-  if (left.every((k) => SERVER_MANAGED.test(k))) {
+  if (left.every((k) => SERVER_MANAGED.test(k) || changesOnSave(snap, k, ctx.runToken))) {
     notes.push(`Account A's test record is back to its values except ${joinFields(left)}, which the app sets itself.`);
     return { notes, failed: true, serverOnly: true, recreated: false, left };
   }
@@ -456,37 +535,48 @@ export const check: Check = {
   },
 
   run(ctx, scenario) {
-    const who: Who = scenario.id.endsWith(":other-account") ? "other" : "signed-out";
+    // Decided as the runner decides whether Account B signs in (identityOf): on a page's later form ("@form-<n>") and
+    // under a collided id ("#<n>") the other-account scenario still runs as Account B, never signed out.
+    const identity = identityOf(scenario);
     return guarded(ID, scenario, ctx, async (started) => {
       const form = ctx.form;
       const skip = (notes: string) => errorResult(ID, scenario, started, notes, "skipped");
+      if (!identity) return skip("Skipped: this scenario names neither Account B nor a signed-out visitor, so Run Hound doesn't know who to send its writes as.");
+      const who: Who = identity;
       if (ctx.accounts && !ctx.accounts.self) return skip("Skipped: this run isn't signed in, so there is no Account A record to protect.");
       if (who === "other" && !ctx.accounts?.other) return skip("Skipped: this run has no Account B signed in, so nothing can be sent as another account.");
       if (form.fields.length === 0 || !submitControl(form)) return skip("Skipped: this form has no fields that save a record.");
 
-      // 1. As Account A, save a new test record through the form (this scenario's own values).
+      // 1. As Account A, save a new test record through the form (this scenario's own values). The form's writes are
+      //    held and judged before they reach the app (holdExistingEdits): a save that would change a record Account A
+      //    already had is stopped, and the scenario is skipped with nothing written.
       const { page, capture } = await ctx.openPage({ as: "self" });
       ctx.step("Saving a test record as Account A", page);
       const salt = SALT[who];
       const values: FieldValue[] = canaryValues(form, ctx.runToken, salt.create);
       await fillForm(page, values);
-      await submitForm(page, form);
-      await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
-      const creates = createRequests(capture, ctx.targetUrl, ctx.runToken).filter((r) => isSameOrigin(r.url, ctx.targetUrl) || isLocalOrigin(r.url, ctx.targetUrl));
+      const hold = await holdExistingEdits(ctx, page, capture);
+      try {
+        await submitForm(page, form);
+        await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
+      } finally {
+        await hold.release();
+      }
+      const stopped = hold.verdict();
+      if (stopped) return skip(stopped);
+      const creates = createRequests(capture, ctx.targetUrl, ctx.runToken).filter(
+        (r) => (isSameOrigin(r.url, ctx.targetUrl) || isLocalOrigin(r.url, ctx.targetUrl)) && !stoppedByHold(hold, r),
+      );
       const save = creates.find((r) => r.postData && r.method.toUpperCase() === "POST") ?? creates.find((r) => r.postData);
       if (!save) return skip("Skipped: submitting the form sent no save request, so there is no test record to protect.");
       if (neverWritten(save.url)) {
         return skip(`Skipped: this form saves to ${endpointOf(save.method, save.url)}, an endpoint Run Hound never writes to (sign-out, password, email, payment, invitations or sharing).`);
       }
-      const existing = "Skipped: this form changes a record Account A already had, not a new one, and Run Hound only ever writes to a record it created in this run.";
-      // A PATCH/PUT save edits a record that is already there, not a new one.
-      if (save.method.toUpperCase() === "PATCH" || save.method.toUpperCase() === "PUT") return skip(existing);
-      // What the page read before the save: a record id it held then belongs to one of Account A's own records.
+      // What the page read before the save (with its reads of an API on another local origin, made again as Account A
+      // while the save was held): a record id it held then belongs to one of Account A's own records.
+      const heldBefore = hold.before();
+      const before = heldBefore.length > 0 ? heldBefore : getsBefore(capture, save);
       const saveAt = capture.requests.indexOf(save);
-      const before = capture.requests
-        .slice(0, saveAt < 0 ? 0 : saveAt)
-        .filter((r) => r.method.toUpperCase() === "GET" && r.responseBody)
-        .map((r) => r.responseBody!);
 
       // 2. The record endpoint and a snapshot of the new test record, read as Account A.
       ctx.step("Reloading to read the saved record", page);
@@ -498,34 +588,57 @@ export const check: Check = {
       if (!recordGet || !snap) {
         return skip("Skipped: Run Hound couldn't read the saved record back as Account A, so it couldn't tell whether a write as someone else changed it.");
       }
-      if (snap.id && seenBefore(before, snap.id)) return skip(existing);
-      // A save to a URL that already names the record's id (POST /api/tasks/t1) edits that record: a create can't know
-      // its new id in its own URL. A read of another origin's API holds no body in the capture, so seenBefore can't
-      // see it there.
-      if (snap.id && urlNamesId(save.url, snap.id.value)) return skip(existing);
-      // Nor can a create know it in its own body (POST /api/tasks/update {"id":"t1",...}): such a save edits a record
-      // Account A already had, which the two guards above miss when the app's API is on another local origin.
-      if (snap.id && bodyNamesId(save.postData, snap.id)) return skip(existing);
-      // A single record read at a URL that doesn't name its id (a profile, a settings object) is the account's own
-      // record, not a new one: only a record in a list, or read at its own URL, counts as the run's test record.
+      // The save went through and turned out to change a record Account A already had (its id was in an answer from
+      // before the save, its URL or body named the id, or the record is a single one read at a URL without its id):
+      // put it back as the page read it before the save, and say what the save changed.
+      if (editsExistingRecord(save, snap, recordGet, before, ctx.runToken)) {
+        ctx.step("Putting back the record the form changed", page);
+        return skip([EXISTING_RECORD, ...(await putBackEdited(ctx, { capture, save, snap, before }))].join(" "));
+      }
       const firstJson = parseJson(recordGet.body);
       const firstSnap = snapshotFrom(recordGet.url, firstJson, testValues, ctx.runToken);
       const listed = firstSnap ? readsList(firstJson, firstSnap.record) : false;
-      if (!listed && !(snap.id && urlNamesId(recordGet.url, snap.id.value))) return skip(existing);
       const id = snap.id;
       if (!id) return skip("Skipped: the test record has no id, so Run Hound can't tell which of the app's writes are for it.");
 
       // 3. The writes to send: only those the app itself sent for the test record's own URL; the DELETE last. The id
       //    didn't exist before the save, so only what the app sent after it counts; and a write must belong to the
-      //    test record: to its collection (the save's, or the record read's, with the id cut out), or with the record
-      //    in its own body or answer. Another of Account A's records that shares the id (numeric ids, another table)
-      //    is never taken for it.
+      //    test record: to its collection (the save's, or the record read's), or, at a URL that names the id itself,
+      //    with the record itself in its body or answer (isTheRecord: the same run-token field and value, never an
+      //    object that only mentions a test value) and a URL that reads as the whole record (holdsWholeRecord, below).
+      //    Another of Account A's records that shares the id (numeric ids, another table), even one the page copied the
+      //    new title into verbatim, or a create into one named by a foreign key (?listId=3), is never taken for it.
       const key = tokenKey(ctx.runToken);
       const afterSave: Capture = { ...capture, requests: saveAt < 0 ? [] : capture.requests.slice(saveAt + 1) };
-      const collections = new Set([collectionOf(save.url, id), collectionOf(recordGet.url, id)].filter((c): c is string => c !== null));
+      // The save's URL never names the id (a save that does is skipped above), so nothing is cut from it. The read's
+      // collection has the id cut out only when the read is the record at its own URL (GET /api/tasks/3, ?id=3). A
+      // list read's URL may name another of Account A's records by the same id (GET /api/tasks?listId=3,
+      // GET /api/lists/3): only its path counts, with nothing cut out, so that record's writes stay outside it.
+      const readCollection = !listed && namesOwnId(recordGet.url, id) ? collectionOf(recordGet.url, id) : pathCollectionOf(recordGet.url);
+      const collections = new Set([collectionOf(save.url, id), readCollection].filter((c): c is string => c !== null));
+      const inCollection = (r: CapturedRequest) => collections.has(collectionOf(r.url, id) ?? "");
       const forRecord = (r: CapturedRequest) =>
-        collections.has(collectionOf(r.url, id) ?? "") || bodyHoldsTestValue(r.postData, snap) || answerHoldsRecord(r.responseBody, snap, id);
-      const own = recordWrites(afterSave, snap, ctx.targetUrl).filter((r) => addressesRecord(r.url, id) && forRecord(r));
+        inCollection(r) || (namesOwnId(r.url, id) && (isTheRecord(r.postData, snap, id, key, false) || isTheRecord(r.responseBody, snap, id, key, true)));
+      const candidates = recordWrites(afterSave, snap, ctx.targetUrl).filter((r) => addressesRecord(r.url, id) && forRecord(r));
+      // Outside the record's collections, a write is the record's only when its URL reads, as Account A, as the record
+      // itself in full (holdsWholeRecord): its id and every field the snapshot has, with the same run-token values. A
+      // write to another of Account A's records that shares the id (a note the page copied the new title into, verbatim,
+      // under the same key) reads as that record, not this one. The write's own answer is never enough on its own: an
+      // answer may hold the new record beside, or instead of, the one written. Each URL is read once, a GET as Account A
+      // (recordWrites has already left out every URL that acts when loaded).
+      const readsAsRecord = new Map<string, boolean>();
+      const own: CapturedRequest[] = [];
+      for (const r of candidates) {
+        if (inCollection(r)) {
+          own.push(r);
+          continue;
+        }
+        if (!readsAsRecord.has(r.url)) {
+          const read = await ctx.request("self", { method: "GET", url: r.url }).catch(() => null);
+          readsAsRecord.set(r.url, !!read && read.status >= 200 && read.status < 300 && holdsWholeRecord(parseJson(read.body), snap, id, key));
+        }
+        if (readsAsRecord.get(r.url)) own.push(r);
+      }
       const observedUpdates = own.filter((r) => r.method.toUpperCase() !== "DELETE");
       const observedDelete = own.find((r) => r.method.toUpperCase() === "DELETE");
       if (observedUpdates.length === 0 && !observedDelete) {
@@ -841,7 +954,9 @@ function replaySpec(o: SpecInput): string {
       ? `${q(around.prefix)} + encodeURIComponent(RECORD_ID)${around.suffix ? ` + ${q(around.suffix)}` : ""}`
       : q(`${parsed.pathname}${parsed.search}`);
   };
-  const payload = isDelete ? "" : `, ${w.kind === "form" ? "form" : "data"}: { [FIELD]: "runhound-" + Date.now() }`;
+  // The value goes where the app's own update holds the record: one level down ({"task": {...}}) when it nests it.
+  const value = `{ [FIELD]: "runhound-" + Date.now() }`;
+  const payload = isDelete ? "" : `, ${w.kind === "form" ? "form" : "data"}: ${w.nest ? `{ ${q(w.nest)}: ${value} }` : value}`;
   const identity = o.who === "other" ? "Account B" : "a visitor with no session";
   return [
     `import { test, expect, request, type APIRequestContext } from "@playwright/test";`,

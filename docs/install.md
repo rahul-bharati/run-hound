@@ -2,9 +2,9 @@
 
 This page covers installing and starting Run Hound: the published image with Docker or Podman, the test lab with the demo apps, a source install, and testing an app on your machine from a container.
 
-Point Run Hound at one page of a local app. It finds the forms and controls on it, plans the form checks for each form plus the page-wide checks, you approve the plan and watch the run, and you get a report with annotated evidence. Signed in as a test account, the same run covers a page behind your sign-in and adds the access checks. The main way needs only Docker or Podman and no clone: pull the image and run it. The image has Run Hound's web UI, its command line and Chromium. To try it on the demo apps, start [the test lab](#try-it-on-the-demo-apps-the-test-lab). To contribute, or to watch the browser in a window, install it [from source](#from-source-contributing). The step-by-step guide, [TESTING.md](../TESTING.md), covers the same steps with more detail and troubleshooting.
+Point Run Hound at one page of a local app. It finds the forms and controls on it, plans the form checks for each form plus the page-wide checks, you approve the plan and watch the run, and you get a report with annotated evidence. Signed in as a test account, the same run covers a page behind your sign-in and adds the access checks and the opt-in write-side checks. The main way needs only Docker or Podman and no clone: pull the image and run it. The image has Run Hound's web UI, its command line and Chromium. To try it on the demo apps, start [the test lab](#try-it-on-the-demo-apps-the-test-lab). To contribute, or to watch the browser in a window, install it [from source](#from-source-contributing). The step-by-step guide, [TESTING.md](../TESTING.md), covers the same steps with more detail and troubleshooting.
 
-The images are public on GitHub's registry, so no login is needed: `ghcr.io/rahul-bharati/run-hound`, `run-hound-kennel`, `run-hound-samples` and `run-hound-fernway` (tags `0.5.0`, `0.5` and `latest`; linux/amd64 and arm64). The commands below use `latest`; add a release tag (`ghcr.io/rahul-bharati/run-hound:<version>`) to stay on one release. Run Hound's image is Node 24 on Debian with Chromium's headless shell only: about 260 MB to download and 715 MB on disk. The whole test lab is about 0.5 GB to download and about 1 GB on disk. To build the images yourself, run `docker compose up --build` in a clone ([From source](#from-source-contributing)).
+The images are public on GitHub's registry, so no login is needed: `ghcr.io/rahul-bharati/run-hound`, `run-hound-kennel`, `run-hound-samples` and `run-hound-fernway` (tags `0.6.0`, `0.6` and `latest`; linux/amd64 and arm64). The commands below use `latest`; add a release tag (`ghcr.io/rahul-bharati/run-hound:<version>`) to stay on one release. Run Hound's image is Node 24 on Debian with Chromium's headless shell only: about 260 MB to download and 715 MB on disk. The whole test lab is about 0.5 GB to download and about 1 GB on disk. To build the images yourself, run `docker compose up --build` in a clone ([From source](#from-source-contributing)).
 
 ## With Docker or Podman
 
@@ -42,7 +42,7 @@ Testing an app on your machine from a container has a few rules (the dev server 
 One compose file starts Run Hound with every test app: Kennel (broken and clean), Fernway (a Lovable-style SaaS app, clean and with planted bugs) and five well-built sample apps. In an empty folder:
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.5.0/run-hound.compose.yml
+curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.6.0/run-hound.compose.yml
 mkdir -p runs                                  # reports land in ./runs; create it first so the files belong to you
 docker compose -f run-hound.compose.yml up     # UI on http://localhost:4000 (Podman: podman compose -f run-hound.compose.yml up)
 ```
@@ -50,7 +50,7 @@ docker compose -f run-hound.compose.yml up     # UI on http://localhost:4000 (Po
 Open <http://localhost:4000> and enter `http://kennel:3000/book`; the other targets are listed under [Containers](#containers). The first start downloads about 0.5 GB. Every setting (host ports, `KENNEL_BUGS`, `FERNWAY_BUGS`, allowed hosts, the runs folder, AI, test accounts) has a default; to change one, put it in a `.env` next to the compose file, starting from the documented example:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.5.0/.env.example -o .env
+curl -fsSL https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.6.0/.env.example -o .env
 ```
 
 - **Is it up?** `docker compose -f run-hound.compose.yml ps` lists every service with its health check: `healthy` once it answers.
@@ -99,7 +99,7 @@ Targets to enter in the UI (inside the compose network, apps are reached by serv
 | `http://kennel:3000/book` | Kennel with the bugs in `KENNEL_BUGS` (default: every V0 and V1 bug) | <http://localhost:3000/book> |
 | `http://kennel-clean:3000/book` | Kennel in clean mode: every check should pass | <http://localhost:3100/book> |
 | `http://fernway:4110/` | Fernway, a Lovable-style SaaS app, clean: any confirmed finding is a false positive. Also `/signup`, `/login`, `/onboarding`, and signed in `/app`, `/app/settings` and `/app/help` | <http://localhost:4110/> |
-| `http://fernway-bugs:4110/` | Fernway with the bugs in `FERNWAY_BUGS` (default: all, W01-W10 and the access bugs V01-V05) | <http://localhost:4111/> |
+| `http://fernway-bugs:4110/` | Fernway with the bugs in `FERNWAY_BUGS` (default: all, W01-W10 and the V2 bugs V01-V09) | <http://localhost:4111/> |
 | `http://classic-post:4101/signup` | Sample: server-rendered sign-up form, no JavaScript | <http://localhost:4101/signup> |
 | `http://spa-fetch:4102/` | Sample: vanilla-JS contact form, same-origin JSON API | <http://localhost:4102/> |
 | `http://login:4103/` | Sample: sign-in form (401 on wrong credentials) | <http://localhost:4103/> |
@@ -108,7 +108,7 @@ Targets to enter in the UI (inside the compose network, apps are reached by serv
 
 The samples and clean Fernway are well built on purpose, so any confirmed finding on them is a false positive. Fernway's pages, accounts and planted bugs are in [fixtures/fernway/README.md](../fixtures/fernway/README.md). [`.env.example`](../.env.example) documents every setting; both compose files read it from a `.env` next to them.
 
-Reports are written to `./runs/<runId>/` on your machine (the CLI prints the container path, `/repo/app/runs/<runId>`); the image runs as the owner of that folder, or as its non-root user when nothing is mounted. In the containers the target isn't localhost, so the `client-only-validation` scenario (localhost only) is planned but skipped, and the report says why.
+Reports are written to `./runs/<runId>/` on your machine (the CLI prints the container path, `/repo/app/runs/<runId>`); the image runs as the owner of that folder, or as its non-root user when nothing is mounted. In the containers the target isn't localhost, so the `client-only-validation` scenario (localhost only) is planned but skipped, and `csrf` (it needs `localhost` or `127.0.0.1`) is inconclusive; the report says why.
 
 To test an app running on your machine from a container:
 

@@ -47,7 +47,14 @@ const SELF: SessionState = {
 };
 
 /** Host patterns of the payment providers the sink stands in for. */
-const PROVIDER_PATTERNS = ["*.stripe.com", "*.paypal.com", "*.paddle.com", "*.lemonsqueezy.com"];
+const PROVIDER_PATTERNS = [
+  "*.stripe.com",
+  "*.paypal.com",
+  "*.paddle.com",
+  "*.lemonsqueezy.com",
+  // A checkout host the check's list doesn't name (a regional or less common provider).
+  "*.gateway.test",
+];
 /** The contract's conventional success paths, tried after the links. */
 const CONVENTIONAL = ["/upgraded", "/app/upgraded", "/success", "/checkout/success", "/billing/success", "/payment/success", "/thank-you", "/thanks", "/app/billing/success"];
 
@@ -98,9 +105,82 @@ type Link = { href: string; text: string };
  * - "settings-tab": /app is the dashboard; /app/settings (a page it links to) has the same hidden Billing tab, holding
  *   the plan, the billingLinks and "Cancel plan" (/app/billing then only says "Manage your plan in Settings.");
  * - "provider-portal": "Cancel subscription" on /app/billing links to the payment provider's customer portal;
+ * - "provider-confirm": "Cancel plan" on /app/billing opens the app's dialog, whose "Yes, cancel plan" posts a form
+ *   straight to the payment provider (billing.stripe.com);
+ * - "redirect-confirm": the same dialog, whose "Yes, cancel plan" posts a form to the app's POST /api/billing/cancel,
+ *   which answers 303 to the payment provider's cancel page (a Stripe portal cancel flow) and leaves the plan on Pro;
+ * - "among-teammates": /app/billing lists people on the account first, each with a "Downgrade" of their own (a table
+ *   of two, a one-row list, a row with an e-mail address) and an "Extra storage" add-on with its own "Downgrade", then
+ *   Account A's own plan under "Your plan" with a bare "Downgrade" (POST /api/billing/cancel). Every other "Downgrade"
+ *   posts to /api/team/<id>/downgrade or /api/addons/storage/downgrade;
+ * - "among-add-ons": /app/billing lists two add-ons first, each with "Cancel subscription" (POST
+ *   /api/addons/<id>/cancel), then Account A's own plan under "Your plan" with "Cancel subscription" (POST
+ *   /api/billing/cancel);
+ * - "team-cards": /app/billing shows two teammates as cards (no list or table) right under the page's heading, each with
+ *   a "Downgrade" of its own, then Account A's own plan under "Your plan" with "Downgrade" (POST /api/billing/cancel);
+ * - "team-cards-pro-plan": the same cards, but Account A's "Downgrade" sits under "Pro plan" (a billing heading that
+ *   doesn't say it is Account A's own): no "Downgrade" on the page can be told apart from the others;
+ * - "team-card-free": one teammate's card right under the page's heading with "Downgrade to Free", then Account A's own
+ *   plan under "Your plan" with "Cancel plan";
+ * - "team-row-free": one teammate in a one-row list right under the page's heading with "Downgrade to Free", then
+ *   Account A's own "Cancel plan" under no heading of its own (not in a list either);
+ * - "addon-row-membership": under "Subscriptions", a lone add-on in a one-item list with "Cancel subscription", then
+ *   Account A's own plan under "Your plan" with "Cancel membership";
+ * - "addon-row-only": no control of Account A's plan ("contact support"), only a lone add-on in a one-item list with
+ *   "Cancel subscription";
+ * - "opens-window": "Cancel plan" on /app/billing, whose click also opens a new window at /billing/return;
+ * - "redirect-portal-confirm": the "redirect-confirm" dialog, but POST /api/billing/cancel answers 303 to the app's own
+ *   /billing/portal (a billing portal start: pass it in providerRedirects) and leaves the plan on Pro;
+ * - "portal-fetch": "Cancel subscription" on /app/billing, whose script creates a billing portal session (POST
+ *   /api/billing/portal-session, as Stripe's customer portal is opened) and sends the browser to the URL it answers;
+ * - "team-card-bare": one teammate's card right under the page's heading with a bare "Downgrade", then Account A's own
+ *   "Cancel plan" under no heading of its own (neither in a list nor under "Your plan");
+ * - "portal-link": "Cancel plan" is a link to the app's own /billing/portal;
+ * - "portal-script": a "Cancel plan" button whose script sends the browser to the app's own /billing/portal;
+ * - "portal-confirm": the "redirect-confirm" dialog, whose "Yes, cancel plan" posts its form to /billing/portal;
+ * - "stripe-path-form": "Cancel plan" submits a form to /api/stripe/cancel-subscription (a path that names the payment
+ *   provider);
+ * - "timer-portal": "Cancel plan" on /app/billing puts Account A back on Free, then, 1.5 s after the cancel answered,
+ *   sends the browser to the app's own /billing/portal ("Taking you to the billing portal…");
+ * - "redirect-unlisted": the "redirect-confirm" dialog, but POST /api/billing/cancel answers 303 to
+ *   https://pay.gateway.test/cancel (a checkout host the check's list doesn't name) and leaves the plan on Pro;
+ * - "team-card-sub": one teammate's card right under the page's heading with a bare "Downgrade", then Account A's own
+ *   "Cancel subscription" under no heading of its own: nothing on the page says which of the two is Account A's plan;
+ * - "overview-tab": /app/billing has tabs of its own: "Overview" (shown) holds Account A's bare "Downgrade" (POST
+ *   /api/billing/cancel), and "Payments" (a Billing tab, hidden until chosen) shows only the card on file;
  * - "none": no control ("contact support").
  */
-type CancelControl = "button" | "native-confirm" | "dialog-on-page" | "billing-tab" | "settings-tab" | "ignored" | "provider-portal" | "none";
+type CancelControl =
+  | "button"
+  | "native-confirm"
+  | "dialog-on-page"
+  | "billing-tab"
+  | "settings-tab"
+  | "ignored"
+  | "provider-portal"
+  | "provider-confirm"
+  | "redirect-confirm"
+  | "among-teammates"
+  | "among-add-ons"
+  | "team-cards"
+  | "team-cards-pro-plan"
+  | "team-card-free"
+  | "team-row-free"
+  | "addon-row-membership"
+  | "addon-row-only"
+  | "opens-window"
+  | "redirect-portal-confirm"
+  | "portal-fetch"
+  | "team-card-bare"
+  | "portal-link"
+  | "portal-script"
+  | "portal-confirm"
+  | "stripe-path-form"
+  | "timer-portal"
+  | "redirect-unlisted"
+  | "team-card-sub"
+  | "overview-tab"
+  | "none";
 
 interface SuccessPage {
   /** False: the page only says "Thanks for visiting" and sends no confirm (it answers, but can't grant). Default true. */
@@ -128,9 +208,10 @@ interface BillingAppOptions {
   signInPaths?: string[];
   /**
    * "sign-in": a single-page app's fallback. Any other GET outside /api answers 200 with a page whose script sends the
-   * browser to /login?next=… (the redirect to sign-in happens in the page, not in the HTTP answer).
+   * browser to /login?next=… (the redirect to sign-in happens in the page, not in the HTTP answer). "shell": any other
+   * GET outside /api answers 200 with the page under test's own page (a single-page app's catch-all that keeps the URL).
    */
-  spaFallback?: "sign-in";
+  spaFallback?: "sign-in" | "shell";
   /** Pages that are not success routes and act on load (POST /api/onboarding/complete), by path. */
   onboardingPages?: string[];
   /** GET /api/me holds A's plan and role (default true); false = only who A is. */
@@ -147,6 +228,46 @@ interface BillingAppOptions {
   failReadAfterCancel?: boolean;
   /** GET /api/me also holds A's credits (from 0), and the confirm adds 500 of them (a grant that leaves the plan alone). */
   grantsCredits?: boolean;
+  /** GET /api/me also holds A's credits, starting at this many (with grantsCredits, the default is 0). */
+  credits?: number;
+  /**
+   * Every success page also spends one of A's credits as it loads (POST /api/summary, an "AI summary" of the page),
+   * whatever the confirm answers: a clean app's own spending, never a grant.
+   */
+  successSpends?: boolean;
+  /** The plan POST /api/billing/confirm moves A to in a clean app (a free trial started on the success page). */
+  confirmPlan?: string;
+  /** The page under test adds one of A's credits each time it loads (POST /api/daily-bonus): the app's own bonus. */
+  shellBonus?: boolean;
+  /**
+   * A's credits go up by one every this many ms on their own (a free tier's timed refill), counted from Run Hound's
+   * second read of A's plan: after its two baseline reads, so the refill is slower than the gap between them and they
+   * can't see it. Nothing a page does changes it.
+   */
+  refillEveryMs?: number;
+  /**
+   * Tabs on the page under test (the dashboard; not with cancel "billing-tab"), after a selected "Overview" tab: each is
+   * a button (role="tab", not a link) whose click sends the browser to `to`, as an app whose "Billing" tab opens the
+   * billing portal does. A `to` of "fetch:<path>" POSTs to that path of the app first (creating a billing portal
+   * session) and sends the browser to the `url` it answers with; one of "script:<js>" runs that script instead.
+   */
+  navTabs?: { name: string; to: string }[];
+  /**
+   * With cancel "billing-tab": HTML added to the Settings page under test after its Teammates section, outside the tabs
+   * (shown whichever tab is chosen). A `data-down` button in it POSTs to that path when clicked.
+   */
+  extraDashboard?: string;
+  /** With cancel "billing-tab" or "settings-tab": the name of Account A's own control in the Billing tab (default "Cancel plan"). */
+  tabCancel?: string;
+  /**
+   * Same-origin paths whose GET answers 303 to the payment provider's checkout (https://checkout.stripe.com/…): a
+   * checkout or billing portal start, or a success route that itself sends the browser to the provider.
+   */
+  providerRedirects?: string[];
+  /** Same-origin paths whose GET answers 302 to another path of the app (from → to). */
+  redirects?: Record<string, string>;
+  /** Script run on /app/billing after its own (a payment provider's script polling in the background). */
+  billingScript?: string;
 }
 
 type BillingApp = FixtureServer & { state: { plan: string; credits: number; confirms: number; cancels: number; signedOut: boolean } };
@@ -190,9 +311,10 @@ if ($('delete-account')) $('delete-account').addEventListener('click', function 
 
 /**
  * A Settings page's tabs, as on Fernway's: Profile is shown; the Billing tab (hidden until chosen) holds the plan,
- * `links`, the decoys and, on Pro, "Cancel plan". BILLING_TABS_SCRIPT (after SHOW_PLAN) makes the tabs and the cancel work.
+ * `links`, the decoys and, on Pro, "Cancel plan" (or `cancelName`). BILLING_TABS_SCRIPT (after SHOW_PLAN) makes the tabs
+ * and the cancel work.
  */
-function billingTabs(links: Link[]): string {
+function billingTabs(links: Link[], cancelName = "Cancel plan"): string {
   return `<div role="tablist" aria-label="Settings"><button type="button" role="tab" id="tab-profile" aria-selected="true" aria-controls="panel-profile">Profile</button>
 <button type="button" role="tab" id="tab-billing" aria-selected="false" aria-controls="panel-billing">Billing</button></div>
 <div role="tabpanel" id="panel-profile" aria-labelledby="tab-profile"><p>Alex Rivera, member</p></div>
@@ -201,7 +323,7 @@ function billingTabs(links: Link[]): string {
 <div id="free-only" hidden><button type="button" id="upgrade">Upgrade to Pro</button></div>
 <p>${anchors(links)}</p>
 ${DECOYS}
-<div id="pro-only" hidden><button type="button" id="cancel">Cancel plan</button></div>
+<div id="pro-only" hidden><button type="button" id="cancel">${esc(cancelName)}</button></div>
 </div>`;
 }
 const BILLING_TABS_SCRIPT = `function select(name) {
@@ -212,7 +334,11 @@ $('tab-billing').addEventListener('click', function () { select('billing'); });
 $('cancel').addEventListener('click', cancelPlan);`;
 
 async function billingApp(o: BillingAppOptions = {}): Promise<BillingApp> {
-  const state = { plan: o.startPlan ?? "free", credits: 0, confirms: 0, cancels: 0, signedOut: false };
+  const state: BillingApp["state"] = { plan: o.startPlan ?? "free", credits: o.credits ?? 0, confirms: 0, cancels: 0, signedOut: false };
+  const holdsCredits = o.grantsCredits === true || o.credits !== undefined;
+  /** Run Hound's own reads of GET /api/me so far, and when the timed refill (refillEveryMs) started. */
+  let runHoundReads = 0;
+  let refillFrom: number | null = null;
   const cancel = o.cancel ?? "button";
   // GET /logout ends the session on the server: every later request with the cookie is signed out.
   const signedIn = (req: RecordedRequest) => !state.signedOut && new RegExp(`(?:^|;\\s*)sid=${SESSION}\\b`).test(req.headers.cookie ?? "");
@@ -225,13 +351,30 @@ async function billingApp(o: BillingAppOptions = {}): Promise<BillingApp> {
       : "";
   const team = `<section aria-labelledby="team-title"><h2 id="team-title">Teammates</h2><ul id="team"></ul></section>`;
   const tabs = cancel === "billing-tab";
+  const navTabs = o.navTabs ?? [];
+  const navTabsHtml =
+    navTabs.length > 0
+      ? `<div role="tablist" aria-label="Sections"><button type="button" role="tab" aria-selected="true">Overview</button>
+${navTabs.map((t, i) => `<button type="button" role="tab" aria-selected="false" id="nav-tab-${i}">${esc(t.name)}</button>`).join("\n")}</div>`
+      : "";
+  const navTabsScript = navTabs
+    .map((t, i) => {
+      const go = t.to.startsWith("fetch:")
+        ? `fetch(${JSON.stringify(t.to.slice("fetch:".length))}, { method: 'POST' }).then(function (r) { return r.json(); }).then(function (d) { location.href = d.url; });`
+        : t.to.startsWith("script:")
+          ? t.to.slice("script:".length)
+          : `location.href = ${JSON.stringify(t.to)};`;
+      return `$('nav-tab-${i}').addEventListener('click', function () { ${go} });`;
+    })
+    .join("\n");
   const dashboard = shell(
     tabs ? "Settings" : "Dashboard",
     tabs ? "" : anchors(o.links ?? []),
     tabs
-      ? `${billingTabs(o.links ?? [])}
-${team}`
-      : `<p id="plan" role="status">Loading your plan…</p>
+      ? `${billingTabs(o.links ?? [], o.tabCancel)}
+${team}${o.extraDashboard ?? ""}`
+      : `${navTabsHtml}
+<p id="plan" role="status">Loading your plan…</p>
 <button type="button" id="upgrade">Upgrade to Pro</button>
 ${DECOYS}
 ${dashboardDialog}
@@ -241,6 +384,7 @@ fetch('/api/team').then(function (r) { return r.json(); })
   .then(function (team) { $('team').innerHTML = team.map(function (t) { return '<li>' + t.name + ' (' + t.role + ')</li>'; }).join(''); })
   ${o.pageReadsPlan === false ? `.then(function () { $('plan').textContent = 'Your plan is on the Billing page'; });` : `.then(me).then(show);`}
 $('upgrade').addEventListener('click', startCheckout);
+${o.shellBonus ? "fetch('/api/daily-bonus', { method: 'POST' });" : ""}
 ${
   cancel === "dialog-on-page"
     ? `$('cancel').addEventListener('click', function () { $('confirm').hidden = false; $('yes').focus(); });
@@ -249,24 +393,84 @@ $('yes').addEventListener('click', function () { cancelPlan().then(function () {
     : tabs
       ? BILLING_TABS_SCRIPT
       : ""
-}`,
+}
+${tabs ? "" : navTabsScript}
+document.querySelectorAll('[data-down]').forEach(function (b) { b.addEventListener('click', function () { fetch(b.getAttribute('data-down'), { method: 'POST' }); }); });`,
   );
   // "settings-tab": the page under test links to a Settings page whose hidden Billing tab holds the plan's control.
   const settings = shell(
     "Settings",
     "",
-    billingTabs(o.billingLinks ?? []),
+    billingTabs(o.billingLinks ?? [], o.tabCancel),
     `${SHOW_PLAN}
 me().then(show);
 $('upgrade').addEventListener('click', startCheckout);
 ${BILLING_TABS_SCRIPT}`,
   );
 
+  /** The app's own confirmation for "Cancel plan", whose "Yes, cancel plan" posts a form to `action`. */
+  const confirmPostingTo = (action: string) => `<button type="button" id="cancel">Cancel plan</button>
+<div id="confirm" role="dialog" aria-modal="true" aria-labelledby="confirm-title" hidden><h2 id="confirm-title">Cancel your Pro plan?</h2>
+<p>You'll go back to Free at the end of the billing period.</p><button type="button" id="keep">Keep my plan</button>
+<form method="post" action="${esc(action)}"><button type="submit" id="yes">Yes, cancel plan</button></form></div>`;
   const cancelHtml: Record<CancelControl, string> = {
     button: `<button type="button" id="cancel">Cancel plan</button>`,
     ignored: `<button type="button" id="cancel">Cancel plan</button>`,
     "native-confirm": `<button type="button" id="cancel">Downgrade to Free</button>`,
     "provider-portal": `<a id="portal" href="https://billing.stripe.com/p/session/test_fixture">Cancel subscription</a>`,
+    "provider-confirm": confirmPostingTo("https://billing.stripe.com/p/session/test_fixture/cancel"),
+    "redirect-confirm": confirmPostingTo("/api/billing/cancel"),
+    // Every "Downgrade" before "Your plan" is someone else's or an add-on's; none sits under a heading about billing.
+    "among-teammates": `<table><tbody>
+<tr><td>Jo Park</td><td>Pro</td><td><button type="button" data-down="/api/team/u_jo/downgrade">Downgrade</button></td></tr>
+<tr><td>Kim Ito</td><td>Pro</td><td><button type="button" data-down="/api/team/u_kim/downgrade">Downgrade</button></td></tr>
+</tbody></table>
+<ul><li>Riley Chen · Pro <button type="button" data-down="/api/team/u_riley/downgrade">Downgrade</button></li></ul>
+<ul><li>Sam Lee (${SAM}) · Pro <button type="button" data-down="/api/team/u_sam/downgrade">Downgrade</button></li></ul>
+<section aria-labelledby="storage-title"><h2 id="storage-title">Extra storage</h2><p>200 GB, $4 a month</p><button type="button" data-down="/api/addons/storage/downgrade">Downgrade</button></section>
+<section aria-labelledby="your-plan-title"><h2 id="your-plan-title">Your plan</h2><p>Pro, $12 a month</p><button type="button" id="cancel">Downgrade</button></section>`,
+    // Each add-on is a subscription of its own, cancelled from its own row; the plan's control has the same name.
+    "among-add-ons": `<ul>
+<li>Extra storage · $4 a month <button type="button" data-down="/api/addons/storage/cancel">Cancel subscription</button></li>
+<li>Priority support · $6 a month <button type="button" data-down="/api/addons/support/cancel">Cancel subscription</button></li>
+</ul>
+<section aria-labelledby="your-plan-title"><h2 id="your-plan-title">Your plan</h2><p>Pro, $12 a month</p><button type="button" id="cancel">Cancel subscription</button></section>`,
+    // Teammates as cards, right under the page's own heading: no list item, table row or sub-section of their own.
+    "team-cards": `<div class="seats"><div class="seat"><span>Jo Park</span> · <span>Pro</span> <button type="button" data-down="/api/team/u_jo/downgrade">Downgrade</button></div>
+<div class="seat"><span>Kim Ito</span> · <span>Pro</span> <button type="button" data-down="/api/team/u_kim/downgrade">Downgrade</button></div></div>
+<section aria-labelledby="your-plan-title"><h2 id="your-plan-title">Your plan</h2><p>Pro, $12 a month</p><button type="button" id="cancel">Downgrade</button></section>`,
+    "team-cards-pro-plan": `<div class="seats"><div class="seat"><span>Jo Park</span> · <span>Pro</span> <button type="button" data-down="/api/team/u_jo/downgrade">Downgrade</button></div>
+<div class="seat"><span>Kim Ito</span> · <span>Pro</span> <button type="button" data-down="/api/team/u_kim/downgrade">Downgrade</button></div></div>
+<section aria-labelledby="pro-plan-title"><h2 id="pro-plan-title">Pro plan</h2><p>$12 a month</p><button type="button" id="cancel">Downgrade</button></section>`,
+    "team-card-free": `<div class="seat"><span>Jo Park</span> · <span>Pro</span> <button type="button" data-down="/api/team/u_jo/downgrade">Downgrade to Free</button></div>
+<section aria-labelledby="your-plan-title"><h2 id="your-plan-title">Your plan</h2><p>Pro, $12 a month</p><button type="button" id="cancel">Cancel plan</button></section>`,
+    "team-row-free": `<ul><li>Jo Park · Pro <button type="button" data-down="/api/team/u_jo/downgrade">Downgrade to Free</button></li></ul>
+<p>You're on Pro, $12 a month.</p><button type="button" id="cancel">Cancel plan</button>`,
+    "addon-row-membership": `<section aria-labelledby="subs-title"><h2 id="subs-title">Subscriptions</h2>
+<ul><li>Extra storage add-on · $4 a month <button type="button" data-down="/api/addons/storage/cancel">Cancel subscription</button></li></ul>
+<section aria-labelledby="your-plan-title"><h3 id="your-plan-title">Your plan</h3><p>Pro membership, $12 a month</p><button type="button" id="cancel">Cancel membership</button></section></section>`,
+    "addon-row-only": `<p>To change your plan, contact support.</p>
+<ul><li>Extra storage add-on · $4 a month <button type="button" data-down="/api/addons/storage/cancel">Cancel subscription</button></li></ul>`,
+    "opens-window": `<button type="button" id="cancel">Cancel plan</button>`,
+    "redirect-portal-confirm": confirmPostingTo("/api/billing/cancel"),
+    "portal-fetch": `<button type="button" id="cancel">Cancel subscription</button>`,
+    // A teammate's card (no list, no table, no heading of its own) with a bare "Downgrade", before A's own "Cancel plan".
+    "team-card-bare": `<div class="seat"><span>Jo Park</span> · <span>Pro</span> <button type="button" data-down="/api/team/u_jo/downgrade">Downgrade</button></div>
+<p>You're on Pro, $12 a month.</p><button type="button" id="cancel">Cancel plan</button>`,
+    "portal-link": `<a id="cancel" href="/billing/portal">Cancel plan</a>`,
+    "portal-script": `<button type="button" id="cancel">Cancel plan</button>`,
+    "portal-confirm": confirmPostingTo("/billing/portal"),
+    "stripe-path-form": `<form method="post" action="/api/stripe/cancel-subscription"><button type="submit" id="cancel">Cancel plan</button></form>`,
+    "timer-portal": `<p id="after-cancel"></p><button type="button" id="cancel">Cancel plan</button>`,
+    "redirect-unlisted": confirmPostingTo("/api/billing/cancel"),
+    // A teammate's card (no list, no table, no heading of its own) with a bare "Downgrade", before A's own "Cancel
+    // subscription": neither names the plan or a free tier, and nothing says which is Account A's.
+    "team-card-sub": `<div class="seat"><span>Jo Park</span> · <span>Pro</span> <button type="button" data-down="/api/team/u_jo/downgrade">Downgrade</button></div>
+<p>You're on Pro, $12 a month.</p><button type="button" id="cancel">Cancel subscription</button>`,
+    "overview-tab": `<div role="tablist" aria-label="Billing sections"><button type="button" role="tab" id="tab-overview" aria-selected="true">Overview</button>
+<button type="button" role="tab" id="tab-payments" aria-selected="false">Payments</button></div>
+<div role="tabpanel" id="panel-overview"><p>Pro, $12 a month.</p><button type="button" id="cancel">Downgrade</button></div>
+<div role="tabpanel" id="panel-payments" hidden><p>Visa ending in 4242.</p></div>`,
     "dialog-on-page": `<p>Manage your plan from the dashboard.</p>`,
     "billing-tab": `<p>Manage your plan in Settings.</p>`,
     "settings-tab": `<p>Manage your plan in Settings.</p>`,
@@ -284,12 +488,54 @@ ${DECOYS}
 me().then(show);
 $('upgrade').addEventListener('click', startCheckout);
 ${
-  cancel === "button" || cancel === "ignored"
+  cancel === "button" ||
+  cancel === "ignored" ||
+  cancel === "among-teammates" ||
+  cancel === "among-add-ons" ||
+  cancel === "team-cards" ||
+  cancel === "team-cards-pro-plan" ||
+  cancel === "team-card-free" ||
+  cancel === "team-row-free" ||
+  cancel === "addon-row-membership" ||
+  cancel === "team-card-bare" ||
+  cancel === "team-card-sub"
     ? `$('cancel').addEventListener('click', cancelPlan);`
-    : cancel === "native-confirm"
-      ? `$('cancel').addEventListener('click', function () { if (confirm('Downgrade to Free? You will lose Pro features.')) cancelPlan(); });`
-      : ""
-}`,
+    : cancel === "overview-tab"
+      ? `function choose(name) {
+  ['overview', 'payments'].forEach(function (n) { $('tab-' + n).setAttribute('aria-selected', String(n === name)); $('panel-' + n).hidden = n !== name; });
+}
+$('tab-overview').addEventListener('click', function () { choose('overview'); });
+$('tab-payments').addEventListener('click', function () { choose('payments'); });
+$('cancel').addEventListener('click', cancelPlan);`
+    : cancel === "opens-window"
+      ? `$('cancel').addEventListener('click', function () { cancelPlan(); window.open('/billing/return'); });`
+      : cancel === "native-confirm"
+        ? `$('cancel').addEventListener('click', function () { if (confirm('Downgrade to Free? You will lose Pro features.')) cancelPlan(); });`
+        : cancel === "provider-confirm" ||
+            cancel === "redirect-confirm" ||
+            cancel === "redirect-portal-confirm" ||
+            cancel === "portal-confirm" ||
+            cancel === "redirect-unlisted"
+          ? `$('cancel').addEventListener('click', function () { $('confirm').hidden = false; $('keep').focus(); });
+$('keep').addEventListener('click', function () { $('confirm').hidden = true; });`
+          : cancel === "portal-script"
+            ? `$('cancel').addEventListener('click', function () { location.href = '/billing/portal'; });`
+            : cancel === "portal-fetch"
+              ? `$('cancel').addEventListener('click', function () {
+  fetch('/api/billing/portal-session', { method: 'POST' }).then(function (r) { return r.json(); }).then(function (d) { location.href = d.url; });
+});`
+              : cancel === "timer-portal"
+                ? `$('cancel').addEventListener('click', function () {
+  fetch('/api/billing/cancel', { method: 'POST' }).then(function () {
+    $('after-cancel').textContent = 'Taking you to the billing portal…';
+    setTimeout(function () { location.href = '/billing/portal'; }, 1500);
+    return me().then(show);
+  });
+});`
+                : ""
+}
+document.querySelectorAll('[data-down]').forEach(function (b) { b.addEventListener('click', function () { fetch(b.getAttribute('data-down'), { method: 'POST' }); }); });
+${o.billingScript ?? ""}`,
   );
 
   const successPage = (p: SuccessPage) =>
@@ -297,14 +543,15 @@ ${
       "Your upgrade",
       "",
       `<p id="s" role="status">Confirming your upgrade…</p>${p.extra ?? ""}`,
-      p.confirms === false
+      `${o.successSpends ? "fetch('/api/summary', { method: 'POST' });" : ""}` +
+      (p.confirms === false
         ? `document.getElementById('s').textContent = "Thanks for visiting";`
         : `fetch('/api/billing/confirm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ checkout: new URLSearchParams(location.search).get('checkout') }) })
   .then(function (r) { return r.json(); })
   .then(function (d) {
     document.getElementById('s').textContent = ${p.says ? JSON.stringify(p.says) : `d.confirmed ? "You're on Pro. Thanks for upgrading!" : "We couldn't find a payment for this upgrade."`};
     ${p.after ?? ""}
-  });`,
+  });`),
     );
 
   const login = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign in</title></head><body><main><h1>Sign in</h1>
@@ -341,7 +588,9 @@ ${
         if (o.failReadAfterCancel && state.cancels > 0) return send(res, 500, { error: "Something went wrong" });
         const who = { id: "u_alex", email: ALEX, name: "Alex Rivera", avatar: "portrait-1" };
         if (o.entitlement === false) return send(res, 200, who);
-        return send(res, 200, { ...who, plan: state.plan, role: "member", ...(o.grantsCredits ? { credits: state.credits } : {}) });
+        if (o.refillEveryMs !== undefined && fromRunHound(req) && ++runHoundReads === 2) refillFrom = Date.now();
+        const refilled = o.refillEveryMs !== undefined && refillFrom !== null ? Math.floor((Date.now() - refillFrom) / o.refillEveryMs) : 0;
+        return send(res, 200, { ...who, plan: state.plan, role: "member", ...(holdsCredits ? { credits: state.credits + refilled } : {}) });
       },
       // Other users only, one of them on Pro: never Account A's entitlement.
       "GET /api/team": (req, res) => {
@@ -352,18 +601,50 @@ ${
         if (!signedIn(req)) return send(res, 401, { error: "Sign in first" });
         state.confirms += 1;
         if (o.grants) state.plan = "pro";
+        else if (o.confirmPlan !== undefined) state.plan = o.confirmPlan;
         if (o.grantsCredits) state.credits += 500;
         return send(res, 200, { confirmed: Boolean(o.grants), plan: state.plan });
       },
       "POST /api/billing/cancel": (req, res) => {
         if (!signedIn(req)) return send(res, 401, { error: "Sign in first" });
         state.cancels += 1;
+        if (cancel === "redirect-portal-confirm") {
+          // The app sends the browser on to its own billing portal start, which redirects to the provider.
+          res.writeHead(303, { location: "/billing/portal" });
+          res.end();
+          return;
+        }
+        if (cancel === "redirect-unlisted") {
+          // The app sends the browser on to a checkout host the check's list doesn't name; the plan stays on Pro.
+          res.writeHead(303, { location: "https://pay.gateway.test/cancel" });
+          res.end();
+          return;
+        }
+        if (cancel === "redirect-confirm") {
+          // The cancel happens at the provider (a Stripe portal cancel flow): the plan stays on Pro until it does.
+          res.writeHead(303, { location: "https://billing.stripe.com/p/session/test_fixture/flow/subscription_cancel" });
+          res.end();
+          return;
+        }
         if (cancel !== "ignored") state.plan = "free";
         return send(res, 200, { plan: "free" });
       },
       "POST /api/billing/checkout": (req, res) => send(res, signedIn(req) ? 201 : 401, { id: "chk_1", status: "open" }),
+      // The app's own spending and bonus (successSpends, shellBonus): writes a page makes as it loads, never a grant.
+      "POST /api/summary": (req, res) => {
+        if (!signedIn(req)) return send(res, 401, { error: "Sign in first" });
+        state.credits -= 1;
+        return send(res, 200, { summary: "…" });
+      },
+      "POST /api/daily-bonus": (req, res) => {
+        if (!signedIn(req)) return send(res, 401, { error: "Sign in first" });
+        state.credits += 1;
+        return send(res, 200, { credits: state.credits });
+      },
       "POST /api/typed": (_req, res) => send(res, 204, {}),
       "POST /api/pay": (_req, res) => send(res, 204, {}),
+      // Creates a billing portal session (at the payment provider, on a real app): no check may send it.
+      "POST /api/billing/portal-session": (req, res) => send(res, signedIn(req) ? 200 : 401, { url: "https://billing.stripe.com/p/session/test_portal" }),
       // Writes no check may send: the decoys' and the side-effect pages' (expectSafe fails any of them).
       "POST /api/invites/inv_1/cancel": (_req, res) => send(res, 204, {}),
       "POST /api/account/delete": (_req, res) => send(res, 204, {}),
@@ -381,6 +662,23 @@ ${
     },
     fallback: (req, res) => {
       const path = new URL(req.url, "http://x").pathname;
+      if (req.method === "GET" && (o.providerRedirects ?? []).includes(path)) {
+        res.writeHead(303, { location: "https://checkout.stripe.com/c/pay/cs_test_fixture" });
+        res.end();
+        return;
+      }
+      const to = req.method === "GET" ? o.redirects?.[path] : undefined;
+      if (to !== undefined) {
+        res.writeHead(302, { location: to });
+        res.end();
+        return;
+      }
+      // Other people's and add-ons' downgrades and cancels (expectSafe fails any of them).
+      if (req.method === "POST" && /^\/api\/(team\/[^/]+\/downgrade|addons\/[^/]+\/(downgrade|cancel))$/.test(path)) {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
       if ((o.signInPaths ?? []).includes(path)) {
         res.writeHead(302, { location: `/login?next=${encodeURIComponent(path)}` });
         res.end();
@@ -389,6 +687,11 @@ ${
       if (o.spaFallback === "sign-in" && req.method === "GET" && !path.startsWith("/api/")) {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(spaToSignIn);
+        return;
+      }
+      if (o.spaFallback === "shell" && req.method === "GET" && !path.startsWith("/api/") && path !== "/favicon.ico") {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(dashboard);
         return;
       }
       res.writeHead(404, { "content-type": "text/html; charset=utf-8" });
@@ -474,10 +777,12 @@ const confirmed = (result: CheckResult) => result.findings.filter((f) => f.confi
  * and account-deletion links were never opened (A is still signed in); every request stayed on the target's origin;
  * nothing reached a payment provider; no session value or Account A's username is in the result.
  */
-function expectSafe(server: BillingApp, result: CheckResult): void {
+function expectSafe(server: BillingApp, result: CheckResult, appWrites?: RegExp): void {
   const writes = server.requests.filter((r) => r.method !== "GET" && r.method !== "HEAD");
   for (const w of writes) {
-    expect(`${w.method} ${pathOf(w)}`).toMatch(/^POST \/api\/billing\/(confirm|cancel)$/);
+    const sent = `${w.method} ${pathOf(w)}`;
+    // `appWrites`: other writes the app's own pages send as they load (successSpends, shellBonus), from the browser too.
+    if (!appWrites?.test(sent)) expect(sent).toMatch(/^POST \/api\/billing\/(confirm|cancel)$/);
     expect(fromBrowser(w)).toBe(true);
   }
   expect(loads(server, "/logout")).toEqual([]);
@@ -735,7 +1040,7 @@ describe("paywall-trust: a success page that grants a paid plan on load", () => 
     expectSafe(server, result);
   }, 90_000);
 
-  it("reports a grant of credits that leaves the plan on Free (any entitlement change counts), and says to check Account A", async () => {
+  it("reports a grant of credits that leaves the plan on Free (credits that went up count), and says to check Account A", async () => {
     // The plan's control only shows on Pro, so there is nothing to click to take the credits back.
     const server = await billingApp({ grantsCredits: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "button" });
     const result = await runOn(server);
@@ -948,6 +1253,98 @@ describe("paywall-trust: a clean app", () => {
   }, 90_000);
 });
 
+describe("paywall-trust: only a gain is a grant", () => {
+  it("never confirms a finding on a clean app whose success page spends a credit as it loads: inconclusive, naming the credits, check Account A", async () => {
+    // Nothing ever raises the plan or adds credits; the page's own "AI summary" spends one credit (45 → 44).
+    const server = await billingApp({ grants: false, credits: 45, successSpends: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "button" });
+    const result = await runOn(server);
+    expect(server.state.credits).toBeLessThan(45);
+    expect(confirmed(result)).toEqual([]);
+    expect(result.findings).toEqual([]);
+    expect(result.status).toBe("skipped");
+    expect(result.notes).toContain("/app/upgraded");
+    expect(result.notes).toMatch(/credits/);
+    expect(result.notes).toContain("45 → 44");
+    expect(result.notes).toMatch(/check Account A/);
+    // Spent credits aren't a plan a cancel can put back: nothing was clicked.
+    expect(posts(server, "/api/billing/cancel")).toEqual([]);
+    expect(server.state.plan).toBe("free");
+    expectSafe(server, result, /^POST \/api\/summary$/);
+  }, 90_000);
+
+  it("never confirms a finding when a success page moves the plan from free to a trial (not a paid plan)", async () => {
+    const server = await billingApp({ grants: false, confirmPlan: "trial", links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "button" });
+    const result = await runOn(server);
+    expect(server.state.confirms).toBeGreaterThan(0);
+    expect(confirmed(result)).toEqual([]);
+    expect(result.findings).toEqual([]);
+    expect(result.status).toBe("skipped");
+    expect(result.notes).toContain("/app/upgraded");
+    expect(result.notes).toMatch(/plan/);
+    expect(result.notes).toMatch(/"trial"/);
+    expect(result.notes).toMatch(/check Account A/);
+    expectSafe(server, result);
+  }, 90_000);
+
+  it.each(["pro_trial", "Pro trial"])("never confirms a finding when a success page moves the plan from free to a named trial (%s)", async (plan) => {
+    const server = await billingApp({ grants: false, confirmPlan: plan, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "button" });
+    const result = await runOn(server);
+    expect(server.state.confirms).toBeGreaterThan(0);
+    expect(confirmed(result)).toEqual([]);
+    expect(result.findings).toEqual([]);
+    expect(result.status).toBe("skipped");
+    expect(result.notes).toContain("/app/upgraded");
+    expect(result.notes).toMatch(/check Account A/);
+    expectSafe(server, result);
+  }, 90_000);
+
+  it("never confirms a finding when A's credits refill on a timer while the success page does nothing", async () => {
+    // +1 credit every 1.5 s, starting after Run Hound's two baseline reads (so they can't see it): whichever route is
+    // open when it ticks looks like it granted a credit, unless the change is confirmed while nothing is opened.
+    const server = await billingApp({ grants: false, credits: 5, refillEveryMs: 1_500, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "button" });
+    const result = await runOn(server);
+    expect(confirmed(result)).toEqual([]);
+    expect(result.findings).toEqual([]);
+    expect(result.status).toBe("skipped");
+    expect(result.notes).toMatch(/^Inconclusive/);
+    expect(result.notes).toMatch(/credits/);
+    expect(result.notes).toMatch(/on (its|their) own/);
+    // Run Hound changed nothing: no note blames it on the check or asks to check Account A for it.
+    expect(result.notes).not.toMatch(/still[^.]*check Account A/);
+    expect(posts(server, "/api/billing/cancel")).toEqual([]);
+    expect(server.state.plan).toBe("free");
+    expectSafe(server, result);
+  }, 120_000);
+
+  it("never credits a gain to a route that showed the page under test itself (a single-page app's catch-all)", async () => {
+    // Every path the app has no page for shows the dashboard (the page under test), whose own load adds a bonus credit.
+    const server = await billingApp({ grants: false, credits: 5, shellBonus: true, spaFallback: "shell", cancel: "button" });
+    const result = await runOn(server);
+    expect(confirmed(result)).toEqual([]);
+    expect(result.findings).toEqual([]);
+    expect(result.status).toBe("skipped");
+    expect(result.notes).toMatch(/credits/);
+    expect(result.notes).toMatch(/same page as \/app\b/);
+    expect(result.notes).toMatch(/check Account A/);
+    expect(posts(server, "/api/billing/cancel")).toEqual([]);
+    expectSafe(server, result, /^POST \/api\/daily-bonus$/);
+  }, 90_000);
+
+  it("still confirms a paid plan granted by a success page that also spends a credit, and names the plan, not the credits", async () => {
+    const server = await billingApp({ grants: true, credits: 45, successSpends: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "button" });
+    const result = await runOn(server);
+    const f = expectGrantFinding(result, "/app/upgraded");
+    expect(f.meaning).toMatch(/plan "free" → "pro"/);
+    expect(f.meaning).not.toMatch(/credits/);
+    // The plan was put back; the credit the page spent is still named.
+    expect(server.state.plan).toBe("free");
+    expect(posts(server, "/api/billing/cancel")).toHaveLength(1);
+    expect(result.notes).toMatch(/credits/);
+    expect(result.notes).toMatch(/check Account A/);
+    expectSafe(server, result, /^POST \/api\/summary$/);
+  }, 90_000);
+});
+
 describe("paywall-trust: candidate routes", () => {
   it("opens at most 10 candidates, links first, same origin only", async () => {
     // Another origin serving success routes of its own, linked under another host name and under the same host name
@@ -1066,6 +1463,50 @@ document.getElementById('card').addEventListener('submit', function (e) { e.prev
     expectSafe(server, result);
   }, 90_000);
 
+  it("exports a replay spec that stops a server redirect's hop to a provider and a new window's first load too, as the check does", async () => {
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "button" });
+    const result = await runOn(server);
+    const source = expectGrantFinding(result, "/app/upgraded").spec!.source;
+    // Routes never see a redirect hop: a DevTools-level block on the replayed page stops it.
+    expect(source).toMatch(/newCDPSession\(page\)/);
+    expect(source).toMatch(/Fetch\.failRequest/);
+    expect(source).toMatch(/Fetch\.enable/);
+    // A redirect hop to a checkout host the provider list doesn't name is stopped too: once signed in (a sign-in page
+    // may be on another site), a page load off the target is failed at the DevTools level.
+    expect(source).toMatch(/resourceType === "Document"/);
+    expect(source).toMatch(/guardOffSite = true/);
+    expect(source.indexOf("guardOffSite = true")).toBeGreaterThan(source.indexOf("await signIn(page);"));
+    // A new window's first load is never sent (it can't be watched for a redirect to a provider).
+    expect(source).toMatch(/isNavigationRequest\(\)/);
+    // The DevTools protocol is Chromium's: in another browser the spec is skipped, never run without that block.
+    expect(source).toMatch(/test\.skip\(browserName !== "chromium"/);
+    // PATH is typed as a string: a bare `const PATH = ""` is the literal type "", which strict TypeScript narrows to
+    // never in `PATH ? PATH.split(".") : []`, so the spec wouldn't type-check in the user's project.
+    expect(source).toMatch(/const PATH: string = "";/);
+    expectRestored(server, result, "/app/billing");
+    expectSafe(server, result);
+  }, 90_000);
+
+  it("never names a provider request the page makes in the background as where the cancel went, when the cancel just didn't work", async () => {
+    const server = await billingApp({
+      grants: true,
+      links: [SUCCESS_LINK],
+      successPages: { "/app/upgraded": {} },
+      cancel: "ignored",
+      // The Billing page's payment script polls its host in the background, as Stripe.js does.
+      billingScript: "setInterval(function () { fetch('https://api.stripe.com/v1/ping').catch(function () {}); }, 150);",
+    });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(server.state.plan).toBe("pro");
+    expect(posts(server, "/api/billing/cancel").length).toBeGreaterThan(0);
+    expect(result.notes).toMatch(/api\.stripe\.com: blocked \(payment provider\)/);
+    expect(result.notes).not.toMatch(/headed for the payment provider/);
+    expect(result.notes).toMatch(/Run Hound clicked the app's own "Cancel plan" on \/app\/billing, but Account A's plan didn't go back/);
+    expect(result.notes).toMatch(/Account A's plan is still "?pro"?: check Account A/);
+    expectSafe(server, result);
+  }, 90_000);
+
   it("counts the restore as failed when the cancel control heads for the payment provider (blocked)", async () => {
     const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "provider-portal" });
     const result = await runOn(server);
@@ -1075,6 +1516,519 @@ document.getElementById('card').addEventListener('submit', function (e) { e.prev
     expect(result.notes).toMatch(/blocked \(payment provider\)/);
     expect(result.notes).toContain("billing.stripe.com");
     expect(result.notes).toMatch(/Account A's plan is still "?pro"?: check Account A/);
+    expectSafe(server, result);
+  }, 90_000);
+});
+
+describe("paywall-trust: a billing tab that heads for a payment provider", () => {
+  it("chooses Billing tabs that send the browser to the app's billing portal (which redirects to the provider) or straight to the provider, and neither gets there", async () => {
+    const server = await billingApp({
+      grants: true,
+      successPages: { "/app/upgraded": {} },
+      cancel: "button",
+      navTabs: [
+        { name: "Billing", to: "/billing/portal" },
+        { name: "Payments", to: "https://billing.stripe.com/p/session/test_tab" },
+      ],
+      providerRedirects: ["/billing/portal"],
+    });
+    const result = await runOn(server);
+    // The tabs were chosen (to read the links they show, and again to look for the plan's control) and the probe went
+    // on: the conventional /app/upgraded granted Pro, and the Billing page's Cancel plan put it back.
+    expectGrantFinding(result, "/app/upgraded");
+    expectRestored(server, result, "/app/billing");
+    // The portal start was held before the app's server saw it, so its redirect to the provider never happened, and
+    // the notes say so.
+    expect(loads(server, "/billing/portal")).toEqual([]);
+    expect(result.notes).toMatch(/"Billing" tab on \/app sent the browser to \/billing\/portal[^.]*stopped/);
+    // The tab that went straight to the provider was blocked, and listed; the notes say the tab did it.
+    expect(result.notes).toMatch(/billing\.stripe\.com: blocked \(payment provider\)/);
+    expect(result.notes).toMatch(/"Payments" tab on \/app headed for billing\.stripe\.com \(payment provider\)[^.]*blocked/);
+    expectSafe(server, result);
+  }, 120_000);
+
+  it("never lets a Billing tab create a billing portal session (a write its script sends before heading for the provider), and names it", async () => {
+    // The usual Stripe customer-portal button: POST to the app, which creates the session at the provider and answers
+    // with its URL. The write is held before the app's server gets it; the provider is never reached either.
+    const server = await billingApp({
+      grants: false,
+      cancel: "button",
+      successPages: { "/thanks": {} },
+      navTabs: [{ name: "Billing", to: "fetch:/api/billing/portal-session" }],
+    });
+    const result = await runOn(server);
+    expect(result.status).toBe("pass");
+    expect(posts(server, "/api/billing/portal-session")).toEqual([]);
+    expect(result.notes).toMatch(/"Billing" tab on \/app sent a request to \/api\/billing\/portal-session[^.]*stopped/);
+    expectSafe(server, result);
+  }, 120_000);
+
+  it("never lets a Billing tab's beacon create a billing portal session, and names a tab that heads for a site the provider list doesn't name", async () => {
+    // navigator.sendBeacon is a POST like a fetch (DevTools calls it a "Ping"): the portal session must not be created.
+    const server = await billingApp({
+      grants: false,
+      cancel: "button",
+      successPages: { "/thanks": {} },
+      navTabs: [
+        { name: "Billing", to: "script:navigator.sendBeacon('/api/billing/portal-session'); location.href = 'https://billing.stripe.com/p/session/x';" },
+        { name: "Payments", to: "https://pay.gateway.test/portal" },
+      ],
+    });
+    const result = await runOn(server);
+    expect(result.status).toBe("pass");
+    expect(posts(server, "/api/billing/portal-session")).toEqual([]);
+    expect(result.notes).toMatch(/"Billing" tab on \/app sent a request to \/api\/billing\/portal-session[^.]*stopped/);
+    expect(result.notes).toMatch(/"Payments" tab on \/app headed for pay\.gateway\.test \(another site\)[^.]*stopped/);
+    expectSafe(server, result);
+  }, 120_000);
+
+  it("names a held tab once, even when a page it opens to read links lands back on the page under test (whose tab is chosen again)", async () => {
+    const server = await billingApp({
+      grants: false,
+      successPages: { "/app/upgraded": {} },
+      cancel: "button",
+      navTabs: [{ name: "Billing", to: "/billing/portal" }],
+      providerRedirects: ["/billing/portal"],
+      links: [{ href: "/app/account", text: "Account" }],
+      redirects: { "/app/account": "/app" },
+    });
+    const result = await runOn(server);
+    expect(result.status).toBe("pass");
+    // /app/account was opened to read its links and landed on /app, whose Billing tab was chosen there too.
+    expect(loads(server, "/app/account").length).toBeGreaterThan(0);
+    expect(loads(server, "/billing/portal")).toEqual([]);
+    expect(result.notes?.match(/"Billing" tab on \/app sent the browser to \/billing\/portal/g)).toHaveLength(1);
+    expectSafe(server, result);
+  }, 120_000);
+});
+
+describe("paywall-trust: a restore whose confirmation heads for a payment provider", () => {
+  it("never clicks the app's confirmation when its form posts to the payment provider, and says to check Account A", async () => {
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "provider-confirm" });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(server.state.plan).toBe("pro");
+    expect(posts(server, "/api/billing/cancel")).toEqual([]);
+    expect(result.notes).toMatch(/"Yes, cancel plan"[^.]*payment provider \(billing\.stripe\.com\)/);
+    expect(result.notes).toMatch(/billing\.stripe\.com: blocked \(payment provider\)/);
+    expect(result.notes).toMatch(/Account A's plan is still "?pro"?: check Account A/);
+    expectSafe(server, result);
+  }, 90_000);
+
+  it("stops the redirect to the provider when the confirmation posts to the app and the app answers with the provider's cancel page", async () => {
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "redirect-confirm" });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    // The app's own cancel went from its confirmation, in the browser; the provider's page it answered with never loaded.
+    const cancels = posts(server, "/api/billing/cancel");
+    expect(cancels).toHaveLength(1);
+    expect(fromBrowser(cancels[0]!)).toBe(true);
+    expect(server.state.plan).toBe("pro");
+    expect(result.notes).toMatch(/billing\.stripe\.com: blocked \(payment provider\)/);
+    expect(result.notes).not.toMatch(/reached the provider/);
+    expect(result.notes).toMatch(/Account A's plan is still "?pro"?: check Account A/);
+    expectSafe(server, result);
+  }, 90_000);
+
+  it("stops the hop when the confirmation posts to the app and the app redirects to a checkout host the provider list doesn't name", async () => {
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "redirect-unlisted" });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(posts(server, "/api/billing/cancel")).toHaveLength(1);
+    expect(server.state.plan).toBe("pro");
+    // The notes say where the click headed (not "that click may have changed something else"), and to check Account A.
+    expect(result.notes).toMatch(/"Cancel plan" on \/app\/billing headed for another site \(pay\.gateway\.test\), which Run Hound stopped/);
+    expect(result.notes).not.toMatch(/may have changed something else/);
+    expect(result.notes).toMatch(/Account A's plan is still "?pro"?: check Account A/);
+    // expectSafe: nothing reached the stand-in host.
+    expectSafe(server, result);
+  }, 90_000);
+
+  it("never loads a new window the cancel control opens (whose address redirects to the provider), and names it", async () => {
+    const server = await billingApp({
+      grants: true,
+      links: [SUCCESS_LINK],
+      successPages: { "/app/upgraded": {} },
+      cancel: "opens-window",
+      providerRedirects: ["/billing/return"],
+    });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(loads(server, "/billing/return")).toEqual([]);
+    expect(result.notes).toMatch(/\/app\/billing opened a new window at \/billing\/return, which Run Hound didn't load/);
+    expect(result.notes).not.toMatch(/reached the provider/);
+    expectRestored(server, result, "/app/billing");
+    expectSafe(server, result);
+  }, 90_000);
+
+  it("holds the hop of a server redirect: a confirmation whose cancel answers with a redirect to the app's own billing portal start never reaches it", async () => {
+    const server = await billingApp({
+      grants: true,
+      links: [SUCCESS_LINK],
+      successPages: { "/app/upgraded": {} },
+      cancel: "redirect-portal-confirm",
+      providerRedirects: ["/billing/portal"],
+    });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    // The app's own cancel went (from its confirmation, in the browser); the portal start it redirected to never did.
+    expect(posts(server, "/api/billing/cancel")).toHaveLength(1);
+    expect(loads(server, "/billing/portal")).toEqual([]);
+    expect(server.state.plan).toBe("pro");
+    expect(result.notes).toMatch(/"Cancel plan" on \/app\/billing went on to \/billing\/portal[^.]*stopped/);
+    expect(result.notes).toMatch(/Account A's plan is still "?pro"?: check Account A/);
+    expectSafe(server, result);
+  }, 90_000);
+
+  it("never lets the plan control create a billing portal session (a write its script sends before heading for the provider)", async () => {
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "portal-fetch" });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(posts(server, "/api/billing/portal-session")).toEqual([]);
+    expect(server.state.plan).toBe("pro");
+    expect(result.notes).toMatch(/"Cancel subscription" on \/app\/billing sent a request to \/api\/billing\/portal-session[^.]*stopped/);
+    expect(result.notes).toMatch(/Account A's plan is still "?pro"?: check Account A/);
+    expectSafe(server, result);
+  }, 90_000);
+
+  it("never clicks a plan control that links to the app's own billing portal start", async () => {
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "portal-link", providerRedirects: ["/billing/portal"] });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(loads(server, "/billing/portal")).toEqual([]);
+    expect(server.state.plan).toBe("pro");
+    expect(result.notes).toMatch(/"Cancel plan" on \/app\/billing opens \/billing\/portal/);
+    expect(result.notes).toMatch(/Account A's plan is still "?pro"?: check Account A/);
+    expectSafe(server, result);
+  }, 90_000);
+
+  it("holds a plan control whose script sends the browser to the app's own billing portal start, and counts the restore as failed", async () => {
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "portal-script", providerRedirects: ["/billing/portal"] });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(loads(server, "/billing/portal")).toEqual([]);
+    expect(server.state.plan).toBe("pro");
+    expect(result.notes).toMatch(/"Cancel plan" on \/app\/billing went on to \/billing\/portal[^.]*stopped/);
+    expect(result.notes).toMatch(/Account A's plan is still "?pro"?: check Account A/);
+    expectSafe(server, result);
+  }, 90_000);
+
+  it("never clicks a confirmation whose form posts to the app's own billing portal start", async () => {
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "portal-confirm", providerRedirects: ["/billing/portal"] });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(server.requests.filter((r) => pathOf(r) === "/billing/portal")).toEqual([]);
+    expect(server.state.plan).toBe("pro");
+    expect(result.notes).toMatch(/"Yes, cancel plan" on \/app\/billing opens \/billing\/portal/);
+    expect(result.notes).toMatch(/Account A's plan is still "?pro"?: check Account A/);
+    expectSafe(server, result);
+  }, 90_000);
+
+  it("never clicks a plan control whose form goes to a path that names the payment provider, and says so", async () => {
+    // Safe direction on purpose: /api/stripe/… may be a cancel, or a portal the app's server opens at the provider.
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "stripe-path-form" });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(server.requests.filter((r) => pathOf(r) === "/api/stripe/cancel-subscription")).toEqual([]);
+    expect(server.state.plan).toBe("pro");
+    expect(result.notes).toMatch(/"Cancel plan" on \/app\/billing opens \/api\/stripe\/cancel-subscription \(a path that names the payment provider\)/);
+    expect(result.notes).toMatch(/Account A's plan is still "?pro"?: check Account A/);
+    expectSafe(server, result);
+  }, 90_000);
+
+  it("keeps holding the page's navigation to a billing portal start after the click's own hold ended (a timer the cancel set)", async () => {
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "timer-portal", providerRedirects: ["/billing/portal"] });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expectRestored(server, result, "/app/billing");
+    // The page's timer fires 1.5 s after the cancel answered, after the check is done with the click: still held.
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    expect(loads(server, "/billing/portal")).toEqual([]);
+    expectSafe(server, result);
+  }, 90_000);
+});
+
+describe("paywall-trust: the restore clicks only Account A's own plan control", () => {
+  const othersWrites = (server: BillingApp) => server.requests.filter((r) => r.method === "POST" && /^\/api\/(team|addons)\//.test(pathOf(r)));
+
+  it('never clicks a teammate\'s or an add-on\'s "Downgrade" (in a table, a one-row list, beside an e-mail address, under another heading), only Account A\'s own', async () => {
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "among-teammates" });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(othersWrites(server)).toEqual([]);
+    expectRestored(server, result, "/app/billing");
+    expectSafe(server, result);
+  }, 90_000);
+
+  it('never clicks an add-on\'s "Cancel subscription" (one in each row of a list) before Account A\'s own control of the same name', async () => {
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "among-add-ons" });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(othersWrites(server)).toEqual([]);
+    expectRestored(server, result, "/app/billing");
+    expectSafe(server, result);
+  }, 90_000);
+
+  it('never clicks a teammate\'s "Downgrade" on a card (no list or table), only Account A\'s own under "Your plan"', async () => {
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "team-cards" });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(othersWrites(server)).toEqual([]);
+    expectRestored(server, result, "/app/billing");
+    expectSafe(server, result);
+  }, 90_000);
+
+  it('clicks no "Downgrade" when teammates\' cards carry the same name and none sits under a heading about Account A\'s own plan, and says to check Account A', async () => {
+    // Account A's "Downgrade" is under "Pro plan": a billing heading, but nothing tells it apart from the cards' own.
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "team-cards-pro-plan" });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(othersWrites(server)).toEqual([]);
+    expect(posts(server, "/api/billing/cancel")).toEqual([]);
+    expect(server.state.plan).toBe("pro");
+    expect(result.notes).toMatch(/Account A's plan is still "?pro"?: check Account A/);
+    expectSafe(server, result);
+  }, 90_000);
+
+  it('clicks Account A\'s own "Cancel plan" under "Your plan", never a lone teammate card\'s "Downgrade to Free" before it', async () => {
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "team-card-free" });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(othersWrites(server)).toEqual([]);
+    expectRestored(server, result, "/app/billing");
+    expectSafe(server, result);
+  }, 90_000);
+
+  it('clicks Account A\'s own "Cancel plan" outside any list before a teammate\'s "Downgrade to Free" in a one-row list', async () => {
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "team-row-free" });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(othersWrites(server)).toEqual([]);
+    expectRestored(server, result, "/app/billing");
+    expectSafe(server, result);
+  }, 90_000);
+
+  it('clicks Account A\'s own "Cancel plan" before a lone teammate card\'s bare "Downgrade" (no list, no heading for either)', async () => {
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "team-card-bare" });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(othersWrites(server)).toEqual([]);
+    expectRestored(server, result, "/app/billing");
+    expectSafe(server, result);
+  }, 90_000);
+
+  it('never clicks a lone add-on\'s "Cancel subscription" in a list row before Account A\'s own "Cancel membership"', async () => {
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "addon-row-membership" });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(othersWrites(server)).toEqual([]);
+    expectRestored(server, result, "/app/billing");
+    expectSafe(server, result);
+  }, 90_000);
+
+  it('clicks neither a teammate card\'s bare "Downgrade" nor another control when nothing says which is Account A\'s plan', async () => {
+    // "Downgrade" (a teammate's card) and "Cancel subscription" (Account A's): neither names the plan or a free tier, and
+    // no heading says which is Account A's plan.
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "team-card-sub" });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(othersWrites(server)).toEqual([]);
+    expect(posts(server, "/api/billing/cancel")).toEqual([]);
+    expect(server.state.plan).toBe("pro");
+    expect(result.notes).toMatch(/On \/app\/billing, "Downgrade" and "Cancel subscription" might each be the way back to Free[^.]*clicked neither/);
+    expect(result.notes).not.toMatch(/found no cancel or downgrade control/);
+    expect(result.notes).toMatch(/Account A's plan is still "?pro"?: check Account A/);
+    expectSafe(server, result);
+  }, 90_000);
+
+  /** A teammate's card with a bare "Downgrade", outside the Settings page's tabs (shown whichever tab is chosen). */
+  const TEAMMATE_CARD = `<div class="seat"><span>Jo Park</span> · <span>Pro</span> <button type="button" data-down="/api/team/u_jo/downgrade">Downgrade</button></div>`;
+
+  it('looks behind the Billing tab for Account A\'s own "Cancel plan" before clicking a teammate card\'s bare "Downgrade" shown on the page', async () => {
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "billing-tab", extraDashboard: TEAMMATE_CARD });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(othersWrites(server)).toEqual([]);
+    expectRestored(server, result, "/app");
+    expectSafe(server, result);
+  }, 90_000);
+
+  it('clicks neither when a teammate card\'s bare "Downgrade" is on the page and Account A\'s "Cancel subscription" is behind the Billing tab', async () => {
+    // The Billing tab shows both at once: nothing says which is Account A's, so the one on the page isn't clicked either.
+    const server = await billingApp({
+      grants: true,
+      links: [SUCCESS_LINK],
+      successPages: { "/app/upgraded": {} },
+      cancel: "billing-tab",
+      extraDashboard: TEAMMATE_CARD,
+      tabCancel: "Cancel subscription",
+    });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(othersWrites(server)).toEqual([]);
+    expect(posts(server, "/api/billing/cancel")).toEqual([]);
+    expect(server.state.plan).toBe("pro");
+    expect(result.notes).toMatch(/On \/app, "Downgrade" and "Cancel subscription" might each be the way back to Free[^.]*clicked neither/);
+    expect(result.notes).toMatch(/Account A's plan is still "?pro"?: check Account A/);
+    expectSafe(server, result);
+  }, 90_000);
+
+  it('still clicks Account A\'s own bare "Downgrade" on the tab shown when the page loaded, after its Billing tab showed nothing that names the plan', async () => {
+    // "Payments" (a Billing tab) hides the Overview panel when chosen: the Overview tab is chosen again to click it.
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "overview-tab" });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expectRestored(server, result, "/app/billing");
+    expectSafe(server, result);
+  }, 90_000);
+
+  it('never clicks a lone add-on\'s "Cancel subscription" in a list row, even when nothing else could put the plan back', async () => {
+    const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "addon-row-only" });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(othersWrites(server)).toEqual([]);
+    expect(posts(server, "/api/billing/cancel")).toEqual([]);
+    expect(server.state.plan).toBe("pro");
+    expect(result.notes).toMatch(/Account A's plan is still "?pro"?: check Account A/);
+    expectSafe(server, result);
+  }, 90_000);
+});
+
+describe("paywall-trust: a success page that sends the browser on to a payment provider", () => {
+  it("holds the page's own navigation to a checkout start on this site (which would redirect to the provider) and still reports the grant", async () => {
+    const server = await billingApp({
+      grants: true,
+      links: [SUCCESS_LINK],
+      cancel: "button",
+      successPages: { "/app/upgraded": { after: "location.href = '/checkout/start';" } },
+      providerRedirects: ["/checkout/start"],
+    });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(loads(server, "/checkout/start")).toEqual([]);
+    expect(result.notes).toMatch(/\/app\/upgraded sent the browser to \/checkout\/start[^.]*stopped/);
+    expectRestored(server, result, "/app/billing");
+    expectSafe(server, result);
+  }, 90_000);
+
+  it("stops the provider redirect when the page goes on to a page of this site whose path names no checkout", async () => {
+    const server = await billingApp({
+      grants: true,
+      links: [SUCCESS_LINK],
+      cancel: "button",
+      successPages: { "/app/upgraded": { after: "location.href = '/billing/return';" } },
+      providerRedirects: ["/billing/return"],
+    });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(result.notes).toMatch(/checkout\.stripe\.com: blocked \(payment provider\)/);
+    expect(result.notes).not.toMatch(/reached the provider/);
+    expectRestored(server, result, "/app/billing");
+    expectSafe(server, result);
+  }, 90_000);
+
+  it("stops a server redirect's hop to a checkout host the provider list doesn't name, on a page the success page goes on to", async () => {
+    const server = await billingApp({
+      grants: true,
+      links: [SUCCESS_LINK],
+      cancel: "button",
+      successPages: { "/app/upgraded": { after: "location.href = '/billing/return';" } },
+      redirects: { "/billing/return": "https://pay.gateway.test/c/1" },
+    });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(result.notes).toMatch(/pay\.gateway\.test: another site \(\/app\/upgraded headed there\)/);
+    expect(result.notes).not.toMatch(/reached the provider/);
+    expectRestored(server, result, "/app/billing");
+    // expectSafe: nothing reached the stand-in host.
+    expectSafe(server, result);
+  }, 90_000);
+
+  it("never loads a new window the success page opens (whose address redirects to the provider), and names it", async () => {
+    // A new window's first request comes before Run Hound can watch that window for a redirect to a provider.
+    const server = await billingApp({
+      grants: true,
+      links: [SUCCESS_LINK],
+      cancel: "button",
+      successPages: { "/app/upgraded": { after: "window.open('/billing/return');" } },
+      providerRedirects: ["/billing/return"],
+    });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    // The window's first load was never sent, so the app's server never got to send it on to the provider.
+    expect(loads(server, "/billing/return")).toEqual([]);
+    expect(result.notes).toMatch(/\/app\/upgraded opened a new window at \/billing\/return, which Run Hound didn't load/);
+    expect(result.notes).not.toMatch(/reached the provider/);
+    expectRestored(server, result, "/app/billing");
+    expectSafe(server, result);
+  }, 90_000);
+
+  it("stops the provider redirect when a success route itself answers with one, and goes on to the next route", async () => {
+    // A clean app: /checkout/success (a conventional path) sends the browser to the provider; /thanks answers after it.
+    const server = await billingApp({ grants: false, cancel: "button", successPages: { "/thanks": {} }, providerRedirects: ["/checkout/success"] });
+    const result = await runOn(server);
+    expect(loads(server, "/checkout/success").length).toBeGreaterThan(0);
+    expect(loads(server, "/thanks").length).toBeGreaterThan(0);
+    expect(result.status).toBe("pass");
+    expect(result.findings).toEqual([]);
+    expect(result.notes).toMatch(/checkout\.stripe\.com: blocked \(payment provider\)/);
+    expect(result.notes).not.toMatch(/reached the provider/);
+    expect(server.state.plan).toBe("free");
+    expectSafe(server, result);
+  }, 120_000);
+
+  it("holds the hop of a server redirect: a page the success page goes on to redirects to a checkout start, which is never reached", async () => {
+    const server = await billingApp({
+      grants: true,
+      links: [SUCCESS_LINK],
+      cancel: "button",
+      successPages: { "/app/upgraded": { after: "location.href = '/billing/return';" } },
+      redirects: { "/billing/return": "/checkout/start" },
+      providerRedirects: ["/checkout/start"],
+    });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(loads(server, "/checkout/start")).toEqual([]);
+    expect(result.notes).toMatch(/\/app\/upgraded sent the browser to \/checkout\/start[^.]*stopped/);
+    expectRestored(server, result, "/app/billing");
+    expectSafe(server, result);
+  }, 90_000);
+
+  it("holds the hop of a server redirect on a route Run Hound opens itself: a conventional path that redirects to a checkout start", async () => {
+    // A clean app: /checkout/success answers 302 to /checkout/start (which would redirect to the provider).
+    const server = await billingApp({
+      grants: false,
+      cancel: "button",
+      successPages: { "/thanks": {} },
+      redirects: { "/checkout/success": "/checkout/start" },
+      providerRedirects: ["/checkout/start"],
+    });
+    const result = await runOn(server);
+    expect(loads(server, "/checkout/success").length).toBeGreaterThan(0);
+    expect(loads(server, "/checkout/start")).toEqual([]);
+    expect(result.status).toBe("pass");
+    expect(result.notes).toMatch(/\/checkout\/success sent the browser to \/checkout\/start[^.]*stopped/);
+    expect(result.notes).toMatch(/\/checkout\/success \(stopped\)/);
+    expectSafe(server, result);
+  }, 120_000);
+
+  it("holds the page's navigation to a checkout start of the app on another local origin (localhost for 127.0.0.1)", async () => {
+    const server = await billingApp({
+      grants: true,
+      links: [SUCCESS_LINK],
+      cancel: "button",
+      successPages: {
+        "/app/upgraded": { after: "location.href = location.href.replace('127.0.0.1', 'localhost').replace(/\\/app\\/upgraded.*$/, '/checkout/start');" },
+      },
+      providerRedirects: ["/checkout/start"],
+    });
+    const result = await runOn(server);
+    expectGrantFinding(result, "/app/upgraded");
+    expect(loads(server, "/checkout/start")).toEqual([]);
+    // The note names the other origin's host, so it isn't taken for a path of the page's own origin.
+    expect(result.notes).toMatch(/\/app\/upgraded sent the browser to localhost:\d+\/checkout\/start[^.]*stopped/);
+    expectRestored(server, result, "/app/billing");
+    // expectSafe also checks that no request reached the app under another host name.
     expectSafe(server, result);
   }, 90_000);
 });

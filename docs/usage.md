@@ -37,7 +37,7 @@ From source, the same commands start with `pnpm exec tsx src/cli.ts` in `app/` i
 
 Options for `run`:
 
-- `--approve all|default|<id,id>`: which scenarios to run (default: the recommended ones; `all` includes the ones that are unticked by default).
+- `--approve all|default|<id,id>`: which scenarios to run (default: the recommended ones; `all` includes the ones that are unticked by default, such as `mass-assignment` and the write-side checks `csrf`, `write-access` and `paywall-trust`, which change a test account's data and put it back).
 - `--plan-only`: list the planned scenarios and their ids, then stop.
 - `--allow-destructive`: also run scenarios that may change or delete data.
 - `--as a|b`: sign in as test account A or B first and run every check signed in ([Signed-in runs](signed-in-runs.md)).
@@ -66,4 +66,4 @@ Reports land in `./runs/<runId>/` with Docker (`app/runs/<runId>/` from source):
 
 The report says how long the run took, has a per-group table (Accessibility, Features, Security: results, findings and time) and labels each finding with its group. It also lists every scenario that ran, under its group, with its result, duration and notes (why it errored or was skipped), the planned scenarios you did not approve, checks that had nothing to test on the form, and the pages tested. A signed-in run says which account ran it ("Signed in as Account A"). Evidence text is redacted; pixels can't be, so a page that shows a secret shows it in its screenshots and in the live view.
 
-The exported specs need `@playwright/test` in the project that runs them (`npm i -D @playwright/test`, plus `@axe-core/playwright` for the axe-states specs); run one with `npx playwright test <file>`. Specs for the access checks read the accounts from `RUNHOUND_ACCOUNT_A_LOGIN_URL`, `…_USERNAME` and `…_PASSWORD` (and `_B_`) in the environment; no credential is written into a spec. Runs create a few test records in the target app (each scenario's description says when); Run Hound doesn't delete them.
+The exported specs need `@playwright/test` in the project that runs them (`npm i -D @playwright/test`, plus `@axe-core/playwright` for the axe-states specs); run one with `npx playwright test <file>`. Specs for `access-control`, `csrf`, `write-access` and `paywall-trust` read the accounts from `RUNHOUND_ACCOUNT_A_LOGIN_URL`, `…_USERNAME` and `…_PASSWORD` (and `_B_`) in the environment; the `mass-assignment` spec needs your signed-in storage state added. No credential is written into a spec. Their sign-in is a stand-in to adapt to your app before running them ([Known limitations](../TESTING.md#known-limitations)). Runs create a few test records in the target app (each scenario's description says when); Run Hound doesn't delete them.

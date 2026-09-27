@@ -86,7 +86,7 @@ export const problems: readonly { see: string; means: string }[] = [
   {
     see: "Signed in as Account A, but … still shows the sign-in page",
     means:
-      "The session didn't carry over: the sign-in page and the page use different host names, the app keeps its session in sessionStorage only, or the account's details are wrong. Test sign-in in Settings checks the account on its own.",
+      "The session didn't carry over: the sign-in page and the page use different host names, the app throws its session away when a page loads (a sessionStorage session tied to the tab that signed in), or the account's details are wrong. Test sign-in in Settings checks the account on its own.",
   },
 ];
 

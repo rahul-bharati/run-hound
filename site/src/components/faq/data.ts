@@ -37,7 +37,7 @@ export type FaqItem = {
 
 export type FaqGroup = { id: string; title: string; items: readonly FaqItem[] };
 
-/** The built-in checks in this release (24 in 0.5.0), counted from the data the checks page renders. */
+/** The built-in checks in this release (26 in 0.6.0), counted from the data the checks page renders. */
 const checkTotal = previewGroups.reduce((sum, group) => sum + group.checks.length, 0);
 
 /** Sources of the two statistics, as docs/research.md §2.1 and §7 cite them (Escape: the methodology post). */
@@ -106,8 +106,8 @@ export const faqGroups: readonly FaqGroup[] = [
         id: "behind-a-login",
         q: "Can Run Hound test pages behind a login?",
         a: [
-          "Yes, since 0.4.0: save a test account you own (two, to check that another account can't read your data), and Run Hound signs in through your app's own username and password form before it tests.",
-          "Signed in, it also checks whether another account, or a visitor who isn't signed in, can read your data, whether the server stores fields such as `role` or `plan` that the form never sends, and, since 0.5.0, in an opt-in check, whether another website can change your data (CSRF; your app must run on `localhost` or `127.0.0.1`). These checks use only your app's own address or an API on a local address, so requests an app sends straight to a hosted backend, such as a Supabase project on supabase.co, aren't checked yet. Verification codes, captchas, sign-in with Google or GitHub, sign-in split over two pages and sessions kept only in sessionStorage aren't supported yet.",
+          "Yes, since 0.4.0: save a test account you own (two, to check that another account can't read your data), and Run Hound signs in through your app's own username and password form before it tests. Since 0.6.0 that includes a sign-in that asks for the email first and the password next, and a session the app keeps in sessionStorage.",
+          "Signed in, it also checks whether another account, or a visitor who isn't signed in, can read your data, and whether the server stores fields such as `role` or `plan` that the form never sends. Opt-in write-side checks, which change the test account's data and put it back, ask whether another account or a signed-out visitor can change or delete your data (0.6.0), whether another website can change it (CSRF, since 0.5.0; your app must run on `localhost` or `127.0.0.1` and keep its session in a cookie), and whether an account can get a paid plan without paying (0.6.0). These checks use only your app's own address or an API on a local address, so requests an app sends straight to a hosted backend, such as a Supabase project on supabase.co, aren't checked yet. Verification codes, captchas, sign-in links sent by email and sign-in with Google or GitHub aren't supported yet.",
         ],
         links: [{ href: "/docs/#accounts", label: "Test accounts and signed-in runs" }],
       },
@@ -146,7 +146,7 @@ export const faqGroups: readonly FaqGroup[] = [
         q: "Is my AI-generated app secure?",
         a: [
           "Not necessarily: Veracode found that 45% of AI-generated code samples failed security tests, and Escape.tech found 2,000+ vulnerabilities, 400+ exposed secrets and 175 exposures of personal data across about 5,600 live vibe-coded apps.",
-          "Run Hound checks what a browser can see: security headers, session cookie flags, CORS, public source maps, secret keys in the JavaScript, personal data sent to other sites and stack traces shown to users. Signed in as a test account you own (a second one for the other-account check), on your app's own address or a local API, it asks whether another account or a signed-out visitor can read your data, whether the server trusts fields the form never sends, and, in an opt-in check, whether another website can change your data. It can't see backups, webhook signatures or dependency hygiene, so a clean report is not a clean app.",
+          "Run Hound checks what a browser can see: security headers, session cookie flags, CORS, public source maps, secret keys in the JavaScript, personal data sent to other sites and stack traces shown to users. Signed in as a test account you own (a second one for the other-account check), on your app's own address or a local API, it asks whether another account or a signed-out visitor can read your data and whether the server trusts fields the form never sends, and, in opt-in checks, whether another account, a signed-out visitor or another website can change your data and whether a paid plan can be had without paying. It can't see backups, webhook signatures or dependency hygiene, so a clean report is not a clean app.",
         ],
         links: [
           { href: "/checks/#not-visible", label: "What a browser can't see" },

@@ -91,10 +91,12 @@ Tailwind CSS, shadcn/ui-style components on Radix, react-hook-form with zod, son
 whether Run Hound works on the kind of app people actually generate: custom selects, switches and radio cards, forms in
 dialogs and sheets, toasts, client-side routing and dark mode.
 
-Pages: `/`, `/signup`, `/login`, `/onboarding`, and, behind a real sign-in, `/app`, `/app/settings` and `/app/help`.
-Two accounts (`alex@fernway.test` and `sam@fernway.test`, passwords in the
-[README](../fixtures/fernway/README.md#accounts)) each have a workspace of their own. Clean mode is well built on
-purpose; any confirmed finding on it must be triaged.
+Pages: `/`, `/signup`, `/login`, `/onboarding`, and, behind a real sign-in, `/app`, `/app/settings`, `/app/help` and
+`/app/upgraded` (where the local test checkout lands). Two accounts (`alex@fernway.test` and `sam@fernway.test`,
+passwords in the [README](../fixtures/fernway/README.md#accounts)) each have a workspace and a plan of their own. Clean
+mode is well built on purpose; any confirmed finding on it must be triaged. `FERNWAY_LOGIN=two-step` and
+`FERNWAY_SESSION=session-storage` switch to a two-step sign-in and a session token in `sessionStorage`, the sign-in
+shapes Run Hound supports from 0.6.0 ([README](../fixtures/fernway/README.md#sign-in-and-session-modes)).
 
 ### W01-W10: V1-style bugs on a modern UI
 
@@ -123,18 +125,19 @@ Caught with Run Hound signed in as Alex (account A), with Sam as account B.
 | V04 | `/app/settings` | Saving the profile stores any field it is sent, including `role` and `plan` | `mass-assignment` |
 | V05 | `/app` | `/app/help` (linked from the sidebar) answers 404 when opened directly | `deep-links` |
 
-### V06-V09: the write bugs (0.5.0)
+### V06-V09: the write bugs (0.5.0, 0.6.0)
 
-0.5.0 ships only `csrf`, which catches V08 the same way, with `csrf` ticked (it is unticked by default). V06, V07 and
-V09 are planted for `write-access` and `paywall-trust`, which are still planned; the acceptance suite lists them and
-skips them until their checks are built.
+Caught the same way, signed in as Alex with Sam as account B, with the write-side checks ticked (they are unticked by
+default): `csrf` (0.5.0) catches V08, `write-access` (0.6.0) catches V06 (as the other account) and V07 (signed out),
+and `paywall-trust` (0.6.0) catches V09. The acceptance suite runs each bug alone and checks that Alex's and Sam's data,
+Alex's plan included, reads the same afterwards.
 
 | ID | Page | Planted defect | Caught by |
 |---|---|---|---|
-| V06 | `/app` | `PATCH /api/tasks/:id` updates another user's task | `write-access` (other account, planned) |
-| V07 | `/app` | Writes to `/api/tasks/:id` work without a session | `write-access` (signed out, planned) |
+| V06 | `/app` | `PATCH /api/tasks/:id` updates another user's task | `write-access:other-account` |
+| V07 | `/app` | Writes to `/api/tasks/:id` work without a session | `write-access:signed-out` |
 | V08 | `/app` | The session cookie is `SameSite=None; Secure`, and the task save takes a form-encoded body with no token or Origin check | `csrf` (target on `localhost`) |
-| V09 | `/app/settings` | `/app/upgraded` grants Pro on load, with no payment | `paywall-trust` (planned) |
+| V09 | `/app/settings` | `/app/upgraded` grants Pro on load, with no payment | `paywall-trust` |
 
 `FERNWAY_BUGS=all` turns on W01-W10 and V01-V09. The full tables, with what each bug changes, are in
 [CONTRACT.md](../fixtures/fernway/CONTRACT.md); the ground truth is [bugs.json](../fixtures/fernway/bugs.json).
@@ -174,8 +177,7 @@ the same state on every run. Its bugs are listed in [bugs.json](../fixtures/kenn
 | D07 | Payments | Premium granted by the success page, not a verified webhook from the mock payment service | Premium without payment |
 
 The clean mode must fix each of these properly (real policies, server-side checks), not just remove the feature, so
-false-positive runs exercise the same flows. Some need checks that are still planned (`write-access`,
-storage, `paywall-trust`).
+false-positive runs exercise the same flows. Some need a check that is still planned (storage).
 
 ## Later
 

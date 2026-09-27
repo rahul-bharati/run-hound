@@ -11,6 +11,6 @@ The target must be `localhost`, a private address, or listed in `RUNHOUND_ALLOWE
 - Users must not be able to misuse Run Hound to scan websites/apps they don't own.
 - localhost and private IPs are allowed by default.
 - Any other domain requires ownership verification before it can be scanned: either a DNS TXT record or a nonce placed in a `<meta>` tag in the HTML header. The scan only runs where the nonce is found.
-- Status in 0.5.0: ownership verification isn't built yet. Other hosts are refused unless listed in `RUNHOUND_ALLOWED_HOSTS`, which is not checked for ownership, so list only hosts you own.
+- Status in 0.6.0: ownership verification isn't built yet. Other hosts are refused unless listed in `RUNHOUND_ALLOWED_HOSTS`, which is not checked for ownership, so list only hosts you own.
 - No destructive actions (real payments, deleting data) unless the user explicitly opts in.
 - Reports redact any secrets they find; keys are never used or tested. Test-account passwords, session values and usernames are kept out of everything Run Hound writes.

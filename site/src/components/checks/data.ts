@@ -4,7 +4,8 @@ import type { Severity } from "@/components/finding";
  * Roadmap stage a check is in or planned for. Stages are not releases (docs/roadmap.md): the release is `site.version`.
  * V0 = single form on localhost (shipped, 0.1.0); V1 = single page (shipped: page-wide checks in 0.2.0, optional AI in
  * 0.3.0, AI-built UIs in 0.4.0); V2 = single feature (a preview since 0.4.0: signed-in runs, access checks, mass
- * assignment and deep links, plus the CSRF check since 0.5.0; the rest is planned); V3 = the whole app (planned);
+ * assignment and deep links, the CSRF check since 0.5.0, and write access and paywall trust since 0.6.0; feature testing
+ * across pages and the rest of its list are planned); V3 = the whole app (planned);
  * V4 = live staging behind domain verification (planned: 1.0.0).
  */
 export type Stage = "V0" | "V1" | "V2" | "V3" | "V4";
@@ -32,7 +33,7 @@ export type Check = {
   note?: string;
   /**
    * In the current release. Every V0 check is; for V1 and V2 only the checks marked shipped are (V1's page-wide checks
-   * since 0.2.0, V2's preview checks since 0.4.0 and 0.5.0), the rest of their lists is still planned.
+   * since 0.2.0, V2's preview checks since 0.4.0, 0.5.0 and 0.6.0), the rest of their lists is still planned.
    */
   shipped?: boolean;
 };
@@ -48,7 +49,7 @@ export type CheckCategory = {
 export const stageMeaning: Record<Stage, string> = {
   V0: "One form on localhost: shipped",
   V1: "One page: available now, more to come",
-  V2: "One feature, end to end: a preview is available now (signed-in runs, access checks and a CSRF check)",
+  V2: "One feature, end to end: a preview is available now (signed-in runs, access checks and write-side checks)",
   V3: "The whole app: planned",
   V4: "Live staging, domain verified: planned for 1.0.0",
 };
@@ -458,7 +459,7 @@ export const categories: CheckCategory[] = [
       {
         id: "other-users-data-exposed",
         name: "Other users' data exposed",
-        line: "One account can read another account's records. Checking that it can't change or delete them is planned.",
+        line: "One account can read, change or delete another account's records.",
         severity: "critical",
         stage: "V2",
         shipped: true,
@@ -467,7 +468,7 @@ export const categories: CheckCategory[] = [
       {
         id: "auth-only-in-the-frontend",
         name: "Auth only in the frontend",
-        line: "Pages hide things from logged-out users, but the server hands them over anyway. Checking that it refuses their changes is planned.",
+        line: "Pages hide things from logged-out users, but the server hands them over, or accepts their changes, anyway.",
         severity: "critical",
         stage: "V2",
         shipped: true,
@@ -476,9 +477,10 @@ export const categories: CheckCategory[] = [
       {
         id: "paid-features-without-paying",
         name: "Paid features without paying",
-        line: "The paid state can be reached without a confirmed payment, for example by trusting the success page.",
+        line: "The paid state can be reached without a confirmed payment, for example by trusting the success page. Checked today: success pages that grant a plan when opened; a client-sent price and paid-only APIs are planned.",
         severity: "critical",
         stage: "V2",
+        shipped: true,
         signal: "payment state check, no provider called",
       },
       {
@@ -718,8 +720,9 @@ export type PreviewCheck = {
   /** Test records a run of this check can create in the app under test. */
   records: string;
   /**
-   * Stage that added the check: V0 (release 0.1.0), V1 (0.2.0) or V2 for the checks of the V2 preview (0.4.0, and
-   * 0.5.0 for csrf). Shown by release, never as "since V0" (a stage is named only as a stage).
+   * Stage that added the check: V0 (release 0.1.0), V1 (0.2.0) or V2 for the checks of the V2 preview (0.4.0; 0.5.0
+   * for csrf; 0.6.0 for write-access and paywall-trust). Shown by release, never as "since V0" (a stage is named only
+   * as a stage).
    */
   since: "V0" | "V1" | "V2";
   /** Findings are marked advisory when the target looks like a dev server, which doesn't send production values. */
@@ -732,7 +735,7 @@ export type PreviewCheck = {
 
 /**
  * The built-in checks in the current release, in the three groups the plan, run and report follow, in run order:
- * the V0 checks, the V1 checks and the V2 preview's checks (0.4.0 and 0.5.0). Source of truth: app/src/checks and
+ * the V0 checks, the V1 checks and the V2 preview's checks (0.4.0, 0.5.0 and 0.6.0). Source of truth: app/src/checks and
  * app/src/core/types.ts (CHECK_IDS); the V2 checks in docs/v2-spec.md.
  */
 export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = [
@@ -925,6 +928,24 @@ export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = 
         signedIn: true,
         offByDefault: true,
       },
+      {
+        id: "write-access",
+        name: "Write access",
+        line: "Saves a test record as Account A, then sends the update and delete requests the app itself sent for it as Account B and as a visitor who isn't signed in, and reads the record again as Account A. A change or a deletion is a critical finding. Run Hound puts the record back; when the app sent no update or delete, the check is skipped and says so.",
+        records: "1 per scenario, in Account A (one a replayed delete removed is made again; the report's save count also includes the app's own updates and the put-back)",
+        since: "V2",
+        signedIn: true,
+        offByDefault: true,
+      },
+      {
+        id: "paywall-trust",
+        name: "Paywall trust",
+        line: "Reads Account A's plan, opens up to 10 of the app's own success, upgraded and thank-you pages as Account A with every payment provider blocked, and reads the plan again. A paid plan without a payment is a critical finding; Run Hound puts the plan back with the app's own cancel or downgrade control.",
+        records: "0 (it may change Account A's plan, then puts it back; the report may count the app's own plan requests as saves)",
+        since: "V2",
+        signedIn: true,
+        offByDefault: true,
+      },
     ],
   },
 ];
@@ -936,6 +957,19 @@ export const previewGroups: { group: PreviewGroup; checks: PreviewCheck[] }[] = 
 export const builtInChecks: (PreviewCheck & { group: PreviewGroup })[] = previewGroups.flatMap((g) =>
   g.checks.map((c) => ({ ...c, group: g.group })),
 );
+
+/** The release each stage's checks came in (a stage is named only as a stage), and the checks that came later. */
+const stageRelease: Record<PreviewCheck["since"], string> = { V0: "0.1.0", V1: "0.2.0", V2: "0.4.0" };
+const laterRelease: Partial<Record<string, string>> = { csrf: "0.5.0", "write-access": "0.6.0", "paywall-trust": "0.6.0" };
+
+/**
+ * The release that added a built-in check, by its number: the V0 checks came in 0.1.0, the V1 checks in 0.2.0 and the
+ * V2 preview's in 0.4.0, except csrf in 0.5.0 and write-access and paywall-trust in 0.6.0 (CHANGELOG.md,
+ * docs/signed-in-runs.md).
+ */
+export function releaseAdded(check: Pick<PreviewCheck, "id" | "since">): string {
+  return laterRelease[check.id] ?? stageRelease[check.since];
+}
 
 /**
  * The optional check added in 0.3.0. It runs only when AI is on and you tick a suggested flow, so it is listed

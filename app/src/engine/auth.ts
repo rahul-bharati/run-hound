@@ -283,10 +283,22 @@ export function sessionSecrets(state: SessionState, sessionStorage: SignedIn["se
     if (Array.isArray(value)) value.forEach((v) => walk(v, key, depth + 1));
     else if (value && typeof value === "object") for (const [k, v] of Object.entries(value)) walk(v, k, depth + 1);
   };
+  /** A random-looking token: long, of token characters only, with a digit and a letter (never a word or a date). */
+  const opaqueToken = (v: string) => OPAQUE_TOKEN.test(v) && /\d/.test(v) && /[A-Za-z]/.test(v);
+  /** Every string of a parsed JSON value that looks like a random token (opaqueToken), whatever its key. */
+  const walkOpaque = (value: unknown, depth: number) => {
+    if (depth > 6) return;
+    if (typeof value === "string") {
+      if (opaqueToken(value)) add(value);
+    } else if (Array.isArray(value)) value.forEach((v) => walkOpaque(v, depth + 1));
+    else if (value && typeof value === "object") for (const v of Object.values(value)) walkOpaque(v, depth + 1);
+  };
   /**
    * A Web Storage item (localStorage, sessionStorage): its value, or the fields of the JSON it holds. For sessionStorage
-   * (`opaque`), a whole value that looks like a random token counts whatever its key ("fw" = "3f9a…"): the contract
-   * registers sessionStorage's token-like values, and they are seeded into every context of the identity.
+   * (`opaque`), a value that looks like a random token counts whatever its key: the whole value ("fw" = "3f9a…"), and
+   * every string in the JSON it holds, under a key that says nothing about it too ({id: "3f9a…"}, a storage wrapper's
+   * {value: "3f9a…", expires}). The contract registers sessionStorage's token-like values, and they are seeded into every
+   * context of the identity.
    */
   const walkItem = (opaque: boolean) => ({ name, value }: { name: string; value: string }) => {
     let parsed: unknown = undefined;
@@ -298,7 +310,7 @@ export function sessionSecrets(state: SessionState, sessionStorage: SignedIn["se
       }
     }
     const whole = parsed === undefined ? value : parsed;
-    if (opaque && typeof whole === "string" && OPAQUE_TOKEN.test(whole) && /\d/.test(whole) && /[A-Za-z]/.test(whole)) add(whole);
+    if (opaque) walkOpaque(whole, 0);
     walk(whole, name, 0);
   };
   for (const origin of state.origins) {
@@ -392,6 +404,20 @@ function carriesInQuery(url: URL, secret: string): boolean {
   return [url.username, url.password].some((part) => part !== "" && safeDecode(part) === secret);
 }
 
+/** A query key that names a password (compared lower-case, letters and digits only): password, user[password], pwd, pin … */
+const PASSWORD_KEY = /(password|passwd|passcode|passphrase|pwd|secret)$|^(pass|pw|pin)$/;
+
+/**
+ * True when a value of the URL's query (or its hash) under a key that names a password (PASSWORD_KEY) is exactly
+ * `secret`: how a script's request (not a navigation) carries a weak password in its address. A weak password under any
+ * other key ("?user=demo") is one of the app's own words, not a leak.
+ */
+function carriesUnderPasswordKey(url: URL, secret: string): boolean {
+  if (!secret) return false;
+  const params = [url.searchParams, ...(url.hash.length > 1 ? [new URLSearchParams(url.hash.slice(1))] : [])];
+  return params.some((p) => [...p.entries()].some(([key, value]) => value === secret && PASSWORD_KEY.test(key.toLowerCase().replace(/[^a-z0-9]/g, ""))));
+}
+
 /** decodeURIComponent, or `text` as it is when it isn't well-formed. */
 function safeDecode(text: string): string {
   try {
@@ -441,6 +467,33 @@ function percentDecoded(text: string): string {
 const BROWSER_HEADERS = /^(?:user-agent|accept(?:-.*)?|sec-.*|origin|host|connection|content-(?:type|length)|upgrade-insecure-requests|cache-control|pragma)$/i;
 
 /**
+ * A weak password: shorter than 8 characters and only word characters ("demo", "test"). It can be part of an app's own
+ * words and addresses, so it is only matched where it stands on its own (includesNeedle), and a same-origin script's
+ * request whose address holds it under a key that doesn't name a password ("?user=demo") is not taken for a leak
+ * (signInReady, carriesUnderPasswordKey). Any other password is distinctive enough.
+ */
+function isWeak(password: string): boolean {
+  return password.length < 8 && !/\W/.test(password);
+}
+
+/**
+ * Whether `text` holds `needle`. A weak password (isWeak: "test", "demo") is only a match when it stands on its own — a
+ * non-word character or the text's edge on each side — so it is not found inside a larger token ("latest", "testing")
+ * on another origin and a weak password doesn't fail a legitimate sign-in (0.6.0 review). A form body, a query and a
+ * JSON body all delimit a value they carry (`"test"`, `=test&`, `test`), so a real leak of even a weak password is still
+ * caught. Any other password is distinctive enough to match as a plain substring.
+ */
+function includesNeedle(text: string, needle: string): boolean {
+  if (!isWeak(needle)) return text.includes(needle);
+  for (let i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + 1)) {
+    const before = i === 0 ? "" : text[i - 1]!;
+    const after = i + needle.length >= text.length ? "" : text[i + needle.length]!;
+    if (!/\w/.test(before) && !/\w/.test(after)) return true;
+  }
+  return false;
+}
+
+/**
  * Whether a text holds `password`: raw or in one of its encoded forms (encodedForms), in the text as it is or with its
  * percent escapes decoded (JSON inside a form field: `data=` + encodeURIComponent(JSON.stringify(…))).
  */
@@ -449,14 +502,20 @@ function passwordIn(password: string): (text: string) => boolean {
   return (text: string) => {
     if (!text) return false;
     const decoded = percentDecoded(text);
-    return [text, decoded].some((t) => t.includes(password) || forms.some((f) => t.includes(f)));
+    return [text, decoded].some((t) => includesNeedle(t, password) || forms.some((f) => t.includes(f)));
   };
 }
 
-/** Whether `url` carries the password: in its query or hash, as a whole path segment, or in its user name or password. */
+/**
+ * Whether `url` carries the password: in its query or hash, in its path, or in its user name or password. A weak
+ * password ("demo") counts in the path only as a whole segment: it is part of many an app's own paths
+ * (/assets/demo-theme.css). Any other password counts anywhere in the path, raw or encoded (holds), so one with other
+ * characters around it (/steal/<password>x, /log-<password>-end.gif) is found too (0.6.0 review, round 3).
+ */
 function urlCarries(url: URL, password: string, holds: (text: string) => boolean): boolean {
   if (holds(url.search) || holds(url.hash)) return true;
   for (const segment of url.pathname.split("/")) if (segment && (safeDecode(segment) === password || percentDecoded(segment) === password)) return true;
+  if (!isWeak(password) && holds(url.pathname)) return true;
   return [url.username, url.password].some((part) => part !== "" && holds(part));
 }
 
@@ -470,7 +529,7 @@ function textCarries(text: string, password: string, holds: (text: string) => bo
         if (typeof value === "string") strings.push(value);
         return value;
       });
-      if (strings.some((s) => s.includes(password))) return true;
+      if (strings.some((s) => includesNeedle(s, password))) return true;
     } catch {
       // Not JSON.
     }
@@ -479,14 +538,32 @@ function textCarries(text: string, password: string, holds: (text: string) => bo
 }
 
 /** What a request sends, as a route or the DevTools protocol sees it (a WebSocket message as its body). */
-interface Sent {
+export interface Sent {
   url: string;
   body: string;
   headers: Record<string, string>;
+  /**
+   * Whether this is a navigation (a page load, a form submit): only a navigation puts the password in the address the
+   * way a GET form does (the URL bar, the history, the server's access log). A same-origin fetch or image whose query
+   * happens to equal a weak password ("demo") is not a GET-form leak and must not fail the sign-in.
+   */
+  navigation: boolean;
 }
 
 function sentOf(request: Request): Sent {
-  return { url: request.url(), body: request.postDataBuffer()?.toString("utf8") ?? "", headers: request.headers() };
+  return {
+    url: request.url(),
+    body: request.postDataBuffer()?.toString("utf8") ?? "",
+    headers: request.headers(),
+    navigation: request.isNavigationRequest(),
+  };
+}
+
+/** A paused request (Fetch.requestPaused) as `stops` reads it. */
+function pausedSent(event: { request: { url: string; headers: Record<string, string>; postData?: string; postDataEntries?: { bytes?: string }[] }; resourceType: string }): Sent {
+  const { request } = event;
+  const body = request.postData ?? Buffer.concat((request.postDataEntries ?? []).map((entry) => Buffer.from(entry.bytes ?? "", "base64"))).toString("utf8");
+  return { url: request.url, body, headers: request.headers, navigation: event.resourceType === "Document" };
 }
 
 /**
@@ -494,32 +571,146 @@ function sentOf(request: Request): Sent {
  * own, and fails the ones `stops` names. Playwright's routes never see a request that follows a redirect (a 307 re-sends
  * the POST body to wherever the answer points), nor one a document sends while it is being left (a beacon, a keepalive
  * fetch, fetchLater or an image from a pagehide handler): Playwright lets those go on its own. A second session's
- * interception still sees them. A tab closed by the page itself (window.close) is not covered: its session goes with it.
+ * interception still sees them. guardSignInBrowser checks them once more at the browser, for every tab.
+ *
+ * A dedicated worker the page starts (0.6.0 review, round 2: SIGN_IN_HARDENING's Worker override undone) is attached
+ * to this session paused, and never let run: Chromium runs a new worker only once every session holding it lets it
+ * go, and nothing else would see its WebSockets. It is reported with `refuse` ("a worker"). Only workers are attached:
+ * a frame from another site would wait for this session too, and never load.
  */
-async function stopUnrouted(page: Page, stops: (sent: Sent) => boolean): Promise<void> {
+export async function stopUnrouted(page: Page, stops: (sent: Sent) => boolean, refuse: (what: string) => void = () => undefined): Promise<void> {
   const session = await page.context().newCDPSession(page);
   session.on("Fetch.requestPaused", (event) => {
-    const { request, requestId } = event;
     let stop: boolean;
     try {
-      const body =
-        request.postData ?? Buffer.concat((request.postDataEntries ?? []).map((entry) => Buffer.from(entry.bytes ?? "", "base64"))).toString("utf8");
-      stop = stops({ url: request.url, body, headers: request.headers });
+      stop = stops(pausedSent(event));
     } catch {
       stop = false;
     }
+    const { requestId } = event;
     const answer = stop
       ? session.send("Fetch.failRequest", { requestId, errorReason: "BlockedByClient" })
       : session.send("Fetch.continueRequest", { requestId });
     answer.catch(() => undefined);
   });
+  session.on("Target.attachedToTarget", ({ targetInfo }) => {
+    if (targetInfo.type === "worker") refuse("a worker");
+  });
   await session.send("Fetch.enable", { patterns: [{ urlPattern: "*" }] });
+  await session.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true, filter: [{ type: "worker" }, { exclude: true }] });
+}
+
+/** What guardSignInBrowser needs from the sign-in. */
+export interface BrowserGuardOptions {
+  /** Whether a request (any tab's, frame's or worker's) must be stopped for the password's sake. */
+  stops: (sent: Sent) => boolean;
+  /** Told what was stopped from running: "a shared worker". */
+  refuse: (what: string) => void;
+  /**
+   * Asked about each new tab of the sign-in context, before it runs: true lets it run, else it is closed. `opener`: the
+   * tab was opened by a page (window.open, a link or form with a target), not by Playwright (storageState's own page).
+   */
+  admitTab?: (tab: { opener: boolean }) => boolean;
+  /** Told when a new tab of the sign-in context was closed before it ran. */
+  tabClosed?: () => void;
+}
+
+/** The response header whose rule sets could prefetch a link the page adds (see guardSignInBrowser). */
+const SPECULATION_RULES_HEADER = /^speculation-rules$/i;
+
+/**
+ * A browser-level DevTools session for the time of a sign-in (0.6.0 review, round 2): the layer below the context's
+ * routes and each tab's own interception (stopUnrouted), for what neither of them sees.
+ *
+ * - **Every request the browser sends** (every tab, frame and worker: Fetch at the browser target) is checked with
+ *   `stops`, and the ones it names fail. That covers a new tab's redirect hops (Playwright reports a tab only once its
+ *   first navigation has committed, after its redirects, so its own interception comes too late), a frame from another
+ *   site, a worker's HTTP requests, and a request sent while a document is being left.
+ * - **A Speculation-Rules response header is dropped** from every document: its document rules could prefetch a link
+ *   the page adds with the password, and no interception sees a prefetch (SIGN_IN_HARDENING strips inline rules).
+ * - **A new tab of the sign-in context is held before it runs** (auto-attached with waitForDebuggerOnStart) and closed,
+ *   unless `admitTab` lets it run (Run Hound's own sessionStorage probe, and the page Playwright's storageState opens
+ *   to read an origin no tab is on); every request of a tab being closed fails. A password sign-in never opens a tab.
+ * - **A shared worker of the sign-in context is closed** as soon as it is created, and reported with `refuse`. Nothing
+ *   else sees its requests or WebSockets, and waitForDebuggerOnStart doesn't hold one (Playwright's own browser session
+ *   detaches from it, and that lets it run).
+ *
+ * Other contexts' tabs and shared workers are let go at once. `stops` and the header drop apply to the whole browser:
+ * Run Hound signs in before any other context of its browser does anything. Resolves to the function that ends it.
+ */
+export async function guardSignInBrowser(browser: Browser, page: Page, options: BrowserGuardOptions): Promise<() => Promise<void>> {
+  const own = await page.context().newCDPSession(page);
+  const { targetInfo: sign } = await own.send("Target.getTargetInfo");
+  await own.detach().catch(() => undefined);
+  const session = await browser.newBrowserCDPSession();
+  /** Tabs and workers being closed: every request from one of them fails. */
+  const refused = new Set<string>();
+  session.on("Fetch.requestPaused", (event) => {
+    const { requestId } = event;
+    let answer: Promise<unknown>;
+    if (event.responseStatusCode !== undefined || event.responseErrorReason !== undefined) {
+      // A document's response: its Speculation-Rules header is dropped (Fetch.continueResponse needs the status then).
+      const headers = event.responseHeaders ?? [];
+      const kept = headers.filter((h) => !SPECULATION_RULES_HEADER.test(h.name));
+      answer =
+        event.responseStatusCode === undefined || kept.length === headers.length
+          ? session.send("Fetch.continueRequest", { requestId })
+          : session.send("Fetch.continueResponse", {
+              requestId,
+              responseCode: event.responseStatusCode,
+              ...(event.responseStatusText ? { responsePhrase: event.responseStatusText } : {}),
+              responseHeaders: kept,
+            });
+    } else {
+      let stop = refused.has(event.frameId);
+      if (!stop) {
+        try {
+          stop = options.stops(pausedSent(event));
+        } catch {
+          stop = false;
+        }
+      }
+      answer = stop ? session.send("Fetch.failRequest", { requestId, errorReason: "BlockedByClient" }) : session.send("Fetch.continueRequest", { requestId });
+    }
+    answer.catch(() => undefined);
+  });
+  session.on("Target.attachedToTarget", ({ sessionId, targetInfo }) => {
+    const letGo = () => void session.send("Target.detachFromTarget", { sessionId }).catch(() => undefined);
+    const close = () => {
+      refused.add(targetInfo.targetId);
+      void session.send("Target.closeTarget", { targetId: targetInfo.targetId }).catch(() => undefined);
+    };
+    if (targetInfo.browserContextId !== sign.browserContextId || targetInfo.targetId === sign.targetId) return letGo();
+    if (targetInfo.type === "shared_worker") {
+      close();
+      options.refuse("a shared worker");
+      return;
+    }
+    if (targetInfo.type !== "page" || options.admitTab?.({ opener: Boolean(targetInfo.openerId) })) return letGo();
+    close();
+    options.tabClosed?.();
+  });
+  try {
+    await session.send("Fetch.enable", { patterns: [{ urlPattern: "*" }, { urlPattern: "*", resourceType: "Document", requestStage: "Response" }] });
+    await session.send("Target.setAutoAttach", {
+      autoAttach: true,
+      waitForDebuggerOnStart: true,
+      flatten: true,
+      filter: [{ type: "page" }, { type: "shared_worker" }, { exclude: true }],
+    });
+  } catch (err) {
+    await session.detach().catch(() => undefined);
+    throw err;
+  }
+  return async () => {
+    await session.detach().catch(() => undefined);
+  };
 }
 
 /**
  * Whether `request` carries `password` (0.6.0 review): in its body (raw, form- or percent-encoded, JSON-escaped or in
- * any JSON string, base64, and JSON inside a form field), in its query, hash or user name and password, as a whole path
- * segment, in a header the page set (an Authorization "Basic" header decoded too), or in the Referer's address. A
+ * any JSON string, base64, and JSON inside a form field), in its query, hash, path (urlCarries) or user name and
+ * password, in a header the page set (an Authorization "Basic" header decoded too), or in the Referer's address. A
  * form's POST body is URL-encoded and a JSON body escapes " and \, so a test of the raw text alone lets a password with
  * a space or ( ) ! ~ " \ @ through.
  */
@@ -540,8 +731,8 @@ function carriesPassword(request: Sent, password: string): boolean {
   for (const [name, value] of Object.entries(request.headers)) {
     if (BROWSER_HEADERS.test(name)) continue;
     if (/^referer$/i.test(name)) {
-      // The page's own address, which never holds the password legitimately: only its query, hash and path segments
-      // are read, so a weak password that is part of the host name isn't taken for one.
+      // The page's own address, which never holds the password legitimately: only its query, hash, path and user info
+      // are read (urlCarries), so a weak password that is part of the host name isn't taken for one.
       try {
         if (urlCarries(new URL(value), password, holds)) return true;
       } catch {
@@ -551,7 +742,7 @@ function carriesPassword(request: Sent, password: string): boolean {
     }
     if (holds(value)) return true;
     const basic = /^basic\s+([A-Za-z0-9+/=_-]+)\s*$/i.exec(value);
-    if (basic && Buffer.from(basic[1]!, "base64").toString("utf8").includes(password)) return true;
+    if (basic && includesNeedle(Buffer.from(basic[1]!, "base64").toString("utf8"), password)) return true;
   }
   return false;
 }
@@ -919,6 +1110,84 @@ async function typePassword(handle: ElementHandle<Node>, password: string): Prom
 }
 
 /**
+ * Runs before any script in every page and frame of the guarded sign-in context (0.6.0 review). It closes channels that
+ * the context's routes and the per-tab CDP Fetch session never see, and that a page could use to carry the password to
+ * another origin after Run Hound types it (the page can read its own password field). It is the first layer: a page
+ * shares its world, so each channel has a second one outside the page where Chromium offers one.
+ *
+ * - **Web Workers and shared workers.** A shared worker's `fetch` and a `WebSocket` opened inside a dedicated worker
+ *   are not seen by `context.route`, `context.routeWebSocket` or the page's `Fetch` session, so a page that
+ *   `postMessage`s the password into a worker could send it out from there. A password sign-in never needs a worker to
+ *   fill a form, so blocking the constructors fails safe: a page that hashes the password in a worker fails sign-in
+ *   with a plain error instead of leaking. Second layers: a dedicated worker is held paused (stopUnrouted), a shared
+ *   worker closed (guardSignInBrowser), and either fails the sign-in.
+ * - **Speculation-rules prefetch.** A `<script type="speculationrules">` prefetch to another origin is seen by no
+ *   interception layer (not the routes, not Fetch at the tab or at the browser), and no launch flag or DevTools command
+ *   of Chromium 153 turns it off (0.6.0 review, round 2: `--disable-features=Prefetch,PrefetchUseContentRefactor`, the
+ *   blink feature SpeculationRules, a PreloadingConfig holdback, Network.setCacheDisabled and
+ *   Page.setPrerenderingAllowed were tried). So a rules script is removed as soon as it is in the document, before the
+ *   browser reads its rules (a MutationObserver's callback runs before the rules are acted on): anywhere in the
+ *   document or in a shadow root the page attaches, and again when a script's children change (a text/plain script
+ *   made a rules script: its type alone changes nothing). Every built-in it uses is taken before any page script runs,
+ *   so a page can't disarm it by replacing one. The rules of a Speculation-Rules header are dropped by
+ *   guardSignInBrowser. It remains an in-page layer: a declarative shadow root's rules are not watched.
+ * - **window.close.** The sign-in tab is never closed by its page: what a document sends while it is being left would
+ *   go out as the tab closes. (Chromium already ignores window.close() in a tab opened the way Run Hound opens it, with
+ *   two history entries: this holds if that changes.)
+ *
+ * Declares no named function, like typePassword: tsx/esbuild's keepNames would wrap one in a `__name` helper the
+ * browser doesn't have.
+ */
+const SIGN_IN_HARDENING = String.raw`(() => {
+  for (const k of ["Worker", "SharedWorker"]) {
+    try { Object.defineProperty(window, k, { configurable: true, value: function () { throw new Error("Run Hound blocks workers during sign-in"); } }); } catch (e) {}
+  }
+  try { Object.defineProperty(window, "close", { configurable: true, value: function () {} }); } catch (e) {}
+  try {
+    var apply = Reflect.apply;
+    var getter = function (proto, name) { return Object.getOwnPropertyDescriptor(proto, name).get; };
+    var nodeType = getter(Node.prototype, "nodeType"), localName = getter(Element.prototype, "localName");
+    var getAttribute = Element.prototype.getAttribute, remove = Element.prototype.remove, test = RegExp.prototype.test;
+    var elementAll = Element.prototype.querySelectorAll, fragmentAll = DocumentFragment.prototype.querySelectorAll, documentAll = Document.prototype.querySelectorAll;
+    var listLength = getter(NodeList.prototype, "length"), listItem = NodeList.prototype.item;
+    var recordTarget = getter(MutationRecord.prototype, "target"), recordAdded = getter(MutationRecord.prototype, "addedNodes");
+    var Observer = MutationObserver, observe = MutationObserver.prototype.observe, attachShadow = Element.prototype.attachShadow;
+    var SPEC = /speculationrules/i;
+    var isSpec = function (n) {
+      try { return !!n && apply(nodeType, n, []) === 1 && apply(localName, n, []) === "script" && apply(test, SPEC, [String(apply(getAttribute, n, ["type"]) || "")]); } catch (e) { return false; }
+    };
+    var drop = function (n) { try { apply(remove, n, []); } catch (e) {} };
+    var each = function (list, fn) { var count = apply(listLength, list, []); for (var i = 0; i < count; i++) fn(apply(listItem, list, [i])); };
+    var strip = function (n) {
+      try {
+        if (isSpec(n)) return drop(n);
+        var type = apply(nodeType, n, []);
+        var all = type === 1 ? elementAll : type === 11 ? fragmentAll : type === 9 ? documentAll : null;
+        if (all) each(apply(all, n, ["script"]), function (s) { if (isSpec(s)) drop(s); });
+      } catch (e) {}
+    };
+    var observer = new Observer(function (records) {
+      for (var r = 0; r < records.length; r++) {
+        try {
+          var target = apply(recordTarget, records[r], []);
+          if (isSpec(target)) drop(target);
+          each(apply(recordAdded, records[r], []), strip);
+        } catch (e) {}
+      }
+    });
+    var watch = function (root) { try { apply(observe, observer, [root, { childList: true, subtree: true }]); strip(root); } catch (e) {} };
+    if (typeof attachShadow === "function") {
+      Object.defineProperty(Element.prototype, "attachShadow", {
+        configurable: true,
+        writable: true,
+        value: function () { var root = apply(attachShadow, this, arguments); watch(root); return root; },
+      });
+    }
+    watch(document);
+  } catch (e) {}
+})()`
+
+/**
  * A page Run Hound serves itself (a route: nothing reaches the app's server and no app script runs) on the sign-in
  * origin, only to read that origin's sessionStorage once the tab has moved on to another origin.
  */
@@ -937,8 +1206,16 @@ async function storageItems(page: Page): Promise<{ name: string; value: string }
  * reads the sign-in origin's items while the landing page stays where it is. Moving the tab itself would run the
  * landing page's pagehide handlers, and an app that signs out there (a beacon to its own sign-out endpoint) would end
  * the session just taken. When the popup can't be opened, the sign-in origin's items are left out.
+ *
+ * `armPopup(true)` lets exactly one tab open (signInReady admits the first new tab, and keeps it only when it is at the
+ * probe's address): the probe is opened with the landing page's own window.open, which the page may have replaced. A
+ * tab that isn't at the probe's address is closed and nothing is read from it.
  */
-async function readSessionStorage(page: Page, loginOrigin: string): Promise<NonNullable<SignedIn["sessionStorage"]>> {
+async function readSessionStorage(
+  page: Page,
+  loginOrigin: string,
+  armPopup: (on: boolean) => void = () => undefined,
+): Promise<NonNullable<SignedIn["sessionStorage"]>> {
   const out: NonNullable<SignedIn["sessionStorage"]> = [];
   if (page.isClosed()) return out;
   const landing = originOf(page.url());
@@ -954,15 +1231,18 @@ async function readSessionStorage(page: Page, loginOrigin: string): Promise<NonN
   const serve = (route: Route) =>
     route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: "<!doctype html><title>Run Hound</title>" });
   await context.route(isProbe, serve);
+  // Popups are closed during sign-in (a tab could carry the password out); this is Run Hound's own probe popup, so
+  // let it stay open (and get the tab interception) while it is read.
+  armPopup(true);
   try {
-    const popped = context.waitForEvent("page", { timeout: NETWORK_IDLE_MS });
+    const popped = context.waitForEvent("page", { predicate: (opened) => opened.url() === probe, timeout: NETWORK_IDLE_MS });
     popped.catch(() => undefined);
     const opened = await page.evaluate(`(() => { try { return window.open(${JSON.stringify(probe)}) !== null; } catch (e) { return false; } })()`).catch(() => false);
     if (!opened) return out;
     const popup = await popped;
     try {
       await popup.waitForLoadState("domcontentloaded", { timeout: NETWORK_IDLE_MS });
-      if (originOf(popup.url()) === loginOrigin) {
+      if (popup.url() === probe) {
         const items = await storageItems(popup);
         if (items.length > 0) out.unshift({ origin: loginOrigin, items });
       }
@@ -972,6 +1252,7 @@ async function readSessionStorage(page: Page, loginOrigin: string): Promise<NonN
   } catch {
     // No popup: the sign-in origin's items are left out.
   } finally {
+    armPopup(false);
     await context.unroute(isProbe, serve).catch(() => undefined);
   }
   return out;
@@ -1014,22 +1295,36 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
   }
 
   let context: BrowserContext | undefined;
+  let releaseBrowser: (() => Promise<void>) | undefined;
   try {
     // serviceWorkers: a service worker's own requests bypass context.route (the guard and the password blocks).
     context = await browser.newContext({ locale: BROWSER_LOCALE, serviceWorkers: "block" });
+    // Close the worker, speculation-rules and window.close channels the routes never see, before any page script runs.
+    await context.addInitScript(SIGN_IN_HARDENING);
     const guard = await guardContext(context, safety);
     const password = account.password!;
     const loginOrigin = new URL(loginUrl).origin;
+    const weak = isWeak(password);
+    const holds = passwordIn(password);
     // No request can carry the password before it is typed: until then nothing is read (a weak password such as "demo"
     // is in many an address), and nothing is stopped for the password's sake.
     let passwordTyped = false;
-    // A form that sends the password in the address (a GET form) would put it in the app's access log and the
-    // browser history: such a request is stopped before it leaves the browser, and signing in fails with the reason.
-    let passwordInAddress = false;
+    // A request that sends the password in its address (a GET form, or a script's request on the sign-in origin) would
+    // put it in the app's access log (and a page's in the browser history): it is stopped before it leaves the browser,
+    // and signing in fails with the reason. A weak password ("demo") counts in any query value of a navigation, and in a
+    // script's request only under a key that names a password ("?password=demo", "&pwd=demo"): a same-origin fetch or
+    // image whose query merely equals it under another key ("?user=demo") is not a leak (0.6.0 review).
+    let passwordInAddress: "navigation" | "request" | null = null;
     // The password is only ever sent to the sign-in page's own origin: a request to any other origin (a form action
     // pointing elsewhere, a script that copies the form) that carries it, in whatever encoding (carriesPassword), is
     // stopped before it leaves the browser.
     let passwordElsewhere: string | null = null;
+    // A worker the page started although SIGN_IN_HARDENING blocks the constructors: held or closed before it ran
+    // (stopUnrouted, guardSignInBrowser), and the sign-in fails.
+    let refusedWorker: string | null = null;
+    const refuse = (what: string) => {
+      refusedWorker ??= what;
+    };
     /** Whether a request (or a WebSocket, or one of its messages) must be stopped for the password's sake; records why. */
     const stops = (sent: Sent): boolean => {
       if (!passwordTyped) return false;
@@ -1044,21 +1339,20 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
         passwordElsewhere = url.origin;
         return true;
       }
-      if (carriesInQuery(url, password)) {
-        passwordInAddress = true;
+      const inAddress = weak
+        ? sent.navigation
+          ? carriesInQuery(url, password)
+          : carriesUnderPasswordKey(url, password)
+        : urlCarries(url, password, holds);
+      if (inAddress) {
+        passwordInAddress ??= sent.navigation ? "navigation" : "request";
         return true;
       }
       return false;
     };
+    // Every request once the password is typed, on any origin (the safety guard's route runs after this one).
     await context.route(
-      (url) => passwordTyped && carriesInQuery(url, password),
-      async (route) => {
-        passwordInAddress = true;
-        await route.abort("blockedbyclient").catch(() => undefined);
-      },
-    );
-    await context.route(
-      (url) => url.origin !== loginOrigin,
+      () => passwordTyped,
       async (route) => {
         if (stops(sentOf(route.request()))) {
           await route.abort("blockedbyclient").catch(() => undefined);
@@ -1068,17 +1362,19 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
       },
     );
     // context.route doesn't see WebSockets: each one is checked at its handshake and at every message the page sends.
+    // The handshake's subprotocols (new WebSocket(url, [password]): connectToServer sends them in the
+    // Sec-WebSocket-Protocol header) are read as its body, since a sec-* header is one the browser sets and isn't read.
     await context.routeWebSocket(
       () => true,
       (ws) => {
         const url = ws.url().replace(/^ws(s?):/i, "http$1:");
-        if (stops({ url, body: "", headers: {} })) {
+        if (stops({ url, body: ws.protocols().join("\n"), headers: {}, navigation: false })) {
           void ws.close().catch(() => undefined);
           return;
         }
         const server = ws.connectToServer();
         ws.onMessage((message) => {
-          if (stops({ url, body: typeof message === "string" ? message : message.toString("utf8"), headers: {} })) {
+          if (stops({ url, body: typeof message === "string" ? message : message.toString("utf8"), headers: {}, navigation: false })) {
             void ws.close().catch(() => undefined);
             void server.close().catch(() => undefined);
             return;
@@ -1094,17 +1390,59 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
       );
     };
     const inAddress = () => {
-      if (!passwordInAddress) return;
+      if (passwordInAddress === "navigation") {
+        throw new SignInError(
+          `${label} could not sign in: the sign-in form on ${shownUrl} sends the password in the page address (a GET form), where it ends up in server logs and the browser history. Run Hound stopped it before it was sent. Make the form send the password in a POST request.`,
+        );
+      }
+      if (passwordInAddress === "request") {
+        throw new SignInError(
+          `${label} could not sign in: the sign-in page on ${shownUrl} sends the password in the page address of a request to ${redactSecrets(loginOrigin)}, where it ends up in server logs. Run Hound stopped it before it was sent. Send the password in the request's body instead.`,
+        );
+      }
+    };
+    const workerStarted = () => {
+      if (refusedWorker === null) return;
       throw new SignInError(
-        `${label} could not sign in: the sign-in form on ${shownUrl} sends the password in the page address (a GET form), where it ends up in server logs and the browser history. Run Hound stopped it before it was sent. Make the form send the password in a POST request.`,
+        `${label} could not sign in: the sign-in page on ${shownUrl} started ${refusedWorker}, and Run Hound doesn't let one run during sign-in, where it could carry the password to another site. Run Hound stopped it before it ran.`,
       );
     };
     const page = await context.newPage();
     // What the routes never see (a redirect, a beacon or an image of a page being left) is checked in every tab of the
-    // context, the sign-in page's tab before it opens anything.
-    await stopUnrouted(page, stops);
+    // context, the sign-in page's tab before it opens anything; a dedicated worker it starts is held there.
+    await stopUnrouted(page, stops, refuse);
+    // A password sign-in never opens a tab: a new tab of the context is held before it runs and closed
+    // (guardSignInBrowser), since a tab can carry the password to another origin on a redirect hop before Playwright
+    // even reports it. The one tab Run Hound wants is its own sessionStorage probe: readSessionStorage lets exactly one
+    // tab run (admitTab), and the "page" handler below keeps it only when it is at the probe's address.
+    const probeUrl = `${loginOrigin}${STORAGE_PROBE_PATH}`;
+    let probeWanted = false;
+    let admitNext = false;
+    // Playwright's storageState() opens a page of its own (no opener) to read an origin no tab is on any more.
+    let readingState = false;
+    let tabsClosed = 0;
+    releaseBrowser = await guardSignInBrowser(browser, page, {
+      stops,
+      refuse,
+      admitTab: ({ opener }) => {
+        if (admitNext) {
+          admitNext = false;
+          return true;
+        }
+        return readingState && !opener;
+      },
+      tabClosed: () => {
+        if (passwordTyped) tabsClosed += 1;
+      },
+    });
     context.on("page", (opened) => {
-      if (opened !== page) void stopUnrouted(opened, stops).catch(() => undefined);
+      if (opened === page) return;
+      if (probeWanted && opened.url() === probeUrl) {
+        probeWanted = false;
+        void stopUnrouted(opened, stops, refuse).catch(() => undefined);
+        return;
+      }
+      void opened.close().catch(() => undefined);
     });
     const leftTarget = () => {
       if (guard.escaped.length === 0) return;
@@ -1203,6 +1541,8 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
         const origin = await handle.evaluate((el) => el.ownerDocument.location.origin).catch(() => null);
         if (origin !== null && origin !== "null" && origin !== loginOrigin) stillOnLoginOrigin(origin);
         if (origin === loginOrigin) {
+          // Nothing is typed on a page that started a worker Run Hound had to stop.
+          workerStarted();
           try {
             passwordTyped = true;
             await typePassword(handle, password);
@@ -1227,6 +1567,8 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
     const pageErrors = async () => [...new Set((await Promise.all(errorScopes.map((s) => errorTexts(page, s)))).flat())];
     const alertsBefore = new Set(await pageErrors());
     const freshErrors = async () => (await pageErrors()).filter((t) => !alertsBefore.has(t));
+    /** Whether a captcha showed before the submit: one that shows only after it, in the password step's place, fails (step 6). */
+    const captchaBefore = await showsCaptcha(page);
     /** Two-step (0.6.0): the tab is on the first step's page, or on the password step's. */
     const onFirstStepPage = () => firstStep !== null && !page.isClosed() && (samePage(page.url(), before) || samePage(page.url(), firstStep.url));
     /** Two-step: the first step's identifier field shown and editable again, and no password field shown that is new since the first step. */
@@ -1278,7 +1620,7 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
     let alertSince: number | null = null;
     let doneSince: number | null = null;
     while (Date.now() < deadline) {
-      if (passwordInAddress || passwordElsewhere !== null || page.isClosed()) break;
+      if (passwordInAddress !== null || passwordElsewhere !== null || refusedWorker !== null || page.isClosed()) break;
       const left = !samePage(page.url(), before);
       const gone = left || !(await passwordBox.isVisible().catch(() => false));
       const watchAlerts = !gone || onFirstStepPage();
@@ -1300,11 +1642,13 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
     }
     inAddress();
     elsewhere();
+    workerStarted();
     leftTarget();
     await page.waitForLoadState("load", { timeout: SUBMIT_WAIT_MS }).catch(() => undefined);
     await page.waitForLoadState("networkidle", { timeout: NETWORK_IDLE_MS }).catch(() => undefined);
     inAddress();
     elsewhere();
+    workerStarted();
     leftTarget();
 
     // 6. Decide from the page. A navigation the guard refused left the tab on Chromium's error page: the sign-in went
@@ -1325,10 +1669,22 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
       (await passwordBox.isVisible().catch(() => false)) || (onSignInPage && (await page.locator("input[type=password]:visible").count().catch(() => 0)) > 0);
     const captchaMessage = (quote: string) =>
       `${label} could not sign in: the sign-in form has a captcha, and captchas aren't supported. Turn it off for test accounts in your development setup.${quote ? ` The page said: "${quote}"` : ""}`;
+    // A captcha challenge that took the password step's place at the same address (0.6.0 review): the password field is
+    // gone, but nobody signed in. Only a captcha that showed after the submit, and only on that page: a landing page
+    // with an invisible captcha badge elsewhere in the app is still a success.
+    if (!stillShown && onSignInPage && !captchaBefore && (await showsCaptcha(page))) {
+      throw new SignInError(captchaMessage((await freshErrors()).slice(0, 2).join(" ").slice(0, 300)));
+    }
     if (stillShown) {
       const quote = (await freshErrors()).slice(0, 2).join(" ").slice(0, 300);
       if (await showsCaptcha(page)) throw new SignInError(captchaMessage(quote));
       if (quote) throw new SignInError(`${label} could not sign in: the sign-in page said "${quote}".`);
+      // A form that signs in in a new tab (target=_blank): the tab was closed before it ran (guardSignInBrowser).
+      if (tabsClosed > 0) {
+        throw new SignInError(
+          `${label} could not sign in: the sign-in form on ${shownUrl} opens a new tab or window, and Run Hound closes any tab a sign-in opens (one could carry the password to another site).`,
+        );
+      }
       throw new SignInError(`${label} could not sign in: the sign-in form was still shown after submitting, and the page showed no error. ${await whatWasSent(sent)}`);
     }
     // Two-step (0.6.0): a page that answers a wrong password by going back to the email step, on the first step's page
@@ -1347,15 +1703,31 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
 
     // 7. The session, in memory only. IndexedDB too: some apps (Firebase Auth) keep their session there. sessionStorage
     // (0.6.0) of the landing origin, and of the sign-in origin through a popup (readSessionStorage), read last.
-    const state = await context.storageState({ indexedDB: true }).catch(() => context!.storageState());
+    readingState = true;
+    const state = await context
+      .storageState({ indexedDB: true })
+      .catch(() => context!.storageState())
+      .finally(() => {
+        readingState = false;
+      });
     const landedUrl = page.url();
-    const kept = await readSessionStorage(page, loginOrigin);
+    const kept = await readSessionStorage(page, loginOrigin, (on) => {
+      probeWanted = on;
+      admitNext = on;
+    });
+    // The landing page may have tried something while the probe was opened (a tab of its own, from a replaced
+    // window.open): what was stopped then fails the sign-in too.
+    inAddress();
+    elsewhere();
+    workerStarted();
     // Registered before the landing address is redacted: an implicit flow leaves its token in the address's hash.
     const secrets = sessionSecrets(state, kept);
     registrations.push(registerSecretLiterals(secrets));
     return { state, landedOn: redactSecrets(landedUrl), secrets, ...(kept.length > 0 ? { sessionStorage: kept } : {}) };
   } finally {
-    // Closing the context runs no pagehide handler in its pages: nothing is sent on the way out.
+    // Closing the context runs no pagehide handler in its pages: nothing is sent on the way out. The browser-level
+    // session ends after it, so no tab of the context is ever left without it.
     await context?.close().catch(() => undefined);
+    await releaseBrowser?.();
   }
 }

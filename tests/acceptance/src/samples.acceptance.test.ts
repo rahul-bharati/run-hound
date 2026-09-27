@@ -24,11 +24,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { checks } from "../../../app/src/checks/index.js";
-import { CHECK_IDS, type Report } from "../../../app/src/core/types.js";
+import { CHECK_IDS, type CheckId, type Report } from "../../../app/src/core/types.js";
 import { discoverAndPlan, runPlan } from "../../../app/src/engine/runner.js";
 import { freePort, REPO_ROOT } from "./kennel.js";
 
 const SAMPLES_DIR = join(REPO_ROOT, "fixtures/samples");
+
+/** The V2 checks that plan only on a signed-in run (docs/v2-spec.md "Checks", "Checks (0.5.0)"); deep-links doesn't need one. */
+const SIGNED_IN_ONLY: readonly CheckId[] = ["access-control", "mass-assignment", "csrf", "write-access", "paywall-trust"];
 
 interface SampleSpec {
   name: string;
@@ -175,6 +178,13 @@ describe.concurrent("Run Hound on unfamiliar, well-built sample apps", () => {
         expect(plan.page!.forms.flatMap((f, i) => (f.search ? [i] : [])), "search forms").toEqual(spec.forms.search);
         expect(plan.page!.controls.length, "controls outside the forms").toBeGreaterThan(0);
       }
+
+      // The checks that need a signed-in run plan nothing on a signed-out run (docs/v2-spec.md "Acceptance (0.5.0
+      // additions)" and "Acceptance (0.6.0)"): the access checks and the write-side checks, which change Account A's data.
+      expect.soft(
+        plan.scenarios.filter((s) => SIGNED_IN_ONLY.includes(s.checkId)).map((s) => s.id),
+        "scenarios of the checks that need a signed-in run, planned signed out",
+      ).toEqual([]);
 
       // A check with nothing to test on this form (no password field, no extra buttons) may plan nothing; the report
       // lists it under "nothing to test". Printed, not asserted.

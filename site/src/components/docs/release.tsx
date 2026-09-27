@@ -1,7 +1,7 @@
 import { site } from "@/lib/site";
 
 /**
- * "Release 0.5.0 · 26 September 2026": the release a page describes and the day it came out, machine-readable in
+ * "Release 0.6.0 · 27 September 2026": the release a page describes and the day it came out, machine-readable in
  * <time>. Shown in the hero of /docs/ and /checks/, whose structured data carries the same date (dateModified: the
  * TechArticle on /docs/, the CollectionPage on /checks/).
  * Typed in normal case and set in capitals by CSS, so search snippets and screen readers get normal text.

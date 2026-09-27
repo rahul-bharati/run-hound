@@ -20,6 +20,7 @@ import { site } from "@/lib/site";
 import { graph, maintainerNode, softwareNode, webPageNode, websiteNode } from "@/lib/structured-data";
 import {
   AppWindow,
+  BadgeDollarSign,
   Container as Box,
   DatabaseZap,
   FileCode,
@@ -28,6 +29,7 @@ import {
   LayoutDashboard,
   Link2Off,
   Lock,
+  PencilOff,
   SlidersHorizontal,
   Terminal,
   TextCursorInput,
@@ -59,7 +61,7 @@ const structuredData = graph(
   webPageNode({ path: page.path, name: pageTitle(page), description: page.description }),
 );
 
-/** The V2 preview's checks (0.4.0, and 0.5.0's csrf; docs/v2-spec.md), as the questions they answer. */
+/** The V2 preview's checks (0.4.0, 0.5.0's csrf, and 0.6.0's write-access and paywall-trust; docs/v2-spec.md), as the questions they answer. */
 const accessChecks: { icon: LucideIcon; id: string; title: string; text: string }[] = [
   {
     icon: UsersRound,
@@ -84,6 +86,18 @@ const accessChecks: { icon: LucideIcon; id: string; title: string; text: string 
     id: "csrf",
     title: "Can another website act for you?",
     text: "A page on another site (localhost vs 127.0.0.1) sends Account A's save from Account A's own browser, as any website could. A forged value that sticks is a finding; without a cross-site address the result is inconclusive, never a pass.",
+  },
+  {
+    icon: PencilOff,
+    id: "write-access",
+    title: "Can someone else change your data?",
+    text: "It sends the update and delete requests your app itself sent for Account A's new test record, as Account B and as a visitor who isn't signed in, then reads the record back as Account A. A change or a deletion is a critical finding; the record is put back.",
+  },
+  {
+    icon: BadgeDollarSign,
+    id: "paywall-trust",
+    title: "Can a free account get the paid plan?",
+    text: "As Account A on the free plan, it opens your app's own success and upgraded pages, with payment providers blocked, and reads the plan again after each. A paid plan without a payment is a critical finding; Run Hound puts the plan back with your app's own cancel control.",
   },
 ];
 
@@ -278,13 +292,13 @@ export default function Home() {
 
       <Section
         id="signed-in"
-        eyebrow={`NEW IN 0.5.0 · ${site.preview.toUpperCase()}`}
+        eyebrow={`NEW IN 0.6.0 · ${site.preview.toUpperCase()}`}
         title={
           <>
             Signed-in runs <span className="text-accent">and access checks.</span>
           </>
         }
-        intro="Add two test accounts you own on your app, A and B. Run Hound signs in before it tests, so pages behind a login get every check, and four checks look for what AI-built backends often get wrong: three from 0.4.0 and one that writes (0.5.0). They are the first parts of the V2 stage, released as a preview."
+        intro="Add two test accounts you own on your app, A and B. Run Hound signs in before it tests, so pages behind a login get every check, and six checks look for what AI-built backends often get wrong: three from 0.4.0 and three that write, unticked until you tick them (csrf from 0.5.0, write-access and paywall-trust from 0.6.0). They are the first parts of the V2 stage, released as a preview."
         className="border-t border-line-soft"
       >
         <ul className="grid gap-5 md:grid-cols-2">
@@ -322,8 +336,9 @@ export default function Home() {
               customer&apos;s.
             </p>
             <p>
-              Still planned for the V2 stage: checks that another account or a signed-out visitor can&apos;t change your data and that a paid
-              plan needs a real payment, testing a feature across pages, rate limits, file uploads and prompt injection.
+              Still planned for the V2 stage: testing a feature across pages, the other two paid-plan probes (a checkout
+              replayed with a changed price, and the APIs only paid accounts use), rate limits, file uploads and prompt
+              injection.
             </p>
             <ArrowLink href="/docs#accounts">Signed-in runs in the docs</ArrowLink>
           </div>

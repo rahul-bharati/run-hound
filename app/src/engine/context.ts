@@ -265,6 +265,27 @@ const MASK_SCRIPT = String.raw`(needles) => {
   return masked.length;
 }`;
 
+/**
+ * Runs in the page: the text MASK_SCRIPT would search — every visible text node, field value and placeholder — joined,
+ * so Run Hound (not the page) decides which registered values are actually present. It takes no argument, so no
+ * registered value is ever handed to the page's scripts (0.6.0 review): only the values found in what the page already
+ * shows are passed to MASK_SCRIPT, and a value that isn't on the page (a password, a session token the page never
+ * renders) never reaches a page that has hooked a built-in such as `RegExp`.
+ */
+const HAYSTACK_SCRIPT = String.raw`() => {
+  const out = [];
+  if (document.body) {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) out.push(node.data);
+    for (const el of document.querySelectorAll("input, textarea")) {
+      if (typeof el.value === "string") out.push(el.value);
+      const placeholder = el.getAttribute("placeholder");
+      if (placeholder) out.push(placeholder);
+    }
+  }
+  return out.join("\n");
+}`;
+
 /** Runs in the page: puts back what MASK_SCRIPT changed, unless the page has changed that place since. */
 const UNMASK_SCRIPT = String.raw`() => {
   for (const m of window.__rhMasked || []) {
@@ -282,7 +303,14 @@ const UNMASK_SCRIPT = String.raw`() => {
  */
 async function maskAccountValues(page: Page): Promise<() => Promise<void>> {
   const { secrets, usernames } = registeredLiterals();
-  const needles = [...new Set([...secrets, ...usernames])].filter((n) => n.length >= 3);
+  const registered = [...new Set([...secrets, ...usernames])].filter((n) => n.length >= 3);
+  if (registered.length === 0) return async () => undefined;
+  // Read what the page shows and decide here which registered values are present, rather than handing every value to
+  // the page (0.6.0 review): a value the page never renders (a password, a session token) is never passed to the
+  // page's scripts, so a page that has hooked a built-in can't read it from the mask. The values kept are ones the
+  // page already displays, so masking them exposes nothing new.
+  const haystack = String(await page.evaluate(`(${HAYSTACK_SCRIPT})()`).catch(() => "")).toLowerCase();
+  const needles = registered.filter((n) => haystack.includes(n.toLowerCase()));
   if (needles.length === 0) return async () => undefined;
   const changed = await page.evaluate(`(${MASK_SCRIPT})(${JSON.stringify(needles)})`).catch(() => 0);
   if (!changed) return async () => undefined;

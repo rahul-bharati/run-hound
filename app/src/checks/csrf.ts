@@ -5,9 +5,15 @@
  * cookies for itself, so a SameSite=Lax cookie stays home and a SameSite=None cookie rides along. Only requests a
  * cross-site page can send without a CORS preflight are sent (form-encoded, then a JSON save's payload as text/plain;
  * a JSON body only when the app's own answer to a real preflight allows the attacker origin with credentials), and
- * never with a CSRF token. The verdict is a re-read as Account A: a finding only when the forged value is stored; a
- * failed re-read is inconclusive, never a pass. Then the test record is restored, only through an update the app
- * itself sent for it. Unticked by default: it changes Account A's data and restores it.
+ * never with a CSRF token. The verdict is a re-read as Account A (through A's own browser page for a cookie session,
+ * through CheckContext.request and the app's own credential headers for a session its scripts send as a header, such
+ * as a bearer token kept in sessionStorage): a finding only when the forged value is stored; a failed re-read is
+ * inconclusive, never a pass. Then the test record is restored, only through an update the app
+ * itself sent for it (through Account A's own page when the request context can't carry the session: a Secure cookie
+ * on 127.0.0.1). A form that edits a record Account A already had is never used, as in write-access: its save is held
+ * in the page and stopped before it reaches the app, and one that went through and only then shows it changed such a
+ * record is put back and skipped before anything is forged. Unticked by default: it changes Account A's data and
+ * restores it.
  */
 import { isLocalOrigin, isSameOrigin, tokenKey } from "../core/saves.js";
 import type { Page } from "playwright";
@@ -17,17 +23,26 @@ import { endpointOf, errorResult, guarded, result, tryCard } from "./lib/functio
 import { canaryValues, createRequests, fillForm, settle, submitControl, submitForm, waitForCreates, type FieldValue } from "./lib/functional-form.js";
 import {
   changedFields,
+  changesOnSave,
+  editsExistingRecord,
+  EXISTING_RECORD,
   findOwnRecord,
+  getsBefore,
+  holdExistingEdits,
   jsonObjectBody,
   locateRecord,
   neverWritten,
+  putBackEdited,
   readsList,
   recordChains,
   recordWrites,
+  requestIO,
   restoreRecord,
   savesOwnRecord,
   snapshotFrom,
+  stoppedByHold,
   type CapturedRequest,
+  type RecordIO,
   type RecordSnapshot,
 } from "./lib/record-state.js";
 
@@ -123,19 +138,11 @@ async function tokenValues(page: Page): Promise<Set<string>> {
   return new Set([...meta, ...cookies.filter((c) => /csrf|xsrf/i.test(c.name)).map((c) => c.value)].filter(Boolean));
 }
 
-/**
- * GETs the record endpoint from Account A's own browser page: its JSON, "gone" for a 404 or 410, null when the read
- * failed. The re-read goes through the browser, not CheckContext.request, on purpose: a SameSite=None cookie is
- * `Secure`, and the request context does not send a `Secure` cookie over http to 127.0.0.1, while the browser does
- * (localhost and 127.0.0.1 are potentially trustworthy). So this is a real re-read as Account A.
- */
-async function readInPage(page: Page, url: string): Promise<{ json: unknown } | "gone" | null> {
-  const answer = await page
-    .evaluate(async (u) => {
-      const res = await fetch(u, { credentials: "include" });
-      return { status: res.status, body: await res.text() };
-    }, url)
-    .catch(() => null);
+/** A read of the record endpoint as Account A: its JSON, "gone" for a 404 or 410, null when the read failed. */
+type Reread = { json: unknown } | "gone" | null;
+
+/** A record endpoint's answer as a Reread. */
+function asReread(answer: { status: number; body: string } | null): Reread {
   if (!answer) return null;
   if (answer.status === 404 || answer.status === 410) return "gone";
   if (answer.status < 200 || answer.status >= 300) return null;
@@ -144,6 +151,90 @@ async function readInPage(page: Page, url: string): Promise<{ json: unknown } | 
   } catch {
     return null;
   }
+}
+
+/**
+ * GETs the record endpoint from Account A's own browser page. The re-read of a cookie session goes through the browser,
+ * not CheckContext.request, on purpose: a SameSite=None cookie is `Secure`, and the request context does not send a
+ * `Secure` cookie over http to 127.0.0.1, while the browser does (localhost and 127.0.0.1 are potentially
+ * trustworthy). So this is a real re-read as Account A, as long as A's session is a cookie.
+ */
+async function readInPage(page: Page, url: string): Promise<Reread> {
+  const answer = await page
+    .evaluate(async (u) => {
+      const res = await fetch(u, { credentials: "include" });
+      return { status: res.status, body: await res.text() };
+    }, url)
+    .catch(() => null);
+  return asReread(answer);
+}
+
+/**
+ * GETs the record endpoint through CheckContext.request as Account A, which sends the credential headers the app's own
+ * pages sent (an `Authorization: Bearer` token the app's scripts add from sessionStorage or localStorage). A bare fetch
+ * in the page carries A's cookies but never such a header, so on an app whose session is a token it can't read as A.
+ */
+async function readThroughRequest(ctx: CheckContext, url: string): Promise<Reread> {
+  const answer = await ctx.request("self", { method: "GET", url }).catch(() => null);
+  return asReread(answer);
+}
+
+/**
+ * How the check reads as Account A, picked once by the first read (firstRead) and kept for every re-read and the
+ * put-back: "page" (A's cookies, through its browser page) or "request" (the app's own credential headers).
+ */
+type ReadVia = "page" | "request";
+
+const readAsA = (ctx: CheckContext, page: Page, url: string, via: ReadVia): Promise<Reread> =>
+  via === "page" ? readInPage(page, url) : readThroughRequest(ctx, url);
+
+/** Sends a write from Account A's own browser page (same origin, A's cookies): its status, or null when it failed. */
+async function sendInPage(page: Page, r: { method: string; url: string; contentType: string; body: string }): Promise<number | null> {
+  return page
+    .evaluate(async (x) => {
+      const res = await fetch(x.url, { method: x.method, headers: { "content-type": x.contentType }, body: x.body, credentials: "include" });
+      return res.status;
+    }, r)
+    .catch(() => null);
+}
+
+/**
+ * How the put-back reads and writes as Account A (record-state's RecordIO): reads the way every other read of this
+ * scenario is made (`via`); writes through CheckContext.request, which adds the app's own credential headers, and, for
+ * a cookie session ("page") whose write that refuses (an answer that isn't 2xx), once more from Account A's own page.
+ * Playwright's request context sends a `Secure` cookie over http only to localhost, never to 127.0.0.1, so on a
+ * 127.0.0.1 target a SameSite=None (so Secure) session only rides on Account A's page. A write with no answer at all is
+ * never sent again: it may have been applied, and a create sent twice would make two records.
+ */
+function ioAsA(ctx: CheckContext, page: Page, via: ReadVia): RecordIO {
+  const viaRequest = requestIO(ctx);
+  return {
+    read: (url) => readAsA(ctx, page, url, via),
+    send: async (r) => {
+      const status = await viaRequest.send(r);
+      if (via !== "page" || status === null || (status >= 200 && status < 300)) return status;
+      return (await sendInPage(page, r)) ?? status;
+    },
+  };
+}
+
+/**
+ * The first read of the record endpoint as Account A, and the snapshot of the test record in it. Through A's browser
+ * page first (a cookie session, see readInPage); when that doesn't show the test record, through CheckContext.request
+ * (a session the app's scripts send as a header, see readThroughRequest). Null when neither shows it.
+ */
+async function firstRead(
+  ctx: CheckContext,
+  page: Page,
+  url: string,
+  testValues: string[],
+): Promise<{ via: ReadVia; json: unknown; snap: RecordSnapshot } | null> {
+  for (const via of ["page", "request"] as const) {
+    const read = await readAsA(ctx, page, url, via);
+    const snap = read && read !== "gone" ? snapshotFrom(url, read.json, testValues, ctx.runToken) : null;
+    if (read && read !== "gone" && snap) return { via, json: read.json, snap };
+  }
+  return null;
 }
 
 /**
@@ -174,16 +265,17 @@ function tried(attempts: { note: string; outcome: ForgeOutcome }[]): string {
 const answeredOk = (o: ForgeOutcome) => o.status === null || (o.status >= 200 && o.status < 300);
 
 /**
- * Puts the test record back after the forge, from a re-read as Account A through its browser page: it restores the
- * test record when the forge changed it (only through an update the app itself sent for its id, never the create), or
- * creates it again when it is gone, and names a new record the forge created. The notes say what could not be undone.
+ * Puts the test record back after the forge, from a re-read as Account A (the same way as every other read, `via`): it
+ * restores the test record when the forge changed it (only through an update the app itself sent for its id, never
+ * the create), or creates it again when it is gone, and names a new record the forge created. The notes say what could
+ * not be undone.
  */
 async function putBack(
   ctx: CheckContext,
   page: Page,
-  o: { snap: RecordSnapshot; updates: CapturedRequest[]; create: CapturedRequest; marker: string },
+  o: { snap: RecordSnapshot; updates: CapturedRequest[]; create: CapturedRequest; marker: string; via: ReadVia },
 ): Promise<string[]> {
-  const read = await readInPage(page, o.snap.url);
+  const read = await readAsA(ctx, page, o.snap.url, o.via);
   if (read === null) return ["Run Hound couldn't read Account A's test record back to put it back, so it may still hold the forged value: check Account A."];
   const notes: string[] = [];
   const now = read === "gone" ? "gone" : locateRecord(read.json, o.snap, ctx.runToken);
@@ -195,13 +287,27 @@ async function putBack(
     const changed = now === "gone" ? ["the record"] : changedFields(o.snap.record, now[0]!);
     // The create is never sent to put a record back: it would make another record. It only makes a gone one again.
     const { restored, notRestored } =
-      now === "gone" || update ? await restoreRecord(ctx, o.snap, { save: update ?? o.create, create: o.create }) : { restored: [], notRestored: changed };
+      now === "gone" || update
+        ? await restoreRecord(ctx, o.snap, { save: update ?? o.create, create: o.create }, ioAsA(ctx, page, o.via))
+        : { restored: [], notRestored: changed };
     if (restored.length > 0) notes.push(`Restored ${restored.join(", ")} of Account A's test record.`);
-    if (notRestored.length > 0) {
+    // A field the app changes again itself on every save (updatedAt, version, rowVersion …: record-state's
+    // changesOnSave) can never read as before after the put-back, which is a save too: it is named as the app's own.
+    const appSet = notRestored.filter((k) => changesOnSave(o.snap, k, ctx.runToken));
+    const rest = notRestored.filter((k) => !appSet.includes(k));
+    const fields = (ks: string[]) => (ks.length <= 1 ? ks.join("") : `${ks.slice(0, -1).join(", ")} and ${ks[ks.length - 1]}`);
+    if (rest.length > 0) {
       notes.push(
         update || now === "gone"
-          ? `Could not be undone: ${notRestored.join(", ")} of Account A's test record: check Account A.`
-          : `Could not be undone: the forged request changed ${notRestored.join(", ")} of Account A's test record, and the app sent no update for it that Run Hound could reuse: check Account A.`,
+          ? `Could not be undone: ${rest.join(", ")} of Account A's test record: check Account A.`
+          : `Could not be undone: the forged request changed ${rest.join(", ")} of Account A's test record, and the app sent no update for it that Run Hound could reuse: check Account A.`,
+      );
+    }
+    if (appSet.length > 0) {
+      notes.push(
+        rest.length > 0
+          ? `${fields(appSet)} of Account A's test record, which the app sets itself when it is saved, changed too.`
+          : `Account A's test record is back to its values except ${fields(appSet)}, which the app sets itself.`,
       );
     }
   }
@@ -247,18 +353,27 @@ export const check: Check = {
         return skip("Skipped: this form has no fields that save a record, so there is nothing a cross-site page could forge.");
       }
 
-      // 1. As Account A, create the test record through the form and capture its save request.
+      // 1. As Account A, create the test record through the form and capture its save request. The form's writes are
+      //    held and judged before they reach the app (holdExistingEdits): a save that would change a record Account A
+      //    already had is stopped, and the scenario is skipped with nothing written.
       const { page, capture } = await ctx.openPage({ as: "self" });
       ctx.step("Saving a test record as Account A", page);
       // Salt "xsite": the marker below inserts "csrf" after the run token, so the salt must not itself contain "csrf",
       // or Account A's own saved values would already match the marker and every run would look like a finding.
       const values: FieldValue[] = canaryValues(form, ctx.runToken, "xsite");
       await fillForm(page, values);
-      await submitForm(page, form);
-      await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
+      const hold = await holdExistingEdits(ctx, page, capture);
+      try {
+        await submitForm(page, form);
+        await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
+      } finally {
+        await hold.release();
+      }
+      const stopped = hold.verdict();
+      if (stopped) return skip(stopped);
 
       const creates = createRequests(capture, ctx.targetUrl, ctx.runToken).filter(
-        (r) => isSameOrigin(r.url, ctx.targetUrl) || isLocalOrigin(r.url, ctx.targetUrl),
+        (r) => (isSameOrigin(r.url, ctx.targetUrl) || isLocalOrigin(r.url, ctx.targetUrl)) && !stoppedByHold(hold, r),
       );
       // A cross-site page can only send a GET or a POST without a preflight, so only a POST save can be forged.
       const save = creates.find((r) => r.postData && r.method.toUpperCase() === "POST");
@@ -283,10 +398,20 @@ export const check: Check = {
       if (!recordGet) {
         return skip("Skipped: Run Hound couldn't find an endpoint that reads the saved record back as Account A, so it can't tell whether a forged write worked.");
       }
-      const first = await readInPage(page, recordGet.url);
-      const snap = first && first !== "gone" ? snapshotFrom(recordGet.url, first.json, testValues, ctx.runToken) : null;
-      if (!first || first === "gone" || !snap) {
+      // The first read picks how every later one is made: through A's page (a cookie session) or, when that doesn't
+      // show the test record, through CheckContext.request (a session the app's scripts send as a header).
+      const first = await firstRead(ctx, page, recordGet.url, testValues);
+      if (!first) {
         return skip("Skipped: Run Hound couldn't read the test record back as Account A, so it can't tell whether a forged write worked.");
+      }
+      const { via, snap } = first;
+      // The save went through and turned out to change a record Account A already had (as write-access judges it):
+      // nothing is forged at it. Put it back as the page read it before the save, and say what the save changed.
+      const heldBefore = hold.before();
+      const before = heldBefore.length > 0 ? heldBefore : getsBefore(capture, save);
+      if (editsExistingRecord(save, snap, recordGet, before, ctx.runToken)) {
+        ctx.step("Putting back the record the form changed", page);
+        return skip([EXISTING_RECORD, ...(await putBackEdited(ctx, { capture, save, snap, before, io: ioAsA(ctx, page, via) }))].join(" "));
       }
       // The app's own updates of the test record: the only requests a restore may use (the create would add a record).
       const updates = recordWrites(capture, snap, ctx.targetUrl).filter((r) => r.method.toUpperCase() !== "DELETE");
@@ -328,7 +453,7 @@ export const check: Check = {
           ctx.step(`Sending the forged save from another site (${attempt.note})`, page);
           const outcome = await cross.forge({ method: "POST", url: save.url, body: attempt.body, encoding: attempt.encoding });
           sent.push({ note: attempt.note, encoding: attempt.encoding, outcome });
-          const read = await readInPage(page, recordGet.url);
+          const read = await readAsA(ctx, page, recordGet.url, via);
           if (read === null) {
             rereadFailed = true;
             break;
@@ -341,14 +466,14 @@ export const check: Check = {
       } catch (error) {
         // A forge may already have been sent: put the test record back first, then say what may be left.
         const message = error instanceof Error ? error.message : String(error);
-        const put = sent.length > 0 ? await putBack(ctx, page, { snap, updates, create: save, marker }).catch(() => [] as string[]) : [];
+        const put = sent.length > 0 ? await putBack(ctx, page, { snap, updates, create: save, marker, via }).catch(() => [] as string[]) : [];
         throw new Error([message.replace(/\.?$/, "."), ...put, sent.length > 0 ? INTERRUPTED_NOTE : ""].filter(Boolean).join(" "));
       } finally {
         await cross.dispose();
       }
 
       // 4. Restore when something may have changed, then the verdict from the re-read.
-      const restoreNotes = stored || rereadFailed ? await putBack(ctx, page, { snap, updates, create: save, marker }) : [];
+      const restoreNotes = stored || rereadFailed ? await putBack(ctx, page, { snap, updates, create: save, marker, via }) : [];
       const droppedNote =
         bodies.dropped.length > 0
           ? `The forged body left out ${bodies.dropped.join(", ")}, which carr${bodies.dropped.length === 1 ? "ies" : "y"} Account A's anti-CSRF token: a page on another site can't know it.`
@@ -361,11 +486,17 @@ export const check: Check = {
           ? `the browser attached Account A's cookie${carried.length === 1 ? "" : "s"} ${carried.map((n) => `${n} (SameSite=${sameSite(n)})`).join(", ")} to a request from another site, and the server accepted it with no CSRF token and no Origin check`
           : "the server stored the value in Account A's data although the browser attached no cookie to the request at all: the save doesn't need Account A's session, and it has no CSRF token or Origin check";
         const viaCors = stored.encoding === "json";
+        // No cookie rode on the forged request and it was still stored: the save doesn't need Account A's session at
+        // all, so a CSRF defence alone (a SameSite cookie, a token) wouldn't fix it. The session comes first.
+        const noSession = carried.length === 0;
+        const requireSession = `Require Account A's session on ${saveEndpoint} (answer 401 without it, and save only to the signed-in account's own records), then add a CSRF defence`;
         const evidence = await forgedCard(ctx, saveEndpoint, stored.note, carried, cookies, bodies.dropped);
         const finding: Finding = {
           checkId: ID,
           id: `${ID}#${scenario.id}-1`,
-          title: "A page on another site can change Account A's data (no CSRF protection)",
+          title: noSession
+            ? "A page on another site can change Account A's data (the save needs no session)"
+            : "A page on another site can change Account A's data (no CSRF protection)",
           severity: "high",
           category: "security",
           confidence: "confirmed",
@@ -373,11 +504,16 @@ export const check: Check = {
             `Run Hound opened a page on a different site (${cross.origin}) in Account A's browser and sent ${saveEndpoint} again with a new value (${stored.note}). ` +
             `Re-reading the record as Account A showed the new value: ${why}.` +
             (viaCors ? " The app's CORS answer allows that origin with credentials, which is also a CORS issue (cors): any site can send this JSON save and read the answer." : ""),
-          impact:
-            "Any web page Account A visits could silently make this change (or any other this form makes) on their behalf, without them ever submitting the form. This is a cross-site request forgery (CSRF) flaw.",
-          fix: viaCors
-            ? `Ask your AI or developer: "The save at ${saveEndpoint} can be sent from another site: the CORS config reflects any origin with Access-Control-Allow-Credentials. Allow only your own origins, and add a CSRF defence: a SameSite=Lax (or Strict) session cookie plus a CSRF token or an Origin check."`
-            : `Ask your AI or developer: "The save at ${saveEndpoint} can be sent from another site. Add a CSRF defence: a SameSite=Lax (or Strict) session cookie, plus a per-request CSRF token the server checks, or an Origin/Referer check that rejects requests from other sites. Accept only application/json for JSON saves."`,
+          impact: noSession
+            ? "Any web page Account A visits, or anyone at all, can make this change (or any other this form makes) in Account A's data without Account A's session: the save doesn't check who sends it. A page on another site can do it silently, without Account A ever submitting the form."
+            : "Any web page Account A visits could silently make this change (or any other this form makes) on their behalf, without them ever submitting the form. This is a cross-site request forgery (CSRF) flaw.",
+          fix: noSession
+            ? viaCors
+              ? `Ask your AI or developer: "The save at ${saveEndpoint} changes Account A's data with no session at all, and it can be sent from another site: the CORS config reflects any origin with Access-Control-Allow-Credentials. ${requireSession}: allow only your own origins in CORS, and for a cookie session use a SameSite=Lax (or Strict) cookie plus a CSRF token or an Origin check."`
+              : `Ask your AI or developer: "The save at ${saveEndpoint} changes Account A's data with no session at all: a request from another site with no cookie and no token was stored. ${requireSession} for a cookie session: a SameSite=Lax (or Strict) cookie, plus a per-request CSRF token the server checks, or an Origin/Referer check that rejects requests from other sites."`
+            : viaCors
+              ? `Ask your AI or developer: "The save at ${saveEndpoint} can be sent from another site: the CORS config reflects any origin with Access-Control-Allow-Credentials. Allow only your own origins, and add a CSRF defence: a SameSite=Lax (or Strict) session cookie plus a CSRF token or an Origin check."`
+              : `Ask your AI or developer: "The save at ${saveEndpoint} can be sent from another site. Add a CSRF defence: a SameSite=Lax (or Strict) session cookie, plus a per-request CSRF token the server checks, or an Origin/Referer check that rejects requests from other sites. Accept only application/json for JSON saves."`,
           location: saveEndpoint,
           evidence,
           spec: {
@@ -390,6 +526,10 @@ export const check: Check = {
               marked: bodies.marked,
               encoding: stored.encoding,
               attackerOrigin: cross.origin,
+              // A token session only when A's browser holds no cookie for the target at all; a cookie session whose
+              // reads need a header the page adds (a CSRF or API-key header) is still a cookie session.
+              tokenSession: via === "request" && cookies.length === 0,
+              headerRead: via === "request",
             }),
           },
         };
@@ -415,10 +555,18 @@ export const check: Check = {
         );
       }
 
-      // Pass: the re-read shows no forged value.
-      const passNote = wasJson
-        ? `A page on ${cross.origin} could not change Account A's data. The save is sent as JSON, which needs a preflight from another site${cors ? "" : " (the app's CORS doesn't allow that origin)"}, and the app didn't take the forged save otherwise.`
-        : `A page on ${cross.origin} could not change Account A's data: the forged cross-site request was rejected or had no effect (a SameSite cookie, a CSRF token or an Origin check stopped it).`;
+      // Pass: the re-read shows no forged value. A's session is a token the app's scripts send as a header, not a cookie,
+      // only when A's own page couldn't read as A with its cookies (via "request"), A's browser holds no cookie for the
+      // target, and none rode on a forged request: then nothing could sign the forge in as A, whatever else the save
+      // checks. A cookie session whose reads also need a header the page adds (such as an X-CSRF-Token) is re-read the
+      // same way, but a SameSite cookie, a CSRF token or an Origin check is what stopped the forge there.
+      const tokenSession = via === "request" && cookies.length === 0 && sent.every((a) => a.outcome.cookies.length === 0);
+      const passNote = tokenSession
+        ? `A page on ${cross.origin} could not change Account A's data: Account A's session is a token the app's own scripts add to each request (such as a bearer token), not a cookie, so there is no cookie for the browser to attach to a request from another site, and the forged save wasn't stored.` +
+          (wasJson && !cors ? " The save is also sent as JSON, which needs a preflight from another site." : "")
+        : wasJson
+          ? `A page on ${cross.origin} could not change Account A's data. The save is sent as JSON, which needs a preflight from another site${cors ? "" : " (the app's CORS doesn't allow that origin)"}, and the app didn't take the forged save otherwise.`
+          : `A page on ${cross.origin} could not change Account A's data: the forged cross-site request was rejected or had no effect (a SameSite cookie, a CSRF token or an Origin check stopped it).`;
       const notes = [passNote, `Tried: ${tried(sent)}.`, droppedNote].filter(Boolean).join(" ");
       return result(ID, scenario, started, [], notes);
     });
@@ -454,8 +602,12 @@ async function forgedCard(
 /**
  * A standalone spec: signs in as Account A from environment variables, serves a blank page from a real server on the
  * other site (a routed page would count as public and be blocked from loopback), posts the save from it with a made-up
- * value in the forged field and the other fields empty, and re-reads the record endpoint as Account A: the made-up
- * value must not be there. No value Run Hound typed, no token and no credential is written into it.
+ * value in the forged field and the other fields empty, and re-reads the record endpoint as Account A: the re-read
+ * must be let in (a re-read that isn't signed in proves nothing), and the made-up value must not be there. With
+ * `tokenSession` (Account A's session is a token the app's scripts send as a header, not a cookie) a comment says to
+ * add it to the re-read; with `headerRead` alone (a cookie session whose reads also need a header the app's scripts add,
+ * such as a CSRF or API-key header) a comment says to add those headers. No value Run Hound typed, no token and no
+ * credential is written into it.
  */
 function replaySpec(o: {
   target: string;
@@ -465,6 +617,8 @@ function replaySpec(o: {
   marked: string;
   encoding: ForgeEncoding;
   attackerOrigin: string;
+  tokenSession?: boolean;
+  headerRead?: boolean;
 }): string {
   const q = (v: unknown) => JSON.stringify(v);
   const path = (u: string) => {
@@ -528,10 +682,20 @@ function replaySpec(o: {
     `      }`,
     `    }, { url: new URL(SAVE, TARGET).href, values, encoding: ENCODING });`,
     `    // Re-read as Account A, from a page of the app itself: the forged value must NOT be stored.`,
+    ...(o.tokenSession
+      ? [`    // Account A's session is a token the app's own scripts send in a header, not a cookie: add it to this re-read.`]
+      : o.headerRead
+        ? [`    // Run Hound read the record back with the headers the app's own scripts add to its requests (such as a CSRF or API-key header): add them to this re-read.`]
+        : []),
     `    const own = await context.newPage();`,
     `    await own.goto(TARGET);`,
-    `    const text = await own.evaluate(async (u) => (await fetch(u, { credentials: "include" })).text(), new URL(RECORD, TARGET).href);`,
-    `    expect(text, "the value sent from another site was stored").not.toContain(forged);`,
+    `    const reread = await own.evaluate(async (u) => {`,
+    `      const res = await fetch(u, { credentials: "include" });`,
+    `      return { ok: res.ok, text: await res.text() };`,
+    `    }, new URL(RECORD, TARGET).href);`,
+    // With a token session or a header read, Account A is signed in but the bare fetch lacks what the comment names.
+    `    expect(reread.ok, ${q(o.tokenSession || o.headerRead ? "the re-read as Account A failed: add what the comment above says to it, signed in as Account A" : "the re-read as Account A failed: sign in as Account A so the record can be read")}).toBe(true);`,
+    `    expect(reread.text, "the value sent from another site was stored").not.toContain(forged);`,
     `  } finally {`,
     `    await browser.close();`,
     `    server.close();`,

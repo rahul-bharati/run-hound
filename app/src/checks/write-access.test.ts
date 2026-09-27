@@ -16,7 +16,10 @@
  *   - "unguarded-edited": like "unguarded", but an update stores the title with " (edited)" after it, so the stored
  *     value is not exactly the one sent.
  * With `failReadsAfterOthersWrite`, once a caller who doesn't own a task has sent it a write, every read of a task
- * (GET /api/tasks and GET /api/tasks/<id>) answers 500.
+ * (GET /api/tasks and GET /api/tasks/<id>) answers 500. With `secondForm`, a "New errand" form follows "New task" and
+ * saves a task the same way, but its create body also says {list: "errands"} (kept on the created task, never shown in
+ * a read), so a test can tell which form saved the record: the page's second form, whose scenarios the planner ids
+ * "<id>@form-2".
  *
  * The page's DELETE is a dry run (header x-dry-run: 1, which the server answers without deleting), so the app has
  * shown a DELETE for the test record while the record is still there to be read back. A request the capture holds
@@ -37,7 +40,9 @@ import type { AccountRef, CheckResult, DiscoveredForm, DiscoveredPage, Finding, 
 import type { SessionState } from "../engine/auth.js";
 import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
 import { discoverPage } from "../engine/discover.js";
-import { check } from "./write-access.js";
+import { buildPlan } from "../engine/plan.js";
+import { needsOtherAccount } from "../engine/runner.js";
+import { check, identityOf } from "./write-access.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const B: AccountRef = { id: "b", label: "Account B" };
@@ -104,6 +109,8 @@ interface Task {
   owner: "a" | "b";
   title: string;
   done: boolean;
+  /** The list the create body named: "errands" from the "New errand" form, none from "New task". Never read back. */
+  list?: string;
 }
 
 /** How PATCH and DELETE /api/tasks/<id> treat a caller who doesn't own the task (the owner is always let through). */
@@ -118,6 +125,8 @@ interface TasksAppOptions {
   sends?: PageSend[];
   /** Once a caller who doesn't own a task has sent it a PATCH or DELETE, every task read answers 500. */
   failReadsAfterOthersWrite?: boolean;
+  /** A second form after "New task", "New errand", that saves a task the same way (the page's second form). */
+  secondForm?: boolean;
 }
 
 interface TasksApp extends FixtureServer {
@@ -135,9 +144,12 @@ const PAGE_SENDS: Record<PageSend, string> = {
   delete: `.then(function () { return fetch(url, { method: 'DELETE', headers: { 'x-dry-run': '1' } }); })`,
 };
 
-function tasksPage(sends: PageSend[]): string {
+function tasksPage(sends: PageSend[], secondForm = false): string {
+  const errand = secondForm
+    ? `\n<form id="errand" aria-label="New errand"><label for="errand-title">Errand</label><input id="errand-title" name="title" required><button type="submit">Add errand</button></form>`
+    : "";
   return `<!doctype html><html lang="en"><head><title>Tasks</title></head><body><main><h1>Tasks</h1>
-<form id="new" aria-label="New task"><label for="title">Title</label><input id="title" name="title" required><button type="submit">Add task</button></form>
+<form id="new" aria-label="New task"><label for="title">Title</label><input id="title" name="title" required><button type="submit">Add task</button></form>${errand}
 <p role="status" id="status"></p><ul id="list"></ul></main>
 <script>
 var list = document.getElementById('list');
@@ -146,17 +158,23 @@ function load() {
     list.innerHTML = d.tasks.map(function (t) { return '<li>' + String(t.title).replace(/</g, '&lt;') + '</li>'; }).join('');
   });
 }
-document.getElementById('new').addEventListener('submit', function (e) {
-  e.preventDefault();
-  var title = document.getElementById('title').value;
-  fetch('/api/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: title }) })
-    .then(function (r) { return r.json(); })
-    .then(function (d) {
-      var url = '/api/tasks/' + encodeURIComponent(d.task.id);
-      return Promise.resolve()${sends.map((s) => PAGE_SENDS[s]).join("")};
-    })
-    .then(function () { document.getElementById('status').textContent = 'Saved'; return load(); });
-});
+function wire(formId, inputId, list) {
+  var form = document.getElementById(formId);
+  if (!form) return;
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var title = document.getElementById(inputId).value;
+    fetch('/api/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(list ? { title: title, list: list } : { title: title }) })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var url = '/api/tasks/' + encodeURIComponent(d.task.id);
+        return Promise.resolve()${sends.map((s) => PAGE_SENDS[s]).join("")};
+      })
+      .then(function () { document.getElementById('status').textContent = 'Saved'; return load(); });
+  });
+}
+wire('new', 'title');
+wire('errand', 'errand-title', 'errands');
 load();
 </script></body></html>`;
 }
@@ -178,7 +196,7 @@ async function tasksApp(o: TasksAppOptions = {}): Promise<TasksApp> {
   const view = (t: Task) => ({ id: t.id, title: t.title, done: t.done });
 
   const server = await startFixtureServer({
-    pages: { "/app": tasksPage(o.sends ?? ["patch"]) },
+    pages: { "/app": tasksPage(o.sends ?? ["patch"], o.secondForm === true) },
     routes: {
       "GET /api/tasks": (req, res) => {
         if (readsFail) return send(res, 500, { error: "Something went wrong" });
@@ -192,7 +210,8 @@ async function tasksApp(o: TasksAppOptions = {}): Promise<TasksApp> {
         const body = parse(req.body);
         const title = typeof body.title === "string" ? body.title.trim() : "";
         if (!title) return send(res, 400, { error: "Title required" });
-        const task: Task = { id: `t${next++}`, owner: caller, title, done: false };
+        const list = typeof body.list === "string" ? body.list : undefined;
+        const task: Task = { id: `t${next++}`, owner: caller, title, done: false, ...(list ? { list } : {}) };
         tasks.push(task);
         created.push({ ...task });
         return send(res, 201, { task: view(task) });
@@ -265,13 +284,23 @@ interface Ran {
 /** Runs one scenario on the task app's /app page (already discovered as `page`), in a fresh CheckContext. */
 async function runScenario(app: TasksApp, page: DiscoveredPage, which: Which, o: { withB?: boolean } = {}): Promise<Ran> {
   const withB = o.withB ?? true;
-  const scenario = scenarioFor(page, which, withB);
+  return runPlanned(app, page, scenarioFor(page, which, withB), { withB });
+}
+
+/**
+ * Runs `scenario` as the runner would: on its own form of the page (formIndex), in a fresh CheckContext signed in as
+ * Account A, with Account B too when `withB`.
+ */
+async function runPlanned(app: TasksApp, page: DiscoveredPage, scenario: Scenario, o: { withB: boolean }): Promise<Ran> {
+  const withB = o.withB;
+  const form = page.forms[scenario.formIndex ?? 0];
+  if (!form) throw new Error(`the page has no form ${scenario.formIndex ?? 0} for ${scenario.id}`);
   const targetUrl = `${app.url}/app`;
   const dir = await mkdtemp(join(tmpdir(), "rh-write-access-"));
   dirs.push(dir);
   const ctx = createCheckContext({
     browser,
-    form: page.forms[0]!,
+    form,
     discoveredPage: page,
     targetUrl,
     artifactsDir: dir,
@@ -523,5 +552,144 @@ describe("write-access: restoring Account A's test record", () => {
     expect(ran.result.notes).not.toMatch(/could not be undone/i);
     const mine = await tasksOfA(app);
     expect(mine.find((t) => t.id === record.id)).toEqual({ id: record.id, title: record.title, done: record.done });
+  });
+});
+
+/** The run's own account and Account B, as planned by buildPlan (the ids the runner sees), for the write-access check. */
+const SIGNED_IN_WITH_B = { signedIn: true, otherAccount: true } as const;
+
+/**
+ * The write-access scenarios buildPlan makes for `page`, signed in with Account B. With `copies` > 1 the check is
+ * planned that many times, so later copies get the planner's collision ids ("write-access:write-access:…", "#<n>").
+ */
+function plannedScenarios(app: TasksApp, page: DiscoveredPage, copies = 1): Scenario[] {
+  const checks = Array.from({ length: copies }, () => check);
+  return buildPlan(`${app.url}/app`, page, checks, SIGNED_IN_WITH_B).scenarios.filter((s) => s.checkId === "write-access");
+}
+
+/**
+ * Asserts that `record` (a run's own test record) was saved by the planned scenario's own form: the "New errand" form
+ * (its create names list "errands") for a second form's id ("@form-2"), the "New task" form (no list) otherwise.
+ */
+function expectSavedByItsForm(id: string, record: Task): void {
+  expect(record.list, `${id}: the test record was saved by the scenario's own form`).toBe(/@form-2(?:#\d+)?$/.test(id) ? "errands" : undefined);
+}
+
+/** The planned scenario with id `id` (throws when the planner made none). */
+function planned(scenarios: Scenario[], id: string): Scenario {
+  const found = scenarios.find((s) => s.id === id);
+  if (!found) throw new Error(`the planner made no "${id}" scenario; it made ${scenarios.map((s) => s.id).join(", ")}`);
+  return found;
+}
+
+describe("write-access: who a scenario runs as comes from the scenario, on every form and under a collided id", () => {
+  it("decides it the way the runner decides whether Account B signs in, for every id the planner makes", async () => {
+    const { app, page } = await startTasks({ secondForm: true });
+    expect(page.forms.length).toBe(2);
+    const scenarios = plannedScenarios(app, page, 3);
+    expect(scenarios.map((s) => s.id)).toEqual(
+      expect.arrayContaining([
+        "write-access:other-account",
+        "write-access:signed-out",
+        "write-access:other-account@form-2",
+        "write-access:signed-out@form-2",
+        "write-access:write-access:other-account",
+        "write-access:write-access:other-account@form-2",
+        "write-access:write-access:other-account#2",
+        "write-access:write-access:other-account@form-2#2",
+        "write-access:write-access:signed-out#2",
+        "write-access:write-access:signed-out@form-2#2",
+      ]),
+    );
+    for (const s of scenarios) expect(identityOf(s), s.id).toBe(needsOtherAccount(s) ? "other" : "signed-out");
+    // An id that names neither identity is never given one by guessing.
+    for (const id of ["write-access:someone", "write-access:other-accounts", "write-access:other-account-copy", "write-access:signed-out-too"]) {
+      expect(identityOf({ ...scenarios[0]!, id }), id).toBeNull();
+    }
+  });
+
+  it("on the page's second form, other-account sends every write as Account B and signed-out with no session", async () => {
+    const { app, page } = await startTasks({ writes: "owner-only", sends: ["patch", "delete"], secondForm: true });
+    const scenarios = plannedScenarios(app, page);
+    for (const [id, caller] of [
+      ["write-access:other-account@form-2", "b"],
+      ["write-access:signed-out@form-2", null],
+    ] as const) {
+      const scenario = planned(scenarios, id);
+      expect(scenario.formIndex, id).toBe(1);
+      const ran = await runPlanned(app, page, scenario, { withB: true });
+      const record = ownRecord(ran);
+      expectSavedByItsForm(id, record);
+      const sent = writesByOthers(ran.requests);
+      // It really tried, on the second form's own test record, and only as the scenario's identity.
+      expect(sent.map((r) => r.method).sort(), `${id}: ${ran.result.notes}`).toEqual(["DELETE", "PATCH"]);
+      for (const r of sent) {
+        expect(callerOf(r), `${id}: ${r.method} ${r.url}`).toBe(caller);
+        expect(pathOf(r.url), id).toBe(`/api/tasks/${record.id}`);
+      }
+      expect(ran.result.status, `${id}: ${ran.result.notes}`).toBe("pass");
+      expect(ran.result.notes, id).toContain(caller === "b" ? "after Account B sent" : "after a signed-out visitor sent");
+    }
+    expect(app.appliedForOthers).toEqual([]);
+  });
+
+  it("under a collided id, on either form, the other-account scenario's writes go as Account B: its findings are Account B's", async () => {
+    const { app, page } = await startTasks({ writes: "unguarded", sends: ["patch"], secondForm: true });
+    const scenarios = plannedScenarios(app, page, 3);
+    for (const id of ["write-access:write-access:other-account#2", "write-access:write-access:other-account@form-2#2"]) {
+      const ran = await runPlanned(app, page, planned(scenarios, id), { withB: true });
+      const record = ownRecord(ran);
+      expectSavedByItsForm(id, record);
+      expect(writesByOthers(ran.requests).map(callerOf), `${id}: ${ran.result.notes}`).toEqual(["b"]);
+      expect(app.appliedForOthers, id).toContain(`PATCH ${record.id} by b`);
+      expect(ran.result.status, `${id}: ${ran.result.notes}`).toBe("fail");
+      expect(ran.result.findings.map((f) => f.title), id).toEqual(["Account B can change Account A's records"]);
+      expectWellFormedFinding(ran.result.findings[0]!, CRITICAL);
+      noSessionValues(ran.result);
+    }
+  });
+
+  it("without Account B, an other-account scenario on a later form or under a collided id is skipped (never run signed out); a signed-out one still runs", async () => {
+    const { app, page } = await startTasks({ writes: "unguarded", sends: ["patch", "delete"], secondForm: true });
+    const scenarios = plannedScenarios(app, page, 3);
+    for (const id of ["write-access:other-account@form-2", "write-access:write-access:other-account#2", "write-access:write-access:other-account@form-2#2"]) {
+      const ran = await runPlanned(app, page, planned(scenarios, id), { withB: false });
+      expect(ran.result.status, `${id}: ${ran.result.notes}`).toBe("skipped");
+      expect(ran.result.findings, id).toEqual([]);
+      expect(ran.result.notes, id).toMatch(/Account B/);
+      // Nothing was saved and nothing was sent as anyone but Account A.
+      expect(ran.created, id).toEqual([]);
+      expect(writesByOthers(ran.requests).map((r) => `${r.method} ${r.url}`), id).toEqual([]);
+    }
+    expect(app.appliedForOthers).toEqual([]);
+
+    // The signed-out scenario on a later form and under a collided id still runs, signed out, when Account B is missing.
+    // A fresh app per id: both are on the second form with the same salt, so they type the same values, and a record
+    // the first left behind would be found in the second's reads before its save (then skipped as Account A's own).
+    for (const id of ["write-access:signed-out@form-2", "write-access:write-access:signed-out@form-2#2"]) {
+      const clean = await startTasks({ writes: "owner-only", sends: ["patch", "delete"], secondForm: true });
+      const ran = await runPlanned(clean.app, clean.page, planned(plannedScenarios(clean.app, clean.page, 3), id), { withB: false });
+      const record = ownRecord(ran);
+      expectSavedByItsForm(id, record);
+      const sent = writesByOthers(ran.requests);
+      expect(sent.map((r) => r.method).sort(), `${id}: ${ran.result.notes}`).toEqual(["DELETE", "PATCH"]);
+      for (const r of sent) {
+        expect(callerOf(r), `${id}: ${r.method} ${r.url}`).toBeNull();
+        expect(pathOf(r.url), id).toBe(`/api/tasks/${record.id}`);
+      }
+      expect(ran.result.status, `${id}: ${ran.result.notes}`).toBe("pass");
+      expect(ran.result.notes, id).toContain("after a signed-out visitor sent");
+      expect(clean.app.appliedForOthers, id).toEqual([]);
+    }
+  });
+
+  it("a scenario whose id names neither identity is skipped: nothing is saved, nothing is sent as anyone", async () => {
+    const { app, page } = await startTasks({ writes: "unguarded", sends: ["patch", "delete"] });
+    const base = planned(plannedScenarios(app, page), "write-access:signed-out");
+    const ran = await runPlanned(app, page, { ...base, id: "write-access:someone" }, { withB: true });
+    expect(ran.result.status, ran.result.notes).toBe("skipped");
+    expect(ran.result.findings).toEqual([]);
+    expect(ran.created).toEqual([]);
+    expect(ran.requests.filter((r) => !["GET", "HEAD", "OPTIONS"].includes(r.method))).toEqual([]);
   });
 });

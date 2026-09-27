@@ -1,5 +1,5 @@
 import { isShipped } from "@/components/checks/check-card";
-import { aiFlowCheck, categories, notVisible, previewGroups, stageMeaning, type Stage } from "@/components/checks/data";
+import { aiFlowCheck, categories, notVisible, previewGroups, releaseAdded, stageMeaning, type Stage } from "@/components/checks/data";
 import {
   aiBuiltPage,
   coverage,
@@ -75,13 +75,12 @@ function howItWorks(): string {
 type PreviewCheck = (typeof previewGroups)[number]["checks"][number];
 
 /**
- * The release that added a check, named by its number (a stage is named only as a stage): the V0 checks came in 0.1.0,
- * the V1 checks in 0.2.0 and the V2 preview's in 0.4.0, except csrf in 0.5.0 (CHANGELOG.md, docs/signed-in-runs.md).
+ * The release that added a check, named by its number (a stage is named only as a stage; releaseAdded in
+ * components/checks/data.ts): the V0 checks came in 0.1.0, the V1 checks in 0.2.0 and the V2 preview's in 0.4.0,
+ * except csrf in 0.5.0 and write-access and paywall-trust in 0.6.0.
  */
-const stageRelease: Record<PreviewCheck["since"], string> = { V0: "0.1.0", V1: "0.2.0", V2: "0.4.0" };
-const laterRelease: Partial<Record<string, string>> = { csrf: "0.5.0" };
 const addedIn = (c: PreviewCheck) => {
-  const release = `since ${laterRelease[c.id] ?? stageRelease[c.since]}`;
+  const release = `since ${releaseAdded(c)}`;
   return c.since === "V2" ? `${site.preview}, ${release}` : release;
 };
 
@@ -106,7 +105,7 @@ function builtInChecks(): string {
   );
   return section(
     `The ${builtInTotal} built-in checks in release ${site.version}`,
-    `Every check in the current release, in the three groups the plan, the run and the report follow, in run order. Each check names the release that added it: 0.1.0 (the V0 stage), 0.2.0 (the V1 stage), or 0.4.0 and 0.5.0 (the ${site.preview}).`,
+    `Every check in the current release, in the three groups the plan, the run and the report follow, in run order. Each check names the release that added it: 0.1.0 (the V0 stage), 0.2.0 (the V1 stage), or 0.4.0, 0.5.0 and 0.6.0 (the ${site.preview}).`,
     ...groups,
     [
       `### ${aiFlowCheck.name} (optional)`,
@@ -175,14 +174,16 @@ function aiBuiltApps(): string {
 function signedIn(): string {
   return section(
     `Signed-in runs and access checks (${site.preview})`,
-    "Pages behind a sign-in can be tested signed in, as one of two test accounts you own on your app, A and B. Run Hound signs in with a fresh session at the start of each plan and run, and every check then runs signed in. Four V2 checks join the plan:",
+    "Pages behind a sign-in can be tested signed in, as one of two test accounts you own on your app, A and B. Run Hound signs in with a fresh session at the start of each plan and run, and every check then runs signed in. Six V2 checks join the plan:",
     bullets([
       "access-control (0.4.0): signed in as A, Run Hound finds A's data on the page. Can account B read it? Can a visitor who isn't signed in? It replays only the read requests (GET) that returned A's data.",
       "mass-assignment (0.4.0, unticked by default): does the server store role, isAdmin, plan, credits, verified and similar fields that the form never sends? It changes account A, then restores it, and says what it couldn't restore.",
       "deep-links (0.4.0): do the app's own pages load when opened directly (a reload, a shared link)? At most 10 links, never one that signs out, deletes or accepts an invitation.",
       "csrf (0.5.0, unticked by default): can a page on another site make A's browser change A's data? It writes only the test record it created in the same scenario, and puts it back. It needs the app on localhost or 127.0.0.1; on any other host name it is inconclusive, never a pass.",
+      "write-access (0.6.0, unticked by default): can account B, or a visitor who isn't signed in, change or delete A's records? It sends only the update and delete requests the app itself sent for the test record it created in the same scenario, re-reads the record as A, and puts it back.",
+      "paywall-trust (0.6.0, unticked by default): can A get a paid plan without paying? It opens the app's own success, upgraded and thank-you pages as A, with every request to a known payment provider blocked, and re-reads A's plan after each; a paid plan, more credits or more features is a finding. The only check that may change A's plan, which it puts back through the app's own cancel or downgrade control.",
     ]),
-    "Passwords, session cookies, tokens and usernames never appear in reports, evidence, specs, logs or AI prompts. Sign-in needs the app's own form with a username (or email) and a password on one page: verification codes, captchas, sign-in with Google or GitHub, and two-step sign-in pages aren't supported yet. The session must carry over to a new browser: cookies, localStorage and IndexedDB work (Supabase and Firebase keep their sessions there), a session kept only in sessionStorage doesn't.",
+    "Passwords, session cookies, tokens and usernames never appear in reports, evidence, specs, logs or AI prompts. Sign-in needs the app's own form with a username (or email) and a password: on one page, or (since 0.6.0) the email first and the password next, on the sign-in page's own site. Verification codes, captchas and sign-in with Google or GitHub aren't supported yet. The session must carry over to a new browser: cookies, localStorage, IndexedDB (Supabase and Firebase keep their sessions there) and, since 0.6.0, sessionStorage work; a session the app throws away when a page loads doesn't.",
   );
 }
 
@@ -212,7 +213,7 @@ function limitations(): string {
     "Known limitations",
     bullets([
       "One page at a time: up to 5 forms are tested and up to 20 controls outside them clicked; links are opened only to check they load. A page behind a login needs a test account.",
-      "Sign-in works with the app's own form and a password on one page only: not with Google or another provider, magic links, one-time codes, captchas, a sign-in split over two pages, or a session kept only in sessionStorage. csrf needs the app on localhost or 127.0.0.1; elsewhere it is inconclusive.",
+      "Sign-in works with the app's own form and a password, on one page or the email first and the password next: not with Google or another provider, magic links, one-time codes, captchas, a password page on another site, or a session the app throws away when a page loads. csrf needs the app on localhost or 127.0.0.1; elsewhere it is inconclusive.",
       "Dev servers don't send production headers: header, cookie and CORS findings on a dev server are advisory. For confirmed results, test a production build served on your machine.",
       "Unusual apps may still produce false findings: it has been tried on classic HTML forms, fetch-based single-page apps, login forms, forms whose API is on another origin and an app built the way AI builders build them (Fernway), but not on your stack.",
       "Docker has no visible browser window (--headed needs the install from source on a machine with a display); the web UI's live view works.",
@@ -229,7 +230,7 @@ function roadmap(): string {
     bullets([
       "V0: single form (shipped, 0.1.0).",
       "V1: single page (shipped: 0.2.0, optional AI in 0.3.0, apps from AI builders in 0.4.0).",
-      "V2: single feature (preview since 0.4.0): signed-in runs, access-control, mass-assignment and deep-links in 0.4.0, csrf in 0.5.0. Planned: write-access, paywall-trust and multi-page feature runs.",
+      "V2: single feature (preview since 0.4.0): signed-in runs, access-control, mass-assignment and deep-links in 0.4.0, csrf in 0.5.0. Built in 0.6.0: write-access (can account B, or a visitor who isn't signed in, change or delete A's records, with the update and delete requests the app itself sends) and paywall-trust (can A get a paid plan without paying: a success page that grants it on load; the only check that may change A's plan, which it puts back through the app's own cancel control); sign-in that asks for the email first and the password next, and sessions kept in sessionStorage. Planned: feature testing across pages (a feature named by the user, such as signup or checkout, tested end to end across its pages), the rest of the V2 stage; the two other paywall-trust probes (a checkout replayed with a changed price or plan, and the APIs only paid accounts use); and opt-in, throttled checks for rate limits, file upload and prompt injection in LLM features.",
       "V3: whole app (planned): dead-link crawl, cross-browser runs, Core Web Vitals, SEO and social previews.",
       "V4: live staging, behind ownership verification (planned: 1.0.0).",
     ]),

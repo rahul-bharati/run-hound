@@ -1,6 +1,6 @@
 // The release this site describes. It must equal app/package.json: the release workflow (release-images.yml,
 // check-version) fails when they differ.
-const version = "0.5.0";
+const version = "0.6.0";
 // Download links (curl) are pinned to the release tag, so the compose file always names the images of this release.
 const tag = `v${version}`;
 const raw = (path: string) => `https://raw.githubusercontent.com/rahul-bharati/run-hound/${tag}/${path}`;
@@ -25,16 +25,16 @@ export const site = {
   // in 0.1.0, V1 (single page) in 0.2.0 to 0.4.0, V2 is in preview since 0.4.0, V3 is planned, and V4 is planned as
   // 1.0.0, with 0.9.9, right before it, the `npx run-hound` release. The open-source page and docs/roadmap.md list
   // them. `preview` is the stage in preview, named as the web UI and reports name it: test accounts and signed-in
-  // runs, access checks, mass assignment and deep links since 0.4.0 (docs/v2-spec.md), and the CSRF check (csrf)
-  // since 0.5.0.
+  // runs, access checks, mass assignment and deep links since 0.4.0 (docs/v2-spec.md), the CSRF check (csrf) since
+  // 0.5.0, and write-access, paywall-trust and two-step and sessionStorage sign-in since 0.6.0.
   preview: "V2 preview",
   previewName: "Signed-in runs and access checks",
   version,
   tag,
-  // The day `version` was released (its tag), as displayed and machine-readable: "Release 0.5.0 · 26 September 2026"
+  // The day `version` was released (its tag), as displayed and machine-readable: "Release 0.6.0 · 27 September 2026"
   // in the footer, dateModified in the structured data and lastModified in sitemap.xml. Update both with every release.
-  released: "26 September 2026",
-  releasedIso: "2026-09-26",
+  released: "27 September 2026",
+  releasedIso: "2026-09-27",
   // Label for the main call to action, used in the header, heroes and page footers.
   cta: "Try it locally",
   // `||`, not `??`: Docker passes an unset build arg as an empty string. A production build needs the real address

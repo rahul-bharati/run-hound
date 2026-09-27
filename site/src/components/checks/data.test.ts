@@ -3,7 +3,7 @@
 // (/checks/#double-submit); these ids must stay unique and stable.
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { aiFlowCheck, builtInChecks, categories, previewGroups } from "@/components/checks/data";
+import { aiFlowCheck, builtInChecks, categories, previewGroups, releaseAdded } from "@/components/checks/data";
 
 /** A fragment that reads well in a URL: lower case, digits and single hyphens. */
 const anchor = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -59,5 +59,29 @@ describe("builtInChecks", () => {
 
   test("leaves out the AI-suggested flows, which aren't counted with them", () => {
     assert.ok(!builtInChecks.some((c) => c.id === aiFlowCheck.id));
+  });
+});
+
+describe("the release that added each built-in check", () => {
+  const byId = new Map(builtInChecks.map((c) => [c.id, c]));
+  const releaseOf = (id: string) => {
+    const check = byId.get(id);
+    assert.ok(check, id);
+    return releaseAdded(check);
+  };
+
+  test("names the release, never the stage: V0 in 0.1.0, V1 in 0.2.0, the V2 preview in 0.4.0, 0.5.0 and 0.6.0", () => {
+    assert.equal(releaseOf("double-submit"), "0.1.0");
+    assert.equal(releaseOf("security-headers"), "0.2.0");
+    assert.equal(releaseOf("access-control"), "0.4.0");
+    assert.equal(releaseOf("mass-assignment"), "0.4.0");
+    assert.equal(releaseOf("deep-links"), "0.4.0");
+    assert.equal(releaseOf("csrf"), "0.5.0");
+    assert.equal(releaseOf("write-access"), "0.6.0");
+    assert.equal(releaseOf("paywall-trust"), "0.6.0");
+  });
+
+  test("every built-in check has one, a release number", () => {
+    for (const c of builtInChecks) assert.match(releaseAdded(c), /^0\.\d+\.0$/, c.id);
   });
 });

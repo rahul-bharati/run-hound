@@ -195,19 +195,25 @@ export default function AiBuiltAppsPage() {
           <p>
             Give the sign-in page the same host name as the page you test, for example{" "}
             <code className={code}>http://host.docker.internal:5173/login</code>. Sessions kept in cookies,
-            localStorage or IndexedDB carry over, which is where Supabase and Firebase keep theirs; a session kept only
-            in sessionStorage doesn&apos;t.
+            localStorage or IndexedDB carry over, which is where Supabase and Firebase keep theirs, and since 0.6.0 so do
+            sessions kept in sessionStorage, and a sign-in that asks for the email first and the password next. A
+            session the app throws away when a page loads doesn&apos;t.
           </p>
           <p>
             Signed in as A, the access checks ask whether account B, or a visitor who isn&apos;t signed in, can read
             A&apos;s data (<code className={code}>access-control</code>), and whether the server stores fields such as{" "}
             <code className={code}>role</code> or <code className={code}>plan</code> that the form never sends (
-            <code className={code}>mass-assignment</code>). The CSRF check needs the app on localhost or 127.0.0.1, so
+            <code className={code}>mass-assignment</code>). The write-side checks, unticked by default, change A&apos;s
+            data on purpose and put it back: can a page on another site change it (<code className={code}>csrf</code>),
+            can account B or a signed-out visitor change or delete A&apos;s records (
+            <code className={code}>write-access</code>), and can A get a paid plan without paying (
+            <code className={code}>paywall-trust</code>). The CSRF check needs the app on localhost or 127.0.0.1, so
             run it with the host network (Linux) or from source.
           </p>
           <p>
             The signed-in checks (<code className={code}>access-control</code>,{" "}
-            <code className={code}>mass-assignment</code> and <code className={code}>csrf</code>) send requests only to
+            <code className={code}>mass-assignment</code>, <code className={code}>csrf</code>,{" "}
+            <code className={code}>write-access</code> and <code className={code}>paywall-trust</code>) send requests only to
             your app&apos;s own address or an API on a local address. A hosted backend, such as a Supabase project on
             supabase.co, is neither, so an app that calls it straight from the browser gets those checks skipped.
             Checking Supabase row-level security directly is in the{" "}

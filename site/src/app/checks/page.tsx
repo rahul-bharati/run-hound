@@ -133,7 +133,7 @@ export default function ChecksPage() {
             </span>
           </>
         }
-        intro={`Run Hound tests one page of your local app. It finds the forms and controls on it, plans the form checks for each form plus the page-wide checks, and the plan, the run and the report all follow the same three groups. The ${v2Total} checks tagged V2 preview arrived in 0.4.0 and 0.5.0; ${signedInTotal} of them need a signed-in run. With AI on, one optional check joins them: AI-suggested flows. Every pass and fail comes from a real check in a real browser, with evidence.`}
+        intro={`Run Hound tests one page of your local app. It finds the forms and controls on it, plans the form checks for each form plus the page-wide checks, and the plan, the run and the report all follow the same three groups. The ${v2Total} checks tagged V2 preview arrived in 0.4.0, 0.5.0 and 0.6.0; ${signedInTotal} of them need a signed-in run. With AI on, one optional check joins them: AI-suggested flows. Every pass and fail comes from a real check in a real browser, with evidence.`}
       >
         <div className="grid gap-5 lg:grid-cols-3">
           {previewGroups.map((g) => (

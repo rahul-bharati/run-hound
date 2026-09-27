@@ -181,7 +181,7 @@ describe("inner page nodes", () => {
     });
     assert.equal(article["@type"], "TechArticle");
     assert.equal(article["@id"], `${base}/docs/#article`);
-    assert.equal(article.dateModified, "2026-09-26");
+    assert.equal(article.dateModified, "2026-09-27");
     assert.deepEqual(article.mainEntityOfPage, { "@id": `${base}/docs/#webpage` });
     assert.deepEqual(article.isPartOf, { "@id": `${base}/docs/#webpage` });
     assert.deepEqual(article.author, { "@id": `${base}/#maintainer` });

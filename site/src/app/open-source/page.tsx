@@ -61,7 +61,7 @@ const roadmap: RoadmapStage[] = [
     status: "preview",
     release: "Since 0.4.0",
     summary: "Give it a feature such as signup or checkout and it tests that feature end to end across pages.",
-    adds: `A preview ships in 0.4.0: test accounts and signed-in runs, access checks (can another account, or a visitor who isn't signed in, read your data?), mass assignment and deep links. 0.5.0 adds the CSRF check: can another website change your data? Still planned: checks that another account or a visitor can't change your data and that a paid plan needs a payment, testing a feature across pages, rate limits, file uploads and prompt injection.`,
+    adds: `A preview ships in 0.4.0: test accounts and signed-in runs, access checks (can another account, or a visitor who isn't signed in, read your data?), mass assignment and deep links. 0.5.0 adds the CSRF check: can another website change your data? 0.6.0 adds write access (can another account or a visitor change or delete your data?) and paywall trust (can a free account get the paid plan without paying?), and sign-in on pages that ask for the email first and with sessions kept in sessionStorage. Still planned: testing a feature across pages, the other two paid-plan probes, rate limits, file uploads and prompt injection.`,
   },
   {
     stage: "V3",
@@ -195,8 +195,8 @@ export default function OpenSourcePage() {
         intro={
           <>
             V0 to V4 are stages of what Run Hound can test, from one form to a live staging site; they are not version
-            numbers. V0 and V1 have shipped, and V2 is in preview: 0.4.0 and 0.5.0 add signed-in runs, access checks
-            and a CSRF check. The rest of V2, the whole app (V3) and live staging (V4) are planned. Releases stay 0.x
+            numbers. V0 and V1 have shipped, and V2 is in preview: 0.4.0, 0.5.0 and 0.6.0 add signed-in runs, access
+            checks, a CSRF check, write access and paywall trust. The rest of V2, the whole app (V3) and live staging (V4) are planned. Releases stay 0.x
             while the stages are built: 1.0.0 is the release that completes V4, and 0.9.9, right before it, is the{" "}
             <code className="font-mono text-base text-fg">npx run-hound</code> release.
           </>

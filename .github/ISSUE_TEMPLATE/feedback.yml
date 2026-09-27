@@ -1,5 +1,5 @@
 name: Feedback
-description: Tell us how Run Hound 0.5.0 did on your app (a wrong finding, a bug it missed, a crash, or something confusing).
+description: Tell us how Run Hound 0.6.0 did on your app (a wrong finding, a bug it missed, a crash, or something confusing).
 title: "[Feedback] "
 body:
   - type: markdown
@@ -17,6 +17,7 @@ body:
         - "Missed bug: a real problem Run Hound didn't report"
         - "Crash or error: the run stopped, errored or never finished"
         - "Confusing: a message, report or step I didn't understand"
+        - "Data not put back: a write-side check left account A changed"
         - "It worked: a clean or useful run (tell us about it!)"
         - Something else
     validations:
@@ -29,7 +30,8 @@ body:
         - "Form checks (a form on the page)"
         - "Page-wide checks (buttons outside forms, headers, cookies, CORS, source maps)"
         - "Signed-in runs and access checks (0.4.0, V2 preview: access-control, mass-assignment, deep-links)"
-        - "CSRF check (0.5.0, V2 preview)"
+        - "Signing in (a test account that won't sign in, including two-step and sessionStorage sign-in since 0.6.0)"
+        - "Write-side checks (V2 preview: csrf since 0.5.0, write-access and paywall-trust since 0.6.0)"
         - "AI features (plan review, suggested flows, explanations)"
         - Install, Docker or the test lab
         - The report or the web UI
@@ -40,8 +42,8 @@ body:
     id: version
     attributes:
       label: Run Hound version
-      description: "`docker run --rm ghcr.io/rahul-bharati/run-hound:0.5.0 --version`, `pnpm exec tsx src/cli.ts --version` in `app/` from source, or `runHoundVersion` in report.json."
-      placeholder: run-hound 0.5.0
+      description: "`docker run --rm ghcr.io/rahul-bharati/run-hound:0.6.0 --version`, `pnpm exec tsx src/cli.ts --version` in `app/` from source, or `runHoundVersion` in report.json."
+      placeholder: run-hound 0.6.0
     validations:
       required: true
   - type: input

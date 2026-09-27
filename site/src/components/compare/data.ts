@@ -150,7 +150,7 @@ export const capabilities: readonly { capability: string; runHound: string; cell
   },
   {
     capability: "Access checks, signed in as test accounts you own",
-    runHound: `Who can read your data, mass assignment and CSRF (${site.preview})`,
+    runHound: `Who can read or change your data, mass assignment, CSRF and paid plans without a payment (${site.preview})`,
     cells: {
       playwright: { mark: "no", text: "No security lens" },
       a11y: { mark: "no", text: "Accessibility rules only" },
@@ -205,8 +205,8 @@ export const capabilities: readonly { capability: string; runHound: string; cell
 export const notYet: readonly string[] = [
   "Test a deployed or public site: testing live staging sites behind ownership verification is planned for the V4 stage, which the 1.0.0 release completes.",
   "Test a feature across several pages: each run tests one page, and multi-page feature runs are planned for the V2 stage.",
-  "Check that another account, or a visitor who isn't signed in, can't change or delete your data (write-access), or that an account can't get a paid plan without paying (paywall-trust): both are planned.",
-  "Sign in with verification codes, captchas, Google or GitHub accounts, a sign-in split over two pages, or a session kept only in sessionStorage.",
+  "Replay a checkout with a changed price or plan, or call the APIs only paid accounts use: the paid-plan check opens success pages only, and these two probes are planned.",
+  "Sign in with verification codes, captchas, Google or GitHub accounts, or a password page on another site.",
   "Certify accessibility compliance: it reports WCAG failures.",
 ];
 

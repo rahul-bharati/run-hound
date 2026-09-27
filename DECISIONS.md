@@ -65,3 +65,6 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-09-27: [paywall-trust may change Account A's plan to test it, restores it through the app, and ships with the success-page probe only](docs/decisions/09-2026.md#2026-09-27-paywall-trust-changes-and-restores-the-plan)
 - 2026-09-27: [write-access only replays the update and delete requests the app itself sent](docs/decisions/09-2026.md#2026-09-27-write-access-observed-requests-only)
 - 2026-09-27: [Sign-in handles email-then-password pages and sessionStorage sessions, and Fernway gains modes for both](docs/decisions/09-2026.md#2026-09-27-two-step-and-sessionstorage-sign-in)
+- 2026-09-27: [paywall-trust confirms only a gain, never any change to the plan](docs/decisions/09-2026.md#2026-09-27-paywall-trust-confirms-only-a-gain)
+- 2026-09-27: [The write-side checks hold the form's own save in the page and stop one that would change a record Account A already had](docs/decisions/09-2026.md#2026-09-27-form-save-held-before-it-reaches-the-app)
+- 2026-09-27: [paywall-trust confirms a credits-only gain with a quiet re-read, and a named trial of a paid tier is never a gain](docs/decisions/09-2026.md#2026-09-27-paywall-trust-quiet-reread-and-trials)

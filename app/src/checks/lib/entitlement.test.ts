@@ -10,6 +10,7 @@ import {
   ENTITLEMENT_KEYS,
   changedEntitlement,
   findEntitlement,
+  gainedEntitlement,
   isPaid,
   rereadEntitlement,
   type EntitlementSnapshot,
@@ -297,6 +298,63 @@ describe("entitlement: changedEntitlement compares structurally", () => {
   it("names every changed field", () => {
     const names = changedEntitlement({ plan: "free", credits: 0, role: "member" }, { plan: "pro", credits: 1000, role: "member" });
     expect([...names].sort()).toEqual(["credits", "plan"]);
+  });
+});
+
+describe("entitlement: gainedEntitlement names only what Account A gained (the verdict counts a gain, never any change)", () => {
+  it("counts a move to a paid plan: plan or tier no longer free, an active paid subscription, isPro or pro turned true", () => {
+    expect(gainedEntitlement({ plan: "free", role: "member" }, { plan: "pro", role: "member" })).toEqual(["plan"]);
+    expect(gainedEntitlement({ tier: "free" }, { tier: "business" })).toEqual(["tier"]);
+    expect(gainedEntitlement({ subscription: null }, { subscription: { status: "active", plan: "pro" } })).toEqual(["subscription"]);
+    expect(gainedEntitlement({ isPro: false }, { isPro: true })).toEqual(["isPro"]);
+    expect(gainedEntitlement({ "user.pro": false }, { "user.pro": "true" })).toEqual(["user.pro"]);
+    expect(gainedEntitlement({ plan: "free" }, { plan: "free", isPro: true })).toEqual(["isPro"]);
+  });
+
+  it("counts credits that went up (from none too), and entitlements or features that gained an entry", () => {
+    expect(gainedEntitlement({ plan: "free", credits: 0 }, { plan: "free", credits: 500 })).toEqual(["credits"]);
+    expect(gainedEntitlement({ credits: null }, { credits: 100 })).toEqual(["credits"]);
+    expect(gainedEntitlement({ plan: "free" }, { plan: "free", credits: 100 })).toEqual(["credits"]);
+    expect(gainedEntitlement({ "account.credits": "10" }, { "account.credits": "25" })).toEqual(["account.credits"]);
+    expect(gainedEntitlement({ entitlements: ["basic"] }, { entitlements: ["basic", "export"] })).toEqual(["entitlements"]);
+    expect(gainedEntitlement({ features: { export: false, api: false } }, { features: { export: true, api: false } })).toEqual(["features"]);
+    expect(gainedEntitlement({ features: { seats: 1 } }, { features: { seats: 10 } })).toEqual(["features"]);
+    expect(gainedEntitlement({ features: [] }, { features: ["sso"] })).toEqual(["features"]);
+    expect(gainedEntitlement({ features: null }, { features: { sso: true } })).toEqual(["features"]);
+  });
+
+  it("names nothing for a change that gives Account A nothing: credits spent, a free plan moved to a trial, a role, a lost entry", () => {
+    expect(gainedEntitlement({ plan: "free", credits: 45 }, { plan: "free", credits: 44 })).toEqual([]);
+    expect(gainedEntitlement({ plan: "free" }, { plan: "trial" })).toEqual([]);
+    expect(gainedEntitlement({ plan: "free" }, { plan: "Free trial" })).toEqual([]);
+    expect(gainedEntitlement({ subscription: null }, { subscription: { status: "trialing" } })).toEqual([]);
+    expect(gainedEntitlement({ role: "member" }, { role: "admin" })).toEqual([]);
+    expect(gainedEntitlement({ entitlements: ["basic", "export"] }, { entitlements: ["basic"] })).toEqual([]);
+    expect(gainedEntitlement({ entitlements: ["a", "b"] }, { entitlements: ["b", "a"] })).toEqual([]);
+    expect(gainedEntitlement({ features: { export: true } }, { features: { export: false } })).toEqual([]);
+    expect(gainedEntitlement({ isPro: true }, { isPro: false })).toEqual([]);
+    expect(gainedEntitlement({ credits: 5 }, { credits: "five" })).toEqual([]);
+    expect(gainedEntitlement({ plan: "free", credits: 3 }, { plan: "free", credits: 3 })).toEqual([]);
+  });
+
+  it("names nothing when a free plan moves to a named trial of a paid tier: the trial starting is not a paid plan", () => {
+    expect(gainedEntitlement({ plan: "free" }, { plan: "pro_trial" })).toEqual([]);
+    expect(gainedEntitlement({ plan: "free" }, { plan: "Pro trial" })).toEqual([]);
+    expect(gainedEntitlement({ plan: "free" }, { plan: "trial-pro" })).toEqual([]);
+    expect(gainedEntitlement({ plan: "free" }, { plan: "pro", subscription: { status: "trialing" } })).toEqual([]);
+    expect(gainedEntitlement({ plan: "free", subscription: null }, { plan: "pro", subscription: { status: "trialing" } })).toEqual([]);
+    expect(gainedEntitlement({ tier: "free" }, { tier: { name: "Pro", status: "trialing" } })).toEqual([]);
+    expect(gainedEntitlement({ plan: "free", isPro: false }, { plan: "pro_trial", isPro: true })).toEqual([]);
+    // isPaid itself is unchanged: a named trial of a paid tier still makes the before-state skip, the safe side.
+    expect(isPaid({ plan: "pro_trial" })).toBe(true);
+    // A trial that ends in a paid plan is still a gain.
+    expect(gainedEntitlement({ plan: "pro_trial" }, { plan: "pro" })).toEqual(["plan"]);
+    expect(gainedEntitlement({ plan: "trial" }, { plan: "pro" })).toEqual(["plan"]);
+  });
+
+  it("names only the fields that gained when a gain comes with other changes", () => {
+    expect(gainedEntitlement({ plan: "free", credits: 45, role: "member" }, { plan: "pro", credits: 44, role: "owner" })).toEqual(["plan"]);
+    expect([...gainedEntitlement({ plan: "free", credits: 0 }, { plan: "pro", credits: 1000 })].sort()).toEqual(["credits", "plan"]);
   });
 });
 

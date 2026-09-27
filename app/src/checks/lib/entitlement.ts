@@ -233,6 +233,85 @@ export function changedEntitlement(before: Record<string, unknown>, after: Recor
   });
 }
 
+/** The last part of a dotted field name, lower-case (`user.isPro` → "ispro"). */
+const fieldName = (field: string) => (field.split(".").pop() ?? field).toLowerCase();
+/** Fields that say which plan the account is on (isPaid reads them). */
+const PLAN_FIELDS = new Set(["plan", "tier", "subscription", "ispro", "pro"]);
+
+/** A number, or a string that is one ("25"); null for anything else. */
+function numberOf(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string" && /^\s*-?\d+(\.\d+)?\s*$/.test(value)) return Number(value);
+  return null;
+}
+
+/** True when a flag, limit or entry is on: true, a positive number, a string that isn't "off", or a non-empty list or object. */
+function enabled(value: unknown): boolean {
+  if (value === true) return true;
+  const n = numberOf(value);
+  if (n !== null) return n > 0;
+  if (typeof value === "string") return value.trim() !== "" && !/^(false|no|off|none|disabled|null)$/i.test(value.trim());
+  if (Array.isArray(value)) return value.length > 0;
+  if (isObject(value)) return Object.keys(value).length > 0;
+  return false;
+}
+
+/**
+ * True when a list or map of entitlements or features holds more than before: a list entry it didn't hold, or a key
+ * whose flag turned on or whose limit went up. A list in another order, an entry taken away or a flag turned off is not.
+ */
+function entriesGained(before: unknown, after: unknown): boolean {
+  if (Array.isArray(after)) {
+    const had = Array.isArray(before) ? before : [];
+    return after.some((item) => !had.some((old) => sameJson(old, item)));
+  }
+  if (isObject(after)) {
+    const had = isObject(before) ? before : {};
+    return Object.entries(after).some(([k, v]) => {
+      const was = had[k];
+      const from = numberOf(was);
+      const to = numberOf(v);
+      if (from !== null && to !== null) return to > from;
+      return enabled(v) && !enabled(was);
+    });
+  }
+  return false;
+}
+
+/**
+ * The fields in which Account A gained something between the snapshot and a re-read (0.6.0 verdict, docs/v2-spec.md
+ * "`paywall-trust` amendments"): the plan fields that made it a paid plan (isPaid after and not before, or isPro/pro
+ * turned true), credits that went up (from none too), and entitlements or features that gained an entry. Empty when
+ * nothing was gained: credits spent, a free plan moved to a trial, a role, a date or a lost entry are changes, never a
+ * grant.
+ */
+export function gainedEntitlement(before: Record<string, unknown>, after: Record<string, unknown>): string[] {
+  const changed = changedEntitlement(before, after);
+  // A free plan moved to a trial, a named one of a paid tier too ("pro_trial", "Pro trial", {plan: "pro", subscription:
+  // {status: "trialing"}}), is the trial starting, never a paid plan: nothing it brings counts as a grant. isPaid still
+  // reads such a name as paid, so a before-state on a trial skips probing (the safe side).
+  if (onTrial(after) && !onTrial(before)) return [];
+  // A trial before is not a paid plan either: a trial moved to a paid plan with no payment is a gain.
+  const paidNow = isPaid(after) && !(isPaid(before) && !onTrial(before));
+  return changed.filter((field) => {
+    const name = fieldName(field);
+    const was = before[field];
+    const now = after[field];
+    if (name === "ispro" || name === "pro") {
+      const on = (v: unknown) => v === true || (typeof v === "string" && v.trim().toLowerCase() === "true");
+      if (on(now) && !on(was)) return true;
+    }
+    if (PLAN_FIELDS.has(name)) return paidNow;
+    if (name === "credits") {
+      const to = numberOf(now);
+      const from = was === null || was === undefined ? 0 : numberOf(was);
+      return to !== null && from !== null && to > from;
+    }
+    if (name === "entitlements" || name === "features") return entriesGained(was, now);
+    return false;
+  });
+}
+
 /**
  * Plan names that mean nothing was paid (compared lower-case, with "-"/"_" as spaces and the words "plan"/"tier"
  * left out), including the common names of free tiers ("Hobby", "Community", "Free forever"). Any other name counts
@@ -339,6 +418,32 @@ function subscriptionState(value: unknown, depth = 0): "paid" | "free" | "unclea
     return ACTIVE.test(status) ? "paid" : "unclear";
   }
   return "free";
+}
+
+/** A plan name or state that says trial ("trial", "Pro trial", "pro_trial", "trial-pro", "trialing", "on trial"). */
+const TRIAL_WORD = /\btrial(l?ing)?\b/;
+
+/** True when a plan, tier or subscription value says it is a trial: its name, or its status or state. */
+function trialValue(value: unknown, depth = 0): boolean {
+  if (typeof value === "string") return TRIAL_WORD.test(normPlan(value));
+  if (depth > MAX_DEPTH) return false;
+  if (Array.isArray(value)) return value.some((v) => trialValue(v, depth + 1));
+  if (!isObject(value)) return false;
+  const status = statusOf(value);
+  if (status !== null && TRIAL_WORD.test(status)) return true;
+  const name = planName(value);
+  return name !== null && TRIAL_WORD.test(normPlan(name));
+}
+
+/**
+ * True when the values say Account A is on a trial: a plan or tier whose name says trial, or a subscription whose name,
+ * status or state does (`trialing`), of the same account.
+ */
+function onTrial(values: Record<string, unknown>): boolean {
+  return Object.entries(values).some(([key, value]) => {
+    const name = (key.split(".").pop() ?? key).toLowerCase();
+    return (name === "plan" || name === "tier" || name === "subscription") && trialValue(value);
+  });
 }
 
 /**
