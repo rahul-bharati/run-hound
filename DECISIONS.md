@@ -62,3 +62,6 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-09-27: [The site lets AI crawlers and answer engines read it, and publishes /llms.txt and /llms-full.txt](docs/decisions/09-2026.md#2026-09-27-ai-crawlers-allowed)
 - 2026-09-27: [The site keeps Next's standalone output; tab images are preloaded and the image cache is warmed in the Docker build](docs/decisions/09-2026.md#2026-09-27-site-images-warm-and-preload)
 - 2026-09-27: [The site describes Run Hound for search engines and AI assistants from its own data, and the build fails when that breaks](docs/decisions/09-2026.md#2026-09-27-site-seo-geo)
+- 2026-09-27: [paywall-trust may change Account A's plan to test it, restores it through the app, and ships with the success-page probe only](docs/decisions/09-2026.md#2026-09-27-paywall-trust-changes-and-restores-the-plan)
+- 2026-09-27: [write-access only replays the update and delete requests the app itself sent](docs/decisions/09-2026.md#2026-09-27-write-access-observed-requests-only)
+- 2026-09-27: [Sign-in handles email-then-password pages and sessionStorage sessions, and Fernway gains modes for both](docs/decisions/09-2026.md#2026-09-27-two-step-and-sessionstorage-sign-in)

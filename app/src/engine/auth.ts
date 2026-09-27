@@ -26,6 +26,13 @@ export interface SignedIn {
    * runner registers them as literal secrets together with the password.
    */
   secrets: string[];
+  /**
+   * sessionStorage items the app kept after signing in (0.6.0, docs/v2-spec.md "Sign-in: two-step and
+   * sessionStorage"), per origin: the sign-in origin and the landing origin. Every new browser context for this identity
+   * seeds them before any page script runs. Absent when the app keeps nothing there. Token-like values are also in
+   * `secrets`.
+   */
+  sessionStorage?: { origin: string; items: { name: string; value: string }[] }[];
 }
 
 /** Sign-in failed; the message is one or two plain sentences for the CLI, the API and the UI. Never holds the password. */

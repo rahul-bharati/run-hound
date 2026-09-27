@@ -290,9 +290,9 @@ so every page that carries another bug still loads directly and can be planned w
 
 ## 0.5.0: write-side checks
 
-**Status: 0.5.0 ships `csrf` only.** `write-access` and `paywall-trust` are specified below but not built: they are
-planned for a later release, and are not registered `CheckId`s. Fernway's V06, V07 and V09 are already planted for
-them; the acceptance suite skips a bug whose check isn't built.
+**Status: 0.5.0 shipped `csrf` only.** `write-access` and `paywall-trust` are specified below and built in 0.6.0,
+with the amendments in [0.6.0: write-side checks and sign-in](#060-write-side-checks-and-sign-in), which win where
+they differ.
 
 The second V2 slice adds three checks that use accounts A and B to test **writes**, not reads. Everything above still
 holds. These three checks change data in account A, so each one follows the safety rules below. The acceptance suite
@@ -461,3 +461,140 @@ Built in this order; each step owns the files named and touches no others.
 - Kennel and the samples: the new checks plan nothing, or skip with a reason. No existing golden file changes.
 - The password grep covers the run folders of the new checks too: no report, log, evidence or spec holds either
   password, a session cookie value or a CSRF token.
+
+## 0.6.0: write-side checks and sign-in
+
+**Status: in progress (branch `feat/0.6.0`).** 0.6.0 builds `write-access` and `paywall-trust` as specified in
+[0.5.0: write-side checks](#050-write-side-checks), with the amendments below, adds two sign-in forms that 0.5.0
+refuses, and gets Run Hound ready for live alpha testers. Decisions: [scope](decisions/09-2026.md#2026-09-27-0-6-0-scope),
+[paywall-trust](decisions/09-2026.md#2026-09-27-paywall-trust-changes-and-restores-the-plan),
+[write-access](decisions/09-2026.md#2026-09-27-write-access-observed-requests-only),
+[sign-in](decisions/09-2026.md#2026-09-27-two-step-and-sessionstorage-sign-in).
+
+### Registration (0.6.0)
+
+```ts
+CHECK_IDS += "write-access", "paywall-trust"   // after "csrf"; V2_CHECK_IDS gains both
+// report.ts: the checks a report lists as "nothing to test on this page" depend on the release that wrote it:
+// csrf from 0.5, write-access and paywall-trust from 0.6; all three only on a signed-in run.
+// app/src/checks/lib/entitlement.ts (paywall-trust only): find, snapshot and re-read Account A's plan (below).
+```
+
+Both checks: group Security, `defaultSelected: false`, `destructive: false`, an `interruptedNote` asking the user to
+check Account A. `write-access` has form scope; `paywall-trust` has page scope.
+
+### `write-access` amendments
+
+- **Observed requests only.** The update and delete requests are only those the app itself sent for the run's test
+  record. The unfinished draft's fallback (a made-up `PATCH <save URL>/<id>`, "proven as A first") is not used. With no
+  observed update and no observed DELETE the scenario is skipped: "The app showed no update or delete for its test
+  record, so there is nothing to try as <identity>."
+- **Distinct markers.** Each probe writes a fresh run-token value that can't be confused with the value the record was
+  created with or with another scenario's marker (the lesson from `csrf`). A clean server that ignores the write
+  passes.
+- Everything else as in `write-access` above: A creates the record, snapshot, each observed update as the scenario's
+  identity, DELETE last and only when the app showed one, verdict from a re-read as A, restore, notes.
+
+### `paywall-trust` amendments
+
+- **Exception to "only the run's own test record".** `paywall-trust` may change **Account A's entitlement** (plan,
+  role, credits, entitlements) and nothing else. It snapshots them before any probe and restores them after (below),
+  and the scenario is never a pass while a restore note stands. Every other rule of the safety contract holds.
+- **Entitlement endpoint.** A GET the app itself makes as A (while loading the page under test) whose JSON describes the
+  signed-in account and holds a plan/entitlement field (`plan`, `tier`, `subscription`, `isPro`, `pro`, `credits`,
+  `entitlements`, `features`, `role`). None → skipped ("No plan or entitlement data was found, so this can't be
+  checked"). A already on a paid plan → skipped ("Account A already has a paid plan …").
+- **0.6.0 probe: a success page that grants on load.** As A, in A's own browser context with the navigation guard on,
+  open each candidate route and let the page run as it would for a visitor; then re-read the entitlement as A.
+  Candidates, same origin only, at most 10: links on the page under test and the pages it links to whose path or text
+  names a success or upgrade result (`upgraded`, `success`, `thank-you`, `thanks`, `welcome`, `activated`,
+  `confirmed`, together with a billing word or under a billing, checkout, plan or upgrade path), then the conventional
+  paths `/upgraded`, `/app/upgraded`, `/success`, `/checkout/success`, `/billing/success`, `/payment/success`,
+  `/thank-you`, `/thanks`, `/app/billing/success`. A route that answers 404 or redirects to sign-in is skipped. Run
+  Hound itself sends no request other than these page loads and the re-reads; whatever the page sends on load is the
+  app's own behaviour, and requests to a payment provider are blocked by the guard and listed as "blocked (payment
+  provider)".
+- **Verdict.** The entitlement differs from the snapshot after a probe: **critical**, confirmed, "Account A got a paid
+  plan without paying", naming the route. Page text alone ("Pro", "You're upgraded") with no entitlement change is at
+  most **advisory**.
+- **Restore.** When a probe changed the entitlement, go back through the app's own UI: on the page under test, or the
+  app's billing or settings page among its links, click a control whose name says it cancels or downgrades the plan
+  ("Cancel plan", "Cancel subscription", "Downgrade", "Switch to Free"), follow a confirmation the app asks for, then
+  re-read. This is the only place any check clicks such a control, and only to undo its own scenario's change, as A,
+  with the guard on (a click that heads for a payment provider is blocked, and the restore counts as failed). When the
+  entitlement still differs, the notes say "Account A's plan is still <value>: check Account A".
+- **Not in 0.6.0 (known limits):** the client-sent price/plan replay (it would start a checkout, which on a real app
+  reaches the payment provider through the app's server, and no fixture bug proves it) and the paid-feature API probe (a
+  free account never sees the paid-only requests to replay).
+
+### Sign-in: two-step and sessionStorage (0.6.0)
+
+Extends [Signing in](#signing-in-appsrcengineauthts). Every guarantee there holds: the password is typed only on the
+sign-in page's origin, a request carrying it to another origin or in a URL is stopped, codes and captchas fail with
+their messages, and session values are registered for redaction.
+
+- **Two-step sign-in.** When the sign-in page has no form with a password field but has one with an identifier field
+  and a submit or "Continue"/"Next" control (sign-in words, never a sign-up form), fill the identifier, submit, and
+  wait for a password field: on the same page, or on the next page when it is on the sign-in origin (another origin
+  fails: "The sign-in continued on another site (<host>), so Run Hound won't type the password there."). Then continue
+  as a one-step sign-in. A code or captcha after the first step fails with the existing messages.
+- **sessionStorage sessions.** After a successful sign-in, read `sessionStorage` for the sign-in origin and the
+  landing origin; register token-like values as session secrets. Every new browser context for that identity seeds
+  those items before any page script runs (an init script per origin), so a new tab is signed in as the app expects.
+  `CheckContext.request` keeps authenticating with the credential headers harvested from the app's own requests.
+- **Types.** `SignedIn` gains `sessionStorage?: { origin: string; items: { name: string; value: string }[] }[]`.
+- **Still not supported:** verification codes, captchas, "Sign in with …" providers, a password page on another site,
+  and a sessionStorage session the app throws away on load.
+
+### Fernway (0.6.0)
+
+- **`FERNWAY_LOGIN`** = `one-step` (default) | `two-step`: `/login` shows the email and **Continue**; the password field
+  appears on the same page after Continue, for any email (the form doesn't reveal which emails have accounts).
+- **`FERNWAY_SESSION`** = `cookie` (default) | `session-storage`: the SPA keeps the session token in `sessionStorage`
+  and sends `Authorization: Bearer <token>`; the server accepts the bearer token and sets no session cookie. With no
+  cookie there is nothing for a cross-site page to ride on, so `csrf` passes on V08 in this mode.
+- Both work with clean mode and with `FERNWAY_BUGS`, and both compose files pass them through (defaults unchanged).
+- The Billing tab's **Cancel plan** (`POST /api/billing/cancel`) is what `paywall-trust` uses to put Alex back on
+  Free after V09.
+
+### Acceptance (0.6.0)
+
+- V06, V07 and V09 each alone: only the named scenario reports a confirmed finding (`write-access:other-account`,
+  `write-access:signed-out`, `paywall-trust`), and Alex's and Sam's tasks and Alex's plan read the same afterwards.
+- Clean Fernway with every write-side check ticked: no confirmed finding, and the same data unchanged afterwards.
+- Signed in with `FERNWAY_LOGIN=two-step`, and separately with `FERNWAY_SESSION=session-storage`: sign-in succeeds,
+  the signed-in plan for `/app` matches a cookie-session plan, and one read bug the access checks catch with a cookie
+  session is caught the same way.
+- The secret grep covers the new run folders, including sessionStorage token values.
+- Kennel and the samples: no golden file changes.
+
+### Alpha readiness (0.6.0)
+
+- **TESTING.md** opens with a short section for alpha testers: what to try (their own app, signed out and signed in),
+  what to send back and how, and the limits that matter; "What sign-in can't do" and "Known limitations" drop two-step
+  and sessionStorage and add the deferred `paywall-trust` probes, the Supabase anon key dropped on signed-out replay,
+  the unmasked live view of signed-in runs, and arm64 Chromium not being started in CI.
+- **Issue forms** list `write-access` and `paywall-trust` wherever they list checks.
+- **Web UI**: Settings → Test accounts says the three write-side checks change Account A's data and put it back; the
+  plan shows the same for each unticked write-side scenario.
+- **Release**: version 0.6.0 everywhere the release check looks, a CHANGELOG entry, and the site's checks data.
+
+### Build plan (0.6.0, a graph)
+
+Each node owns the files named and touches no others; a node starts when the nodes it depends on are green, and loops
+(implement, run its suites, independent review, fix) until its tests pass and the review finds nothing new.
+
+| Node | Owns | Depends on |
+|---|---|---|
+| N1 foundation (lead) | `core/types.ts`, `checks/index.ts`, stub `write-access.ts`, `paywall-trust.ts`, `lib/entitlement.ts`, `engine/report.ts` gate, `auth.ts` types, this section | none |
+| N2 write-access tests | `checks/write-access*.test.ts` | N1 |
+| N3 write-access | `checks/write-access.ts` | N2 |
+| N4 paywall tests | `checks/paywall-trust*.test.ts`, `checks/lib/entitlement.test.ts` | N1 |
+| N5 paywall | `checks/paywall-trust.ts`, `checks/lib/entitlement.ts` | N4 |
+| N6 sign-in tests | `test-support/accounts-app.ts`, `engine/auth-twostep.test.ts`, `engine/auth-sessionstorage.test.ts`, `engine/context-sessionstorage.test.ts` | N1 |
+| N7 sign-in | `engine/auth.ts`, `engine/context.ts` | N6 |
+| N8 Fernway | `fixtures/fernway/**` | none |
+| N9 engine wiring | `engine/runner.ts`, `engine/runner-signed-in.test.ts` | N3, N7 |
+| N10 acceptance | `tests/acceptance/**` | N5, N8, N9 |
+| N11 docs, UI and alpha readiness | `TESTING.md`, `docs/**` guides, `README.md`, `CHANGELOG.md`, `server/ui/client.ts`, `.github/ISSUE_TEMPLATE/*`, `site/src/components/checks/data.ts` | N5, N9 |
+| N12 release | versions, compose and Dockerfile comments, `site/src/lib/site.ts` | N10, N11 |

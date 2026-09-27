@@ -179,11 +179,11 @@ function notApproved(report: Report): { id: string; checkId: string; title: stri
     });
 }
 
-/** Checks that plan scenarios only on a signed-in run (docs/v2-spec.md "Checks" and "Checks (0.5.0)"). */
-const SIGNED_IN_CHECK_IDS: readonly CheckId[] = ["access-control", "mass-assignment", "csrf"];
+/** Checks that plan scenarios only on a signed-in run (docs/v2-spec.md "Checks", "Checks (0.5.0)" and "0.6.0"). */
+const SIGNED_IN_CHECK_IDS: readonly CheckId[] = ["access-control", "mass-assignment", "csrf", "write-access", "paywall-trust"];
 
-/** The V2 check added in 0.5.0 (csrf); every other V2 check shipped in 0.4.0. */
-const V2_050_CHECK_IDS: readonly CheckId[] = ["csrf"];
+/** The 0.x minor release that added each V2 check after 0.4.0; every other V2 check shipped in 0.4.0. */
+const V2_ADDED_IN_MINOR: Partial<Record<CheckId, number>> = { csrf: 5, "write-access": 6, "paywall-trust": 6 };
 
 /**
  * The minor version of Run Hound 0.x that wrote `report` (a pre-release counts as its release), or Infinity when the
@@ -196,10 +196,10 @@ function reportMinor(report: Report): number {
   return major > 0 ? Infinity : minor;
 }
 
-/** True when the Run Hound that wrote `report` had check `id`: the 0.4.0 V2 checks from 0.4, the 0.5.0 ones from 0.5. */
+/** True when the Run Hound that wrote `report` had check `id`: the 0.4.0 V2 checks from 0.4, later ones from their minor. */
 function hadCheck(report: Report, id: CheckId): boolean {
   if (!V2_CHECK_IDS.includes(id)) return true;
-  return reportMinor(report) >= (V2_050_CHECK_IDS.includes(id) ? 5 : 4);
+  return reportMinor(report) >= (V2_ADDED_IN_MINOR[id] ?? 4);
 }
 
 /**
