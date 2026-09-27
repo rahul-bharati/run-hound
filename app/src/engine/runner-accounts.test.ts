@@ -192,8 +192,8 @@ function withAccount(config: AccountsConfig, id: "a" | "b", patch: Partial<Accou
 }
 
 /**
- * An app that keeps its session in sessionStorage: signing in works in the sign-in tab, but a storageState (cookies
- * and localStorage) carries nothing, so every new context lands on the sign-in page again.
+ * An app whose sessionStorage session is only good in the tab that signed in (window.name): a new context clears it and
+ * goes back to the sign-in page, whatever it was seeded with (still unsupported in 0.6.0).
  */
 const TAB_LOGIN = `<!doctype html><html lang="en"><head><title>Sign in</title></head><body><main><h1>Sign in</h1>
 <form id="f" aria-label="Sign in">
@@ -201,11 +201,11 @@ const TAB_LOGIN = `<!doctype html><html lang="en"><head><title>Sign in</title></
   <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password">
   <button type="submit">Sign in</button>
 </form>
-<script>document.getElementById("f").addEventListener("submit", (e) => { e.preventDefault(); sessionStorage.setItem("token", "tab-" + Math.random()); location.assign("/app"); });</script>
+<script>document.getElementById("f").addEventListener("submit", (e) => { e.preventDefault(); const tab = "t" + Math.random().toString(36).slice(2); window.name = tab; sessionStorage.setItem("token", "tab-" + Math.random()); sessionStorage.setItem("tab", tab); location.assign("/app"); });</script>
 </main></body></html>`;
 const TAB_APP = `<!doctype html><html lang="en"><head><title>App</title></head><body><main><h1>Loading</h1>
 <form id="note"><label for="t">Note</label><input id="t" name="t"><button type="submit">Save</button></form>
-<script>if (!sessionStorage.getItem("token")) location.replace("/login?next=/app"); else document.querySelector("h1").textContent = "Welcome";</script>
+<script>if (!(sessionStorage.getItem("token") && sessionStorage.getItem("tab") === window.name)) { sessionStorage.clear(); location.replace("/login?next=/app"); } else document.querySelector("h1").textContent = "Welcome";</script>
 </main></body></html>`;
 
 let app: AccountsApp;

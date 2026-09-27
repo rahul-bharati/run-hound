@@ -94,7 +94,7 @@ export function register(router, ctx) {
    * @param {import("../http.mjs").ApiRequest} request
    */
   const actingUser = (request) =>
-    ctx.sessionUser(request.cookies) ?? (ctx.bugOn("V03") ? (ctx.store.users.find((u) => u.id === ACCOUNTS.alex.id) ?? null) : null);
+    ctx.sessionUser(request) ?? (ctx.bugOn("V03") ? (ctx.store.users.find((u) => u.id === ACCOUNTS.alex.id) ?? null) : null);
 
   /**
    * Wraps a handler that needs a signed-in user: 401 without one; the handler gets the user and their workspace.

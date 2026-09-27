@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowRight, KeyRound, LayoutDashboard } from "lucide-react";
-import { useId, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useEffect, useId, useRef, useState } from "react";
+import { useForm, type Resolver } from "react-hook-form";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -9,18 +9,24 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Form, FormErrorSummary, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { toast } from "@/components/ui/sonner";
 import { apiPost } from "@/lib/api";
-import { useBug } from "@/lib/bugs";
-import { refreshSession } from "@/lib/session";
+import { loginMode, useBug } from "@/lib/bugs";
+import { startSession } from "@/lib/session";
 import { useDocumentTitle } from "@/lib/utils";
 import { LoginArt } from "./auth/art";
 import { AuthLayout } from "./auth/AuthLayout";
 import { AuthInput, AuthPasswordInput, FieldControl } from "./auth/fields";
 import { applyServerFieldErrors, toApiError } from "./auth/form-errors";
-import { firstName, loginSchema, safeNext, type AccountUser, type LoginValues } from "./auth/schemas";
+import { firstName, loginEmailStepSchema, loginSchema, safeNext, type AccountUser, type LoginValues } from "./auth/schemas";
 
 const FIELDS = ["email", "password"] as const;
 const FAILED = "Couldn't sign you in";
 const DEMO_FAILED = "Couldn't open the demo account";
+
+/** The two-step sign-in's steps (FERNWAY_LOGIN=two-step); one-step mode is always on "password". */
+type Step = "email" | "password";
+
+const fullResolver = zodResolver(loginSchema);
+const emailStepResolver = zodResolver(loginEmailStepSchema) as unknown as typeof fullResolver;
 
 const linkClasses =
   "rounded-md outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
@@ -33,6 +39,12 @@ const linkClasses =
  *
  * "Use the demo account" (outside the form) signs in as the demo user on the server (POST /api/login/demo), so people
  * can try the app without a password ever being shown on the page.
+ *
+ * FERNWAY_LOGIN=two-step (CONTRACT.md "Sign-in and session modes"): the form first holds only Email and "Continue";
+ * Continue checks the email's format on the client and, for any email (the server isn't asked, so the page doesn't
+ * reveal who has an account), shows Password, Remember me and "Sign in" in the same form on the same page, the email
+ * still there and editable, focus on the password. There is no password field in the page before that. Signing in is
+ * then the same POST /api/login.
  */
 export default function Login() {
   useDocumentTitle("Sign in");
@@ -41,9 +53,16 @@ export default function Login() {
   const [params] = useSearchParams();
   const { hash, search } = useLocation();
   const titleId = useId();
+  const twoStep = loginMode() === "two-step";
+  const [step, setStep] = useState<Step>(twoStep ? "email" : "password");
+  // Read by the resolver: which fields the current step checks.
+  const stepRef = useRef<Step>(step);
+  const movedOn = useRef(false);
 
+  const resolver: Resolver<LoginValues> = (values, context, options) =>
+    (stepRef.current === "email" ? emailStepResolver : fullResolver)(values, context, options);
   const form = useForm<LoginValues>({
-    resolver: zodResolver(loginSchema),
+    resolver,
     defaultValues: { email: "", password: "", remember: false },
   });
   const failure = form.formState.errors.root?.server;
@@ -52,11 +71,23 @@ export default function Login() {
   const [demoPending, setDemoPending] = useState(false);
   const [demoError, setDemoError] = useState("");
 
+  // Two-step: once Continue has shown the password field, it gets the focus.
+  useEffect(() => {
+    if (step === "password" && movedOn.current) form.setFocus("password");
+  }, [step, form]);
+
   async function onSubmit(values: LoginValues) {
+    if (stepRef.current === "email") {
+      // Step one never asks the server: any well-formed email moves on to the password.
+      movedOn.current = true;
+      stepRef.current = "password";
+      setStep("password");
+      return;
+    }
     setDemoError("");
     try {
       const user = await apiPost<AccountUser>("/api/login", values);
-      await refreshSession();
+      await startSession(user);
       toast.success(`Welcome back, ${firstName(user.name)}!`);
       navigate(safeNext(params.get("next")));
     } catch (err) {
@@ -75,7 +106,7 @@ export default function Login() {
     form.clearErrors("root.server");
     try {
       const user = await apiPost<AccountUser>("/api/login/demo");
-      await refreshSession();
+      await startSession(user);
       toast.success(`Welcome, ${firstName(user.name)}!`, { description: "You're in the demo account." });
       navigate(safeNext(params.get("next")));
     } catch (err) {
@@ -125,41 +156,45 @@ export default function Login() {
                 </FormItem>
               )}
             />
-            <FormField
-              control={form.control}
-              name="password"
-              render={({ field }) => (
-                <FormItem>
-                  <div className="flex items-center justify-between gap-3">
-                    <FormLabel>Password</FormLabel>
-                    <Link to={{ pathname: "/login", search, hash: "#forgot" }} className={`${linkClasses} inline-flex min-h-6 items-center text-sm font-medium text-primary underline-offset-4 hover:underline`}>
-                      Forgot password?
-                    </Link>
-                  </div>
-                  <FieldControl announce={announce}>
-                    <AuthPasswordInput autoComplete="current-password" required {...field} />
-                  </FieldControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="remember"
-              render={({ field }) => (
-                <FormItem className="flex items-center gap-3">
-                  <FieldControl announce={announce}>
-                    <Checkbox ref={field.ref} name={field.name} checked={field.value} onCheckedChange={(checked) => field.onChange(checked === true)} onBlur={field.onBlur} />
-                  </FieldControl>
-                  <FormLabel className="font-normal text-muted-foreground">Remember me</FormLabel>
-                </FormItem>
-              )}
-            />
+            {step === "password" && (
+              <>
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <div className="flex items-center justify-between gap-3">
+                        <FormLabel>Password</FormLabel>
+                        <Link to={{ pathname: "/login", search, hash: "#forgot" }} className={`${linkClasses} inline-flex min-h-6 items-center text-sm font-medium text-primary underline-offset-4 hover:underline`}>
+                          Forgot password?
+                        </Link>
+                      </div>
+                      <FieldControl announce={announce}>
+                        <AuthPasswordInput autoComplete="current-password" required {...field} />
+                      </FieldControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="remember"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center gap-3">
+                      <FieldControl announce={announce}>
+                        <Checkbox ref={field.ref} name={field.name} checked={field.value} onCheckedChange={(checked) => field.onChange(checked === true)} onBlur={field.onBlur} />
+                      </FieldControl>
+                      <FormLabel className="font-normal text-muted-foreground">Remember me</FormLabel>
+                    </FormItem>
+                  )}
+                />
+              </>
+            )}
 
             {announce && <FormErrorSummary />}
 
             <Button type="submit" size="lg" className="group w-full" loading={form.formState.isSubmitting}>
-              Sign in
+              {step === "email" ? "Continue" : "Sign in"}
               {!form.formState.isSubmitting && <ArrowRight aria-hidden="true" className="transition-transform group-hover:translate-x-0.5" />}
             </Button>
           </form>

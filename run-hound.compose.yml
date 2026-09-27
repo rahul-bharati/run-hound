@@ -141,6 +141,8 @@ services:
     healthcheck: *app-healthcheck
     environment:
       FERNWAY_BUGS: none
+      FERNWAY_LOGIN: ${FERNWAY_LOGIN:-one-step} # one-step | two-step (email, Continue, then the password)
+      FERNWAY_SESSION: ${FERNWAY_SESSION:-cookie} # cookie | session-storage (a bearer token in sessionStorage)
     ports:
       - "127.0.0.1:${FERNWAY_HOST_PORT:-4110}:4110"
 
@@ -148,6 +150,8 @@ services:
     <<: *fernway # same image as fernway, with its planted bugs
     environment:
       FERNWAY_BUGS: ${FERNWAY_BUGS:-all}
+      FERNWAY_LOGIN: ${FERNWAY_LOGIN:-one-step}
+      FERNWAY_SESSION: ${FERNWAY_SESSION:-cookie}
     ports:
       - "127.0.0.1:${FERNWAY_BUGS_HOST_PORT:-4111}:4110"
 

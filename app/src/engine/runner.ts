@@ -20,8 +20,15 @@ import {
   type Report,
   type Scenario,
 } from "../core/types.js";
-import { accountLabel, samePage, signIn, SignInError, type SessionState } from "./auth.js";
-import { BROWSER_LOCALE, createCheckContext, createCredentialHeaders, type CredentialHeaders } from "./context.js";
+import { accountLabel, firstStepForm, samePage, signIn, SignInError, type SessionState } from "./auth.js";
+import {
+  BROWSER_LOCALE,
+  createCheckContext,
+  createCredentialHeaders,
+  seedSessionStorage,
+  type CredentialHeaders,
+  type SessionStorageItems,
+} from "./context.js";
 import { discoverPage, holdSocketWrites } from "./discover.js";
 import {
   cleanErrorMessage,
@@ -409,8 +416,13 @@ const SHOWS_SIGN_IN_FORM = String.raw`(() => {
 /**
  * True when a page opened with the account's session landed on the sign-in page anyway: its URL is the account's
  * sign-in page (unless that is the page asked for), it was sent to a sign-in-looking path that shows a password
- * field, or it shows a sign-in form in place (an app that renders the form at the page's own address when the session
- * didn't reach it).
+ * field or (0.6.0) the first step of a two-step sign-in (an identifier field and "Continue", as auth.ts firstStepForm
+ * finds it), or it shows a sign-in form in place (an app that renders the form at the page's own address when the
+ * session didn't reach it).
+ *
+ * A sessionStorage session (0.6.0) reaches the page through the context's seeded sessionStorage
+ * (seedSessionStorage), so it passes here like a cookie session; one the app throws away on load lands on the sign-in
+ * page and fails.
  */
 async function landedOnSignIn(page: import("playwright").Page, target: string, account: TestAccount): Promise<boolean> {
   const now = page.url();
@@ -422,8 +434,28 @@ async function landedOnSignIn(page: import("playwright").Page, target: string, a
   } catch {
     return false;
   }
-  if (!samePage(now, target) && /log-?in|sign-?in|auth/i.test(path) && (await page.locator("input[type=password]:visible").count().catch(() => 0)) > 0) return true;
+  if (!samePage(now, target) && /log-?in|sign-?in|auth/i.test(path)) {
+    if ((await page.locator("input[type=password]:visible").count().catch(() => 0)) > 0) return true;
+    if (await showsFirstStep(page)) return true;
+  }
   return Boolean(await page.evaluate(SHOWS_SIGN_IN_FORM).catch(() => false));
+}
+
+/**
+ * True when the page shows the first step of a two-step sign-in (0.6.0): a form that asks only for the account's
+ * identifier, with a "Continue"/"Next" or sign-in control, and says sign in (auth.ts firstStepForm, the same rules the
+ * sign-in itself uses). Only asked of a sign-in-looking address the page was sent to, never of the page asked for: an
+ * "Enter your email, Continue" form on the app's own pages is not a sign-in page. The sign-in words must come from the
+ * page itself (its form, title, the text before the form or its own address), never from the account's sign-in page
+ * address: that one always says "login", so an "/authors/new" page with one Email field and "Add" would pass.
+ */
+async function showsFirstStep(page: import("playwright").Page): Promise<boolean> {
+  try {
+    const { forms } = await discoverPage(page);
+    return (await firstStepForm(page, forms, page.url())) !== null;
+  } catch {
+    return false;
+  }
 }
 
 async function discoverSignedInOrOut(
@@ -441,15 +473,19 @@ async function discoverSignedInOrOut(
   let closed = false;
   try {
     let session: SessionState | undefined;
+    let sessionItems: SessionStorageItems | undefined;
     if (signing) {
       const signed = await signIn(browser, signing.account, safety);
       secrets.add(signed.secrets);
       session = signed.state;
+      sessionItems = signed.sessionStorage;
       engineStep(options, "Opening the page to find its forms and controls", url);
     }
     const env: PlanEnv = { signedIn: Boolean(signing), otherAccount: Boolean(signing?.other) };
     // serviceWorkers: a service worker's own requests bypass context.route (discovery's write block, the guard).
     const context = await browser.newContext({ locale: BROWSER_LOCALE, serviceWorkers: "block", ...(session ? { storageState: session } : {}) });
+    // 0.6.0: a session the app keeps in sessionStorage is put back before any page script runs, as in openPage.
+    await seedSessionStorage(context, sessionItems);
     const guard = await guardContext(context, safety);
     const page = await context.newPage();
     // Discovery clicks to read a widget's options and to find forms in dialogs, with writes blocked: its sockets must
@@ -612,7 +648,7 @@ function noOtherAccountNote(signing: Signing | null): string {
   if (!signing.config.isolated) {
     return `Skipped: the test accounts are not marked as unable to see each other's data (Settings → Test accounts), so ${label} was not used.`;
   }
-  return `Skipped: ${label} isn't set up (Settings → Test accounts), so no other account could try to read ${accountLabel(signing.account)}'s data.`;
+  return `Skipped: ${label} isn't set up (Settings → Test accounts), so no other account could try to read or change ${accountLabel(signing.account)}'s data.`;
 }
 
 /** Notes of every scenario a stopped run did not finish (RunOptions.signal). */
@@ -690,11 +726,11 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
 }
 
 /**
- * True for a scenario that needs the other account signed in (docs/v2-spec.md "access-control"): the
- * other-account scenario of access-control, on any form.
+ * True for a scenario that needs the other account signed in (docs/v2-spec.md "access-control" and "write-access"):
+ * the other-account scenario of access-control or write-access (0.6.0), on any form.
  */
 export function needsOtherAccount(scenario: Scenario): boolean {
-  return scenario.checkId === "access-control" && /(?:^|:)other-account(?:@form-\d+)?(?:#\d+)?$/.test(scenario.id);
+  return (scenario.checkId === "access-control" || scenario.checkId === "write-access") && /(?:^|:)other-account(?:@form-\d+)?(?:#\d+)?$/.test(scenario.id);
 }
 
 /**
@@ -706,7 +742,13 @@ async function preHarvest(
   browser: Browser,
   plan: Plan,
   identity: "self" | "other",
-  shared: { sessions: { self?: SessionState; other?: SessionState }; credentialHeaders: CredentialHeaders; artifactsDir: string; safety: SafetyOptions },
+  shared: {
+    sessions: { self?: SessionState; other?: SessionState };
+    sessionStorage: { self?: SessionStorageItems; other?: SessionStorageItems };
+    credentialHeaders: CredentialHeaders;
+    artifactsDir: string;
+    safety: SafetyOptions;
+  },
   account: TestAccount,
 ): Promise<void> {
   const ctx = createCheckContext({
@@ -719,6 +761,7 @@ async function preHarvest(
     allowedHosts: shared.safety.allowedHosts,
     lookup: shared.safety.lookup,
     sessions: shared.sessions,
+    sessionStorage: shared.sessionStorage,
     credentialHeaders: shared.credentialHeaders,
   });
   try {
@@ -757,6 +800,8 @@ async function runPlanWith(plan: Plan, options: RunOptions, secrets: SecretRegis
   const selfRef = signing ? refOf(signing.account) : null;
   const wantsOther = toRun.some(needsOtherAccount);
   const sessions: { self?: SessionState; other?: SessionState } = {};
+  // 0.6.0: what each identity's sign-in kept in sessionStorage, seeded into every context opened as that identity.
+  const sessionItems: { self?: SessionStorageItems; other?: SessionStorageItems } = {};
   const credentialHeaders = createCredentialHeaders();
   const markers = signing ? [signing.account.username] : [];
 
@@ -816,14 +861,16 @@ async function runPlanWith(plan: Plan, options: RunOptions, secrets: SecretRegis
           const self = await signIn(browser, signing.account, safety);
           secrets.add(self.secrets);
           sessions.self = self.state;
+          if (self.sessionStorage) sessionItems.self = self.sessionStorage;
           if (wantsOther && signing.other) {
             engineStep(options, `Signing in as ${accountLabel(signing.other)}`, signing.other.loginUrl);
             const other = await signIn(browser, signing.other, safety);
             secrets.add(other.secrets);
             sessions.other = other.state;
+            if (other.sessionStorage) sessionItems.other = other.sessionStorage;
           }
           engineStep(options, "Opening the page signed in, to see how the app sends its session", plan.target);
-          const shared = { sessions, credentialHeaders, artifactsDir, safety };
+          const shared = { sessions, sessionStorage: sessionItems, credentialHeaders, artifactsDir, safety };
           await preHarvest(browser, plan, "self", shared, signing.account);
           if (sessions.other && signing.other) await preHarvest(browser, plan, "other", shared, signing.other);
         } catch (err) {
@@ -893,6 +940,8 @@ async function runPlanWith(plan: Plan, options: RunOptions, secrets: SecretRegis
       fileCounter,
       // 0.4.0: the run's sessions; a signed-out run has none, so every page opens signed out as before.
       sessions,
+      // 0.6.0: and what each sign-in kept in sessionStorage.
+      sessionStorage: sessionItems,
       accounts: { self: selfRef, other: sessions.other && signing?.other ? refOf(signing.other) : null },
       markers,
       credentialHeaders,

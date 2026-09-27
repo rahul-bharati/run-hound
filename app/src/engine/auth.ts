@@ -2,15 +2,21 @@
  * Signing in as a test account (0.4.0, docs/v2-spec.md "Signing in"). Deterministic: find the sign-in form, fill the
  * identifier and the password, submit, and decide from the page whether it worked. No evidence is captured and the
  * session never touches the disk.
+ *
+ * 0.6.0 ("Sign-in: two-step and sessionStorage"): a sign-in page without a password form but with a sign-in form that
+ * asks for the identifier first gets the identifier, its "Continue", and then, once a password field shows on the
+ * sign-in origin, the one-step sign-in. After signing in, the sessionStorage of the sign-in origin and of the landing
+ * origin is returned with the session (SignedIn.sessionStorage), its token-like values in `secrets`.
  */
-import type { Browser, BrowserContext, Page } from "playwright";
+import type { Browser, BrowserContext, ElementHandle, Page, Request, Route } from "playwright";
 import { DEFAULT_LABELS } from "../accounts/config.js";
 import type { TestAccount } from "../accounts/types.js";
-import type { DiscoveredForm, FormField } from "../core/types.js";
+import { originOf } from "../core/saves.js";
+import type { DiscoveredForm, FormControl, FormField } from "../core/types.js";
 import { BROWSER_LOCALE } from "./context.js";
 import { discoverPage } from "./discover.js";
 import { cleanErrorMessage, explainNavigationError, TargetNotAllowedError } from "./errors.js";
-import { guardContext, guardSummary } from "./guard.js";
+import { guardContext, guardSummary, type NavigationGuard } from "./guard.js";
 import { redactSecrets, registerSecretLiterals } from "./redact.js";
 import { checkTarget, type SafetyOptions } from "./safety.js";
 
@@ -139,9 +145,103 @@ export function signInForm(forms: DiscoveredForm[]): DiscoveredForm | null {
   return best;
 }
 
+/** A two-step sign-in's first step (0.6.0): the form, the field the identifier goes in, and the control that moves on. */
+export interface FirstStep {
+  form: DiscoveredForm;
+  field: FormField;
+  control: FormControl;
+}
+
+/** Words of a password field that asks to choose one (a sign-up), not for the account's password. */
+const CHOOSE_PASSWORD = /\b(create|choose|new|confirm|repeat)\b/i;
+
+/** A control that moves a first step on without saying what it does: "Continue", "Next". */
+const NEXT_CONTROL = /^(continue|next|proceed)(\s*[→›>»])?$/i;
+/** A control that signs in through another provider ("Continue with Google", "Use a passkey", "Sign in with SSO"). */
+const PROVIDER_CONTROL =
+  /\b(with|via|using)\s+(google|github|microsoft|apple|facebook|gitlab|bitbucket|twitter|x|linkedin|slack|discord|okta|azure|sso|saml|passkey|a\s+passkey)\b|\bsso\b|\bpasskeys?\b/i;
+/** A form's own words that say it does something other than sign in (even on a page whose address says login). */
+const OTHER_PURPOSE = /\b(subscribe|unsubscribe|newsletter|search|reset|forgot|recover|waitlist|wait\s+list|notify|contact|feedback|coupon|promo|invite)\b/i;
+
+const controlWords = (c: FormControl) => `${c.accessibleName ?? ""} ${c.text}`.trim();
+
+/** The control that moves a first step on: the form's submit control, else a "Continue"/"Next" button; never a provider's. */
+function nextControl(form: DiscoveredForm): FormControl | null {
+  const submit = form.controls.find((c) => c.isSubmit && !PROVIDER_CONTROL.test(controlWords(c)));
+  if (submit) return submit;
+  return form.controls.find((c) => c.role === "button" && [c.accessibleName, c.text].some((w) => NEXT_CONTROL.test((w ?? "").trim()))) ?? null;
+}
+
+/** The words of a page address: "/u/login/identifier" gives "u login identifier", "/users/sign_in" "users sign in". */
+function pathWords(url: string): string {
+  try {
+    return new URL(url).pathname.replace(/[/_.\-+]+/g, " ").trim();
+  } catch {
+    return "";
+  }
+}
+
+/** The page's visible text just before `selector` (its previous siblings, up to 3 levels up), without other forms. */
+async function textBefore(page: Page, selector: string): Promise<string> {
+  const script = `(selector) => {
+    let el = null;
+    try { el = document.querySelector(selector); } catch { el = null; }
+    const out = [];
+    for (let node = el, hops = 0; node && node !== document.body && hops < 3 && out.length === 0; node = node.parentElement, hops++) {
+      let prev = node.previousElementSibling;
+      for (let n = 0; prev && n < 3; prev = prev.previousElementSibling, n++) {
+        if (prev.matches("form, input, select, textarea, script, style") || prev.querySelector("input, select, textarea")) continue;
+        const text = (prev.innerText || "").replace(/\\s+/g, " ").trim();
+        if (text) out.push(text);
+      }
+    }
+    return out.join(" ").slice(0, 400);
+  }`;
+  return String(await page.evaluate(`(${script})(${JSON.stringify(selector)})`).catch(() => ""));
+}
+
+/**
+ * The first step of a two-step sign-in (0.6.0) among `forms`, when none of them is a sign-in form with a password
+ * field: a form without a password field whose only field besides checkboxes is an identifier field (identifierField),
+ * with a submit control or a "Continue"/"Next" button, that is not a search, sign-up, newsletter, password-reset or
+ * similar form by its own words (its name and that control), and that says sign in: in its own words, else in the
+ * page's title, the text just before it, or the sign-in page's address. Best by sign-in words of its own, then an
+ * identifier field with autocomplete=username or email; the first wins a tie. Never a form whose own words name another
+ * provider ("Sign in with SSO", "Use a passkey"), even when they say sign in.
+ */
+export async function firstStepForm(page: Page, forms: DiscoveredForm[], loginUrl: string): Promise<FirstStep | null> {
+  let best: FirstStep | null = null;
+  let bestScore = -1;
+  let around: string | null = null;
+  for (const form of forms) {
+    if (form.search || form.fields.some(isPassword)) continue;
+    const field = identifierField(form);
+    if (!field || form.fields.some((f) => f !== field && f.type !== "checkbox")) continue;
+    const control = nextControl(form);
+    if (!control) continue;
+    const own = `${form.name ?? ""} ${controlWords(control)}`;
+    // "Sign in with SSO" says sign in too, but the identifier would go to another provider's discovery.
+    if (PROVIDER_CONTROL.test(own)) continue;
+    const saysSignIn = SIGN_IN_WORDS.test(own);
+    if (!saysSignIn) {
+      if (SIGN_UP_WORDS.test(own) || OTHER_PURPOSE.test(own)) continue;
+      around ??= `${await page.title().catch(() => "")} ${pathWords(loginUrl)} ${pathWords(page.url())}`;
+      if (!SIGN_IN_WORDS.test(around) && !SIGN_IN_WORDS.test(await textBefore(page, form.selector))) continue;
+    }
+    const score = (saysSignIn ? 2 : 0) + (field.autocomplete === "username" || field.autocomplete === "email" ? 1 : 0);
+    if (score > bestScore) {
+      best = { form, field, control };
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
 /** Names of cookies and storage keys that usually hold a session. */
 const SESSION_NAME = /sess|sid|auth|token|jwt|remember|login|identity|credential|secret|key|bearer/i;
 const JWT = /^eyJ[\w-]+\.eyJ[\w-]+\.[\w-]*$/;
+/** A value made only of token characters, 24 or more (no spaces, no ":" of an address); sessionSecrets adds a digit and a letter. */
+const OPAQUE_TOKEN = /^[A-Za-z0-9._~+/=-]{24,}$/;
 
 /** A value random enough to be a session id or token, not a setting such as "dark" or "en-US". */
 function looksLikeToken(value: string): boolean {
@@ -156,10 +256,11 @@ interface IndexedDbState {
 
 /**
  * The values of `state` that identify the session, for redaction: cookie values that look like session ids or tokens,
- * and the tokens an app keeps in localStorage or IndexedDB (a plain value under a token-like key, a JWT, or the token
- * fields of a JSON value such as Supabase's "sb-…-auth-token" or Firebase's auth user).
+ * and the tokens an app keeps in localStorage, IndexedDB or (0.6.0) sessionStorage: a plain value under a token-like
+ * key, a JWT, or the token fields of a JSON value such as Supabase's "sb-…-auth-token", Firebase's auth user or
+ * oidc-client-ts's "oidc.user:…" entry.
  */
-export function sessionSecrets(state: SessionState): string[] {
+export function sessionSecrets(state: SessionState, sessionStorage: SignedIn["sessionStorage"] = []): string[] {
   const out = new Set<string>();
   const add = (value: string) => {
     out.add(value);
@@ -182,6 +283,24 @@ export function sessionSecrets(state: SessionState): string[] {
     if (Array.isArray(value)) value.forEach((v) => walk(v, key, depth + 1));
     else if (value && typeof value === "object") for (const [k, v] of Object.entries(value)) walk(v, k, depth + 1);
   };
+  /**
+   * A Web Storage item (localStorage, sessionStorage): its value, or the fields of the JSON it holds. For sessionStorage
+   * (`opaque`), a whole value that looks like a random token counts whatever its key ("fw" = "3f9a…"): the contract
+   * registers sessionStorage's token-like values, and they are seeded into every context of the identity.
+   */
+  const walkItem = (opaque: boolean) => ({ name, value }: { name: string; value: string }) => {
+    let parsed: unknown = undefined;
+    if (/^\s*[[{"]/.test(value)) {
+      try {
+        parsed = JSON.parse(value);
+      } catch {
+        parsed = undefined;
+      }
+    }
+    const whole = parsed === undefined ? value : parsed;
+    if (opaque && typeof whole === "string" && OPAQUE_TOKEN.test(whole) && /\d/.test(whole) && /[A-Za-z]/.test(whole)) add(whole);
+    walk(whole, name, 0);
+  };
   for (const origin of state.origins) {
     // IndexedDB (storageState({ indexedDB: true })): Firebase Auth keeps its tokens there.
     for (const db of (origin as { indexedDB?: IndexedDbState[] }).indexedDB ?? []) {
@@ -192,18 +311,9 @@ export function sessionSecrets(state: SessionState): string[] {
         }
       }
     }
-    for (const { name, value } of origin.localStorage) {
-      let parsed: unknown = undefined;
-      if (/^\s*[[{"]/.test(value)) {
-        try {
-          parsed = JSON.parse(value);
-        } catch {
-          parsed = undefined;
-        }
-      }
-      walk(parsed === undefined ? value : parsed, name, 0);
-    }
+    origin.localStorage.forEach(walkItem(false));
   }
+  for (const entry of sessionStorage) entry.items.forEach(walkItem(true));
   return [...out];
 }
 
@@ -269,12 +379,179 @@ async function offersProviders(page: Page): Promise<boolean> {
   return /(continue|sign\s?-?in|log\s?-?in)\s+with\s+(google|github|microsoft|apple|facebook|gitlab|twitter|linkedin|slack|discord|sso)\b/i.test(text);
 }
 
-/** True when a value of the URL's query (or its hash) is exactly `secret`: a password sent in the page address. */
+/**
+ * True when a value of the URL's query (or its hash), or its user name or password (`http://user:<password>@host`), is
+ * exactly `secret`: a password sent in the page address.
+ */
 function carriesInQuery(url: URL, secret: string): boolean {
   if (!secret) return false;
   for (const value of url.searchParams.values()) if (value === secret) return true;
   if (url.hash.length > 1) {
     for (const value of new URLSearchParams(url.hash.slice(1)).values()) if (value === secret) return true;
+  }
+  return [url.username, url.password].some((part) => part !== "" && safeDecode(part) === secret);
+}
+
+/** decodeURIComponent, or `text` as it is when it isn't well-formed. */
+function safeDecode(text: string): string {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+}
+
+/**
+ * The forms a password takes in a request besides the raw text: percent-encoded (encodeURIComponent, and a form's "+"
+ * for a space), JSON-escaped, and base64 (standard and URL-safe) at each of the three byte alignments, only the
+ * characters that come from the password alone and only when that is at least 8 characters.
+ */
+function encodedForms(password: string): string[] {
+  const forms = new Set([
+    encodeURIComponent(password),
+    new URLSearchParams({ p: password }).toString().slice(2),
+    JSON.stringify(password).slice(1, -1),
+  ]);
+  const bytes = Buffer.from(password, "utf8");
+  for (const skip of [0, 1, 2]) {
+    const encoded = Buffer.concat([Buffer.alloc(skip), bytes]).toString("base64");
+    const needle = encoded.slice([0, 2, 3][skip], Math.floor((skip + bytes.length) / 3) * 4);
+    if (needle.length >= 8) forms.add(needle).add(needle.replace(/\+/g, "-").replace(/\//g, "_"));
+  }
+  forms.delete(password);
+  forms.delete("");
+  return [...forms];
+}
+
+/** `text` with its runs of percent escapes decoded and "+" read as a space (a form body); a malformed run stays as it is. */
+function percentDecoded(text: string): string {
+  return text.replace(/\+/g, " ").replace(/(?:%[0-9A-Fa-f]{2})+/g, (run) => {
+    try {
+      return decodeURIComponent(run);
+    } catch {
+      return run;
+    }
+  });
+}
+
+/**
+ * Headers the browser sets itself: none of them carries what a page typed. The Referer is not among them: a page can put
+ * the password in its own address without a request (history.replaceState), and the Referer then carries it.
+ */
+const BROWSER_HEADERS = /^(?:user-agent|accept(?:-.*)?|sec-.*|origin|host|connection|content-(?:type|length)|upgrade-insecure-requests|cache-control|pragma)$/i;
+
+/**
+ * Whether a text holds `password`: raw or in one of its encoded forms (encodedForms), in the text as it is or with its
+ * percent escapes decoded (JSON inside a form field: `data=` + encodeURIComponent(JSON.stringify(…))).
+ */
+function passwordIn(password: string): (text: string) => boolean {
+  const forms = encodedForms(password);
+  return (text: string) => {
+    if (!text) return false;
+    const decoded = percentDecoded(text);
+    return [text, decoded].some((t) => t.includes(password) || forms.some((f) => t.includes(f)));
+  };
+}
+
+/** Whether `url` carries the password: in its query or hash, as a whole path segment, or in its user name or password. */
+function urlCarries(url: URL, password: string, holds: (text: string) => boolean): boolean {
+  if (holds(url.search) || holds(url.hash)) return true;
+  for (const segment of url.pathname.split("/")) if (segment && (safeDecode(segment) === password || percentDecoded(segment) === password)) return true;
+  return [url.username, url.password].some((part) => part !== "" && holds(part));
+}
+
+/** Whether a message's text carries `password` (a JSON body's strings included). */
+function textCarries(text: string, password: string, holds: (text: string) => boolean): boolean {
+  if (holds(text)) return true;
+  if (/^\s*[[{"]/.test(text)) {
+    try {
+      const strings: string[] = [];
+      JSON.parse(text, (_key, value: unknown) => {
+        if (typeof value === "string") strings.push(value);
+        return value;
+      });
+      if (strings.some((s) => s.includes(password))) return true;
+    } catch {
+      // Not JSON.
+    }
+  }
+  return false;
+}
+
+/** What a request sends, as a route or the DevTools protocol sees it (a WebSocket message as its body). */
+interface Sent {
+  url: string;
+  body: string;
+  headers: Record<string, string>;
+}
+
+function sentOf(request: Request): Sent {
+  return { url: request.url(), body: request.postDataBuffer()?.toString("utf8") ?? "", headers: request.headers() };
+}
+
+/**
+ * Checks every request `page`'s tab sends once more, after the context's routes, through a DevTools session of its
+ * own, and fails the ones `stops` names. Playwright's routes never see a request that follows a redirect (a 307 re-sends
+ * the POST body to wherever the answer points), nor one a document sends while it is being left (a beacon, a keepalive
+ * fetch, fetchLater or an image from a pagehide handler): Playwright lets those go on its own. A second session's
+ * interception still sees them. A tab closed by the page itself (window.close) is not covered: its session goes with it.
+ */
+async function stopUnrouted(page: Page, stops: (sent: Sent) => boolean): Promise<void> {
+  const session = await page.context().newCDPSession(page);
+  session.on("Fetch.requestPaused", (event) => {
+    const { request, requestId } = event;
+    let stop: boolean;
+    try {
+      const body =
+        request.postData ?? Buffer.concat((request.postDataEntries ?? []).map((entry) => Buffer.from(entry.bytes ?? "", "base64"))).toString("utf8");
+      stop = stops({ url: request.url, body, headers: request.headers });
+    } catch {
+      stop = false;
+    }
+    const answer = stop
+      ? session.send("Fetch.failRequest", { requestId, errorReason: "BlockedByClient" })
+      : session.send("Fetch.continueRequest", { requestId });
+    answer.catch(() => undefined);
+  });
+  await session.send("Fetch.enable", { patterns: [{ urlPattern: "*" }] });
+}
+
+/**
+ * Whether `request` carries `password` (0.6.0 review): in its body (raw, form- or percent-encoded, JSON-escaped or in
+ * any JSON string, base64, and JSON inside a form field), in its query, hash or user name and password, as a whole path
+ * segment, in a header the page set (an Authorization "Basic" header decoded too), or in the Referer's address. A
+ * form's POST body is URL-encoded and a JSON body escapes " and \, so a test of the raw text alone lets a password with
+ * a space or ( ) ! ~ " \ @ through.
+ */
+function carriesPassword(request: Sent, password: string): boolean {
+  if (!password) return false;
+  const holds = passwordIn(password);
+
+  if (textCarries(request.body, password, holds)) return true;
+
+  let url: URL | null = null;
+  try {
+    url = new URL(request.url);
+  } catch {
+    url = null;
+  }
+  if (url && urlCarries(url, password, holds)) return true;
+
+  for (const [name, value] of Object.entries(request.headers)) {
+    if (BROWSER_HEADERS.test(name)) continue;
+    if (/^referer$/i.test(name)) {
+      // The page's own address, which never holds the password legitimately: only its query, hash and path segments
+      // are read, so a weak password that is part of the host name isn't taken for one.
+      try {
+        if (urlCarries(new URL(value), password, holds)) return true;
+      } catch {
+        // Not an address.
+      }
+      continue;
+    }
+    if (holds(value)) return true;
+    const basic = /^basic\s+([A-Za-z0-9+/=_-]+)\s*$/i.exec(value);
+    if (basic && Buffer.from(basic[1]!, "base64").toString("utf8").includes(password)) return true;
   }
   return false;
 }
@@ -306,11 +583,409 @@ function firstLine(err: unknown): string {
   return cleanErrorMessage(err instanceof Error ? err.message : String(err)).split("\n")[0] ?? "";
 }
 
+const isWebUrl = (url: string) => /^https?:\/\//i.test(url);
+
+/**
+ * The contract's message for a two-step sign-in whose password step is on another origin (0.6.0): the host with its
+ * port, never the whole address (a second step's address often carries the email). `url` may be a guard entry
+ * ("<url> (answered from …)", or a refused navigation's "<METHOD> <url>").
+ */
+function continuedElsewhere(url: string): SignInError {
+  const words = url.trim().split(/\s+/);
+  const raw = words.find(isWebUrl) ?? words[0] ?? "";
+  let host: string;
+  try {
+    host = new URL(raw).host;
+  } catch {
+    host = raw.replace(/^[a-z]+:\/\//i, "").split(/[/?#]/)[0] ?? "";
+  }
+  return new SignInError(`The sign-in continued on another site (${redactSecrets(host)}), so Run Hound won't type the password there.`);
+}
+
+/** How long the page gets, after the first step, with no field left to fill and nothing loading, before it is done. */
+const NO_STEP_SETTLED_MS = 3_000;
+
+/** What the page did after a two-step sign-in's first step. */
+type StepOutcome =
+  | { kind: "password" }
+  | { kind: "elsewhere"; url: string }
+  | { kind: "closed" }
+  | { kind: "code" }
+  | { kind: "captcha" }
+  | { kind: "alert"; texts: string[] }
+  | { kind: "none" };
+
+interface StepEnv {
+  label: string;
+  shownUrl: string;
+  loginOrigin: string;
+  username: string;
+  guard: NavigationGuard;
+}
+
+/**
+ * Runs in the page before a first step: remembers the password fields showing now (a sign-up form's, beside the first
+ * step), so only a password field that shows after the first step counts as its password step. Shown as Playwright's
+ * :visible has it: a box, and not visibility:hidden.
+ */
+const MARK_PASSWORDS = String.raw`(() => {
+  const shown = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== "hidden"; };
+  window.__rhPasswordsBefore = new WeakSet(Array.from(document.querySelectorAll("input[type=password]")).filter(shown));
+  return true;
+})()`;
+
+/** Runs in the page: whether a password field shows that MARK_PASSWORDS didn't see (every one, on a new page). */
+const NEW_PASSWORD_SHOWN = String.raw`(() => {
+  const shown = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== "hidden"; };
+  const before = window.__rhPasswordsBefore;
+  return Array.from(document.querySelectorAll("input[type=password]")).some((el) => shown(el) && !(before && before.has(el)));
+})()`;
+
+/** Runs in the page: for each selector, whether its element is one MARK_PASSWORDS didn't see. */
+const NEW_ELEMENTS = String.raw`(selectors) => {
+  const before = window.__rhPasswordsBefore;
+  return selectors.map((s) => { let el = null; try { el = document.querySelector(s); } catch { el = null; } return !!el && !(before && before.has(el)); });
+}`;
+
+/** The address of a frame (not the page itself) from another origin that shows a password field, or null. */
+async function passwordFrameElsewhere(page: Page, loginOrigin: string): Promise<string | null> {
+  for (const frame of page.frames()) {
+    if (frame === page.mainFrame()) continue;
+    const url = frame.url();
+    if (!isWebUrl(url) || originOf(url) === loginOrigin) continue;
+    if ((await frame.locator("input[type=password]:visible").count().catch(() => 0)) > 0) return url;
+  }
+  return null;
+}
+
+/**
+ * A two-step sign-in's first step (0.6.0): types the identifier into `step`'s field on the sign-in origin, activates its
+ * control (else presses Enter in the field), then waits up to SUBMIT_WAIT_MS for a password field on the sign-in origin,
+ * one that wasn't showing before (MARK_PASSWORDS): on the same page or on the next one. Resolves once one shows for
+ * SETTLED_MS; throws a SignInError when the page went on to another
+ * origin (allowed or refused by the safety gate: nothing is typed there), asks for a code or a captcha, says something
+ * went wrong, or shows no password field. The password is never typed here.
+ */
+async function passFirstStep(page: Page, step: FirstStep, env: StepEnv): Promise<void> {
+  const { label, shownUrl, loginOrigin, guard } = env;
+  // The page's own navigations from now on (a refused one never commits: the guard aborts it), and what is in flight.
+  const navigations: string[] = [];
+  const pending = new Set<Request>();
+  const onRequest = (request: Request) => {
+    pending.add(request);
+    const from = request.redirectedFrom();
+    if (from) pending.delete(from);
+    try {
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame()) navigations.push(request.url());
+    } catch {
+      // Not a page's request.
+    }
+  };
+  const onDone = (request: Request) => void pending.delete(request);
+  page.on("request", onRequest);
+  page.on("requestfinished", onDone);
+  page.on("requestfailed", onDone);
+  const elsewhere = (): string | null => {
+    const left = navigations.find((url) => isWebUrl(url) && originOf(url) !== loginOrigin);
+    if (left) return left;
+    if (guard.escaped.length > 0) return guard.escaped[0]!;
+    const now = page.isClosed() ? "" : page.url();
+    return isWebUrl(now) && originOf(now) !== loginOrigin ? now : null;
+  };
+
+  try {
+    const alertsBefore = new Set(await errorTexts(page, step.form.selector));
+    await page.evaluate(MARK_PASSWORDS).catch(() => undefined);
+    const codeBefore = await showsCodeField(page, true);
+    const captchaBefore = await showsCaptcha(page);
+    const field = page.locator(step.field.selector).first();
+    try {
+      await field.fill(env.username, { timeout: ACTION_TIMEOUT_MS });
+    } catch (err) {
+      throw new SignInError(`${label} could not fill in the sign-in form on ${shownUrl}: ${firstLine(err)}`);
+    }
+    const clicked = await page
+      .locator(step.control.selector)
+      .first()
+      .click({ timeout: ACTION_TIMEOUT_MS })
+      .then(() => true)
+      .catch(() => false);
+    if (!clicked) await field.press("Enter", { timeout: ACTION_TIMEOUT_MS }).catch(() => undefined);
+
+    const outcome = await awaitPasswordStep({ alerts: alertsBefore, code: codeBefore, captcha: captchaBefore });
+    switch (outcome.kind) {
+      case "password":
+        break;
+      case "elsewhere":
+        throw continuedElsewhere(outcome.url);
+      case "closed":
+        if (guard.escaped.length > 0) throw continuedElsewhere(guard.escaped[0]!);
+        throw new SignInError(`${label} could not sign in: the sign-in page closed after the email was entered.`);
+      case "code":
+        throw new SignInError(
+          `${label}'s sign-in asks for a verification code after the email. Codes (sign-in by emailed code, multi-factor sign-in) aren't supported: use a test account that signs in with a password.`,
+        );
+      case "captcha":
+        throw new SignInError(
+          `${label} could not sign in: after the email, the sign-in page asks for a captcha, and captchas aren't supported. Turn it off for test accounts in your development setup.`,
+        );
+      case "alert":
+      case "none": {
+        const quote = outcome.kind === "alert" ? outcome.texts.slice(0, 2).join(" ").slice(0, 300) : "";
+        // A captcha widget the page showed from the start (the wait only ends early on one that shows up after the
+        // email) may be what refused the first step: the one-step path says so too, with the page's own text.
+        if (await showsCaptcha(page)) {
+          throw new SignInError(
+            `${label} could not sign in: the sign-in page asks for a captcha, and captchas aren't supported. Turn it off for test accounts in your development setup.${quote ? ` The page said: "${quote}"` : ""}`,
+          );
+        }
+        if (quote) throw new SignInError(`${label} could not sign in: the sign-in page said "${quote}".`);
+        const control = controlWords(step.control) || "Continue";
+        throw new SignInError(
+          `${label} could not sign in: no password field appeared on ${shownUrl} after the email was entered and "${control}" was used. Sign-in links sent by email, codes and "Sign in with …" providers aren't supported: use a test account that signs in with a password.`,
+        );
+      }
+    }
+    // The next page may still be loading: let it settle before it is read.
+    await page.waitForLoadState("load", { timeout: SUBMIT_WAIT_MS }).catch(() => undefined);
+    await page.waitForLoadState("networkidle", { timeout: NETWORK_IDLE_MS }).catch(() => undefined);
+    const after = elsewhere();
+    if (after) throw continuedElsewhere(after);
+  } finally {
+    page.off("request", onRequest);
+    page.off("requestfinished", onDone);
+    page.off("requestfailed", onDone);
+  }
+
+  /** Polls the page until a password field holds for SETTLED_MS, or another outcome; `before` is what showed before. */
+  async function awaitPasswordStep(before: { alerts: Set<string>; code: boolean; captcha: boolean }): Promise<StepOutcome> {
+    const deadline = Date.now() + SUBMIT_WAIT_MS;
+    let passwordSince: number | null = null;
+    let alertSince: number | null = null;
+    let quietSince: number | null = null;
+    while (Date.now() < deadline) {
+      const away = elsewhere();
+      if (away) return { kind: "elsewhere", url: away };
+      if (page.isClosed()) return { kind: "closed" };
+      if (await page.evaluate(NEW_PASSWORD_SHOWN).then(Boolean, () => false)) {
+        alertSince = null;
+        quietSince = null;
+        passwordSince ??= Date.now();
+        if (Date.now() - passwordSince >= SETTLED_MS) return { kind: "password" };
+      } else {
+        passwordSince = null;
+        const framed = await passwordFrameElsewhere(page, loginOrigin);
+        if (framed) return { kind: "elsewhere", url: framed };
+        if (!before.code && (await showsCodeField(page, true))) return { kind: "code" };
+        if (!before.captcha && (await showsCaptcha(page))) return { kind: "captcha" };
+        const fresh = (await errorTexts(page, step.form.selector)).filter((t) => !before.alerts.has(t));
+        if (fresh.length === 0) alertSince = null;
+        else if (alertSince === null) alertSince = Date.now();
+        else if (Date.now() - alertSince >= ALERT_GRACE_MS) return { kind: "alert", texts: fresh };
+        // Nothing left to fill in and nothing loading: the page is done (it emailed a sign-in link instead).
+        const fields = await page.locator("input:not([type=hidden]):visible, textarea:visible, select:visible").count().catch(() => 1);
+        if (fields === 0 && pending.size === 0) {
+          quietSince ??= Date.now();
+          if (Date.now() - quietSince >= NO_STEP_SETTLED_MS) break;
+        } else quietSince = null;
+      }
+      await sleep(POLL_MS);
+    }
+    const away = elsewhere();
+    if (away) return { kind: "elsewhere", url: away };
+    if (page.isClosed()) return { kind: "closed" };
+    if (!before.code && (await showsCodeField(page, true))) return { kind: "code" };
+    if (!before.captcha && (await showsCaptcha(page))) return { kind: "captcha" };
+    return { kind: "none" };
+  }
+}
+
+/**
+ * The sign-in form of a two-step sign-in's password step, read once the page has settled. Throws when the password
+ * field isn't in a sign-in form: the page offered to create an account for the identifier instead (a new-password
+ * field, sign-up words, or a sign-in form that asks to choose a password: choosesPassword), or showed a password field
+ * outside any form Run Hound can use.
+ */
+async function passwordStepForm(page: Page, label: string, shownUrl: string): Promise<DiscoveredForm> {
+  let forms: DiscoveredForm[] = [];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      forms = (await discoverPage(page)).forms;
+      break;
+    } catch {
+      // The page navigated while it was read: read it again once it has loaded.
+      await page.waitForLoadState("load", { timeout: SUBMIT_WAIT_MS }).catch(() => undefined);
+    }
+  }
+  const createsAccount = () =>
+    new SignInError(
+      `${label} could not sign in: after the email, the page offered to create a new account instead of asking for the password, and Run Hound never types the password into a sign-up form. Check the account's email (Settings → Test accounts).`,
+    );
+  const form = signInForm(forms);
+  if (form) {
+    if (await choosesPassword(page, form)) throw createsAccount();
+    return form;
+  }
+  // A form whose password field showed after the first step, and that creates an account (a sign-up form already on
+  // the page beside the first step doesn't count).
+  const creates = forms.filter((f) => {
+    const passwords = f.fields.filter(isPassword);
+    const words = formWords(f);
+    return passwords.length > 0 && (passwords.every((p) => /new-password/i.test(p.autocomplete ?? "")) || (SIGN_UP_WORDS.test(words) && !SIGN_IN_WORDS.test(words)));
+  });
+  const selectors = creates.map((f) => f.fields.filter(isPassword).map((p) => p.selector));
+  const fresh = (await page.evaluate(`(${NEW_ELEMENTS})(${JSON.stringify(selectors.flat())})`).catch(() => [])) as boolean[];
+  let at = 0;
+  const offered = selectors.some((list) => {
+    const any = list.some((_, i) => fresh[at + i] === true);
+    at += list.length;
+    return any;
+  });
+  if (offered) throw createsAccount();
+  throw new SignInError(`${label} could not sign in: after the email, ${shownUrl} showed a password field, but not in a sign-in form.`);
+}
+
+/**
+ * Whether a two-step sign-in's password step asks to choose a password instead (the first step turned into a sign-up
+ * under a form still named "Sign in"): of the form's password fields that showed after the first step (MARK_PASSWORDS;
+ * an autofill field hidden beside the first step doesn't count), more than one is shown (a password and its
+ * confirmation), or one says create, choose, new, confirm or repeat.
+ */
+async function choosesPassword(page: Page, form: DiscoveredForm): Promise<boolean> {
+  const passwords = form.fields.filter(isPassword);
+  const fresh = (await page.evaluate(`(${NEW_ELEMENTS})(${JSON.stringify(passwords.map((p) => p.selector))})`).catch(() => [])) as boolean[];
+  const shown: FormField[] = [];
+  for (const [i, field] of passwords.entries()) {
+    // Unknown (the page couldn't be read) counts as new: the safe side is not typing the password.
+    if (fresh[i] === false) continue;
+    if (await page.locator(field.selector).first().isVisible().catch(() => false)) shown.push(field);
+  }
+  return shown.length > 1 || shown.some((f) => CHOOSE_PASSWORD.test([f.label, f.placeholder, f.accessibleName].filter(Boolean).join(" ")));
+}
+
+/**
+ * Whether a password step's identifier field still needs the identifier: shown (a 0x0 autofill field isn't; the
+ * identifier was the first step), editable, and not already holding it.
+ */
+async function identifierNeeded(page: Page, field: FormField, username: string): Promise<boolean> {
+  const box = page.locator(field.selector).first();
+  if (!(await box.isVisible().catch(() => false))) return false;
+  if (!(await box.isEditable({ timeout: ACTION_TIMEOUT_MS }).catch(() => false))) return false;
+  return (await box.inputValue({ timeout: ACTION_TIMEOUT_MS }).catch(() => "")) !== username;
+}
+
+/**
+ * Types `password` into the field `handle` points at, inside that field's own document and never through the page
+ * keyboard (0.6.0 review). Playwright's fill focuses the field and then types with the page keyboard, which goes
+ * wherever the focus is by then: a focus handler (or a timer) that moves the focus into another origin's frame would
+ * get the password typed there. Here the field is focused, checked to hold the focus, and filled in one synchronous
+ * step in its document: document.execCommand("insertText") (the input events a typed value makes) or, where that
+ * leaves another value, the value set as a password manager sets it, with "input" and "change" events.
+ *
+ * Throws when the field is gone (retried by the caller: "not attached") or the page moved the focus away from it.
+ *
+ * The callback declares no named function: tsx/esbuild's keepNames would wrap one in a `__name` helper that doesn't
+ * exist in the browser (vitest doesn't, so only `run-hound` itself would fail).
+ */
+async function typePassword(handle: ElementHandle<Node>, password: string): Promise<void> {
+  await handle.waitForElementState("visible", { timeout: ACTION_TIMEOUT_MS });
+  await handle.waitForElementState("editable", { timeout: ACTION_TIMEOUT_MS });
+  const outcome = await handle.evaluate((node, value) => {
+    const field = node as HTMLInputElement | HTMLTextAreaElement;
+    if (!field.isConnected) return "detached";
+    const doc = field.ownerDocument;
+    field.focus();
+    // The element that has the focus, inside open shadow roots too; an iframe when the focus went into a frame.
+    let active = doc.activeElement;
+    while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+    if (active !== field) return "focus";
+    field.select();
+    let typed = false;
+    try {
+      typed = doc.execCommand("insertText", false, value);
+    } catch {
+      typed = false;
+    }
+    if (!typed || field.value !== value) {
+      const proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(field, value);
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    return "typed";
+  }, password);
+  if (outcome === "detached") throw new Error("the password field is not attached to the page any more");
+  if (outcome === "focus") throw new Error("the page moved the focus away from the password field");
+}
+
+/**
+ * A page Run Hound serves itself (a route: nothing reaches the app's server and no app script runs) on the sign-in
+ * origin, only to read that origin's sessionStorage once the tab has moved on to another origin.
+ */
+const STORAGE_PROBE_PATH = "/__run-hound__/session-storage";
+
+async function storageItems(page: Page): Promise<{ name: string; value: string }[]> {
+  return (await page.sessionStorage.items().catch(() => [])).map(({ name, value }) => ({ name, value }));
+}
+
+/**
+ * The sessionStorage items of the landing origin (the tab's origin now) and of the sign-in origin (0.6.0), each only
+ * when it holds something, the sign-in origin first.
+ *
+ * sessionStorage belongs to the tab, and the tab has left the sign-in origin. The landing page opens STORAGE_PROBE_PATH
+ * on the sign-in origin as a popup: Chromium gives a popup a copy of its opener's whole sessionStorage, so the probe
+ * reads the sign-in origin's items while the landing page stays where it is. Moving the tab itself would run the
+ * landing page's pagehide handlers, and an app that signs out there (a beacon to its own sign-out endpoint) would end
+ * the session just taken. When the popup can't be opened, the sign-in origin's items are left out.
+ */
+async function readSessionStorage(page: Page, loginOrigin: string): Promise<NonNullable<SignedIn["sessionStorage"]>> {
+  const out: NonNullable<SignedIn["sessionStorage"]> = [];
+  if (page.isClosed()) return out;
+  const landing = originOf(page.url());
+  if (landing !== null && isWebUrl(page.url())) {
+    const items = await storageItems(page);
+    if (items.length > 0) out.push({ origin: landing, items });
+  }
+  if (landing === loginOrigin) return out;
+
+  const context = page.context();
+  const probe = `${loginOrigin}${STORAGE_PROBE_PATH}`;
+  const isProbe = (url: URL) => url.href === probe;
+  const serve = (route: Route) =>
+    route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: "<!doctype html><title>Run Hound</title>" });
+  await context.route(isProbe, serve);
+  try {
+    const popped = context.waitForEvent("page", { timeout: NETWORK_IDLE_MS });
+    popped.catch(() => undefined);
+    const opened = await page.evaluate(`(() => { try { return window.open(${JSON.stringify(probe)}) !== null; } catch (e) { return false; } })()`).catch(() => false);
+    if (!opened) return out;
+    const popup = await popped;
+    try {
+      await popup.waitForLoadState("domcontentloaded", { timeout: NETWORK_IDLE_MS });
+      if (originOf(popup.url()) === loginOrigin) {
+        const items = await storageItems(popup);
+        if (items.length > 0) out.unshift({ origin: loginOrigin, items });
+      }
+    } finally {
+      await popup.close().catch(() => undefined);
+    }
+  } catch {
+    // No popup: the sign-in origin's items are left out.
+  } finally {
+    await context.unroute(isProbe, serve).catch(() => undefined);
+  }
+  return out;
+}
+
 /**
  * Signs `account` in with a fresh, guarded browser context (docs/v2-spec.md "Signing in", steps 1-7) and returns its
  * session. Throws SignInError when the slot isn't ready, the login URL fails the safety gate, no sign-in form is found,
  * the form is still shown after submitting (with the page's own error text, redacted), or the page asks for a code or
  * a captcha (not supported).
+ *
+ * 0.6.0: a two-step sign-in page (the identifier first, then the password) is signed in through both steps, the
+ * password only on the sign-in origin (passFirstStep); the session's sessionStorage comes back in
+ * SignedIn.sessionStorage (readSessionStorage).
  */
 export async function signIn(browser: Browser, account: TestAccount, safety: SafetyOptions = {}): Promise<SignedIn> {
   const label = accountLabel(account);
@@ -343,30 +1018,73 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
     // serviceWorkers: a service worker's own requests bypass context.route (the guard and the password blocks).
     context = await browser.newContext({ locale: BROWSER_LOCALE, serviceWorkers: "block" });
     const guard = await guardContext(context, safety);
+    const password = account.password!;
+    const loginOrigin = new URL(loginUrl).origin;
+    // No request can carry the password before it is typed: until then nothing is read (a weak password such as "demo"
+    // is in many an address), and nothing is stopped for the password's sake.
+    let passwordTyped = false;
     // A form that sends the password in the address (a GET form) would put it in the app's access log and the
     // browser history: such a request is stopped before it leaves the browser, and signing in fails with the reason.
     let passwordInAddress = false;
+    // The password is only ever sent to the sign-in page's own origin: a request to any other origin (a form action
+    // pointing elsewhere, a script that copies the form) that carries it, in whatever encoding (carriesPassword), is
+    // stopped before it leaves the browser.
+    let passwordElsewhere: string | null = null;
+    /** Whether a request (or a WebSocket, or one of its messages) must be stopped for the password's sake; records why. */
+    const stops = (sent: Sent): boolean => {
+      if (!passwordTyped) return false;
+      let url: URL;
+      try {
+        url = new URL(sent.url);
+      } catch {
+        return false;
+      }
+      if (!/^https?:$/.test(url.protocol)) return false;
+      if (url.origin !== loginOrigin && carriesPassword(sent, password)) {
+        passwordElsewhere = url.origin;
+        return true;
+      }
+      if (carriesInQuery(url, password)) {
+        passwordInAddress = true;
+        return true;
+      }
+      return false;
+    };
     await context.route(
-      (url) => carriesInQuery(url, account.password!),
+      (url) => passwordTyped && carriesInQuery(url, password),
       async (route) => {
         passwordInAddress = true;
         await route.abort("blockedbyclient").catch(() => undefined);
       },
     );
-    // The password is only ever sent to the sign-in page's own origin: a request to any other origin (a redirect to
-    // another allowed host, a form action pointing elsewhere) that carries it is stopped before it leaves the browser.
-    const loginOrigin = new URL(loginUrl).origin;
-    let passwordElsewhere: string | null = null;
     await context.route(
       (url) => url.origin !== loginOrigin,
       async (route) => {
-        const body = route.request().postData() ?? "";
-        if (account.password && body.includes(account.password)) {
-          passwordElsewhere = new URL(route.request().url()).origin;
+        if (stops(sentOf(route.request()))) {
           await route.abort("blockedbyclient").catch(() => undefined);
           return;
         }
         await route.fallback();
+      },
+    );
+    // context.route doesn't see WebSockets: each one is checked at its handshake and at every message the page sends.
+    await context.routeWebSocket(
+      () => true,
+      (ws) => {
+        const url = ws.url().replace(/^ws(s?):/i, "http$1:");
+        if (stops({ url, body: "", headers: {} })) {
+          void ws.close().catch(() => undefined);
+          return;
+        }
+        const server = ws.connectToServer();
+        ws.onMessage((message) => {
+          if (stops({ url, body: typeof message === "string" ? message : message.toString("utf8"), headers: {} })) {
+            void ws.close().catch(() => undefined);
+            void server.close().catch(() => undefined);
+            return;
+          }
+          server.send(message);
+        });
       },
     );
     const elsewhere = () => {
@@ -382,6 +1100,12 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
       );
     };
     const page = await context.newPage();
+    // What the routes never see (a redirect, a beacon or an image of a page being left) is checked in every tab of the
+    // context, the sign-in page's tab before it opens anything.
+    await stopUnrouted(page, stops);
+    context.on("page", (opened) => {
+      if (opened !== page) void stopUnrouted(opened, stops).catch(() => undefined);
+    });
     const leftTarget = () => {
       if (guard.escaped.length === 0) return;
       throw new SignInError(`${label} could not sign in: ${guardSummary(guard)} Sign-in through another site (Google, GitHub, …) isn't supported.`);
@@ -398,33 +1122,129 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
     await page.waitForLoadState("networkidle", { timeout: NETWORK_IDLE_MS }).catch(() => undefined);
     leftTarget();
 
-    // 2. The sign-in form.
-    const form = signInForm((await discoverPage(page)).forms);
+    /**
+     * Where the tab is, for a message: its origin; on a page that isn't a web page (a navigation the guard refused
+     * shows Chromium's error page), the refused address's origin; null when neither is known.
+     */
+    const whereNow = (): string | null => {
+      const now = page.isClosed() ? "" : page.url();
+      if (isWebUrl(now)) return originOf(now);
+      const refused = guard.blocked.at(-1)?.split(/\s+/).find(isWebUrl);
+      return refused ? originOf(refused) : null;
+    };
+    /** Nothing is typed, not even the identifier, on a page that isn't on the sign-in page's own origin. */
+    const ledElsewhere = (where: string | null = null) => {
+      if (where === null && !page.isClosed() && originOf(page.url()) === loginOrigin) return;
+      const to = where ?? whereNow();
+      throw new SignInError(
+        to
+          ? `${label} could not sign in: ${shownUrl} led to ${redactSecrets(to)}, and the password is only typed on ${redactSecrets(loginOrigin)}, the sign-in page it was saved for.`
+          : `${label} could not sign in: ${shownUrl} didn't stay on ${redactSecrets(loginOrigin)}, and the password is only typed on ${redactSecrets(loginOrigin)}, the sign-in page it was saved for.`,
+      );
+    };
+
+    // 2. The sign-in form; else (0.6.0) the first step of a two-step sign-in, then the password step's sign-in form.
+    const found = await discoverPage(page);
+    let form = signInForm(found.forms);
+    const twoStep = form === null;
+    /** A two-step sign-in's first step (0.6.0): its page, its identifier field and its form, to see the page go back to it. */
+    let firstStep: { url: string; field: string; form: string } | null = null;
     if (!form) {
-      const providers = (await offersProviders(page)) ? " Sign-in through another provider (Google, GitHub, …) isn't supported." : "";
-      throw new SignInError(`No sign-in form (a form with a password field) was found on ${shownUrl}.${providers}`);
+      const first = await firstStepForm(page, found.forms, loginUrl);
+      if (!first) {
+        const providers = (await offersProviders(page)) ? " Sign-in through another provider (Google, GitHub, …) isn't supported." : "";
+        throw new SignInError(`No sign-in form (a form with a password field) was found on ${shownUrl}.${providers}`);
+      }
+      ledElsewhere();
+      firstStep = { url: page.url(), field: first.field.selector, form: first.form.selector };
+      await passFirstStep(page, first, { label, shownUrl, loginOrigin, username: account.username, guard });
+      leftTarget();
+      form = await passwordStepForm(page, label, shownUrl);
     }
+    const signInScope = form.selector;
     const passwordField = form.fields.find(isPassword)!;
-    // 3. The identifier field.
+    // 3. The identifier field. A two-step sign-in's password step may have none: the identifier was the first step.
     const idField = identifierField(form);
-    if (!idField) throw new SignInError(`The sign-in form on ${shownUrl} has a password field but no field for the username or email.`);
+    if (!idField && !twoStep) throw new SignInError(`The sign-in form on ${shownUrl} has a password field but no field for the username or email.`);
 
     // 4. Fill in and submit, only on the sign-in page's own origin (the password is bound to it).
-    const landedOn = new URL(page.url()).origin;
-    if (landedOn !== loginOrigin) {
-      throw new SignInError(
-        `${label} could not sign in: ${shownUrl} led to ${redactSecrets(landedOn)}, and the password is only typed on ${redactSecrets(loginOrigin)}, the sign-in page it was saved for.`,
-      );
-    }
+    /** Throws when the tab isn't on the sign-in origin: a two-step sign-in with the contract's message. */
+    const stillOnLoginOrigin = (where: string | null = null) => {
+      if (!twoStep) return ledElsewhere(where);
+      if (where === null && !page.isClosed() && originOf(page.url()) === loginOrigin) return;
+      const to = where ?? whereNow();
+      if (to) throw continuedElsewhere(to);
+      ledElsewhere(null);
+    };
+    const couldNotFill = (err: unknown) => new SignInError(`${label} could not fill in the sign-in form on ${shownUrl}: ${firstLine(err)}`);
+    stillOnLoginOrigin();
     const passwordBox = page.locator(passwordField.selector).first();
     try {
-      await page.locator(idField.selector).first().fill(account.username, { timeout: ACTION_TIMEOUT_MS });
-      await passwordBox.fill(account.password!, { timeout: ACTION_TIMEOUT_MS });
+      // A password step that repeats the identifier (read-only, or already filled in) is left as it is.
+      if (idField && (!twoStep || (await identifierNeeded(page, idField, account.username)))) {
+        await page.locator(idField.selector).first().fill(account.username, { timeout: ACTION_TIMEOUT_MS });
+      }
     } catch (err) {
-      throw new SignInError(`${label} could not fill in the sign-in form on ${shownUrl}: ${firstLine(err)}`);
+      throw couldNotFill(err);
+    }
+    // The password goes into the field of a document on the sign-in origin, checked on that very element, and is typed
+    // in that element's own document (typePassword), never with the page keyboard: a navigation that commits in between
+    // makes the handle fail, and a page that moves the focus elsewhere (into another origin's frame) fails the sign-in,
+    // instead of the password being typed where the focus went.
+    for (let attempt = 1; ; attempt++) {
+      stillOnLoginOrigin();
+      let handle: Awaited<ReturnType<typeof passwordBox.elementHandle>>;
+      try {
+        handle = await passwordBox.elementHandle({ timeout: ACTION_TIMEOUT_MS });
+      } catch (err) {
+        throw couldNotFill(err);
+      }
+      try {
+        const origin = await handle.evaluate((el) => el.ownerDocument.location.origin).catch(() => null);
+        if (origin !== null && origin !== "null" && origin !== loginOrigin) stillOnLoginOrigin(origin);
+        if (origin === loginOrigin) {
+          try {
+            passwordTyped = true;
+            await typePassword(handle, password);
+            break;
+          } catch (err) {
+            // The field was replaced (a re-render) or its page moved on: once more, with the field as it is now.
+            if (attempt >= 2 || !/not attached|detached|context was destroyed|navigat|moved the focus/i.test(String((err as Error)?.message ?? err))) throw couldNotFill(err);
+          }
+        } else if (attempt >= 2) {
+          throw couldNotFill(new Error("the page moved on while the password was being typed"));
+        }
+      } finally {
+        await handle.dispose().catch(() => undefined);
+      }
     }
     const before = page.url();
-    const alertsBefore = new Set(await errorTexts(page, form.selector));
+    /**
+     * Error texts on the page: around the password step's form and, in a two-step sign-in, around the first step's form
+     * too (a page that goes back to the email step after a wrong password shows its message there).
+     */
+    const errorScopes = [...new Set([signInScope, ...(firstStep ? [firstStep.form] : [])])];
+    const pageErrors = async () => [...new Set((await Promise.all(errorScopes.map((s) => errorTexts(page, s)))).flat())];
+    const alertsBefore = new Set(await pageErrors());
+    const freshErrors = async () => (await pageErrors()).filter((t) => !alertsBefore.has(t));
+    /** Two-step (0.6.0): the tab is on the first step's page, or on the password step's. */
+    const onFirstStepPage = () => firstStep !== null && !page.isClosed() && (samePage(page.url(), before) || samePage(page.url(), firstStep.url));
+    /** Two-step: the first step's identifier field shown and editable again, and no password field shown that is new since the first step. */
+    const firstFieldBack = async (): Promise<boolean> => {
+      if (firstStep === null) return false;
+      if (await page.evaluate(NEW_PASSWORD_SHOWN).then(Boolean, () => true)) return false;
+      const box = page.locator(firstStep.field).first();
+      if (!(await box.isVisible().catch(() => false))) return false;
+      return box.isEditable({ timeout: POLL_MS }).catch(() => false);
+    };
+    /** Two-step: the page's forms show a first step again (firstStepForm), read afresh. */
+    const firstStepShown = async (): Promise<boolean> => {
+      const forms = await discoverPage(page).then(
+        (p) => p.forms,
+        () => [] as DiscoveredForm[],
+      );
+      return (await firstStepForm(page, forms, loginUrl).catch(() => null)) !== null;
+    };
     // What the page sends after the submit, for the message when the form is still shown (methods and paths only).
     const sent: { method: string; path: string; status: Promise<number | null> }[] = [];
     page.on("request", (request) => {
@@ -451,6 +1271,9 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
 
     // 5. Wait for a settled outcome: the page left the sign-in page (not just a new hash or query), or the password
     // field went away, and it stays that way for SETTLED_MS. An error message ends the wait after ALERT_GRACE_MS.
+    // Two-step (0.6.0): on the first step's page, the password field going away may be the page going back to the
+    // email step after a wrong password, so an error message still counts there; with the email field back and no
+    // message yet, the page gets ALERT_GRACE_MS more for its message (or its next page).
     const deadline = Date.now() + SUBMIT_WAIT_MS;
     let alertSince: number | null = null;
     let doneSince: number | null = null;
@@ -458,16 +1281,21 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
       if (passwordInAddress || passwordElsewhere !== null || page.isClosed()) break;
       const left = !samePage(page.url(), before);
       const gone = left || !(await passwordBox.isVisible().catch(() => false));
-      if (gone) {
-        doneSince ??= Date.now();
-        if (Date.now() - doneSince >= SETTLED_MS) break;
-      } else {
-        doneSince = null;
+      const watchAlerts = !gone || onFirstStepPage();
+      if (watchAlerts) {
         if (alertSince === null) {
-          const fresh = (await errorTexts(page, form.selector)).filter((t) => !alertsBefore.has(t));
-          if (fresh.length > 0) alertSince = Date.now();
+          if ((await freshErrors()).length > 0) alertSince = Date.now();
         } else if (Date.now() - alertSince >= ALERT_GRACE_MS) break;
       }
+      if (gone) {
+        doneSince ??= Date.now();
+        if (!watchAlerts) {
+          if (Date.now() - doneSince >= SETTLED_MS) break;
+        } else if (alertSince === null) {
+          const settle = (await firstFieldBack()) ? SETTLED_MS + ALERT_GRACE_MS : SETTLED_MS;
+          if (Date.now() - doneSince >= settle) break;
+        }
+      } else doneSince = null;
       await sleep(POLL_MS);
     }
     inAddress();
@@ -476,9 +1304,17 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
     await page.waitForLoadState("load", { timeout: SUBMIT_WAIT_MS }).catch(() => undefined);
     await page.waitForLoadState("networkidle", { timeout: NETWORK_IDLE_MS }).catch(() => undefined);
     inAddress();
+    elsewhere();
     leftTarget();
 
-    // 6. Decide from the page.
+    // 6. Decide from the page. A navigation the guard refused left the tab on Chromium's error page: the sign-in went
+    // on to a site Run Hound may not open (a provider's), so nothing is signed in here.
+    if (!page.isClosed() && !isWebUrl(page.url()) && guard.blocked.length > 0) {
+      const to = whereNow();
+      throw new SignInError(
+        `${label} could not sign in: after submitting, the sign-in page went to ${to ? redactSecrets(to) : "another site"}, which Run Hound is not allowed to open. Sign-in through another site (Google, GitHub, …) isn't supported.`,
+      );
+    }
     const onSignInPage = samePage(page.url(), before);
     if (await showsCodeField(page, onSignInPage)) {
       throw new SignInError(
@@ -487,24 +1323,39 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
     }
     const stillShown =
       (await passwordBox.isVisible().catch(() => false)) || (onSignInPage && (await page.locator("input[type=password]:visible").count().catch(() => 0)) > 0);
+    const captchaMessage = (quote: string) =>
+      `${label} could not sign in: the sign-in form has a captcha, and captchas aren't supported. Turn it off for test accounts in your development setup.${quote ? ` The page said: "${quote}"` : ""}`;
     if (stillShown) {
-      const said = (await errorTexts(page, form.selector)).filter((t) => !alertsBefore.has(t));
-      const quote = said.slice(0, 2).join(" ").slice(0, 300);
-      if (await showsCaptcha(page)) {
-        throw new SignInError(
-          `${label} could not sign in: the sign-in form has a captcha, and captchas aren't supported. Turn it off for test accounts in your development setup.${quote ? ` The page said: "${quote}"` : ""}`,
-        );
-      }
+      const quote = (await freshErrors()).slice(0, 2).join(" ").slice(0, 300);
+      if (await showsCaptcha(page)) throw new SignInError(captchaMessage(quote));
       if (quote) throw new SignInError(`${label} could not sign in: the sign-in page said "${quote}".`);
       throw new SignInError(`${label} could not sign in: the sign-in form was still shown after submitting, and the page showed no error. ${await whatWasSent(sent)}`);
     }
+    // Two-step (0.6.0): a page that answers a wrong password by going back to the email step, on the first step's page
+    // (or the password step's): its email field back with an error message, or a first step its forms show again with
+    // the email field back or an error message. The password field is gone, but nobody signed in.
+    if (onFirstStepPage()) {
+      const said = await freshErrors();
+      const fieldBack = await firstFieldBack();
+      if ((fieldBack && said.length > 0) || ((fieldBack || said.length > 0) && (await firstStepShown()))) {
+        const quote = said.slice(0, 2).join(" ").slice(0, 300);
+        if (await showsCaptcha(page)) throw new SignInError(captchaMessage(quote));
+        if (quote) throw new SignInError(`${label} could not sign in: the sign-in page said "${quote}".`);
+        throw new SignInError(`${label} could not sign in: after the password, the sign-in page went back to asking for the email.`);
+      }
+    }
 
-    // 7. The session, in memory only. IndexedDB too: some apps (Firebase Auth) keep their session there.
+    // 7. The session, in memory only. IndexedDB too: some apps (Firebase Auth) keep their session there. sessionStorage
+    // (0.6.0) of the landing origin, and of the sign-in origin through a popup (readSessionStorage), read last.
     const state = await context.storageState({ indexedDB: true }).catch(() => context!.storageState());
-    const secrets = sessionSecrets(state);
+    const landedUrl = page.url();
+    const kept = await readSessionStorage(page, loginOrigin);
+    // Registered before the landing address is redacted: an implicit flow leaves its token in the address's hash.
+    const secrets = sessionSecrets(state, kept);
     registrations.push(registerSecretLiterals(secrets));
-    return { state, landedOn: redactSecrets(page.url()), secrets };
+    return { state, landedOn: redactSecrets(landedUrl), secrets, ...(kept.length > 0 ? { sessionStorage: kept } : {}) };
   } finally {
+    // Closing the context runs no pagehide handler in its pages: nothing is sent on the way out.
     await context?.close().catch(() => undefined);
   }
 }

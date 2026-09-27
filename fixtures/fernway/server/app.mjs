@@ -1,9 +1,9 @@
 // Fernway's request handler: static files from dist/, the SPA fallback, the JSON API (route modules in
-// server/routes/), security headers, the session cookie, the cross-site (CSRF) defences and the Idempotency-Key replay
-// cache. See CONTRACT.md.
+// server/routes/), security headers, the session (a cookie, or a bearer token in FERNWAY_SESSION=session-storage mode),
+// the cross-site (CSRF) defences and the Idempotency-Key replay cache. See CONTRACT.md.
 // Node built-ins only. server/index.mjs reads the environment and listens; tests can create an app in-process.
 
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { basename, dirname, extname, join, normalize, sep } from "node:path";
@@ -14,6 +14,7 @@ import * as billing from "./routes/billing.mjs";
 import * as marketing from "./routes/marketing.mjs";
 import * as onboarding from "./routes/onboarding.mjs";
 import * as workspace from "./routes/workspace.mjs";
+import { parseLoginMode, parseSessionMode } from "./modes.mjs";
 import { createSeed } from "./seed.mjs";
 
 /** fixtures/fernway */
@@ -30,6 +31,9 @@ export const ROUTE_MODULES = Object.freeze([marketing, auth, onboarding, workspa
 export const MAX_BODY = 256 * 1024;
 
 export const SESSION_COOKIE = "fernway_session";
+
+/** "Authorization: Bearer <token>" (the scheme in any case), the session in session-storage mode. */
+const BEARER_RE = /^Bearer[ \t]+([A-Za-z0-9._~+/-]+=*)[ \t]*$/i;
 
 export const CSP = [
   "default-src 'self'",
@@ -115,6 +119,9 @@ export function isLoopbackHost(host) {
  * @typedef {object} AppContext  What route modules get as `ctx` in register(router, ctx).
  * @property {ReadonlySet<string>} bugs       Enabled bug ids.
  * @property {(id: string) => boolean} bugOn  True when FERNWAY_BUGS enables that id.
+ * @property {Readonly<{ login: "one-step" | "two-step", session: "cookie" | "session-storage" }>} modes  FERNWAY_LOGIN
+ *   and FERNWAY_SESSION (server/modes.mjs). The login mode only changes the SPA; the session mode decides where a
+ *   request's session comes from (sessionOf) and whether signing in sets a cookie or answers a token (newSession).
  * @property {import("./seed.mjs").Store} store  The in-memory data. The object is stable but POST /api/__reset
  *   replaces its fields (all but `sessions`), so read `ctx.store.workspaces` inside handlers; never keep a reference
  *   to a field.
@@ -124,9 +131,18 @@ export function isLoopbackHost(host) {
  *   browser drops a Secure cookie sent over plain http anywhere else.
  * @property {(host?: string) => string} clearSessionCookie  A Set-Cookie value that removes fernway_session
  *   (Max-Age=0), with the same flags as sessionCookie.
- * @property {(cookies: Record<string, string>) => import("./seed.mjs").User | null} sessionUser  The user signed in
- *   with the request's fernway_session cookie, or null (no cookie, an unknown id, or a visitor's session that never
- *   signed in).
+ * @property {(request: { cookies?: Record<string, string>, bearer?: string | null }) => string | null} sessionOf  The
+ *   session id a request presents: its fernway_session cookie in cookie mode, its bearer token in session-storage mode
+ *   (the other one is ignored), or null.
+ * @property {(request: { cookies?: Record<string, string>, bearer?: string | null }) => import("./seed.mjs").User | null}
+ *   sessionUser  The user signed in with the request's session (sessionOf), or null (none, an unknown id, or a
+ *   visitor's cookie session that never signed in).
+ * @property {(userId: string, options: { remember?: boolean, host?: string }) => { headers: Record<string, string>,
+ *   token?: string }} newSession  Starts a new session for the user (a new id every time, so an id from before
+ *   signing in is never promoted). Cookie mode: the Set-Cookie header (Max-Age 30 days with `remember`), no token.
+ *   Session-storage mode: no header, and the token the client keeps and sends as "Authorization: Bearer <token>".
+ * @property {(host?: string) => Record<string, string>} endSessionHeaders  What a sign-out answers with: the cookie
+ *   removal in cookie mode, nothing in session-storage mode.
  * @property {(userId: string) => import("./seed.mjs").Workspace | undefined} workspaceOf  That user's workspace.
  * @property {(fn: () => void) => void} onReset  Runs fn on POST /api/__reset (for module-private state).
  * @property {() => string} newId  A random UUID.
@@ -136,14 +152,19 @@ export function isLoopbackHost(host) {
 /**
  * @param {object} [options]
  * @param {ReadonlySet<string>} [options.bugs]  Enabled bug ids (parseBugs).
+ * @param {string} [options.login]    FERNWAY_LOGIN ("one-step" by default; parseLoginMode, so an unknown value throws).
+ * @param {string} [options.session]  FERNWAY_SESSION ("cookie" by default; parseSessionMode, so an unknown value throws).
  * @param {string} [options.root]  Fernway root; static files come from <root>/dist.
  * @param {readonly { register: (router: import("./http.mjs").Router, ctx: AppContext) => void }[]} [options.modules]
  * @param {(line: string) => void} [options.log]  Server-side error log (default: console.error).
  */
-export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODULES, log = (line) => console.error(line) } = {}) {
+export function createApp({ bugs = new Set(), login, session, root = ROOT, modules = ROUTE_MODULES, log = (line) => console.error(line) } = {}) {
   const dist = join(root, "dist");
   /** @param {string} id */
   const on = (id) => bugs.has(id);
+  const modes = Object.freeze({ login: parseLoginMode(login), session: parseSessionMode(session) });
+  /** Session-storage mode: the session is a bearer token and no cookie is ever set. */
+  const tokenSessions = modes.session === "session-storage";
 
   const store = createSeed();
   /**
@@ -163,6 +184,7 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
   const ctx = {
     bugs,
     bugOn: on,
+    modes,
     store,
     sessionCookie(sessionId = randomUUID(), host) {
       return `${SESSION_COOKIE}=${sessionId}; ${cookieFlags(host)}`;
@@ -170,10 +192,29 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
     clearSessionCookie(host) {
       return `${SESSION_COOKIE}=; ${cookieFlags(host)}; Max-Age=0`;
     },
-    sessionUser(cookies) {
-      const sid = cookies[SESSION_COOKIE];
+    sessionOf(request) {
+      const sid = tokenSessions ? request.bearer : request.cookies?.[SESSION_COOKIE];
+      return sid || null;
+    },
+    sessionUser(request) {
+      const sid = ctx.sessionOf(request);
       const userId = sid ? store.sessions.get(sid) : undefined;
       return (userId && store.users.find((u) => u.id === userId)) || null;
+    },
+    newSession(userId, { remember = false, host } = {}) {
+      if (tokenSessions) {
+        // 32 random bytes, base64url: what the SPA keeps in sessionStorage.
+        const token = randomBytes(32).toString("base64url");
+        store.sessions.set(token, userId);
+        return { headers: {}, token };
+      }
+      const sessionId = randomUUID();
+      store.sessions.set(sessionId, userId);
+      const cookie = ctx.sessionCookie(sessionId, host);
+      return { headers: { "set-cookie": remember ? `${cookie}; Max-Age=${auth.REMEMBER_MAX_AGE}` : cookie } };
+    },
+    endSessionHeaders(host) {
+      return tokenSessions ? {} : { "set-cookie": ctx.clearSessionCookie(host) };
     },
     workspaceOf(userId) {
       return store.workspaces.get(userId);
@@ -344,7 +385,7 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
     const path = url.pathname;
 
     if (path === "/api/__config" && (method === "GET" || method === "HEAD")) {
-      return sendJson(res, 200, { bugs: [...bugs].sort() });
+      return sendJson(res, 200, { bugs: [...bugs].sort(), login: modes.login, session: modes.session });
     }
     if (path === "/api/__reset" && method === "POST") {
       await readBody(req);
@@ -392,6 +433,7 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
 
     const header = req.headers["idempotency-key"];
     const idempotencyKey = (Array.isArray(header) ? header[0] : header)?.trim().slice(0, 255) || null;
+    const bearer = BEARER_RE.exec(String(req.headers.authorization ?? ""))?.[1] ?? null;
     /** @type {import("./http.mjs").ApiRequest} */
     const request = {
       req,
@@ -402,6 +444,7 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
       query: url.searchParams,
       body,
       cookies: parseCookies(req.headers.cookie),
+      bearer,
       idempotencyKey,
     };
 
@@ -410,12 +453,13 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
 
     // The same key on the same endpoint, from the same session with the same body, answers the first response again,
     // including while the first request is still running (a double click). A different body is a different request
-    // (it is processed). The cache is keyed per session (the fernway_session cookie, plus who it signs in), never per
-    // user: another visitor, another session of the same user, or the same cookie after it was signed out never gets
-    // the first answer (which can carry a Set-Cookie, as a sign-up's does). Requests without any session cookie share
-    // one anonymous slot. Server failures are not cached, so a retry with the same key can succeed.
-    const sid = request.cookies[SESSION_COOKIE] || "-";
-    const who = ctx.sessionUser(request.cookies)?.id ?? "-";
+    // (it is processed). The cache is keyed per session (the fernway_session cookie, or the bearer token in
+    // session-storage mode, plus who it signs in), never per user: another visitor, another session of the same user,
+    // or the same session after it was signed out never gets the first answer (which can carry a new session, as a
+    // sign-up's does). Requests without any session share one anonymous slot. Server failures are not cached, so a
+    // retry with the same key can succeed.
+    const sid = ctx.sessionOf(request) || "-";
+    const who = ctx.sessionUser(request)?.id ?? "-";
     const digest = createHash("sha256").update(raw).digest("hex");
     const cacheKey = JSON.stringify([sid, who, method, match.route.pattern, path, idempotencyKey, digest]);
     const earlier = replays.get(cacheKey);
@@ -448,15 +492,15 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
   }
 
   /**
-   * index.html with the given status (200 for the seven routes, 404 otherwise); sets the session cookie on a
-   * visitor's first page load (a visitor's session: it signs nobody in).
+   * index.html with the given status (200 for the eight routes, 404 otherwise); in cookie mode, sets the session cookie
+   * on a visitor's first page load (a visitor's session: it signs nobody in). Session-storage mode sets no cookie.
    * @param {import("node:http").IncomingMessage} req
    * @param {import("node:http").ServerResponse} res
    * @param {number} status
    */
   function sendPage(req, res, status) {
     const cookies = parseCookies(req.headers.cookie);
-    const cookie = cookies[SESSION_COOKIE] ? {} : { "set-cookie": ctx.sessionCookie(undefined, req.headers.host) };
+    const cookie = tokenSessions || cookies[SESSION_COOKIE] ? {} : { "set-cookie": ctx.sessionCookie(undefined, req.headers.host) };
     send(res, status, indexHtml(), { "content-type": TYPES[".html"], ...cookie });
   }
 
@@ -529,5 +573,5 @@ export function createApp({ bugs = new Set(), root = ROOT, modules = ROUTE_MODUL
     }
   }
 
-  return { handle, ctx, router, store, reset };
+  return { handle, ctx, router, store, reset, modes };
 }

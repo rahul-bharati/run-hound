@@ -1,11 +1,13 @@
 /**
  * Who is signed in, on the client (CONTRACT.md "Accounts"). The server decides: GET /api/me answers the session user
  * or 401. Only the signed-in pages (/app, /app/settings, through <RequireSession>) ask, so a signed-out visit to a
- * public page never makes a failing request. Nothing about the session is kept in localStorage. Every client-side
- * account and session detail lives in this module.
+ * public page never makes a failing request. Nothing about the session is kept in localStorage: the session is the
+ * server's cookie, or in FERNWAY_SESSION=session-storage mode a token kept in sessionStorage (./session-token.ts).
+ * Every client-side account and session detail lives in this module and that one.
  */
 import { useSyncExternalStore } from "react";
 import { apiGet, apiPost, isApiError } from "./api";
+import { clearSessionToken, saveSessionToken } from "./session-token";
 
 /** What GET /api/me answers. */
 export interface SessionUser {
@@ -52,8 +54,12 @@ export function loadSession(force = false): Promise<SessionState> {
   pending = apiGet<SessionUser>("/api/me")
     .then(
       (user): SessionState => ({ status: "signed-in", user }),
-      (err: unknown): SessionState =>
-        isApiError(err) && err.status === 401 ? { status: "signed-out" } : { status: "error", message: isApiError(err) ? err.message : "We couldn't check your session." },
+      (err: unknown): SessionState => {
+        if (!isApiError(err) || err.status !== 401) return { status: "error", message: isApiError(err) ? err.message : "We couldn't check your session." };
+        // A kept token the server no longer knows (it restarted, or the session ended elsewhere) is of no use.
+        clearSessionToken();
+        return { status: "signed-out" };
+      },
     )
     .then((next) => {
       pending = undefined;
@@ -63,15 +69,26 @@ export function loadSession(force = false): Promise<SessionState> {
   return pending;
 }
 
-/** Re-reads GET /api/me: call after POST /api/login, /api/login/demo or /api/signup succeeded. */
+/** Re-reads GET /api/me (after onboarding renamed the workspace, for example). */
 export const refreshSession = () => loadSession(true);
 
 /**
- * "Sign out": POST /api/logout ends the session on the server (and removes the cookie); the client then knows it is
- * signed out, so <RequireSession> sends the page to /login. Rejects (and changes nothing) when the request fails.
+ * After POST /api/login, /api/login/demo or /api/signup succeeded: keeps the answer's token (session-storage mode; in
+ * cookie mode the server already set the cookie and there is none), then re-reads GET /api/me.
+ */
+export function startSession(answer: { token?: unknown }): Promise<SessionState> {
+  if (typeof answer.token === "string" && answer.token) saveSessionToken(answer.token);
+  return loadSession(true);
+}
+
+/**
+ * "Sign out": POST /api/logout ends the session on the server (and removes the cookie, or the client forgets its
+ * token); the client then knows it is signed out, so <RequireSession> sends the page to /login. Rejects (and changes
+ * nothing) when the request fails.
  */
 export async function signOut(): Promise<void> {
   await apiPost("/api/logout");
+  clearSessionToken();
   set({ status: "signed-out" });
 }
 

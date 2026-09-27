@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { request as apiRequest, type APIRequestContext, type Browser, type BrowserContext, type CDPSession, type Page } from "playwright";
-import type { SessionState } from "./auth.js";
+import type { SessionState, SignedIn } from "./auth.js";
 import { openForm } from "./open-form.js";
 import {
   SIMULATED_RESPONSE_HEADER,
@@ -63,6 +63,14 @@ export interface ContextOptions extends SafetyOptions {
    * then throw).
    */
   sessions?: { self?: SessionState; other?: SessionState };
+  /**
+   * sessionStorage sessions (0.6.0, docs/v2-spec.md "Sign-in: two-step and sessionStorage"): the items each identity's
+   * sign-in kept in sessionStorage (SignedIn.sessionStorage). Every browser context openPage opens as that identity
+   * seeds them before any page script runs (seedSessionStorage), only when `sessions` has that identity's session too
+   * (a sessionStorage sign-in's state may be empty, but it is there). request() never reads them: it keeps sending the
+   * credential headers the app's own pages sent.
+   */
+  sessionStorage?: { self?: SessionStorageItems; other?: SessionStorageItems };
   /** Labels of those accounts, exposed as CheckContext.accounts. */
   accounts?: { self: AccountRef | null; other: AccountRef | null };
   /** CheckContext.accountMarkers(): strings identifying the run account's data (its username). Never printed. */
@@ -92,6 +100,42 @@ export function createCredentialHeaders(): CredentialHeaders {
 export function isCredentialHeader(name: string): boolean {
   const n = name.toLowerCase();
   return n === "cookie" || n === "authorization" || n === "proxy-authorization" || n === "apikey" || n === "x-api-key" || /^x-[\w-]*token$/.test(n);
+}
+
+/** A signed-in identity's sessionStorage items, per origin (SignedIn.sessionStorage). */
+export type SessionStorageItems = NonNullable<SignedIn["sessionStorage"]>;
+
+/**
+ * Runs in every document of a context before its own scripts (an init script): puts one origin's items into
+ * sessionStorage when the document is on that origin and the tab holds nothing there yet (a new tab, or one that never
+ * was on that origin). So a value the app changed itself is kept on the next load, and an item the app removed (a
+ * token it threw away after a 401) doesn't come back. A plain string, not a function: tsx/esbuild's keepNames would
+ * wrap a function in a `__name` helper that doesn't exist in the browser.
+ */
+const SEED_SESSION_STORAGE = String.raw`(entry) => {
+  try {
+    if (location.origin !== entry.origin) return;
+    const store = window.sessionStorage;
+    if (store.length > 0) return;
+    for (const item of entry.items) store.setItem(item.name, item.value);
+  } catch (e) {
+    // No sessionStorage here (an opaque origin, storage turned off).
+  }
+}`;
+
+/**
+ * Seeds a signed-in identity's sessionStorage items into every page `context` opens (0.6.0): one init script per
+ * origin, run before any page script, only on that origin and only while the tab holds nothing there. For the
+ * runner's own contexts (discovery) too; openPage calls it through ContextOptions.sessionStorage.
+ */
+export async function seedSessionStorage(context: BrowserContext, items: SessionStorageItems | undefined): Promise<void> {
+  for (const entry of items ?? []) {
+    // The bare origin, as location.origin has it in the page ("http://host:port", no path or trailing slash).
+    const origin = originOf(entry.origin);
+    if (!origin || entry.items.length === 0) continue;
+    const data = { origin, items: entry.items.map(({ name, value }) => ({ name, value })) };
+    await context.addInitScript(`(${SEED_SESSION_STORAGE})(${JSON.stringify(data)})`);
+  }
 }
 
 /** How long request() waits for an answer, and the most of its body it keeps (docs/v2-spec.md "Types"). */
@@ -544,7 +588,11 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
         throw new Error(ENDED);
       }
       contexts.push(context);
-      if (identity !== "signed-out") harvestCredentialHeaders(context, credentialHeaders, identity);
+      if (identity !== "signed-out") {
+        harvestCredentialHeaders(context, credentialHeaders, identity);
+        // Only for an identity that is signed in: a signed-out run's "self" gets none, whatever was passed.
+        if (state) await seedSessionStorage(context, options.sessionStorage?.[identity]);
+      }
       guards.push(await guardContext(context, { allowedHosts: options.allowedHosts, lookup: options.lookup }));
       const page = await context.newPage();
       const capture = attachCapture(page);

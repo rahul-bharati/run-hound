@@ -1,5 +1,6 @@
 # Fernway: a polished, AI-builder-style SaaS app (Vite + React + Tailwind v4 + shadcn/ui-style components) that
-# Run Hound is tested against. Clean by default; FERNWAY_BUGS plants bugs (see CONTRACT.md).
+# Run Hound is tested against. Clean by default; FERNWAY_BUGS plants bugs, FERNWAY_LOGIN (one-step | two-step) and
+# FERNWAY_SESSION (cookie | session-storage) pick the sign-in form and where the session lives (see CONTRACT.md).
 # Build from the repository root (the pnpm workspace and lockfile live there):
 #   docker build -f fixtures/fernway/Dockerfile -t ghcr.io/rahul-bharati/run-hound-fernway:0.5.0 .
 #   docker run --rm -p 127.0.0.1:4110:4110 -e FERNWAY_BUGS=none ghcr.io/rahul-bharati/run-hound-fernway:0.5.0
@@ -21,7 +22,9 @@ WORKDIR /fernway
 ENV NODE_ENV=production \
     PORT=4110 \
     HOST=0.0.0.0 \
-    FERNWAY_BUGS=none
+    FERNWAY_BUGS=none \
+    FERNWAY_LOGIN=one-step \
+    FERNWAY_SESSION=cookie
 COPY --from=build /repo/fixtures/fernway/package.json ./package.json
 COPY --from=build /repo/fixtures/fernway/server ./server
 COPY --from=build /repo/fixtures/fernway/dist ./dist

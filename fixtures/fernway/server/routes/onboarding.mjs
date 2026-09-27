@@ -42,7 +42,8 @@ export function register(router, ctx) {
     return ok({ slug, available: !isTaken(slug) });
   });
 
-  router.post("/api/onboarding", ({ body, cookies }) => {
+  router.post("/api/onboarding", (request) => {
+    const { body } = request;
     const v = validator(body);
     const workspaceName = v.text("workspaceName", { required: ONBOARDING_MESSAGES.nameRequired, max: 60, maxMessage: ONBOARDING_MESSAGES.nameLong });
     const rawSlug = v.text("slug", { required: ONBOARDING_MESSAGES.slugRequired });
@@ -66,7 +67,7 @@ export function register(router, ctx) {
       url: `fernway.app/${slug}`,
       createdAt: ctx.now(),
     };
-    const user = ctx.sessionUser(cookies);
+    const user = ctx.sessionUser(request);
     ctx.store.onboardings.push({ ...workspace, ownerId: user?.id ?? null });
     const own = user ? ctx.workspaceOf(user.id) : undefined;
     if (own) own.name = workspaceName;

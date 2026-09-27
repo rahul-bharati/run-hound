@@ -1,9 +1,12 @@
 /**
- * Fernway's write side (docs/v2-spec.md "Fernway (0.5.0 planned bugs)", CONTRACT.md "Tasks", "Cross-site requests",
- * "Billing" and "V2 planted bugs"): task updates with their ownership and session checks, the CSRF defences (the
- * SameSite=Lax cookie, the Origin check, JSON-only task writes), the server-side plan with the local test checkout
- * and /app/upgraded, and each of V06-V09 on versus off. What Run Hound's write-access, csrf and paywall-trust checks
- * do is done here by hand: write as the other identity, then re-read as Alex.
+ * Fernway's write side (docs/v2-spec.md "Fernway (0.5.0 planned bugs)" and "Fernway (0.6.0)", CONTRACT.md "Tasks",
+ * "Cross-site requests", "Billing" and "V2 planted bugs"): task updates with their ownership and session checks, the
+ * CSRF defences (the SameSite=Lax cookie, the Origin check, JSON-only task writes), the server-side plan with the local
+ * test checkout, /app/upgraded and the Billing tab's Cancel plan, and each of V06-V09 on versus off. What Run Hound's
+ * write-access, csrf and paywall-trust checks do is done here by hand: find the request the app itself sends (or the
+ * plan it reads), write as the other identity (or open the success page), re-read as Alex, then put it back.
+ * (The same bugs in FERNWAY_SESSION=session-storage mode: test/modes.test.ts. The Billing tab's "#billing" links are
+ * checked here in both session modes.)
  */
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
@@ -11,7 +14,7 @@ import { join } from "node:path";
 import type { BrowserContext, Request } from "playwright";
 import { afterAll, describe, expect, it } from "vitest";
 import { createApp, isLoopbackHost } from "../server/app.mjs";
-import { ACCOUNTS, api, closeBrowser, FERNWAY_ROOT, getBrowser, openPage, profileUrl, useFernway, type Fernway } from "./support.js";
+import { ACCOUNTS, api, closeBrowser, FERNWAY_ROOT, getBrowser, openPage, profileUrl, signInContext, useFernway, type Fernway } from "./support.js";
 
 afterAll(closeBrowser);
 
@@ -40,6 +43,39 @@ async function alexCreatesTask(fw: Fernway, title = "Run Hound test task rh1234"
   expect(saved.status).toBe(200);
   return saved.body;
 }
+
+/** The update request the app itself sent for a task it just created (what write-access replays), and the task. */
+interface ObservedUpdate {
+  method: string;
+  path: string;
+  body: Record<string, unknown>;
+  task: Task;
+}
+
+/**
+ * Adds a task with Quick add on /app as Alex, the way Run Hound's write-access check creates its test record, and
+ * returns the update request the app sent for it (POST /api/tasks, then PATCH /api/tasks/<new id> with the whole task).
+ */
+async function observedTaskUpdate(fw: Fernway, title: string): Promise<ObservedUpdate> {
+  const { page, close } = await openPage(fw, "/app", { as: "alex" });
+  try {
+    const update = page.waitForRequest((r) => r.method() === "PATCH" && /^\/api\/tasks\/[^/]+$/.test(new URL(r.url()).pathname));
+    const form = page.getByRole("form", { name: "Quick add" });
+    await form.getByRole("textbox", { name: "Task" }).fill(title);
+    await form.getByRole("button", { name: "Add task" }).click();
+    const request = await update;
+    expect((await request.response())?.status()).toBe(200);
+    const task = (await alexTasks(fw)).find((t) => t.title === title);
+    expect(task).toBeTruthy();
+    return { method: request.method(), path: new URL(request.url()).pathname, body: JSON.parse(request.postData() ?? "{}"), task: task! };
+  } finally {
+    await close();
+  }
+}
+
+/** Sends the observed update again with some fields changed, as `as` (an account, or nobody). */
+const replay = (fw: Fernway, observed: ObservedUpdate, change: Record<string, unknown>, as: "alex" | "sam" | "nobody") =>
+  api(fw, observed.path, { method: observed.method, body: { ...observed.body, ...change }, as });
 
 /** A raw request with an explicit cookie and headers (for Origin and content-type cases the api() helper doesn't send). */
 async function raw(fw: Fernway, path: string, init: { method?: string; body?: string; headers?: Record<string, string>; as?: "alex" | "sam" }) {
@@ -318,7 +354,7 @@ describe("the plan and the local test checkout (clean mode)", () => {
     }
   });
 
-  it("the Billing tab links to /app/upgraded, and Upgrade to Pro, Pay and the success page make Alex Pro; Switch back to Free undoes it", async () => {
+  it("the Billing tab links to /app/upgraded, and Upgrade to Pro, Pay and the success page make Alex Pro; Cancel plan undoes it", async () => {
     const { page, events, close } = await openPage(ref.fw, "/app/settings", { as: "alex", reducedMotion: "reduce" });
     try {
       await page.getByRole("tab", { name: "Billing" }).click();
@@ -340,7 +376,7 @@ describe("the plan and the local test checkout (clean mode)", () => {
       await page.getByRole("link", { name: "Back to billing" }).click();
       const billing = page.getByRole("tabpanel", { name: "Billing" });
       await billing.getByRole("heading", { level: 2, name: /Pro plan/ }).waitFor();
-      await billing.getByRole("button", { name: "Switch back to Free" }).click();
+      await billing.getByRole("button", { name: "Cancel plan", exact: true }).click();
       await billing.getByRole("status").filter({ hasText: "back on the Free plan" }).waitFor();
       await billing.getByRole("heading", { level: 2, name: /Free plan/ }).waitFor();
       expect(await alexPlan(ref.fw)).toBe("free");
@@ -350,7 +386,148 @@ describe("the plan and the local test checkout (clean mode)", () => {
       await close();
     }
   });
+  it("the plan Run Hound re-reads: loading /app/settings as Alex makes a GET of Alex's own profile, with role and plan", async () => {
+    const { page, events, close } = await openPage(ref.fw, "/app/settings", { as: "alex" });
+    try {
+      await expect.poll(() => page.getByRole("form", { name: "Profile" }).getByRole("textbox", { name: "Display name", exact: true }).inputValue()).toBe("Alex Rivera");
+      // The Billing panel is mounted (hidden) on load, so its plan card has asked too.
+      await page.getByRole("tabpanel", { name: "Billing", includeHidden: true }).getByRole("heading", { level: 2, name: /Free plan/, includeHidden: true }).waitFor({ state: "attached" });
+      const reads: { path: string; json: any }[] = [];
+      for (const r of events.requests.filter((r) => r.method() === "GET" && new URL(r.url()).pathname.startsWith("/api/"))) {
+        const res = await r.response();
+        reads.push({ path: new URL(r.url()).pathname, json: await res?.json().catch(() => null) });
+      }
+      const withPlan = reads.filter((r) => r.json && typeof r.json === "object" && !Array.isArray(r.json) && "plan" in r.json);
+      expect(new Set(withPlan.map((r) => r.path))).toEqual(new Set([profileUrl("alex")]));
+      expect(withPlan[0]!.json).toMatchObject({ id: "alex-rivera", email: "alex@fernway.test", role: "member", plan: "free" });
+      // Nothing else the page reads holds a plan or role that isn't Alex's own record (no member list on this page).
+      expect(reads.filter((r) => Array.isArray(r.json)).map((r) => r.path)).toEqual([]);
+      expect(reads.map((r) => r.path)).toContain("/api/me");
+    } finally {
+      await close();
+    }
+  });
+
+  it("Cancel plan is on the Billing tab (and /app/settings#billing) only on Pro; the Studio card's Cancel subscription leaves the plan alone", async () => {
+    // Pro through a real (test) payment.
+    const started = await checkout();
+    await pay(started.body.id);
+    expect((await confirm({ checkout: started.body.id })).body.plan).toBe("pro");
+    const { page, events, close } = await openPage(ref.fw, "/app/settings#billing", { as: "alex", reducedMotion: "reduce" });
+    try {
+      const billing = page.getByRole("tabpanel", { name: "Billing" });
+      await billing.getByRole("heading", { level: 2, name: /Pro plan/ }).waitFor();
+      expect(await billing.getByRole("button", { name: "Upgrade to Pro" }).count()).toBe(0);
+      // The workspace's Studio subscription is client-side only: cancelling it asks first and never touches the plan.
+      await billing.getByRole("button", { name: "Cancel subscription" }).click();
+      const dialog = page.getByRole("alertdialog", { name: "Cancel your subscription?" });
+      await dialog.getByRole("button", { name: "Cancel subscription" }).click();
+      await billing.getByRole("button", { name: "Resume subscription" }).waitFor();
+      expect(await alexPlan(ref.fw)).toBe("pro");
+      expect(events.requests.filter((r) => r.method() !== "GET").map((r) => new URL(r.url()).pathname)).toEqual([]);
+
+      const cancel = page.waitForRequest((r) => r.method() === "POST" && new URL(r.url()).pathname === "/api/billing/cancel");
+      await billing.getByRole("button", { name: "Cancel plan", exact: true }).click();
+      await cancel;
+      await billing.getByRole("status").filter({ hasText: "back on the Free plan" }).waitFor();
+      await billing.getByRole("heading", { level: 2, name: /Free plan/ }).waitFor();
+      expect(await billing.getByRole("button", { name: "Cancel plan", exact: true }).count()).toBe(0);
+      expect(await alexPlan(ref.fw)).toBe("free");
+      expect(events.badResponses).toEqual([]);
+    } finally {
+      await close();
+    }
+  });
 });
+
+// ---- the Billing tab from a settings page already open (both session modes) ---------------------
+
+for (const session of ["cookie", "session-storage"] as const) {
+  describe(`/app/settings follows #billing while it is open (clean mode, ${session} session)`, () => {
+    const ref = useFernway("none", { session });
+
+    it("the sidebar's View plans (again after picking another tab) and a #billing URL select Billing in the same document; Cancel plan works there", async () => {
+      // Pro through a real (test) payment, so the Billing panel offers Cancel plan (what paywall-trust restores with).
+      const started = await api(ref.fw, "/api/billing/checkout", { body: { plan: "pro" }, as: "alex" });
+      await api(ref.fw, `/api/billing/checkout/${started.body.id}/pay`, { method: "POST", as: "alex" });
+      expect((await api(ref.fw, "/api/billing/confirm", { body: { checkout: started.body.id }, as: "alex" })).body.plan).toBe("pro");
+
+      const { page, events, close } = await openPage(ref.fw, "/app/settings", { as: "alex", reducedMotion: "reduce" });
+      try {
+        const selected = async () => ((await page.getByRole("tab", { selected: true }).textContent()) ?? "").trim();
+        const billing = page.getByRole("tabpanel", { name: "Billing" });
+        const pick = async (name: string) => {
+          await page.getByRole("tab", { name, exact: true }).click();
+          await expect.poll(selected).toBe(name);
+        };
+        const viewPlans = page.getByRole("complementary", { name: "Sidebar" }).getByRole("link", { name: "View plans" });
+        const settingsUrl = `${ref.fw.url}/app/settings`;
+        await page.getByRole("heading", { level: 1, name: "Settings" }).waitFor();
+        expect(await selected()).toBe("Profile");
+        expect(await billing.count()).toBe(0);
+
+        // The sidebar's link, on the page it points to.
+        await viewPlans.click();
+        await expect.poll(selected).toBe("Billing");
+        expect(page.url()).toBe(`${settingsUrl}#billing`);
+        await billing.getByRole("heading", { level: 2, name: /Pro plan/ }).waitFor();
+        expect(await billing.getByRole("button", { name: "Cancel plan", exact: true }).isVisible()).toBe(true);
+
+        // Again, after another tab was picked (the hash is "#billing" already).
+        await pick("Profile");
+        await viewPlans.click();
+        await expect.poll(selected).toBe("Billing");
+
+        // A #billing URL opened on this page (a fragment navigation: no new document), from no hash and from the same one.
+        await pick("Notifications");
+        await page.goto(settingsUrl);
+        await page.getByRole("heading", { level: 1, name: "Settings" }).waitFor();
+        await pick("Notifications");
+        await page.goto(`${settingsUrl}#billing`);
+        await expect.poll(selected).toBe("Billing");
+        await pick("Profile");
+        await page.goto(`${settingsUrl}#billing`);
+        await expect.poll(selected).toBe("Billing");
+        // Straight after loading /app/settings#billing too, where the router sees the very same location again.
+        await page.reload({ waitUntil: "networkidle" });
+        await expect.poll(selected).toBe("Billing");
+        await pick("Profile");
+        await page.goto(`${settingsUrl}#billing`);
+        await expect.poll(selected).toBe("Billing");
+        const documents = events.requests.filter((r) => r.resourceType() === "document").map((r) => new URL(r.url()).pathname);
+        // The first load, the plain /app/settings, and the reload: every #billing above stayed in its document.
+        expect(documents).toEqual(["/app/settings", "/app/settings", "/app/settings"]);
+
+        await billing.getByRole("button", { name: "Cancel plan", exact: true }).click();
+        await billing.getByRole("status").filter({ hasText: "back on the Free plan" }).waitFor();
+        expect(await alexPlan(ref.fw)).toBe("free");
+        expect(events.badResponses).toEqual([]);
+        expect(events.pageErrors).toEqual([]);
+      } finally {
+        await close();
+      }
+    });
+  });
+}
+
+// ---- paywall-trust's conventional success paths ---------------------------------------------------
+
+for (const bugs of ["none", "V09"] as const) {
+  describe(`the conventional success paths paywall-trust tries (${bugs === "none" ? "clean mode" : bugs})`, () => {
+    const ref = useFernway(bugs);
+
+    it("only /app/upgraded exists: the other eight answer 404 to Alex's GET, so the probe skips them", async () => {
+      const cookie = await ref.fw.session("alex");
+      const status = async (path: string) => (await fetch(`${ref.fw.url}${path}`, { headers: { cookie }, redirect: "manual" })).status;
+      for (const path of ["/upgraded", "/success", "/checkout/success", "/billing/success", "/payment/success", "/thank-you", "/thanks", "/app/billing/success"]) {
+        expect(await status(path), path).toBe(404);
+      }
+      expect(await status("/app/upgraded")).toBe(200);
+      // A GET of the page grants nothing by itself: V09 is the page's script, which a plain GET doesn't run.
+      expect(await alexPlan(ref.fw)).toBe("free");
+    });
+  });
+}
 
 // ---- the SPA sends the task update Run Hound observes ------------------------------------------
 
@@ -382,6 +559,18 @@ describe("Quick add sends the task update the app itself uses (clean mode)", () 
       await close();
     }
   });
+
+  it("that update, replayed as Sam (404) or with no session (401) with a new marker, changes nothing Alex re-reads", async () => {
+    const observed = await observedTaskUpdate(ref.fw, "Run Hound test task rh2468");
+    expect(observed.body).toEqual({ title: "Run Hound test task rh2468", projectId: "", done: false });
+    const asSam = await replay(ref.fw, observed, { title: "Run Hound test task rh2468 wao1" }, "sam");
+    expect(asSam.status).toBe(404);
+    const signedOut = await replay(ref.fw, observed, { title: "Run Hound test task rh2468 was1" }, "nobody");
+    expect(signedOut.status).toBe(401);
+    expect(await alexTask(ref.fw, observed.task.id)).toEqual(observed.task);
+    // The app shows no DELETE for a task, so there is nothing else to try.
+    expect((await api(ref.fw, observed.path, { method: "DELETE", as: "alex" })).status).toBe(404);
+  });
 });
 
 // ---- V06 ------------------------------------------------------------------------------------------
@@ -399,6 +588,17 @@ describe("V06: PATCH /api/tasks/:id updates another user's task", () => {
     // The restore Run Hound does: Alex's own update with the snapshot's values.
     await api(ref.fw, `/api/tasks/${task.id}`, { method: "PATCH", body: { title: task.title, projectId: task.projectId, done: task.done }, as: "alex" });
     expect(await alexTask(ref.fw, task.id)).toEqual(task);
+  });
+
+  it("the app's own update for its new task, replayed as Sam with a new marker, changes it; replaying it as Alex restores it", async () => {
+    const observed = await observedTaskUpdate(ref.fw, "Run Hound test task rh1357");
+    const res = await replay(ref.fw, observed, { title: "Run Hound test task rh1357 wao2" }, "sam");
+    expect(res.status).toBe(200);
+    expect((await alexTask(ref.fw, observed.task.id))?.title).toBe("Run Hound test task rh1357 wao2");
+    expect((await replay(ref.fw, observed, {}, "alex")).status).toBe(200);
+    expect(await alexTask(ref.fw, observed.task.id)).toEqual(observed.task);
+    // The other identity of write-access (signed out) still can't.
+    expect((await replay(ref.fw, observed, { title: "nobody" }, "nobody")).status).toBe(401);
   });
 
   it("changes only that: without a session it is still 401, reads stay scoped, and the Origin check still holds", async () => {
@@ -426,6 +626,16 @@ describe("V07: writes to /api/tasks/:id work without a session", () => {
     const again = await api(ref.fw, `/api/tasks/${task.id}`, { method: "PATCH", body: { done: true }, headers: { cookie: visitor } });
     expect(again.status).toBe(200);
     expect((await alexTask(ref.fw, task.id))?.done).toBe(true);
+  });
+
+  it("the app's own update for its new task, replayed with no session, changes it; Sam's replay still gets 404", async () => {
+    const observed = await observedTaskUpdate(ref.fw, "Run Hound test task rh9753");
+    expect((await replay(ref.fw, observed, { title: "Run Hound test task rh9753 wao3" }, "sam")).status).toBe(404);
+    const res = await replay(ref.fw, observed, { title: "Run Hound test task rh9753 was3" }, "nobody");
+    expect(res.status).toBe(200);
+    expect((await alexTask(ref.fw, observed.task.id))?.title).toBe("Run Hound test task rh9753 was3");
+    await replay(ref.fw, observed, {}, "alex");
+    expect(await alexTask(ref.fw, observed.task.id)).toEqual(observed.task);
   });
 
   it("changes only that: Sam still gets 404 for Alex's task, reads and creates still need a session", async () => {
@@ -510,7 +720,7 @@ describe("V08: SameSite=None cookie, and the task save takes a form post with no
 describe("V09: /app/upgraded grants Pro on load", () => {
   const ref = useFernway("V09");
 
-  it("opening /app/upgraded, with no checkout and no payment, makes Alex Pro; Switch back to Free restores it", async () => {
+  it("opening /app/upgraded, with no checkout and no payment, makes Alex Pro; POST /api/billing/cancel restores it", async () => {
     expect(await alexPlan(ref.fw)).toBe("free");
     const { page, events, close } = await openPage(ref.fw, "/app/upgraded", { as: "alex" });
     try {
@@ -522,6 +732,39 @@ describe("V09: /app/upgraded grants Pro on load", () => {
     }
     expect((await api(ref.fw, "/api/billing/cancel", { method: "POST", as: "alex" })).body).toEqual({ plan: "free" });
     expect(await alexPlan(ref.fw)).toBe("free");
+  });
+
+  it("as paywall-trust probes it: in Alex's browser, the success link on /app/settings grants Pro; Cancel plan there takes it back", async () => {
+    const context = await (await getBrowser()).newContext({ reducedMotion: "reduce" });
+    try {
+      await signInContext(ref.fw, context, "alex");
+      const page = await context.newPage();
+      await page.goto(`${ref.fw.url}/app/settings`, { waitUntil: "networkidle" });
+      await page.getByRole("heading", { level: 1, name: "Settings" }).waitFor();
+      // Same-origin links on the page under test whose path names an upgrade or success result.
+      const links = await page.locator("a[href]").evaluateAll((els) => els.map((a) => (a as HTMLAnchorElement).href));
+      const candidates = [...new Set(links.filter((href) => href.startsWith(`${ref.fw.url}/`)).map((href) => new URL(href).pathname))]
+        .filter((path) => /upgraded|success|thank-?you|thanks|welcome|activated|confirmed/i.test(path));
+      expect(candidates).toEqual(["/app/upgraded"]);
+      expect(await alexPlan(ref.fw)).toBe("free");
+
+      // The probe: open it and let it run, then re-read as Alex.
+      await page.goto(`${ref.fw.url}/app/upgraded`, { waitUntil: "networkidle" });
+      await page.getByRole("heading", { level: 2, name: "Pro is active" }).waitFor();
+      expect(await alexPlan(ref.fw)).toBe("pro");
+
+      // The restore: back on the settings page, the Billing tab's Cancel plan.
+      await page.goto(`${ref.fw.url}/app/settings`, { waitUntil: "networkidle" });
+      await page.getByRole("tab", { name: "Billing" }).click();
+      const billing = page.getByRole("tabpanel", { name: "Billing" });
+      await billing.getByRole("heading", { level: 2, name: /Pro plan/ }).waitFor();
+      await billing.getByRole("button", { name: "Cancel plan", exact: true }).click();
+      await billing.getByRole("status").filter({ hasText: "back on the Free plan" }).waitFor();
+      expect(await alexPlan(ref.fw)).toBe("free");
+      expect((await api(ref.fw, profileUrl("alex"), { as: "alex" })).body).toMatchObject({ plan: "free", role: "member" });
+    } finally {
+      await context.close();
+    }
   });
 
   it("the confirm endpoint alone grants it, for whoever calls it; still not without a session, and Sam's plan is untouched", async () => {
