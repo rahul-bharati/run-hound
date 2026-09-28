@@ -22,7 +22,11 @@ In a container, Run Hound reaches your machine as `host.docker.internal`. When a
 - **A service shows "unhealthy" in the lab's status**: it stopped answering. `docker compose -f run-hound.compose.yml logs <service>` says why. "health: starting" is normal for the first seconds.
 - **"--headed: There is no display…"**: a container has no display. Run without `--headed`, or run from source on a machine with a display.
 - **"No sign-in form … was found"**: the test account's sign-in page doesn't show a form with a password field. Check its address in your browser.
-- **"Signed in as Account A, but … still shows the sign-in page"**: the sign-in didn't hold. Check the account with **Test sign-in**. Use the same host name for the sign-in page and the page you test. A browser keeps the cookies of `localhost` and `127.0.0.1` apart.
+- **"Signed in as Account A, but … still shows the sign-in page"**: the sign-in didn't hold. Check the account with **Test sign-in**. Use the same host name for the sign-in page and the page you test. A browser keeps the cookies of `localhost` and `127.0.0.1` apart. Some sessionStorage sessions don't carry over: see [Known limitations](/docs/limitations/#sign-in).
+- **"… asks for a verification code"**: Run Hound can't enter codes, so use a test account that signs in with a password alone. A signed-in page with one code-like field can be taken for a code step too.
+- **"The sign-in continued on another site"**: the password step is on another site, where Run Hound won't type the password.
+- **"… showed no update or delete for its test record"**: `write-access` replays only the updates your app sends for the new record. Tell us how your app edits one.
+- **"No plan or entitlement data was found"**: `paywall-trust` found no answer that names account A with its plan. On a page with a profile form, run it on its own.
 - **"Nothing was tested: …"**: every approved scenario errored or was skipped, often because the app stopped answering after the plan. The report says why for each one, and the command line exits 2.
 
 ## Sending feedback \{#feedback\}
@@ -30,9 +34,9 @@ In a container, Run Hound reaches your machine as `host.docker.internal`. When a
 Open an issue with the **Feedback** form on [GitHub](https://github.com/rahul-bharati/run-hound/issues/new/choose). Please include:
 
 1. **The version**: `run-hound --version`, **Settings** in the web UI, or `runHoundVersion` in `report.json`.
-2. **How you ran it**: your OS, Docker or from source, the web UI or the command line, signed in or not.
+2. **How you ran it**: your OS, Docker or from source, the web UI or the command line, signed in or not. Signed in, say how your app signs in and which write-side checks you ticked.
 3. **What you tested**: the framework, the dev server and what the form does. Not the address, if it's private.
 4. **The report**: `report.md`, or one `runs/<runId>` folder zipped, never the whole runs folder, which holds your settings. **Look through the screenshots first**: they show whatever your page showed.
-5. **What was wrong**: a false positive and why, a missed bug and how to see it by hand, or what confused you. For a crash, give its command and exit code.
+5. **What was wrong**: a false positive and why, a missed bug and how to see it by hand, or what confused you. For a crash, give its command and exit code. If a write-side check left account A changed, say what its notes said.
 
 A clean run on a well-built app is useful feedback too: tell us it worked, and on what.

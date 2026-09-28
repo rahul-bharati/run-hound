@@ -127,7 +127,7 @@ export const tools: readonly Tool[] = [
     short: "Escape and similar scanners",
     name: "Escape and the vibe-app scanners",
     what: "Escape and a long tail of scanners for vibe-coded apps check live apps from outside. They cover dynamic scanning, attack-surface management, secrets in JavaScript bundles, row-level security and headers. They are cloud-hosted and cover security only. ZAP and Burp, proxies for dynamic security testing, are another kind of tool. They are built for specialists, and they don't know which user should see which row. The table's column covers Escape and the vibe-app scanners, not ZAP or Burp.",
-    adds: "Security is one of Run Hound's three lenses: the same run checks features and accessibility and exports Playwright tests. Signed in as test accounts you own, it also asks whether another account, or a signed-out visitor, can read your data.",
+    adds: "Security is one of Run Hound's three lenses: the same run checks features and accessibility and exports Playwright tests. Signed in as test accounts you own, it also asks whether another account, or a signed-out visitor, can read or change your data.",
     together: `Use them together: they scan deployed apps, which Run Hound doesn't test yet. Testing live staging sites behind ownership verification is planned for the V4 stage, which the 1.0.0 release completes.`,
     sources: [
       { label: "Escape", href: "https://escape.tech/" },

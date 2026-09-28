@@ -206,7 +206,7 @@ export const docsRoutes = [
       "What Run Hound can't test yet: one page at a time, password sign-in only, dev-server headers, some AI-builder forms, and the limits of Docker and AI.",
     label: "Known limitations",
     h1: "Known limitations",
-    anchors: ["one-page", "sign-in", "dev-servers", "ai-builders", "docker-windows", "ai"],
+    anchors: ["one-page", "sign-in", "write-checks", "account-a", "dev-servers", "ai-builders", "docker-windows", "ai"],
   }),
   docsPage({
     slug: "glossary",

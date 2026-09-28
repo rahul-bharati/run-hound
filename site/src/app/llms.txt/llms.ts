@@ -93,17 +93,17 @@ export const linkSections: { title: string; links: Link[] }[] = [
       {
         name: "docs/install.md",
         url: repoDoc("docs/install.md"),
-        note: "Docker or Podman, the test lab, installing from source, ports, and testing an app on your machine from a container.",
+        note: "A pointer to the site's Install page: Docker or Podman, the test lab, installing from source, ports, and testing an app on your machine from a container.",
       },
       {
         name: "docs/usage.md",
         url: repoDoc("docs/usage.md"),
-        note: "The web UI, the command line (commands, options, exit codes), reports and evidence.",
+        note: "A pointer to the site's CLI and CI and Report pages: the command line (commands, options, exit codes), the web UI, reports and evidence.",
       },
       {
         name: "docs/signed-in-runs.md",
         url: repoDoc("docs/signed-in-runs.md"),
-        note: "Test accounts, the access checks, the write-side checks (csrf, write-access and paywall-trust), secrets, and what sign-in can't do yet.",
+        note: "A pointer to the site's Signed-in runs page: test accounts, the access checks, the write-side checks (csrf, write-access and paywall-trust) and secrets. TESTING.md has the step-by-step walkthrough and every known limit.",
       },
       {
         name: "docs/ai-built-apps.md",
@@ -113,7 +113,7 @@ export const linkSections: { title: string; links: Link[] }[] = [
       {
         name: "docs/ai.md",
         url: repoDoc("docs/ai.md"),
-        note: "Optional AI: the web UI, the command line, .env, what is sent to the model and which models work.",
+        note: "A pointer to the site's Optional AI page: the web UI, the command line, .env, what is sent to the model and which models work.",
       },
       {
         name: "docs/security.md",

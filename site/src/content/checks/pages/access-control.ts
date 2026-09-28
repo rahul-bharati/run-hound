@@ -3,7 +3,8 @@ import type { CheckPage } from "./types";
 /**
  * /checks/access-control/. Sources: app/src/checks/access-control.ts (the test record, which requests it replays and
  * as whom, what it matches and never prints), docs/v2-spec.md "access-control", the Fernway 0.6.0 run's featured
- * finding (content/runs/fernway-0.6.0.json) and TESTING.md "Known limitations" (signed-out replays, exported specs).
+ * finding (content/runs/fernway-0.6.0.json) and TESTING.md "Known limitations" (signed-out replays, a cookie session
+ * taken for a sessionStorage one, exported specs).
  */
 export const page = {
   id: "access-control",
@@ -59,6 +60,7 @@ export const page = {
   limits: [
     "Only reads the page itself sent as Account A are replayed, so an endpoint the page never calls isn't tested.",
     "Signed-out replays send no credential header, not even a Supabase anon key, so a table open to it isn't caught.",
+    "A cookie session whose cookie isn't HttpOnly and doesn't say session can be taken for a sessionStorage one. The check may then skip a real IDOR.",
   ],
   related: ["write-access", "cors"],
 } as const satisfies CheckPage;

@@ -2,8 +2,9 @@ import type { CheckPage } from "./types";
 
 /**
  * /checks/write-access/. Sources: app/src/checks/write-access.ts (which update and delete requests it replays and as
- * whom, the verdict from a re-read, the put-back), docs/v2-spec.md "`write-access`", the Fernway 0.6.0 run's featured
- * finding (content/runs/fernway-0.6.0.json) and TESTING.md "Known limitations" (write-access, exported specs).
+ * whom, the verdict from a re-read, the put-back), docs/v2-spec.md "`write-access`" and its 0.6.0 amendments, the
+ * Fernway 0.6.0 run's featured finding (content/runs/fernway-0.6.0.json) and TESTING.md "Known limitations"
+ * (write-access's replays, anti-CSRF headers, versions and GraphQL; exported specs).
  */
 export const page = {
   id: "write-access",
@@ -26,7 +27,7 @@ export const page = {
     },
   ],
   notCounted:
-    "The answer's status code: a 403 that still wrote counts, and a 200 that changed nothing passes. Fields the app updates by itself are left out.",
+    "The answer's status code alone: a 403 that still wrote counts. Fields the app updates by itself are left out of the comparison.",
   evidence: [
     {
       label: "PATCH /api/tasks/ffb60789-31bc-410f-8423-0a2247330054 as Account B",
@@ -48,9 +49,10 @@ export const page = {
     },
   ],
   limits: [
-    "Only updates and deletes the app itself sent for the new test record are replayed. Edit dialogs and row menus aren't opened, so many apps skip.",
-    "An update that names the record in a filter, as a Supabase client sends it, isn't recognised. Supabase apps skip too.",
-    "Unticked by default: Run Hound puts the record back after each attempt and names anything it couldn't restore.",
+    "Only updates and deletes the app itself sent for the new test record are replayed. Edit dialogs aren't opened, and a Supabase filter isn't recognised, so many apps skip.",
+    "Of the update's headers, only an anti-CSRF token goes, as Account B's own. When Account B has none to read, a 400, 403, 419 or 422 is inconclusive.",
+    "Each request carries the record's current version. A conflict (409, 412, 428) is inconclusive, and so is a 404 that Account A's own copy can't tell from a stale version.",
+    "A form that edits a record Account A already had is skipped, its save stopped first. So is a GraphQL app that reads with POST /graphql.",
   ],
   related: ["access-control", "mass-assignment"],
 } as const satisfies CheckPage;

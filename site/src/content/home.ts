@@ -203,7 +203,7 @@ const trust = {
     {
       icon: "guard",
       title: "Guard rails",
-      text: "Checks that change data start unticked and put back what they change. Reports hide passwords and session tokens.",
+      text: "The write-side checks start unticked and put back what they change. Reports hide passwords and session tokens.",
     },
     {
       icon: "ai",

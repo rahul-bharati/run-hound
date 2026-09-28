@@ -2,8 +2,9 @@ import type { CheckPage } from "./types";
 
 /**
  * /checks/csrf/. Sources: app/src/checks/csrf.ts (the other site, which requests it forges and how, the verdict from a
- * re-read, the put-back), docs/v2-spec.md "`csrf`", the Fernway 0.6.0 run's featured finding
- * (content/runs/fernway-0.6.0.json) and TESTING.md "Known limitations" (exported specs).
+ * re-read, the put-back, bearer-token sessions), docs/v2-spec.md "`csrf`", the Fernway 0.6.0 run's featured finding
+ * (content/runs/fernway-0.6.0.json) and TESTING.md "The write-side checks" and "Known limitations" (the tokens it
+ * recognises, the bodies it doesn't forge, the 30-second wait, GraphQL, exported specs).
  */
 export const page = {
   id: "csrf",
@@ -30,7 +31,7 @@ export const page = {
     },
   ],
   notCounted:
-    "The forged request's own answer. Only a new value that Account A reads back afterwards counts, never a status code.",
+    "The forged request's own answer. Only a new value that Account A reads back afterwards is a finding, never a status code.",
   evidence: [
     {
       label: "The forged cross-site request",
@@ -52,9 +53,10 @@ export const page = {
     },
   ],
   limits: [
-    "Inconclusive, never a pass, when no second site can be set up or the record can't be read back.",
-    "It forges only this form's save for its own test record, and never touches a record Account A already had.",
-    "Unticked by default: it changes Account A's test record, then puts it back through an update the app itself sent.",
+    "Inconclusive, never a pass, off localhost and 127.0.0.1, and when a forge gets no answer within 30 seconds and nothing was stored.",
+    "On a session sent as a bearer token, not a cookie, it passes: no cookie rides along. A stored forge then means the save needs no session.",
+    "Only anti-CSRF tokens it recognises are left out. A token your scripts keep in memory and send under another name is replayed, so a protected save can fail.",
+    "It never forges at a record Account A already had. A JSON array, a file upload and a GraphQL app that reads with POST are skipped.",
   ],
   related: ["cors", "write-access"],
 } as const satisfies CheckPage;

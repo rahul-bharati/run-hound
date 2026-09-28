@@ -986,7 +986,7 @@ export const previewGroups: {
         name: "Cross-site requests (CSRF)",
         plain: "Another website can't change data as you",
         question: "Can another website change data in your name?",
-        line: "Saves a test record as Account A, then sends the same save from a page on another site (localhost vs 127.0.0.1) in Account A's browser, as any website could. A forged value that shows when Account A reads the record again is a finding. Inconclusive, never a pass, when no cross-site address can be set up.",
+        line: "Saves a test record as Account A, then sends the same save from a page on another site (localhost vs 127.0.0.1) in Account A's browser, as any website could. A forged value that shows when Account A reads the record again is a finding. Inconclusive, never a pass, when no cross-site address can be set up. A session sent as a bearer token, not a cookie, passes, since no cookie rides along, unless the save needs no session at all.",
         records: "up to 2, in Account A",
         since: "V2",
         signedIn: true,

@@ -2,8 +2,9 @@ import type { CheckPage } from "./types";
 
 /**
  * /checks/paywall-trust/. Sources: app/src/checks/paywall-trust.ts (where it finds the plan, which pages it opens and
- * what it blocks, the verdict, the put-back through the app's own control), docs/v2-spec.md "`paywall-trust`", the
- * Fernway 0.6.0 run's featured finding (content/runs/fernway-0.6.0.json) and TESTING.md "Known limitations".
+ * what it blocks, the verdict, the put-back through the app's own control), docs/v2-spec.md "`paywall-trust`" and its
+ * 0.6.0 amendments, the Fernway 0.6.0 run's featured finding (content/runs/fernway-0.6.0.json) and TESTING.md "Known
+ * limitations" (the probes not built, where it finds the plan, what isn't a gain, late grants, the restore).
  */
 export const page = {
   id: "paywall-trust",
@@ -61,10 +62,10 @@ export const page = {
     },
   ],
   limits: [
-    "Only success pages that grant a plan when opened are tested. A checkout replayed with a changed price or plan isn't yet.",
-    "It reads the plan only from an answer that names Account A by username or email. A bare plan field isn't recognised.",
-    "Up to 10 of the app's own success pages are opened. Every page load that leaves the app is stopped.",
-    "Unticked by default: a plan it changed is put back with the app's own cancel or downgrade control.",
+    "Only success pages that grant a plan when opened are tested. A checkout replayed with a changed price or plan, and paid-only APIs, aren't yet.",
+    "It reads the plan only from an answer that names Account A by username or email. A bare plan field isn't recognised, and the check skips.",
+    "A change that isn't a gain, such as spent credits, a trial or a role, is inconclusive. So is a run that reads the plan only from a NextAuth session and sees no gain.",
+    "A grant that lands more than about 5 s after its page can be missed. A cancel control that opens a new window isn't followed: check Account A.",
   ],
   related: ["client-only-validation", "deep-links"],
 } as const satisfies CheckPage;

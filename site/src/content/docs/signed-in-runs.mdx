@@ -1,18 +1,18 @@
 Give Run Hound two test accounts you own, A and B, and it signs in before it tests. Pages behind a login get every check, plus the access and write checks.
 
-Signed-in runs are a preview of the V2 stage. Use accounts made for testing, on a development database. [Known limitations](/docs/limitations/#sign-in) lists the sign-ins it can't do.
+Signed-in runs are a V2 preview: use test accounts on a development database. [Known limitations](/docs/limitations/#sign-in) lists the sign-ins it can't do.
 
 ## Set up two test accounts \{#set-up\}
 
-1. Open **Settings → Test accounts**. For each account, give a label (the name reports use), the sign-in page's address, the username and the password. Press **Save**, then **Test sign-in**. A saved password is never shown again.
-2. Keep **A and B must not see each other's data** ticked when they are different users, not teammates in one workspace. The check that B can't read A's data runs only then.
+1. In **Settings → Test accounts**, give each account a label (the name reports use), the sign-in page's address, username and password. Press **Save**, then **Test sign-in**. A saved password is never shown again.
+2. Keep **A and B must not see each other's data** ticked when they are different users, not teammates in one workspace. Only then do B's scenarios run.
 3. In **New Run**, pick **Sign in as → Account A** and plan the page. The plan and the report say "Signed in as Account A".
 
-Saved accounts go to `accounts.json`, in `./runs/.config` in a container or `~/.config/run-hound` from source. That folder holds your passwords, so **share a single `runs/<runId>` folder, never the whole runs folder.**
+Saved accounts go to `accounts.json`, in `./runs/.config` in a container or `~/.config/run-hound` from source. That folder holds your passwords, so **share one `runs/<runId>` folder, never the whole runs folder.**
 
 ## From the command line \{#command-line\}
 
-`--password-stdin` reads the password from what you type or pipe in, never from a flag. So it stays out of your shell history:
+`--password-stdin` reads the password from what you type or pipe in, never a flag, keeping it out of your shell history:
 
 ```sh label="Test accounts from the command line, from source"
 $ cd app
@@ -26,34 +26,40 @@ $ pnpm exec tsx src/cli.ts run http://localhost:5173/dashboard --as a --approve 
 
 ## What a signed-in run does \{#what-it-does\}
 
-- It signs in fresh, in its own browser, at the start of each plan and run. A failed sign-in stops the run before any scenario and says why.
+- It signs in fresh, in its own browser, for each plan and run. A failed sign-in stops the run before any scenario, saying why.
+- It fills your app's own sign-in form, on one page or email first, then password.
+- A session kept in cookies, localStorage, IndexedDB or sessionStorage carries over to every browser the run opens.
 - It never clicks Log out or Sign out, and never submits a form that sets a password, even with `--allow-destructive`.
-- Its test records belong to account A, and the report says so.
+- The report says its test records belong to account A. Some scenarios ticked by default can change A too: see [what a signed-in run changes](/docs/limitations/#account-a).
 
 ## The access checks \{#access-checks\}
 
-- `access-control`: as A, it saves a test record. Then it replays the requests that returned A's data, as B and as a signed-out visitor. Either one getting A's data back is a critical finding. It replays only A's own reads.
-- `mass-assignment`, unticked by default: it replays A's save with fields the form never sends, such as `role` or `plan`. Then it reads the record again. It puts back what it changed.
-- `deep-links`, signed in or not: it opens up to 10 of the page's own links directly, as a reload or a shared link would. It never opens one that signs out, deletes or accepts an invitation.
+- `access-control`: as A, it saves a test record, then replays only A's own reads, as B and as a signed-out visitor. Either getting A's data back is a critical finding.
+- `mass-assignment`, unticked by default: it replays A's save with fields the form never sends, such as `role` or `plan`. Then it re-reads the record and puts back what it changed.
+- `deep-links`, signed in or not: it opens up to 10 of the page's own links directly. It never opens one that signs out, deletes or accepts an invitation.
 
 ## The write checks \{#write-checks\}
 
-These change account A's data on purpose, so they stay unticked until you tick them. Each writes only the test record it just created as A. It decides from a re-read as A, not a status code, and puts the record back. The report says what it couldn't undo.
+These change account A's data on purpose, so they start unticked. `csrf` and `write-access` change only the test record they just created, `paywall-trust` only A's plan. Each decides from a re-read as A, not a status code, and puts back what it changed. The report names anything it couldn't undo.
 
-- `csrf`: a page on another site sends the form's save from A's own browser. A forged value that sticks is a high finding. It needs your app on `localhost` or `127.0.0.1`; elsewhere it is inconclusive, never a pass.
-- `write-access`: as B, and as a visitor, it sends the update and delete requests your app itself sent for A's record. A change or a deletion is a critical finding.
-- `paywall-trust`: as A on the free plan, it opens your app's own success and upgraded pages, with every payment provider blocked. Then it reads A's plan again. A paid plan without a payment is a critical finding. It puts the plan back with your app's own cancel or downgrade control.
+- [`csrf`](/checks/csrf/): a page on another site sends the form's save from A's own browser. A forged value that sticks is a high finding. Off `localhost` and `127.0.0.1` it is inconclusive, never a pass.
+- [`write-access`](/checks/write-access/): as B and as a visitor, it resends the updates and deletes your app sent for A's record. A change or a deletion is a critical finding. An app that sent none skips it.
+- [`paywall-trust`](/checks/paywall-trust/): as A on the free plan, it opens up to 10 of your app's own success and upgraded pages, payment providers blocked. Gaining a paid plan, credits or features from one is a critical finding. Your app's own cancel or downgrade control puts the plan back.
 
-None of them touches sign-out, password, email, account deletion, payment or invitation endpoints.
+None of them touches sign-out, password, email, account deletion, payment, invitation or sharing endpoints. [Known limitations](/docs/limitations/#write-checks) says where each one stops.
 
 ## Secrets stay out of what it writes \{#secrets\}
 
-- Passwords are write-only. A saved password is only ever sent to the sign-in site it was saved for.
-- Passwords, session cookies, tokens and the accounts' usernames are hidden in reports, evidence, Playwright tests, logs and AI prompts. Reports name accounts by label.
+- A saved password is only ever sent to the sign-in site it was saved for.
+- Passwords, session cookies, tokens and the accounts' usernames are hidden in reports, evidence, Playwright tests, logs and AI prompts.
 - Screenshots dot out the account's name and session values. The live view isn't masked; it stays on your machine.
 
 ## Try it in the test lab \{#fernway\}
 
-The [test lab](/docs/test-lab/) has Fernway, a small SaaS app built the way AI app builders build apps. Set up its two accounts as A and B, with the sign-in page `http://fernway-bugs:4110/login`. Their emails and passwords are in [Fernway's README](https://github.com/rahul-bharati/run-hound/blob/main/fixtures/fernway/README.md#accounts). Plan `http://fernway-bugs:4110/app` signed in as A, with every scenario ticked.
+The [test lab](/docs/test-lab/) has Fernway, a small SaaS app built the way AI app builders build apps. Set up the accounts in [Fernway's README](https://github.com/rahul-bharati/run-hound/blob/main/fixtures/fernway/README.md#accounts) as A and B, with the sign-in page `http://fernway-bugs:4110/login`. Plan `http://fernway-bugs:4110/app` signed in as A, every scenario ticked.
 
-The planted bugs show up as access-control and deep-links findings: `/app/help` answers 404 when opened directly. Plan `http://fernway-bugs:4110/app/settings` too, where mass-assignment finds Fernway's bug. On clean Fernway, `http://fernway:4110`, the same runs should give no confirmed findings.
+Expect access-control, deep-links and write-access findings: B can read and change A's tasks, and `/app/help` answers 404 when opened directly. `csrf` is inconclusive in the lab, where `fernway-bugs` has no cross-site twin.
+
+Plan `http://fernway-bugs:4110/app/settings` too, where mass-assignment finds Fernway's bug. Run `paywall-trust` there on its own: the page's other scenarios change A's email and plan first. Restarting `fernway-bugs` puts its seed data back.
+
+For the other sign-ins, set `FERNWAY_LOGIN=two-step` or `FERNWAY_SESSION=session-storage` in the `.env` beside the compose file and restart both Fernways. On clean Fernway, `http://fernway:4110`, the same runs should give no confirmed findings.
