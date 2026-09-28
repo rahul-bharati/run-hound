@@ -1,4 +1,4 @@
-The nextjs and other typescript frameworks are not the same as you remember. Do a research and validate with the source map and the library installed. Also do a research when a new library is added in package.json 
+The nextjs and other typescript frameworks are not the same as you remember. Do a research and validate with the source map and the library installed. Also do a research when a new library is added in package.json
 Add every decisions taken into docs/decisions with per mm-yyyy.md and setup a index to have a summary of the decisions in one line which will point to their respective decisions.md.
 The index is [DECISIONS.md](DECISIONS.md); its "How to add a decision" section gives the entry format. The log is append-only: never edit or remove an entry, supersede it with a new one.
 The website (site/) is built from the project brief in docs/site/ (maintainer decisions, design, research brief). The research is closed: build from the brief, never start new research; ask the maintainer. Verify once, at the end of a piece of work, not between steps.

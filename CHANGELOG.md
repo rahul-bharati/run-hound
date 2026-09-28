@@ -2,6 +2,14 @@
 
 All notable changes to Run Hound. Versions follow [Semantic Versioning](https://semver.org/); while the version is 0.x, any release may change behaviour.
 
+## Unreleased
+
+### Changed
+
+- Test suite: 23.4 min → 4.0 min (`app`'s vitest run, wall clock; `paywall-trust.test.ts`, whose ~1,405 s of sequential tests gated the whole run, is split across 10 files that run in parallel; still 2,866 tests, same pass count)
+- Header keeps its search and GitHub link at full width without web fonts
+- Design notes updated (§2.5 NavLink prefetch, §4.4 motion gate, DrawSVG removed)
+
 ## 0.6.0 (V2 preview: write-side checks and sign-in; ready for alpha testers), 27 September 2026
 
 The third slice of V2 finishes its write side and widens sign-in. Two new opt-in checks use the test accounts: can another account, or a visitor who isn't signed in, change or delete account A's records (`write-access`), and can account A get a paid plan without paying (`paywall-trust`). Both change account A's data on purpose, so they are unticked by default and follow the write-side safety contract of 0.5.0: `write-access` writes only the test record Run Hound created as A in the same scenario, `paywall-trust` may change A's plan and nothing else, both decide from a re-read as A (never a status code) and put back what they changed, naming anything they couldn't. Sign-in now handles pages that ask for the email first and the password next, and apps that keep their session in sessionStorage. TESTING.md opens with a short section for alpha testers. Contract: [docs/v2-spec.md](docs/v2-spec.md#060-write-side-checks-and-sign-in); how to try it: [TESTING.md](TESTING.md#for-alpha-testers).

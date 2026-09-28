@@ -71,9 +71,13 @@
     }
   }
 
-  /* Search: a 44 px icon button, and from 1280 px an outlined button with its label and the "Ctrl K" hint. */
+  /* Search: a 44 px icon button, and from 1280 px an outlined button with its label and the "Ctrl K" hint. flex-shrink:
+     0 (with .site-icon-link below) so the bar's flex-shrink algorithm never picks these two to give: without it, a
+     fallback font (no web fonts in time, e.g. DejaVu Sans) that widens the wordmark and hubs by a few px squeezed the
+     label and hint here instead of just using the header's existing slack. */
   .search-trigger {
     display: inline-flex;
+    flex-shrink: 0;
     align-items: center;
     justify-content: center;
     gap: var(--space-2);
@@ -133,9 +137,11 @@
     color: var(--rh-fg);
   }
 
-  /* GitHub: a 44 px icon button, and from 1280 px the icon with its label. */
+  /* GitHub: a 44 px icon button, and from 1280 px the icon with its label. Never shrunk below its content (see
+     .search-trigger above). */
   .site-icon-link {
     display: inline-flex;
+    flex-shrink: 0;
     align-items: center;
     justify-content: center;
     gap: var(--space-2);
