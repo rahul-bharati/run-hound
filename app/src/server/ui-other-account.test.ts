@@ -1,7 +1,9 @@
 /**
  * The web UI's report view names the other account with what the run used it for (0.6.0 close-out), like the HTML and
  * Markdown reports (engine/report-other-account.test.ts): "can't read" for access-control's other-account scenario,
- * "can't change" for write-access's, "can't read or change" for both. Driven in real Chromium against renderUi's
+ * "can't change" for write-access's, "can't read or change" for both, and "change or delete" ("read, change or delete")
+ * when write-access's other-account scenario sent the app's DELETE as Account B (its step "Sending DELETE <url> as
+ * Account B"). Driven in real Chromium against renderUi's
  * document with every /api/* call answered by a stub.
  */
 import { chromium, type Browser, type Request, type Route } from "playwright";
@@ -32,7 +34,7 @@ const SCENARIOS = [
   scenario("write-access:signed-out", "write-access", "form"),
 ];
 
-function report(approved: string[], skipped: string[] = []): Report {
+function report(approved: string[], skipped: string[] = [], steps: Record<string, string[]> = {}): Report {
   const form = {
     url: "http://127.0.0.1:5173/app",
     index: 0,
@@ -64,7 +66,7 @@ function report(approved: string[], skipped: string[] = []): Report {
       status: skipped.includes(id) ? "skipped" : "pass",
       findings: [],
       durationMs: 1000,
-      steps: [],
+      steps: (steps[id] ?? []).map((label) => ({ label, url: form.url, at: "2026-09-28T10:00:30Z" })),
     })),
     findings: [],
     summary: { critical: 0, high: 0, medium: 0, low: 0, passed: approved.length, failed: 0, errored: 0, skipped: 0 },
@@ -127,6 +129,40 @@ describe("the report view's other-account line", () => {
     const both = ["access-control:other-account", "write-access:other-account@form-2"];
     const o = await reportText(report(both, both));
     expect(o.text).toContain("used to check that it can't read or change Account A's data");
+    expect(o.errors).toEqual([]);
+  });
+});
+
+describe("the report view's other-account line when write-access sent the app's DELETE as Account B", () => {
+  const WA = "write-access:other-account@form-2";
+  const UPDATE = "Sending PATCH /api/tasks/2 as Account B";
+  const DELETE = "Sending DELETE /api/tasks/2 as Account B";
+
+  it("says 'change or delete' when write-access's other-account scenario sent a DELETE as Account B", async () => {
+    const o = await reportText(report([WA, "write-access:signed-out"], [], { [WA]: [UPDATE, DELETE] }));
+    expect(o.text).toContain("used to check that it can't change or delete Account A's data");
+    expect(o.errors).toEqual([]);
+  });
+
+  it("says 'read, change or delete' when access-control's ran too", async () => {
+    const o = await reportText(report(["access-control:other-account", WA], [], { [WA]: [UPDATE, DELETE] }));
+    expect(o.text).toContain("used to check that it can't read, change or delete Account A's data");
+    expect(o.errors).toEqual([]);
+  });
+
+  it("keeps 'change' when no DELETE was sent as Account B, and never counts a signed-out visitor's DELETE", async () => {
+    const o = await reportText(
+      report([WA, "write-access:signed-out"], [], { [WA]: [UPDATE], "write-access:signed-out": ["Sending DELETE /api/tasks/2 as a signed-out visitor"] }),
+    );
+    expect(o.text).toContain("used to check that it can't change Account A's data");
+    expect(o.text).not.toContain("delete");
+    expect(o.errors).toEqual([]);
+  });
+
+  it("never counts a DELETE that a skipped scenario names", async () => {
+    const o = await reportText(report(["access-control:other-account", WA], [WA], { [WA]: [DELETE] }));
+    expect(o.text).toContain("used to check that it can't read Account A's data");
+    expect(o.text).not.toContain("delete");
     expect(o.errors).toEqual([]);
   });
 });

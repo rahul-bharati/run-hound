@@ -81,9 +81,10 @@ import { isLocalOrigin, isSameOrigin, tokenKey } from "../core/saves.js";
 import type { Capture, Check, CheckContext, Evidence, Finding, Identity, PlanEnv, Scenario } from "../core/types.js";
 import { redactDeep, redactSecrets, registerSecretLiterals } from "../engine/redact.js";
 import { queryParamKind } from "./lib/cross-site-query.js";
+import { cookieDrift } from "./lib/csrf-token-jar.js";
 import { isTokenField, tokenSources, type TokenSource } from "./lib/csrf-tokens.js";
 import { endpointOf, errorResult, guarded, result, tryCard } from "./lib/functional-finding.js";
-import { canaryValues, createRequests, fillForm, settle, submitControl, submitForm, waitForCreates, type FieldValue } from "./lib/functional-form.js";
+import { canaryValues, createRequests, fillForm, settle, submitControl, submitForm, waitForCreates, waitForQuiet, type FieldValue } from "./lib/functional-form.js";
 import {
   changedFields,
   changesOnSave,
@@ -196,15 +197,17 @@ interface Write {
   addedField?: boolean;
   /**
    * The body's anti-CSRF token fields (csrf-tokens.ts isTokenField): each by name, and whether this identity's own
-   * token was put in it (`swapped`) or it still holds Account A's.
+   * token was put in it (`swapped`) or it still holds Account A's. `drifted`: the swapped token was read from a page
+   * that set these cookies anew (csrf-token-jar.ts cookieDrift), so the replay, which carries the saved session's
+   * cookies, may not carry the one it goes with.
    */
-  tokens?: { field: string; swapped: boolean }[];
+  tokens?: { field: string; swapped: boolean; drifted?: string[] }[];
   /**
    * The anti-CSRF headers the app's own request carried (Capture csrfHeaders: Django's X-CSRFToken, axios'
    * X-XSRF-TOKEN, Rails' X-CSRF-Token), each by lower-case name, and whether this identity's own token was put in it
-   * (`swapped`) or it was left out (Account A's is never sent as someone else).
+   * (`swapped`) or it was left out (Account A's is never sent as someone else). `drifted`: as for `tokens`.
    */
-  headerTokens?: { name: string; swapped: boolean }[];
+  headerTokens?: { name: string; swapped: boolean; drifted?: string[] }[];
   /** Headers sent besides the content type: this identity's own anti-CSRF tokens (headerTokens). In memory only. */
   headers?: Record<string, string>;
   /**
@@ -710,7 +713,7 @@ function swapToken(body: string, kind: "json" | "form", from: string, to: string
  * name). A write whose token can't be swapped still carries Account A's: its `tokens` say so, and a refusal of it
  * (TOKEN_REFUSALS) is then no proof of an ownership check.
  */
-function withOwnTokens(writes: Write[], ours: TokenSource[], theirs: TokenSource[], runKey: string): Write[] {
+function withOwnTokens(writes: Write[], ours: TokenSource[], theirs: TokenSource[], runKey: string, drift: ReadonlySet<string>): Write[] {
   const values = new Set(ours.map((t) => t.value));
   return writes.map((w) => {
     const fields = tokenFieldsOf(w.body, w.kind, values, runKey);
@@ -722,10 +725,21 @@ function withOwnTokens(writes: Write[], ours: TokenSource[], theirs: TokenSource
       const mine = (source && theirs.find((t) => t.kind === source.kind && t.name === source.name)) ?? theirs.find((t) => t.kind === "input" && t.name === name);
       if (!mine || mine.value === value) return { field, swapped: false };
       body = swapToken(body, w.kind!, value, mine.value);
-      return { field, swapped: true };
+      const drifted = driftedFor(mine, drift);
+      return { field, swapped: true, ...(drifted.length > 0 ? { drifted } : {}) };
     });
     return { ...w, body, tokens };
   });
+}
+
+/**
+ * The cookies a token read from a page opened as the scenario identity goes with that the replay may not carry (`drift`:
+ * csrf-token-jar.ts cookieDrift): a cookie token's own cookie, and for a <meta> or hidden-input token, which the app may
+ * check against any cookie (Django's against csrftoken, Rails' against its session cookie), every one the page set anew.
+ */
+function driftedFor(mine: TokenSource, drift: ReadonlySet<string>): string[] {
+  if (mine.kind === "cookie") return drift.has(mine.name) ? [mine.name] : [];
+  return [...drift];
 }
 
 const decodeValue = (v: string) => {
@@ -766,7 +780,7 @@ const HEADER_SOURCE: Record<string, { kind: TokenSource["kind"]; name: string; d
  * current value goes. Account A's value is never sent: a header with no token of the identity's own is left out, its
  * `headerTokens` say so, and a refusal of it (TOKEN_REFUSALS) is then no proof of an ownership check.
  */
-function withOwnHeaderTokens(writes: Write[], ours: TokenSource[], theirs: TokenSource[]): Write[] {
+function withOwnHeaderTokens(writes: Write[], ours: TokenSource[], theirs: TokenSource[], drift: ReadonlySet<string>): Write[] {
   return writes.map((w) => {
     const sent = Object.entries(w.observed.csrfHeaders ?? {});
     if (sent.length === 0) return w;
@@ -774,18 +788,20 @@ function withOwnHeaderTokens(writes: Write[], ours: TokenSource[], theirs: Token
     const headerTokens = sent.map(([name, value]) => {
       const source = ours.find((t) => t.value === value) ?? ours.find((t) => decodeValue(t.value) === value);
       let token: string | null = null;
+      let mine: TokenSource | undefined;
       if (source) {
         const decoded = source.value !== value;
-        const mine = theirs.find((t) => t.kind === source.kind && t.name === source.name);
+        mine = theirs.find((t) => t.kind === source.kind && t.name === source.name);
         token = mine ? (decoded ? decodeValue(mine.value) : mine.value) : null;
       } else {
         const usual: { kind: TokenSource["kind"]; name: string; decode: boolean } | undefined = HEADER_SOURCE[name.toLowerCase()];
-        const mine = usual ? theirs.find((t) => t.kind === usual.kind && t.name.toLowerCase() === usual.name) : undefined;
+        mine = usual ? theirs.find((t) => t.kind === usual.kind && t.name.toLowerCase() === usual.name) : undefined;
         if (usual && mine) token = usual.decode ? decodeValue(mine.value) : mine.value;
       }
-      if (!token || token === value) return { name, swapped: false };
+      if (!token || token === value || !mine) return { name, swapped: false };
       headers[name] = token;
-      return { name, swapped: true };
+      const drifted = driftedFor(mine, drift);
+      return { name, swapped: true, ...(drifted.length > 0 ? { drifted } : {}) };
     });
     return { ...w, headers, headerTokens };
   });
@@ -1056,6 +1072,9 @@ export const check: Check = {
       try {
         await submitForm(page, form);
         await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
+        // What the page sends once its save has answered (its update or delete of the new record) comes a moment later,
+        // later still on a busy machine: the reload below would cut it off. Still under the hold, so each write is judged.
+        await waitForQuiet(capture);
       } finally {
         await hold.release();
       }
@@ -1210,12 +1229,17 @@ export const check: Check = {
       const inHeader = writes.some((w) => Object.keys(w.observed.csrfHeaders ?? {}).length > 0);
       if (inBody || inHeader) {
         let theirs: TokenSource[] = [];
+        // The cookies the page set anew, which the replay (sent with the saved session's cookies) may not carry.
+        let drift = new Set<string>();
         if (who === "other") {
           ctx.step("Reading Account B's own anti-CSRF token", page);
           const mine = await identityPage();
-          if (mine) theirs = await tokenSources(mine.page, key);
+          if (mine) {
+            theirs = await tokenSources(mine.page, key);
+            drift = await cookieDrift(mine.page, mine.capture, ctx.targetUrl);
+          }
         }
-        writes = withOwnHeaderTokens(withOwnTokens(writes, ours, theirs, key), ours, theirs);
+        writes = withOwnHeaderTokens(withOwnTokens(writes, ours, theirs, key, drift), ours, theirs, drift);
       }
       // A credential in a write's URL (?access_token=, ?api_token=, ?auth=) is Account A's: sent as it is, the replay
       // would still be Account A's own request. It goes as the identity's own where a page opened as it sent the same
@@ -1333,6 +1357,8 @@ export const check: Check = {
        * without the anti-CSRF header the app's own request carried: no proof either way.
        */
       const tokenRefusals: string[] = [];
+      /** A token refusal where no token of the identity's own went (not only one whose cookie drifted). */
+      let tokenUnmatched = false;
       /** Writes answered with a conflict (409, 412, 428) that left the record unchanged: no proof either way. */
       const conflicts: string[] = [];
       /**
@@ -1520,12 +1546,26 @@ export const check: Check = {
           }
           const unswapped = (w.tokens ?? []).filter((t) => !t.swapped).map((t) => t.field);
           const unsent = (w.headerTokens ?? []).filter((t) => !t.swapped).map((t) => t.name);
-          if (!effect && status !== null && TOKEN_REFUSALS.has(status) && (unswapped.length > 0 || unsent.length > 0)) {
+          // A token of the identity's own that went, read from a page that set the cookie it goes with anew: the replay
+          // carries the saved session's cookies, so the app's CSRF check may have refused the pair (0.6.0 round 3).
+          const adrift = [...(w.tokens ?? []).map((t) => ({ at: t.field, t })), ...(w.headerTokens ?? []).map((t) => ({ at: t.name, t }))].filter(
+            ({ t }) => t.swapped && (t.drifted ?? []).length > 0,
+          );
+          if (!effect && status !== null && TOKEN_REFUSALS.has(status) && (unswapped.length > 0 || unsent.length > 0 || adrift.length > 0)) {
+            const cookies = [...new Set(adrift.flatMap(({ t }) => t.drifted!))];
             const why = [
               ...(unswapped.length > 0 ? [`whose body still carried Account A's anti-CSRF token in ${joinFields(unswapped)}`] : []),
               ...(unsent.length > 0 ? [`sent without the anti-CSRF header the app's own request carried (${joinFields(unsent)})`] : []),
+              ...(adrift.length > 0
+                ? [
+                    `whose ${joinFields(adrift.map(({ at }) => at))} carried ${WHO[who].words}'s own anti-CSRF token, read from a page that set the ${joinFields(cookies)} ${
+                      cookies.length === 1 ? "cookie" : "cookies"
+                    } anew, which the replay, sent with ${WHO[who].words}'s saved session, may not carry at the same value`,
+                  ]
+                : []),
             ];
             tokenRefusals.push(`${at} (${status}), ${why.join(" and ")}`);
+            if (unswapped.length > 0 || unsent.length > 0) tokenUnmatched = true;
           }
           if (!effect && status === null) noAnswers.push(at);
           if (!effect && status !== null && CONFLICT.has(status)) conflicts.push(`${at} (${status})`);
@@ -1662,7 +1702,9 @@ export const check: Check = {
             `Inconclusive: the app refused ${tokenRefusals.join("; ")}. ${
               who === "signed-out"
                 ? "A signed-out visitor has no token of its own to put there"
-                : `Run Hound couldn't match a token of ${WHO[who].words}'s own to the one Account A's request carried`
+                : tokenUnmatched
+                  ? `Run Hound couldn't match a token of ${WHO[who].words}'s own to the one Account A's request carried`
+                  : `Run Hound couldn't send ${WHO[who].words}'s own token with the cookie it goes with`
             }, so the refusal may be the app's CSRF check rather than a check that the record belongs to the sender, and Run Hound can't call this a pass.`,
             ...(unread ? [unread] : []),
             ...notes,

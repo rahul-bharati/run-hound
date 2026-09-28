@@ -62,10 +62,15 @@ const COOKIE: Partial<Record<Source, { name: string; value: (who: Who) => string
   "encoded-cookie": { name: "XSRF-TOKEN", value: (who) => encodeURIComponent(TOKEN[who]) },
 };
 
-function session(who: Who, source: Source): SessionState {
+function session(who: Who, source: Source, withToken = true): SessionState {
   const cookie = (name: string, value: string, httpOnly: boolean) => ({ name, value, domain: "127.0.0.1", path: "/", expires: -1, httpOnly, secure: false, sameSite: "Lax" as const });
-  const token = COOKIE[source];
+  const token = withToken ? COOKIE[source] : undefined;
   return { cookies: [cookie("sid", `${who}-session`, true), ...(token ? [cookie(token.name, token.value(who), false)] : [])], origins: [] };
+}
+
+/** The value of cookie `name` a request carried, or "" when it carried none. */
+function cookieOf(req: RecordedRequest, name: string): string {
+  return new RegExp(`(?:^|;\\s*)${name}=([^;]*)`).exec(String(req.headers.cookie ?? ""))?.[1] ?? "";
 }
 
 function callerOf(req: RecordedRequest): Who | null {
@@ -93,13 +98,26 @@ const READ_TOKEN: Record<Source, string> = {
  * and then saves it again (POST /api/tasks/<id>): the app's own update. `order`: whether the update checks the token
  * before the session (Django's middleware, "csrf-first") or after it. `owner`: whether it checks who owns the task.
  */
-async function headerApp(o: { source: Source; owner?: boolean; order?: "csrf-first" | "session-first"; refuse?: number; rotate?: boolean }) {
+async function headerApp(o: {
+  source: Source;
+  owner?: boolean;
+  order?: "csrf-first" | "session-first";
+  refuse?: number;
+  rotate?: boolean;
+  /**
+   * A double-submit app (Django's csrftoken, csrf-csrf): the header must equal the csrftoken cookie the same request
+   * carries. "rotate": every load of the page sets a fresh csrftoken (a token per render). "unsaved": the page sets one
+   * only when the request carries none (a saved session taken before the app issued it again).
+   */
+  jar?: "rotate" | "unsaved";
+}) {
   const tasks: { id: number; owner: Who; title: string }[] = [{ id: 1, owner: "a", title: "Groceries" }];
   let next = 2;
   const header = HEADER[o.source];
   const refuse = o.refuse ?? 403;
   /** Laravel's way (`rotate`): every answer to a signed-in caller sets XSRF-TOKEN again, encrypted anew ("<token>.<n>"). */
   let issued = 0;
+  let minted = 0;
   const reply = (res: ServerResponse, who: Who | null, status: number, body: unknown) => {
     if (o.rotate && who) res.setHeader("set-cookie", `XSRF-TOKEN=${encodeURIComponent(`${TOKEN[who]}.${++issued}`)}; Path=/`);
     send(res, status, body);
@@ -120,11 +138,15 @@ load();
   // Any token the app issued to the caller's session is accepted, the way Laravel decrypts its cookie.
   const tokenOk = (req: RecordedRequest, who: Who | null) => {
     const sent = String(req.headers[header] ?? "");
+    if (o.jar) return who !== null && sent !== "" && sent === cookieOf(req, "csrftoken");
     return who !== null && (sent === TOKEN[who] || (o.rotate === true && sent.startsWith(`${TOKEN[who]}.`)));
   };
   const server = await startFixtureServer({
     routes: {
       "GET /app": (req, res) => {
+        if (o.jar === "rotate" || (o.jar === "unsaved" && cookieOf(req, "csrftoken") === "")) {
+          res.setHeader("set-cookie", `csrftoken=fresh${callerOf(req) ?? "x"}${++minted}Zq8Lm2Xc4Pz81Wn6; Path=/`);
+        }
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(html(callerOf(req)));
       },
@@ -186,8 +208,8 @@ async function discover(server: FixtureServer, self: SessionState): Promise<Disc
   }
 }
 
-async function run(server: FixtureServer, which: "other-account" | "signed-out", source: Source): Promise<CheckResult> {
-  const self = session("a", source);
+async function run(server: FixtureServer, which: "other-account" | "signed-out", source: Source, saved = true): Promise<CheckResult> {
+  const self = session("a", source, saved);
   const discovered = await discover(server, self);
   const planned = check.plan(discovered.forms[0]!, discovered, { signedIn: true, otherAccount: true }).find((s) => s.id === `write-access:${which}`);
   if (!planned) throw new Error(`no write-access:${which} scenario`);
@@ -201,7 +223,7 @@ async function run(server: FixtureServer, which: "other-account" | "signed-out",
     artifactsDir: dir,
     runToken: RUN_TOKEN,
     checkId: "write-access",
-    sessions: { self, other: session("b", source) },
+    sessions: { self, other: session("b", source, saved) },
     accounts: { self: A, other: B },
     markers: [],
   });
@@ -306,5 +328,31 @@ describe("write-access: an app whose writes carry an anti-CSRF token in a header
     }
     expect(result.status, result.notes).toBe("fail");
     expect(result.findings.map((f) => `${f.severity} ${f.confidence}`)).toContain("critical confirmed");
+  }, 90_000);
+
+  // 0.6.0 close-out round 3: B's token is read from a page opened as B (a browser context), but the replay goes through
+  // a request context seeded from B's saved session. When the page load set a csrftoken the saved session doesn't hold
+  // (a fresh one per render, or one the saved session never had), the header no longer matches the cookie the replay
+  // carries: the app's 403 is its CSRF check, and the update, which has no owner check, is never called a pass.
+  it.each([
+    ["rotate", true],
+    ["unsaved", false],
+  ] as const)("double-submit, the page sets csrftoken on load (%s): B's refused replay is never a pass", async (jar, saved) => {
+    const server = await headerApp({ source: "cookie", jar });
+    const result = await run(server, "other-account", "cookie", saved);
+    const fromB = updatesBy(server, "b");
+    expect(fromB.length, result.notes).toBeGreaterThan(0);
+    for (const r of fromB) expect(JSON.stringify(r)).not.toContain(TOKEN.a.slice(0, 16));
+    expect(result.status, result.notes).not.toBe("pass");
+    if (result.status === "fail") {
+      expect(result.findings.map((f) => `${f.severity} ${f.confidence}`)).toContain("critical confirmed");
+    } else {
+      expect(result.status, result.notes).toBe("skipped");
+      expect(result.findings).toEqual([]);
+      expect(result.notes).toMatch(/Inconclusive/);
+      expect(result.notes).toMatch(/x-csrftoken/i);
+      expect(result.notes).toMatch(/csrftoken/);
+      expect(result.notes).toMatch(/can't call this a pass/);
+    }
   }, 90_000);
 });

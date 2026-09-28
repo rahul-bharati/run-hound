@@ -12,6 +12,9 @@ import { NOT_VISIBLE, renderHtml, renderMarkdown, signedInSentence } from "./rep
  * - a report that names the other account with neither approved (written before 0.6.0): "… can't read …".
  * Only the other-account scenarios that ran count (close-out round 1): one that was skipped sent nothing as Account B,
  * so it doesn't name what B was used for; when every one was skipped, the approved ones do.
+ * When a write-access other-account scenario that ran sent the app's DELETE as Account B (its step "Sending DELETE <url>
+ * as Account B"), the line says "change or delete" ("read, change or delete" with access-control's): a run that finds
+ * "Account B can delete Account A's records" never says B was only used to check that it can't change them.
  * The web UI's report view says the same (server/ui-other-account.test.ts), and so does the terminal's line after a run
  * (signedInSentence, which cli.ts prints).
  */
@@ -32,7 +35,7 @@ const SCENARIOS: Scenario[] = [
   scenario("write-access:other-account#2", "write-access", "form"),
 ];
 
-function report(approved: string[], skipped: string[] = []): Report {
+function report(approved: string[], skipped: string[] = [], steps: Record<string, string[]> = {}): Report {
   const form = {
     url: "http://127.0.0.1:5173/app",
     selector: "#new-task",
@@ -63,6 +66,7 @@ function report(approved: string[], skipped: string[] = []): Report {
       status: skipped.includes(id) ? ("skipped" as const) : ("pass" as const),
       findings: [],
       durationMs: 5,
+      ...(steps[id] ? { steps: steps[id]!.map((label) => ({ label, url: "http://127.0.0.1:5173/app", at: "2026-09-28T10:00:30.000Z" })) } : {}),
     })),
     findings: [],
     summary: { critical: 0, high: 0, medium: 0, low: 0, passed: approved.length, failed: 0, errored: 0, skipped: 0 },
@@ -133,6 +137,55 @@ describe("the report's other-account line", () => {
   it("falls back to the approved scenarios when every other-account scenario was skipped", () => {
     const r = report(["access-control:other-account", "write-access:other-account"], ["access-control:other-account", "write-access:other-account"]);
     for (const text of [renderMarkdown(r), renderHtml(r)]) expect(text).toContain(used("read or change"));
+  });
+});
+
+describe("the report's other-account line when write-access sent the app's DELETE as Account B", () => {
+  const WA = "write-access:other-account";
+  const UPDATE = "Sending PATCH /api/tasks/2 as Account B";
+  const DELETE = "Sending DELETE /api/tasks/2 as Account B";
+
+  it("says 'change or delete' when write-access's other-account scenario sent a DELETE as Account B", () => {
+    const r = report([WA, "write-access:signed-out"], [], { [WA]: ["Opening the form", UPDATE, DELETE] });
+    for (const text of [renderMarkdown(r), renderHtml(r)]) {
+      expect(text).toContain(used("change or delete"));
+      expect(text).not.toContain(used("change"));
+    }
+  });
+
+  it("says 'read, change or delete' when access-control's ran too", () => {
+    const r = report(["access-control:other-account", "write-access:other-account@form-2"], [], { "write-access:other-account@form-2": [UPDATE, DELETE] });
+    for (const text of [renderMarkdown(r), renderHtml(r)]) expect(text).toContain(used("read, change or delete"));
+  });
+
+  it("keeps 'change' when no DELETE was sent as Account B", () => {
+    const r = report([WA], [], { [WA]: ["Opening the form", UPDATE] });
+    for (const text of [renderMarkdown(r), renderHtml(r)]) {
+      expect(text).toContain(used("change"));
+      expect(text).not.toContain("delete Account A's data");
+    }
+    const both = report(["access-control:other-account", WA], [], { [WA]: [UPDATE] });
+    for (const text of [renderMarkdown(both), renderHtml(both)]) expect(text).toContain(used("read or change"));
+  });
+
+  it("never counts a DELETE sent as a signed-out visitor, or one a skipped scenario names", () => {
+    const signedOut = report([WA, "write-access:signed-out"], [], { [WA]: [UPDATE], "write-access:signed-out": ["Sending DELETE /api/tasks/2 as a signed-out visitor"] });
+    for (const text of [renderMarkdown(signedOut), renderHtml(signedOut)]) expect(text).toContain(used("change"));
+    const skipped = report(["access-control:other-account", WA], [WA], { [WA]: [DELETE] });
+    for (const text of [renderMarkdown(skipped), renderHtml(skipped)]) {
+      expect(text).toContain(used("read"));
+      expect(text).not.toContain("delete Account A's data");
+    }
+  });
+
+  it("signedInSentence says it too", () => {
+    expect(signedInSentence(report([WA], [], { [WA]: [UPDATE, DELETE] }))).toBe(
+      "Signed in as Account A; Account B was used to check that it can't change or delete Account A's data.",
+    );
+    expect(signedInSentence(report(["access-control:other-account", WA], [], { [WA]: [DELETE] }))).toBe(
+      "Signed in as Account A; Account B was used to check that it can't read, change or delete Account A's data.",
+    );
+    expect(signedInSentence(report([WA], [], { [WA]: [UPDATE] }))).toBe("Signed in as Account A; Account B was used to check that it can't change Account A's data.");
   });
 });
 

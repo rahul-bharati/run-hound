@@ -1219,17 +1219,24 @@ function idsIn(node: unknown, read: ReadBeforeSave, names: ReadonlySet<string>, 
 
 /**
  * A JSON answer the page got before a save: a GET's, or a GraphQL read's sent as a POST (`post`: the query body it
- * sent, so it can be sent again to re-read).
+ * sent, so it can be sent again to re-read). `graphql`: a GraphQL answer to a POST that may read but can't be sent again
+ * (a persisted operation, by hash or document id, with no query text: it may be a mutation). Its ids count, never its path.
  */
 export interface ReadAnswer {
   url: string;
   body: string;
   post?: string | null;
+  graphql?: boolean;
 }
+
+/** The query parameters of a GraphQL-over-HTTP GET that sends a persisted document by its id (Relay, Hot Chocolate). */
+const PERSISTED_GET_KEYS = new Set(["doc_id", "documentId", "variables", "operationName", "extensions"]);
 
 /**
  * True for a GraphQL read made as a GET (Relay, Apollo's GET queries): its URL carries a `query` that is a GraphQL
- * document ("{ tasks … }", "query Tasks …": core/saves.ts isGraphQlDocument), or the `extensions` of a persisted query.
+ * document ("{ tasks … }", "query Tasks …": core/saves.ts isGraphQlDocument), the `extensions` of a persisted query, or
+ * a persisted document's id (`doc_id` or `documentId`) with its `variables` and no parameter beside GraphQL's own. A
+ * REST record read at ?doc_id=n1 or ?documentId=n1 is not one: its path stays a record the page read.
  */
 function graphQlGet(url: string): boolean {
   let params: URLSearchParams;
@@ -1240,11 +1247,20 @@ function graphQlGet(url: string): boolean {
   }
   const query = params.get("query") ?? "";
   if (isGraphQlDocument(query) && !/\bmutation\b/.test(graphQlCode(query))) return true;
-  return /persistedQuery/.test(params.get("extensions") ?? "");
+  // A persisted query: Apollo's hash in `extensions`, or a document id sent the GraphQL-over-HTTP way.
+  if (/persistedQuery/.test(params.get("extensions") ?? "")) return true;
+  return (
+    (params.has("doc_id") || params.has("documentId")) &&
+    params.has("variables") &&
+    [...params.keys()].every((k) => PERSISTED_GET_KEYS.has(k))
+  );
 }
 
-/** True for a GraphQL read: one sent as a POST (it has its query body), or a GET with a GraphQL query in its URL. */
-const isGraphQlAnswer = (a: ReadAnswer) => Boolean(a.post) || graphQlGet(a.url);
+/**
+ * True for a GraphQL read: one sent as a POST (it has its query body, or is a persisted operation's), or a GET with a
+ * GraphQL query in its URL.
+ */
+const isGraphQlAnswer = (a: ReadAnswer) => Boolean(a.post) || Boolean(a.graphql) || graphQlGet(a.url);
 
 function readBeforeSave(answers: ReadAnswer[]): ReadBeforeSave {
   const out: ReadBeforeSave = { ids: new Set(), own: new Map(), lists: new Set(), records: new Set() };
@@ -1479,15 +1495,43 @@ function createsRecord(name: string): boolean {
   return !words.some((w) => EDIT_WORDS.has(w)) && !SINGLETON_NOUNS.has(noun ?? "");
 }
 
+/** The keys of a persisted operation sent by its id under `id` (Hot Chocolate, Strawberry Shake). */
+const PERSISTED_ID_KEYS = new Set(["id", "variables", "operationName", "extensions"]);
+
+/**
+ * True for a persisted GraphQL operation's marker: Apollo's hash (extensions.persistedQuery), or a document id with its
+ * variables (Relay's {doc_id, variables}, GraphQL over HTTP's {documentId, variables}, Hot Chocolate's {id, variables}
+ * with no key beside GraphQL's own). A REST body {id, variables} taken for one only makes the hold stop more.
+ */
+function persistedOperation(o: JsonObject): boolean {
+  if (plainObject(o.extensions) && plainObject(o.extensions.persistedQuery)) return true;
+  if ((typeof o.doc_id === "string" || typeof o.documentId === "string") && plainObject(o.variables)) return true;
+  return typeof o.id === "string" && plainObject(o.variables) && Object.keys(o).every((k) => PERSISTED_ID_KEYS.has(k));
+}
+
 /** The operations of a GraphQL request body (one, or a batch), or null when it isn't one. */
 function graphQlOperations(json: unknown): JsonObject[] | null {
   const ops = Array.isArray(json) ? json : [json];
   if (ops.length === 0 || !ops.every(plainObject)) return null;
   const isOperation = (o: JsonObject) =>
-    typeof o.query === "string" ||
-    (plainObject(o.extensions) && plainObject(o.extensions.persistedQuery)) ||
-    (typeof o.operationName === "string" && plainObject(o.variables));
+    typeof o.query === "string" || persistedOperation(o) || (typeof o.operationName === "string" && plainObject(o.variables));
   return (ops as JsonObject[]).every(isOperation) ? (ops as JsonObject[]) : null;
+}
+
+/**
+ * True for a POST body the page may have read with although core/saves.ts isGraphQlRead can't call it a read (so it is
+ * never sent again): each operation a persisted one with no query text (persistedOperation: Apollo's automatic persisted
+ * queries, Relay's doc_id), or a query that holds no mutation beside a key that isn't a GraphQL request key (Relay's
+ * {id, query, variables}). The hold learns the ids its answer holds: a persisted mutation's too, which only makes it
+ * stop more.
+ */
+function graphQlReadLike(postData: string | null | undefined): boolean {
+  if (!postData || !/^\s*[[{]/.test(postData)) return false;
+  const ops = graphQlOperations(parseJson(postData));
+  if (!ops) return false;
+  return ops.every((op) =>
+    typeof op.query === "string" ? isGraphQlDocument(op.query) && !/\bmutation\b/.test(graphQlCode(op.query)) : persistedOperation(op),
+  );
 }
 
 /**
@@ -1627,7 +1671,9 @@ export interface SaveHold {
  * On a GraphQL app (0.6.0 close-out round 1) the page's reads are often POSTs (Apollo Client's default): a POST whose
  * body is a GraphQL query (core/saves.ts isGraphQlRead: only GraphQL request keys, a query that is a GraphQL document
  * with no mutation; a REST body with a "query" field is a write, 0.6.0 close-out round 2) is a read, never judged, and
- * its answer counts with the GETs'. A GraphQL mutation carrying the test values whose name doesn't say it creates a
+ * its answer counts with the GETs'. So does the answer to a persisted operation sent by hash or document id with no
+ * query text (Apollo's automatic persisted queries, Relay's doc_id: graphQlReadLike), which is still judged as a write
+ * and never sent again. A GraphQL mutation carrying the test values whose name doesn't say it creates a
  * record (unclearGraphQlSave: updateProfile, saveSettings, submitProfile) is stopped too, with its own note: it may
  * change a record Account A already had without naming one. After a save has gone through, such a mutation goes only
  * when it names the record that save created (an id the page hadn't read before it, held by the save's answer).
@@ -1657,6 +1703,12 @@ export async function holdExistingEdits(ctx: CheckContext, page: Page, capture: 
       // A GraphQL read sent as a POST (Apollo's default) whose answer the capture kept: its ids count like a GET's.
       if (r.method.toUpperCase() === "POST" && isGraphQlRead(r.postData)) {
         if (r.responseBody) out.push({ url: r.url, body: r.responseBody, post: r.postData });
+        continue;
+      }
+      // A persisted GraphQL operation (a hash or document id, no query text) or a query with a key beside the GraphQL
+      // ones: its ids count too, but it is never sent again (it may be a mutation).
+      if (r.method.toUpperCase() === "POST" && graphQlReadLike(r.postData)) {
+        if (r.responseBody) out.push({ url: r.url, body: r.responseBody, graphql: true });
         continue;
       }
       if (r.method.toUpperCase() !== "GET") continue;
@@ -1825,8 +1877,13 @@ async function readRecordChanged(ctx: CheckContext, page: Page, reads: ReadAnswe
   };
   let unknown = false;
   const distinct = new Map<string, ReadAnswer>();
-  for (const r of reads) distinct.set(`${r.url}\n${r.post ?? ""}`, r);
+  for (const r of reads) distinct.set(`${r.url}\n${r.post ?? ""}\n${r.graphql ? "graphql" : ""}`, r);
   for (const r of [...distinct.values()].slice(0, 10)) {
+    // A persisted GraphQL operation the page sent may be a mutation: never sent again, so what it read is unknown.
+    if (r.graphql && !r.post) {
+      unknown = true;
+      continue;
+    }
     const body = await again(r.url, r.post ?? null);
     if (body === null) {
       unknown = true;

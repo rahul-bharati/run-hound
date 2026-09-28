@@ -233,11 +233,16 @@ function accountLabel(account: AccountRef): string {
 /** An other-account scenario id, on any form and under any collision suffix (runner.ts needsOtherAccount). */
 const OTHER_ACCOUNT_SCENARIO = /(?:^|:)other-account(?:@form-\d+)?(?:#\d+)?$/;
 
+/** The step write-access records when it sends the app's DELETE as the scenario's identity (write-access.ts). */
+const SENT_DELETE = /^Sending DELETE\b.* as /;
+
 /**
  * What the run used the other account for (0.6.0 close-out), from the other-account scenarios that ran (a result that
  * isn't "skipped": a skipped one sent nothing as the other account), else, when none ran, from the approved ones:
  * "read" for access-control's other-account scenario, "change" for write-access's, "read or change" for both; "read"
- * when neither is named (a report written before 0.6.0). The web UI's report view says the same (ui/client.ts).
+ * when neither is named (a report written before 0.6.0). A write-access other-account scenario that ran and sent the
+ * app's DELETE as the other account (its step "Sending DELETE <url> as Account B", write-access.ts) makes it "change or
+ * delete" ("read, change or delete" with access-control's). The web UI's report view says the same (ui/client.ts).
  */
 export function otherAccountUse(report: Report): string {
   const checkOf = new Map((report.plan?.scenarios ?? []).map((s) => [s.id, s.checkId]));
@@ -253,7 +258,15 @@ export function otherAccountUse(report: Report): string {
       : new Set((report.plan?.scenarios ?? []).filter((s) => approved.has(s.id) && OTHER_ACCOUNT_SCENARIO.test(s.id)).map((s) => s.checkId));
   const reads = used.has("access-control");
   const changes = used.has("write-access");
-  return reads && changes ? "read or change" : changes ? "change" : "read";
+  const deletes = (report.results ?? []).some(
+    (r) =>
+      r.status !== "skipped" &&
+      OTHER_ACCOUNT_SCENARIO.test(r.scenarioId) &&
+      (r.checkId ?? checkOf.get(r.scenarioId)) === "write-access" &&
+      (r.steps ?? []).some((st) => SENT_DELETE.test(st.label)),
+  );
+  const change = deletes ? "change or delete" : "change";
+  return reads && changes ? (deletes ? "read, change or delete" : "read or change") : changes ? change : "read";
 }
 
 /**

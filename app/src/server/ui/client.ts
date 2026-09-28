@@ -1886,7 +1886,8 @@ export const CLIENT = String.raw`
    * What the run used the other account for (0.6.0 close-out), as the HTML and Markdown reports say it (report.ts
    * otherAccountUse): from the other-account scenarios that ran (a result that isn't "skipped"), else the approved
    * ones; "read" for access-control's other-account scenario, "change" for write-access's, "read or change" for both,
-   * "read" when neither is named (a report written before 0.6.0).
+   * "read" when neither is named (a report written before 0.6.0); "change or delete" ("read, change or delete") when a
+   * write-access other-account scenario that ran sent the app's DELETE as the other account ("Sending DELETE <url> as").
    */
   function otherAccountUse(report) {
     const other = /(?:^|:)other-account(?:@form-\d+)?(?:#\d+)?$/;
@@ -1899,7 +1900,11 @@ export const CLIENT = String.raw`
     const used = ran.size > 0 ? ran : new Set(scenarios.filter((s) => approved.has(s.id) && other.test(s.id)).map((s) => s.checkId));
     const reads = used.has("access-control");
     const changes = used.has("write-access");
-    return reads && changes ? "read or change" : changes ? "change" : "read";
+    const deletes = (report.results || []).some((r) => r.status !== "skipped" && other.test(r.scenarioId)
+      && (r.checkId || checkOf.get(r.scenarioId)) === "write-access"
+      && (r.steps || []).some((st) => /^Sending DELETE\b.* as /.test(String((st && st.label) || ""))));
+    const change = deletes ? "change or delete" : "change";
+    return reads && changes ? (deletes ? "read, change or delete" : "read or change") : changes ? change : "read";
   }
 
   /** "Signed in as Account A · other account Account B, …" under the report's summary; null for a signed-out run. */
