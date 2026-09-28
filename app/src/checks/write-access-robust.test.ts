@@ -162,6 +162,11 @@ interface TasksAppOptions {
   stamp?: "rowVersion" | "updateTime";
   /** POST /api/tasks/<id> updates the task as PATCH does (an app whose update is a POST to the record's own URL). */
   postUpdates?: boolean;
+  /**
+   * How long the page waits, once its create has answered, before it sends `sends` (a debounced autosave; also what a
+   * busy machine does to an immediate one). Default 0.
+   */
+  sendDelayMs?: number;
 }
 
 interface TasksApp extends FixtureServer {
@@ -181,7 +186,8 @@ const pageSends = (nested: boolean): Record<PageSend, string> => ({
   "other-site": `.then(function () { return fetch('${OTHER_SITE}/api/tasks/' + encodeURIComponent(id), { method: 'POST', mode: 'no-cors', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ title: title }) }).catch(function () {}); })`,
 });
 
-function tasksPage(sends: PageSend[], nested = false): string {
+function tasksPage(sends: PageSend[], nested = false, sendDelayMs = 0): string {
+  const wait = sendDelayMs > 0 ? `.then(function () { return new Promise(function (r) { setTimeout(r, ${sendDelayMs}); }); })` : "";
   return `<!doctype html><html lang="en"><head><title>Tasks</title></head><body><main><h1>Tasks</h1>
 <form id="new" aria-label="New task"><label for="title">Title</label><input id="title" name="title" required><button type="submit">Add task</button></form>
 <p role="status" id="status"></p><ul id="list"></ul></main>
@@ -200,7 +206,7 @@ document.getElementById('new').addEventListener('submit', function (e) {
     .then(function (d) {
       var id = d.task.id;
       var url = '/api/tasks/' + encodeURIComponent(id);
-      return Promise.resolve()${sends.map((s) => pageSends(nested)[s]).join("")};
+      return Promise.resolve()${wait}${sends.map((s) => pageSends(nested)[s]).join("")};
     })
     .then(function () { document.getElementById('status').textContent = 'Saved'; return load(); });
 });
@@ -239,7 +245,7 @@ async function tasksApp(o: TasksAppOptions = {}): Promise<TasksApp> {
   });
 
   const server = await startFixtureServer({
-    pages: { "/app": o.page ?? tasksPage(o.sends ?? ["patch"], o.nested) },
+    pages: { "/app": o.page ?? tasksPage(o.sends ?? ["patch"], o.nested, o.sendDelayMs) },
     routes: {
       "GET /api/tasks": (req, res) => {
         if (o.noReads) return send(res, 404, { error: "Not found" });
@@ -452,6 +458,21 @@ describe("write-access: only the requests the app itself sent", () => {
       expect(ran.result.notes, which).toMatch(which === "other-account" ? /nothing to try as Account B\./ : /nothing to try as [^.]*signed[- ]out[^.]*\./i);
       expect(writesByOthers(ran.requests).map((r) => `${r.method} ${r.url}`), which).toEqual([]);
       expect(ran.requests.filter((r) => ["PATCH", "PUT", "DELETE"].includes(r.method))).toEqual([]);
+    }
+  });
+
+  it("waits for the writes the page sends a moment after its save answered, and tries them as Account B and signed out", async () => {
+    // The page's update and dry-run DELETE follow the create's answer 300 ms later. Run Hound reloads the page to read
+    // the record back only once the page has gone quiet, so the reload never cuts them off.
+    const { app, page } = await startTasks({ writes: "unguarded", sends: ["patch", "delete"], sendDelayMs: 300 });
+    for (const which of ["other-account", "signed-out"] as const) {
+      const ran = await runScenario(app, page, which);
+      const record = ownRecord(ran);
+      expect(ran.result.status, `${which}: ${ran.result.notes}`).toBe("fail");
+      expect(ran.result.findings.length, which).toBeGreaterThan(0);
+      const probes = probesOf(ran, [record.title]);
+      expect(probes.map((r) => r.method).sort(), which).toEqual(["DELETE", "PATCH"]);
+      expect(probes.every((r) => callerOf(r) === (which === "other-account" ? "b" : null)), which).toBe(true);
     }
   });
 

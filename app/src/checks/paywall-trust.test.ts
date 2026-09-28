@@ -230,6 +230,8 @@ interface BillingAppOptions {
   grantsCredits?: boolean;
   /** GET /api/me also holds A's credits, starting at this many (with grantsCredits, the default is 0). */
   credits?: number;
+  /** GET /api/me also holds A's credits (from 0), and only the first confirm adds 500 of them (a one-time bonus). */
+  grantsCreditsOnce?: boolean;
   /**
    * Every success page also spends one of A's credits as it loads (POST /api/summary, an "AI summary" of the page),
    * whatever the confirm answers: a clean app's own spending, never a grant.
@@ -335,7 +337,7 @@ $('cancel').addEventListener('click', cancelPlan);`;
 
 async function billingApp(o: BillingAppOptions = {}): Promise<BillingApp> {
   const state: BillingApp["state"] = { plan: o.startPlan ?? "free", credits: o.credits ?? 0, confirms: 0, cancels: 0, signedOut: false };
-  const holdsCredits = o.grantsCredits === true || o.credits !== undefined;
+  const holdsCredits = o.grantsCredits === true || o.grantsCreditsOnce === true || o.credits !== undefined;
   /** Run Hound's own reads of GET /api/me so far, and when the timed refill (refillEveryMs) started. */
   let runHoundReads = 0;
   let refillFrom: number | null = null;
@@ -603,6 +605,7 @@ ${o.billingScript ?? ""}`,
         if (o.grants) state.plan = "pro";
         else if (o.confirmPlan !== undefined) state.plan = o.confirmPlan;
         if (o.grantsCredits) state.credits += 500;
+        if (o.grantsCreditsOnce && state.confirms === 1) state.credits += 500;
         return send(res, 200, { confirmed: Boolean(o.grants), plan: state.plan });
       },
       "POST /api/billing/cancel": (req, res) => {
@@ -1048,8 +1051,27 @@ describe("paywall-trust: a success page that grants a paid plan on load", () => 
     expect(server.state.plan).toBe("free");
     expect(server.state.credits).toBeGreaterThan(0);
     expect(result.notes).toMatch(/check Account A/);
+    // Credits alone are confirmed only once a second visit adds more (0.6.0 review, round 3).
+    expect(server.state.confirms).toBe(2);
+    expect(result.notes).toMatch(/again/);
     expectSafe(server, result);
   }, 90_000);
+
+  it("never confirms credits that a second visit doesn't add again (a one-time bonus looks like a refill): inconclusive, nothing clicked", async () => {
+    const server = await billingApp({ grantsCreditsOnce: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "button" });
+    const result = await runOn(server);
+    expect(result.findings).toEqual([]);
+    expect(result.status).toBe("skipped");
+    expect(result.notes).toMatch(/^Inconclusive/);
+    expect(result.notes).toMatch(/credits/);
+    expect(result.notes).toContain("/app/upgraded");
+    // The route was opened a second time to see whether it adds more.
+    expect(server.state.confirms).toBe(2);
+    expect(server.state.credits).toBe(500);
+    expect(posts(server, "/api/billing/cancel")).toEqual([]);
+    expect(result.notes).not.toMatch(/still[^.]*check Account A/);
+    expectSafe(server, result);
+  }, 120_000);
 
   it("finds a success route linked from a page the page under test links to, and follows the app's confirm() to downgrade", async () => {
     const route = "/billing/welcome";
@@ -1316,6 +1338,28 @@ describe("paywall-trust: only a gain is a grant", () => {
     expectSafe(server, result);
   }, 120_000);
 
+  it("never confirms a finding when A's credits refill every 40 s, slower than any pause with nothing opened (0.6.0 review, round 3)", async () => {
+    // Every success page is clean but keeps the network busy for about 5 s (an analytics beacon every 400 ms), so the
+    // probing lasts long enough for the refill to tick once while a route is open; the next tick comes 40 s later,
+    // after any quiet pause.
+    const busy: SuccessPage = {
+      confirms: false,
+      extra: `<script>var n = 0, t = setInterval(function () { fetch('/api/team'); if (++n >= 12) clearInterval(t); }, 400);</script>`,
+    };
+    const successPages = Object.fromEntries(CONVENTIONAL.map((p) => [p, busy]));
+    const server = await billingApp({ grants: false, credits: 5, refillEveryMs: 40_000, links: [SUCCESS_LINK], successPages, cancel: "button" });
+    const result = await runOn(server);
+    expect(confirmed(result)).toEqual([]);
+    expect(result.findings).toEqual([]);
+    expect(result.status).toBe("skipped");
+    expect(result.notes).toMatch(/^Inconclusive/);
+    expect(result.notes).toMatch(/credits/);
+    expect(result.notes).not.toMatch(/still[^.]*check Account A/);
+    expect(posts(server, "/api/billing/cancel")).toEqual([]);
+    expect(server.state.plan).toBe("free");
+    expectSafe(server, result);
+  }, 240_000);
+
   it("never credits a gain to a route that showed the page under test itself (a single-page app's catch-all)", async () => {
     // Every path the app has no page for shows the dashboard (the page under test), whose own load adds a bonus credit.
     const server = await billingApp({ grants: false, credits: 5, shellBonus: true, spaFallback: "shell", cancel: "button" });
@@ -1543,7 +1587,9 @@ describe("paywall-trust: a billing tab that heads for a payment provider", () =>
     expect(result.notes).toMatch(/"Billing" tab on \/app sent the browser to \/billing\/portal[^.]*stopped/);
     // The tab that went straight to the provider was blocked, and listed; the notes say the tab did it.
     expect(result.notes).toMatch(/billing\.stripe\.com: blocked \(payment provider\)/);
-    expect(result.notes).toMatch(/"Payments" tab on \/app headed for billing\.stripe\.com \(payment provider\)[^.]*blocked/);
+    // Chosen after Billing on the same page, whose script may still be running: both are named (0.6.0 closeout, review
+    // round 2).
+    expect(result.notes).toMatch(/After Run Hound chose the "Billing" and "Payments" tabs on \/app, the page headed for billing\.stripe\.com \(payment provider\)[^.]*blocked/);
     expectSafe(server, result);
   }, 120_000);
 
@@ -1578,7 +1624,7 @@ describe("paywall-trust: a billing tab that heads for a payment provider", () =>
     expect(result.status).toBe("pass");
     expect(posts(server, "/api/billing/portal-session")).toEqual([]);
     expect(result.notes).toMatch(/"Billing" tab on \/app sent a request to \/api\/billing\/portal-session[^.]*stopped/);
-    expect(result.notes).toMatch(/"Payments" tab on \/app headed for pay\.gateway\.test \(another site\)[^.]*stopped/);
+    expect(result.notes).toMatch(/After Run Hound chose the "Billing" and "Payments" tabs on \/app, the page headed for pay\.gateway\.test \(another site\)[^.]*stopped/);
     expectSafe(server, result);
   }, 120_000);
 

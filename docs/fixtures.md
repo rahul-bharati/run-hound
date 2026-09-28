@@ -1,15 +1,17 @@
 # Test fixtures: Kennel and Fernway
 
-> **Status (0.4.0):** two fixtures are built.
+> **Status (0.6.0):** two fixtures are built.
 >
 > - **Kennel** (`fixtures/kennel`) is a single booking page (`/book`) on a small in-memory Node server with a mock
 >   analytics service. It has no Supabase, sign-up, profile or admin pages. Its bugs are the `V0` and `V1` entries in
 >   [bugs.json](../fixtures/kennel/bugs.json); its contract is [CONTRACT.md](../fixtures/kennel/CONTRACT.md).
 > - **Fernway** (`fixtures/fernway`) is a Lovable-style SaaS app with real sign-in and two accounts. It is the fixture
->   for the V1 checks on a modern UI (W01-W10) and for the V2 preview's access checks (V01-V05). See its
->   [README](../fixtures/fernway/README.md) and [CONTRACT.md](../fixtures/fernway/CONTRACT.md).
+>   for the V1 checks on a modern UI (W01-W10) and for the V2 checks run signed in (V01-V09): the access checks
+>   `access-control`, `mass-assignment` and `deep-links` (V01-V05, 0.4.0) and the write-side checks `csrf` (V08, 0.5.0),
+>   `write-access` (V06 and V07, 0.6.0) and `paywall-trust` (V09, 0.6.0). See its [README](../fixtures/fernway/README.md)
+>   and [CONTRACT.md](../fixtures/fernway/CONTRACT.md).
 > - The Supabase-backed Kennel described under [Planned: Kennel on Supabase](#planned-kennel-on-supabase-v2) is not
->   built. Fernway covers the checks 0.4.0 ships; a Supabase variant stays planned for the checks that need a real
+>   built. Fernway covers the checks 0.6.0 ships; a Supabase variant stays planned for the checks that need a real
 >   backend (row-level security, storage rules, payments).
 
 Run Hound is developed and scored against small, deliberately broken apps. Each bug is planted on purpose, so we know

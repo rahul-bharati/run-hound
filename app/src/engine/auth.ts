@@ -6,14 +6,44 @@
  * 0.6.0 ("Sign-in: two-step and sessionStorage"): a sign-in page without a password form but with a sign-in form that
  * asks for the identifier first gets the identifier, its "Continue", and then, once a password field shows on the
  * sign-in origin, the one-step sign-in. After signing in, the sessionStorage of the sign-in origin and of the landing
- * origin is returned with the session (SignedIn.sessionStorage), its token-like values in `secrets`.
+ * origin is returned with the session (SignedIn.sessionStorage), its token-like values in `secrets`, when the session
+ * lives there (round 1 of the release review: the app sent one of its values as a credential, or the session is
+ * nowhere else; round 2: a cookie the submit set or changed is a cookie session whatever its name, and a CSRF or
+ * analytics cookie never is: sessionInStorage).
+ *
+ * Round 2 of the release review also: a password form beside a first step that says sign in is used only when it says
+ * so itself (signsInItself), and trial or name-asking forms are sign-up forms; a code step or a captcha challenge on the
+ * page the password led to fails (showsCodeStep, showsCaptchaChallenge); and a session that holds the password is never
+ * returned (passwordKeptIn).
+ *
+ * Round 3: any first step beside a password form that doesn't sign in by itself takes the sign-in (not only one whose
+ * own words say sign in); a name field is a sign-up signal only beside another identifier field; a code step needs a
+ * sign-in code word (SIGN_IN_CODE_WORDS) and is also read at the sign-in address once the password field is gone; a
+ * captcha widget alone is a challenge only in a form that moves on or under a heading that says so.
+ *
+ * Close-out: a code step named only by the page's heading or title needs a field that looks like a code's itself
+ * (showsCodeStep); an HttpOnly cookie of the app's own site is a cookie session whatever its name, also when it was
+ * set before the password and the submit kept it, and a load balancer's or bot manager's cookie never is
+ * (sessionInStorage, NOT_SESSION_COOKIE).
+ *
+ * Close-out review, round 1: Cloudflare's __cflb and ASP.NET's antiforgery cookies are never the session
+ * (NOT_SESSION_COOKIE); a code step's field is read through camel case and aria-labelledby, type=number or a digits-only
+ * pattern looks like a code's, and a field that can't hold a code (type=email, or own words that say email, phone,
+ * mobile, name or API) is never one (showsCodeStep).
+ *
+ * Close-out review, round 2: own words that say email, phone or mobile beside verify or verification, or on a numeric
+ * field, can hold a code unless they say name, send, resend, address or number; a numeric field with no code word and
+ * no code size needs a heading or title that names a code step outright, and a code word only a camel-case split finds
+ * needs a field that looks like a code's (showsCodeStep). Heroku's session-affinity cookie and AWS WAF's token are never
+ * the session (NOT_SESSION_COOKIE).
  */
+import { domainToUnicode } from "node:url";
 import type { Browser, BrowserContext, ElementHandle, Page, Request, Route } from "playwright";
 import { DEFAULT_LABELS } from "../accounts/config.js";
 import type { TestAccount } from "../accounts/types.js";
 import { originOf } from "../core/saves.js";
 import type { DiscoveredForm, FormControl, FormField } from "../core/types.js";
-import { BROWSER_LOCALE } from "./context.js";
+import { BROWSER_LOCALE, isCredentialHeader } from "./context.js";
 import { discoverPage } from "./discover.js";
 import { cleanErrorMessage, explainNavigationError, TargetNotAllowedError } from "./errors.js";
 import { guardContext, guardSummary, type NavigationGuard } from "./guard.js";
@@ -35,8 +65,9 @@ export interface SignedIn {
   /**
    * sessionStorage items the app kept after signing in (0.6.0, docs/v2-spec.md "Sign-in: two-step and
    * sessionStorage"), per origin: the sign-in origin and the landing origin. Every new browser context for this identity
-   * seeds them before any page script runs. Absent when the app keeps nothing there. Token-like values are also in
-   * `secrets`.
+   * seeds them before any page script runs. Absent when the app keeps nothing there, and (0.6.0 review, round 1) when
+   * the session doesn't live there (sessionInStorage: a cookie or localStorage session whose app keeps a query cache or
+   * an id in sessionStorage, which must not be copied into every context). Token-like values are also in `secrets`.
    */
   sessionStorage?: { origin: string; items: { name: string; value: string }[] }[];
 }
@@ -111,7 +142,38 @@ export function identifierField(form: DiscoveredForm): FormField | null {
 
 /** Words that name a sign-in form, and words that name a sign-up form. */
 const SIGN_IN_WORDS = /\b(sign|log)[\s-]?(in|on)\b|\blogin\b/i;
-const SIGN_UP_WORDS = /\b(sign[\s-]?up|register|registration|create\s+(an?\s+|your\s+|my\s+|new\s+)?account|new\s+account|join|get\s+started)\b/i;
+/**
+ * Trial wording (0.6.0 review, round 2) says sign up too: "Start your 14-day free trial", "Start trial", "Try it free".
+ */
+const SIGN_UP_WORDS =
+  /\b(sign[\s-]?up|register|registration|create\s+(an?\s+|your\s+|my\s+|new\s+)?account|new\s+account|join|get\s+started|free\s+trial|start\s+(your\s+|a\s+)?(\d+[\s-]?day\s+)?(free\s+)?trial|try\s+(it\s+|us\s+)?(for\s+)?free)\b/i;
+
+/**
+ * The words of a field that asks for the person's own name ("Name", "Full name", "First name", name="first_name"): a
+ * sign-up form asks for one, a sign-in form doesn't (0.6.0 review, round 2). "Username", "User name" and "Company name"
+ * don't count.
+ */
+const PERSON_NAME = /^(your\s+)?((full|first|last|given|family|middle)[\s_-]?)?name$|^(surname|fullname|firstname|lastname|givenname|familyname)$/i;
+
+/** Whether `f` asks for the person's own name (PERSON_NAME, or autocomplete=name/given-name/family-name). */
+const isNameField = (f: FormField) =>
+  isTextLike(f) &&
+  (/^(name|given-name|family-name|additional-name)$/i.test((f.autocomplete ?? "").trim()) ||
+    [f.key, f.label, f.placeholder, f.accessibleName].some((w) => !!w && PERSON_NAME.test(w.replace(/[*:]/g, "").trim())));
+
+/**
+ * Whether `form` asks for the person's own name beside an identifier (0.6.0 review, round 2; round 3): a field for the
+ * name (isNameField) and another field the identifier would go in (identifierField of the form without its name
+ * fields). A sign-in form whose only text field is labelled "Name" (an admin panel's Name, Password, "Submit") asks
+ * for the username there: it isn't a sign-up form.
+ */
+function asksForName(form: DiscoveredForm): boolean {
+  if (!form.fields.some(isNameField)) return false;
+  return identifierField({ ...form, fields: form.fields.filter((f) => !isNameField(f)) }) !== null;
+}
+
+/** Whether a password form has autocomplete=current-password on one of its password fields. */
+const hasCurrentPassword = (form: DiscoveredForm) => form.fields.some((f) => isPassword(f) && /current-password/i.test(f.autocomplete ?? ""));
 
 /** The form's name and its submit control's name: what the form says it does. */
 function formWords(form: DiscoveredForm): string {
@@ -121,7 +183,8 @@ function formWords(form: DiscoveredForm): string {
 
 /**
  * The sign-in form (spec step 2): of the forms with a password field, never one that creates an account (it says
- * sign up / create account / register, or every password field is a new-password), then the best by: a password with
+ * sign up / create account / register / start a free trial, every password field is a new-password, or (0.6.0 review,
+ * round 2) it asks for the person's name without autocomplete=current-password), then the best by: a password with
  * autocomplete=current-password, sign-in words in its name or submit control, exactly one password field. The first
  * wins a tie. A sign-up form placed before the sign-in form must never receive the account's credentials.
  */
@@ -131,18 +194,31 @@ export function signInForm(forms: DiscoveredForm[]): DiscoveredForm | null {
   for (const form of forms) {
     const passwords = form.fields.filter(isPassword);
     if (passwords.length === 0) continue;
-    if (passwords.every((f) => /new-password/i.test(f.autocomplete ?? ""))) continue;
-    const words = formWords(form);
-    const saysSignIn = SIGN_IN_WORDS.test(words);
-    if (SIGN_UP_WORDS.test(words) && !saysSignIn) continue;
-    const score =
-      (passwords.some((f) => /current-password/i.test(f.autocomplete ?? "")) ? 4 : 0) + (saysSignIn ? 2 : 0) + (passwords.length === 1 ? 1 : 0);
+    if (signUpReason(form)) continue;
+    const saysSignIn = SIGN_IN_WORDS.test(formWords(form));
+    const current = hasCurrentPassword(form);
+    const score = (current ? 4 : 0) + (saysSignIn ? 2 : 0) + (passwords.length === 1 ? 1 : 0);
     if (score > bestScore) {
       best = form;
       bestScore = score;
     }
   }
   return best;
+}
+
+/**
+ * Why signInForm never takes the password form `form` (it creates an account), for the message when the page has no
+ * other: its sign-up words, "its password fields are for a new password", or "it asks for a name"; null when it may be
+ * a sign-in form.
+ */
+function signUpReason(form: DiscoveredForm): string | null {
+  const passwords = form.fields.filter(isPassword);
+  if (passwords.length > 0 && passwords.every((f) => /new-password/i.test(f.autocomplete ?? ""))) return "its password fields are for a new password";
+  const words = formWords(form);
+  if (SIGN_IN_WORDS.test(words)) return null;
+  const signUp = SIGN_UP_WORDS.exec(words);
+  if (signUp) return `it says "${signUp[0].replace(/\s+/g, " ")}"`;
+  return asksForName(form) && !hasCurrentPassword(form) ? "it asks for a name beside the email or username" : null;
 }
 
 /** A two-step sign-in's first step (0.6.0): the form, the field the identifier goes in, and the control that moves on. */
@@ -163,7 +239,46 @@ const PROVIDER_CONTROL =
 /** A form's own words that say it does something other than sign in (even on a page whose address says login). */
 const OTHER_PURPOSE = /\b(subscribe|unsubscribe|newsletter|search|reset|forgot|recover|waitlist|wait\s+list|notify|contact|feedback|coupon|promo|invite)\b/i;
 
-const controlWords = (c: FormControl) => `${c.accessibleName ?? ""} ${c.text}`.trim();
+/**
+ * A passwordless sign-in (0.6.0 review, round 1): a form that sends the account something instead of asking for its
+ * password, by its control's words ("Send magic link", "Email me a sign-in link", "Send code", "Get a one-time
+ * password") or by its name ("Sign in with a one-time code"). Submitting one would have the app e-mail (or text) the
+ * test account on every sign-in, so it is never a first step, even when it says sign in. The name is read for whole
+ * phrases only: it may come from the page's heading ("Sign in to Code.org").
+ */
+const SENDS_CONTROL = /\b(send|e-?mail\s+me|text\s+me|magic|link|codes?|otp|one[\s-]?time|passcode|passwordless)\b/i;
+const SENDS_NAME =
+  /\b(magic\s+link|(sign|log)[\s-]?in\s+(link|code)|login\s+(link|code)|one[\s-]?time\s+(code|password|passcode|link)|e-?mail\s+(me|you)\s+a|passwordless|otp)\b/i;
+
+/** A control's words: its accessible name and its text, each only once ("Continue", not "Continue Continue"). */
+function controlWords(c: FormControl): string {
+  const name = (c.accessibleName ?? "").replace(/\s+/g, " ").trim();
+  const text = (c.text ?? "").replace(/\s+/g, " ").trim();
+  if (!name || text.toLowerCase().includes(name.toLowerCase())) return text || name;
+  if (!text || name.toLowerCase().includes(text.toLowerCase())) return name;
+  return `${name} ${text}`;
+}
+
+/** What makes `form` (moved on by `control`) a passwordless sign-in (SENDS_CONTROL, SENDS_NAME): its words, or null. */
+function sendsInstead(form: DiscoveredForm, control: FormControl): string | null {
+  const words = controlWords(control);
+  if (SENDS_CONTROL.test(words)) return words;
+  return form.name && SENDS_NAME.test(form.name) ? form.name.replace(/\s+/g, " ").trim() : null;
+}
+
+/**
+ * The words of a passwordless sign-in form among `forms` (an identifier field, and a control or a name that says it
+ * sends a link or a code: sendsInstead), for the message when the page has no sign-in form; null when there is none.
+ */
+function passwordlessWords(forms: DiscoveredForm[]): string | null {
+  for (const form of forms) {
+    if (form.search || form.fields.some(isPassword) || !identifierField(form)) continue;
+    const control = nextControl(form);
+    const words = control ? sendsInstead(form, control) : null;
+    if (words) return words;
+  }
+  return null;
+}
 
 /** The control that moves a first step on: the form's submit control, else a "Continue"/"Next" button; never a provider's. */
 function nextControl(form: DiscoveredForm): FormControl | null {
@@ -207,7 +322,8 @@ async function textBefore(page: Page, selector: string): Promise<string> {
  * similar form by its own words (its name and that control), and that says sign in: in its own words, else in the
  * page's title, the text just before it, or the sign-in page's address. Best by sign-in words of its own, then an
  * identifier field with autocomplete=username or email; the first wins a tie. Never a form whose own words name another
- * provider ("Sign in with SSO", "Use a passkey"), even when they say sign in.
+ * provider ("Sign in with SSO", "Use a passkey"), nor one that sends a link or a code instead ("Send magic link",
+ * "Sign in with a one-time code": sendsInstead), even when they say sign in.
  */
 export async function firstStepForm(page: Page, forms: DiscoveredForm[], loginUrl: string): Promise<FirstStep | null> {
   let best: FirstStep | null = null;
@@ -222,6 +338,8 @@ export async function firstStepForm(page: Page, forms: DiscoveredForm[], loginUr
     const own = `${form.name ?? ""} ${controlWords(control)}`;
     // "Sign in with SSO" says sign in too, but the identifier would go to another provider's discovery.
     if (PROVIDER_CONTROL.test(own)) continue;
+    // "Send magic link" says sign in too (a form named "Sign in"), but its submit has the app e-mail the account.
+    if (sendsInstead(form, control)) continue;
     const saysSignIn = SIGN_IN_WORDS.test(own);
     if (!saysSignIn) {
       if (SIGN_UP_WORDS.test(own) || OTHER_PURPOSE.test(own)) continue;
@@ -235,6 +353,19 @@ export async function firstStepForm(page: Page, forms: DiscoveredForm[], loginUr
     }
   }
   return best;
+}
+
+/**
+ * Whether a password form says by itself that it signs in (0.6.0 review, round 2): autocomplete=current-password,
+ * sign-in words in its submit control, or in its name when that name isn't the first step's too (a heading both forms
+ * sit under names them both).
+ */
+function signsInItself(form: DiscoveredForm, first: FirstStep): boolean {
+  if (hasCurrentPassword(form)) return true;
+  const submit = form.controls.find((c) => c.isSubmit);
+  if (submit && SIGN_IN_WORDS.test(controlWords(submit))) return true;
+  const name = (form.name ?? "").replace(/\s+/g, " ").trim();
+  return name !== "" && name !== (first.form.name ?? "").replace(/\s+/g, " ").trim() && SIGN_IN_WORDS.test(name);
 }
 
 /** Names of cookies and storage keys that usually hold a session. */
@@ -254,13 +385,30 @@ interface IndexedDbState {
   stores?: { name?: string; records?: { key?: unknown; value?: unknown }[] }[];
 }
 
+/** How sessionSecrets reads sessionStorage (0.6.0 review, round 1). */
+export interface SessionStorageReading {
+  /**
+   * Whether the session lives in sessionStorage (default true): then a random-looking value counts whatever its key.
+   * false (a cookie or localStorage session whose app keeps other things there: a query cache, the current
+   * workspace's id) reads it by localStorage's rules only.
+   */
+  sessionStorageSession?: boolean;
+  /**
+   * Values the app's own requests carried as a path segment or a query value, and never in a credential header: ids
+   * (a workspace's UUID), not secrets. A random-looking value among them doesn't count for being random-looking alone;
+   * under a session-like key, or as a JWT, it still does.
+   */
+  addressValues?: ReadonlySet<string>;
+}
+
 /**
  * The values of `state` that identify the session, for redaction: cookie values that look like session ids or tokens,
  * and the tokens an app keeps in localStorage, IndexedDB or (0.6.0) sessionStorage: a plain value under a token-like
  * key, a JWT, or the token fields of a JSON value such as Supabase's "sb-…-auth-token", Firebase's auth user or
- * oidc-client-ts's "oidc.user:…" entry.
+ * oidc-client-ts's "oidc.user:…" entry. sessionStorage is read as `reading` says.
  */
-export function sessionSecrets(state: SessionState, sessionStorage: SignedIn["sessionStorage"] = []): string[] {
+export function sessionSecrets(state: SessionState, sessionStorage: SignedIn["sessionStorage"] = [], reading: SessionStorageReading = {}): string[] {
+  const addressValues = reading.addressValues ?? new Set<string>();
   const out = new Set<string>();
   const add = (value: string) => {
     out.add(value);
@@ -289,7 +437,7 @@ export function sessionSecrets(state: SessionState, sessionStorage: SignedIn["se
   const walkOpaque = (value: unknown, depth: number) => {
     if (depth > 6) return;
     if (typeof value === "string") {
-      if (opaqueToken(value)) add(value);
+      if (opaqueToken(value) && !addressValues.has(value)) add(value);
     } else if (Array.isArray(value)) value.forEach((v) => walkOpaque(v, depth + 1));
     else if (value && typeof value === "object") for (const v of Object.values(value)) walkOpaque(v, depth + 1);
   };
@@ -325,8 +473,142 @@ export function sessionSecrets(state: SessionState, sessionStorage: SignedIn["se
     }
     origin.localStorage.forEach(walkItem(false));
   }
-  for (const entry of sessionStorage) entry.items.forEach(walkItem(true));
+  for (const entry of sessionStorage) entry.items.forEach(walkItem(reading.sessionStorageSession !== false));
   return [...out];
+}
+
+/** A Web Storage value's strings: the whole value, and every string of the JSON it holds. */
+function storedStrings(value: string): string[] {
+  const out = [value];
+  if (/^\s*[[{"]/.test(value)) {
+    try {
+      JSON.parse(value, (_key, v: unknown) => {
+        if (typeof v === "string") out.push(v);
+        return v;
+      });
+    } catch {
+      // Not JSON.
+    }
+  }
+  return out;
+}
+
+/**
+ * Whether a request header names a credential (0.6.0 review, round 1): Authorization, an API key, an x-…-token or a
+ * header whose name says session, auth, token or key. Never a cookie (the storage state has those), and never a CSRF
+ * header: a cookie-session app may keep its CSRF token in sessionStorage without its session living there.
+ */
+function isCredentialName(name: string): boolean {
+  if (/^(cookie|referer)$/i.test(name) || /csrf|xsrf/i.test(name) || BROWSER_HEADERS.test(name)) return false;
+  return isCredentialHeader(name) || SESSION_NAME.test(name);
+}
+
+/**
+ * Cookies that never hold the session (0.6.0 review, round 2): a CSRF token (XSRF-TOKEN, csrftoken, _csrf), and the
+ * analytics, advertising and bot-check cookies a sign-in may set too (_ga, _gid, _fbp, ajs_*, _hj*, __stripe_*,
+ * __cf_bm, cf_clearance …). The close-out adds the HttpOnly cookies a load balancer or a bot manager in front of the app
+ * sets (Azure's ARRAffinity, AWS's AWSALB, Google's GCLB, Akamai's ak_bmsc and _abck, Imperva's visid_incap_ and
+ * incap_ses_, F5's BIGipServer and TS01…, Citrix's NSC_, DataDome, PerimeterX's _px…, ingress-nginx's INGRESSCOOKIE).
+ * The close-out review (round 1) adds Cloudflare's load balancer and waiting room cookies (__cflb, __cfwaitingroom) and
+ * ASP.NET's antiforgery cookies (ASP.NET Core's ".AspNetCore.Antiforgery.<id>", HttpOnly by default, and ASP.NET MVC's
+ * "__RequestVerificationToken[_<app path>]", whose name says token). Round 2 of that review adds Heroku's router cookie
+ * (heroku-session-affinity, HttpOnly, a name that says session) and AWS WAF's challenge token (aws-waf-token, not
+ * HttpOnly, a name that says token).
+ */
+const NOT_SESSION_COOKIE =
+  /csrf|xsrf|antiforgery|^__RequestVerificationToken|^__cflb$|^__cfwaitingroom$|^heroku-session-affinity$|^aws-waf-token$|^_ga($|_)|^_gid$|^_gat|^_gcl_|^_fb[pc]$|^ajs_|^_hj|^__stripe_|^__cf_bm$|^cf_clearance$|^_cfuvid$|^__cfruid$|^mp_|^amp_|^_clck$|^_clsk$|^intercom-|^__hs|^hubspotutk$|^_uet[sv]id$|^_pk_|^_dd_s$|^ARRAffinity|^AWSALB|^AWSELB$|^GCI?LB$|^ak_bmsc$|^bm_(sv|sz|mi|so|s)$|^_abck$|^visid_incap_|^incap_ses_|^nlbi_|^BIGipServer|^TS01[0-9a-f]*$|^NSC_|^datadome$|^_px|^INGRESSCOOKIE$|^ROUTEID$/i;
+
+/** A browser context's cookies, as context.cookies() returns them. */
+type CookieJar = SessionState["cookies"];
+
+const cookieKey = (c: { name: string; domain: string; path: string }) => `${c.domain} ${c.path} ${c.name}`;
+
+/**
+ * Whether the submit set or changed a cookie that can hold a session (0.6.0 review, round 2): a cookie of `after` whose
+ * value is token-like (looksLikeToken) and differs from the one `before` had (or that `before` didn't have), whatever
+ * its name (".AspNetCore.Cookies", "app_user", an iron-session name), except a CSRF, analytics or bot-check cookie
+ * (NOT_SESSION_COOKIE).
+ */
+function sessionCookieSet(before: CookieJar, after: CookieJar): boolean {
+  const was = new Map(before.map((c) => [cookieKey(c), c.value]));
+  return after.some((c) => !NOT_SESSION_COOKIE.test(c.name) && looksLikeToken(c.value) && was.get(cookieKey(c)) !== c.value);
+}
+
+/**
+ * A host name's site, near enough to tell the app's own cookies from another site's without a public-suffix list: its
+ * last two labels ("app.example.com" and "api.example.com" give "example.com"); an IP address, or a name of one label
+ * (localhost), as it is. A leading dot (a cookie's Domain) and IPv6 brackets are dropped.
+ */
+function siteOf(host: string): string {
+  const h = host.toLowerCase().replace(/^\./, "").replace(/^\[|\]$/g, "");
+  if (/^[\d.]+$/.test(h) || h.includes(":") || !h.includes(".")) return h;
+  return h.split(".").slice(-2).join(".");
+}
+
+/**
+ * Whether the session lives in the sessionStorage signIn read (0.6.0 review, rounds 1 and 2; the close-out): the app
+ * sent one of its values (a token-like whole value, or a token-like string of the JSON it holds) in a credential header
+ * after the password was typed (`credentials`: those headers' values). Else, not when the session is in a cookie: the
+ * submit set or changed one, whatever its name (sessionCookieSet: `cookiesBefore` is the jar before the password was
+ * typed); a session-named cookie (SESSION_NAME) holds a token-like value (a PHPSESSID set with the sign-in page and
+ * kept by the submit); or (the close-out) an HttpOnly cookie of the app's own site (siteOf one of `hosts`: the sign-in
+ * page's and the landing page's host names) holds one, whatever its name (express-session under a custom name, set with
+ * the sign-in page and kept by the submit): no page script can set or read an HttpOnly cookie, so it is the server's
+ * state. A CSRF, analytics, bot-check, load balancer or bot manager cookie (NOT_SESSION_COOKIE) is never the session,
+ * and neither is another site's HttpOnly cookie (a reCAPTCHA frame's _GRECAPTCHA). Not when localStorage or IndexedDB
+ * holds a token either. Otherwise it can live nowhere else: yes.
+ *
+ * Otherwise (a cookie or localStorage session) what the app keeps in sessionStorage is its own business: a query
+ * cache, the signed-in user, the current workspace's id. Seeding it into every context would load pages from that copy
+ * instead of the app's data reads, which the access checks replay.
+ */
+export function sessionInStorage(
+  state: SessionState,
+  kept: NonNullable<SignedIn["sessionStorage"]>,
+  credentials: ReadonlySet<string>,
+  cookiesBefore: CookieJar,
+  hosts: readonly string[],
+): boolean {
+  if (kept.length === 0) return false;
+  const sent = [...credentials];
+  for (const entry of kept) {
+    for (const item of entry.items) {
+      if (storedStrings(item.value).some((v) => looksLikeToken(v) && sent.some((header) => header.includes(v)))) return true;
+    }
+  }
+  if (sessionCookieSet(cookiesBefore, state.cookies)) return false;
+  const sites = new Set(hosts.map(siteOf));
+  const cookieSession = state.cookies.some(
+    (c) => !NOT_SESSION_COOKIE.test(c.name) && looksLikeToken(c.value) && (SESSION_NAME.test(c.name) || (c.httpOnly && sites.has(siteOf(c.domain)))),
+  );
+  if (cookieSession) return false;
+  return sessionSecrets({ ...state, cookies: [] }).length === 0;
+}
+
+/**
+ * The token-like values the app's own requests (`urls`, to the origins in `origins`) carried as a path segment or as a
+ * query value under a key that doesn't say session, token or key, except those also sent in a credential header: ids
+ * such as a workspace's UUID, which sessionSecrets leaves out (SessionStorageReading.addressValues).
+ */
+function idsInAddresses(urls: readonly string[], origins: ReadonlySet<string>, credentials: ReadonlySet<string>): Set<string> {
+  const out = new Set<string>();
+  for (const raw of urls) {
+    let url: URL;
+    try {
+      url = new URL(raw);
+    } catch {
+      continue;
+    }
+    if (!origins.has(url.origin)) continue;
+    for (const segment of url.pathname.split("/")) {
+      const value = safeDecode(segment);
+      if (looksLikeToken(value)) out.add(value);
+    }
+    for (const [key, value] of url.searchParams) if (!SESSION_NAME.test(key) && looksLikeToken(value)) out.add(value);
+  }
+  const sent = [...credentials];
+  for (const value of [...out]) if (sent.some((header) => header.includes(value))) out.delete(value);
+  return out;
 }
 
 /** Texts of visible error messages: role=alert, assertive live regions, error toasts, and error text around the form. */
@@ -381,6 +663,149 @@ async function showsCaptcha(page: Page): Promise<boolean> {
       if (/captcha/i.test(text)) return true;
     }
     return false;
+  }`;
+  return Boolean(await page.evaluate(`(${script})()`).catch(() => false));
+}
+
+/**
+ * Runs in the page: its fields to fill in, shown (a box, not visibility:hidden), enabled, not a search box (type=search,
+ * or inside role=search), not a checkbox, radio, file or button input. Declares no named function (see typePassword).
+ */
+const ENTRY_FIELDS = String.raw`(() => {
+  const shown = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none"; };
+  return Array.from(document.querySelectorAll("input, textarea, select")).filter((el) =>
+    !el.matches("input[type=hidden], input[type=submit], input[type=button], input[type=reset], input[type=image], input[type=checkbox], input[type=radio], input[type=file], input[type=search], input[type=range], input[type=color]") &&
+    !el.closest("[role=search]") && !el.disabled && shown(el));
+})`;
+
+/**
+ * Words that name a sign-in's code (0.6.0 review, round 3), for showsCodeStep: one-time, OTP, passcode, verification
+ * or verify, two-factor, two-step (or 2-step, 2-factor), multi-factor, 2FA, MFA, TOTP, authenticator, a security,
+ * sign-in, login or confirmation code, or an "n-digit code". A bare "code" doesn't say which code it is ("Code", "Room
+ * code", a code explainer's textarea).
+ */
+const SIGN_IN_CODE_WORDS = String.raw`/\b(otp|one ?time|passcode|verification|verify|2fa|mfa|totp|(two|2) ?(factor|step)|multi ?factor|authenticator|(security|sign ?in|log ?in|login|confirmation) code|\d ?digit code)\b/i`;
+
+/**
+ * Headings or titles that name a code step outright (close-out review, round 2), for showsCodeStep: the sign-in code
+ * words (SIGN_IN_CODE_WORDS) without a bare verify or verification, which also asks to confirm an email address ("Please
+ * verify your email address"), but with a verification code.
+ */
+const CODE_STEP_HEADING = String.raw`/\b(otp|one ?time|passcode|2fa|mfa|totp|(two|2) ?(factor|step)|multi ?factor|authenticator|(verification|security|sign ?in|log ?in|login|confirmation) code|\d ?digit code)\b/i`;
+
+/**
+ * A field's `pattern` that allows digits only (close-out review, round 1), for showsCodeStep: "[0-9]*", "\d+",
+ * "[0-9]{6}", "\d{4,8}" (anchored or not): the numeric keyboard a code field asks for, as inputmode=numeric does.
+ */
+const DIGITS_ONLY_PATTERN = String.raw`/^\^?(\[0-9\]|\\d)([*+]|\{\d+(,\d*)?\})\$?$/`;
+
+/**
+ * A field's `pattern` that allows 4 to 8 digits and nothing else (close-out review, round 2), for showsCodeStep:
+ * "[0-9]{6}", "\d{6}", "\d{4,8}" (anchored or not): a code's size, as a maxlength of 4 to 8 is.
+ */
+const CODE_SIZED_PATTERN = String.raw`/^\^?(\[0-9\]|\\d)\{[4-8](,[4-8])?\}\$?$/`;
+
+/**
+ * Whether the page after the password (0.6.0 review, round 2; round 3; the close-out) is a code step without
+ * autocomplete=one-time-code: its only field to fill in (ENTRY_FIELDS), an input and never a textarea or a list, or a
+ * code split over 4 to 8 one-character input boxes, and a sign-in code word (SIGN_IN_CODE_WORDS) in the fields' name,
+ * id, placeholder, aria-label, autocomplete or label, or in the page's headings or title ("Code" under "Two-step
+ * verification"); never with promo, coupon, gift, referral, invite, zip, postal or another code that isn't a sign-in's
+ * in the fields' own words (a landing page's promo-code field, a "Code" textarea or a "Room code" field is still a
+ * success). When only the headings or the title say it (the close-out), the field must look like a code's itself: its
+ * own words say code, OTP, PIN, token or digit, or it is code-sized (a maxlength of 4 to 8, a pattern of 4 to 8 digits:
+ * CODE_SIZED_PATTERN; split boxes always are). A heading that asks to verify the email over a "New task" field, a page
+ * titled "Identity verification" whose field finds a customer, or a two-factor set-up page's phone number field is
+ * still a success. Asked off the sign-in page's address, and at that address once the password field is gone (a
+ * single-page app that swaps in its code step).
+ *
+ * Close-out review, round 1: a field's own words are read word by word through camel case ("verificationCode",
+ * "otpCode"), and the text of the elements its aria-labelledby names is its label too. A field that can't hold a
+ * sign-in code is never one, whatever the page or its own words say: type=email, API in its own words (with the other
+ * codes above), or own words that say email, phone, mobile or name and no code word (code, OTP, PIN, passcode, token,
+ * digit, one-time, 2FA, MFA, TOTP, authenticator): an unconfirmed account's "Send the verification email to" field, a
+ * "Paste your API token" field or a maxlength=8 "Team short name" under "Please verify your email address" is a
+ * success, and "Enter the verification code we sent to your email" is still a code step.
+ *
+ * Close-out review, round 2: own words that say email, phone or mobile hold a code when they also say verify or
+ * verification ("Mobile verification", "Phone verification", "Email verification"), or when the field is numeric
+ * (type=number, inputmode=numeric or decimal, a digits-only pattern: DIGITS_ONLY_PATTERN), unless they say name, send,
+ * resend, address or number: an address field ("Send the verification email to", "Verify your mobile number"). A
+ * numeric field with no code word and no code size is a code's only under a heading or title that names a code step
+ * outright (CODE_STEP_HEADING): an unconfirmed account's type=number "Hours worked today" field under "Please verify
+ * your email address" is a success. A sign-in code word that only the camel-case reading finds in a name or id
+ * ("verificationSearch") counts only in a field that looks like a code's (its own words say code, OTP, PIN, token or
+ * digit, it is code-sized, or numeric).
+ */
+async function showsCodeStep(page: Page): Promise<boolean> {
+  const script = `() => {
+    const entry = ${ENTRY_FIELDS}();
+    if (entry.length === 0 || entry.some((el) => el.tagName !== "INPUT")) return false;
+    const split = entry.length >= 4 && entry.length <= 8 && entry.every((el) => el.maxLength === 1);
+    if (entry.length !== 1 && !split) return false;
+    const labelledBy = (el) => (el.getAttribute("aria-labelledby") || "").split(/\\s+/).filter(Boolean).map((id) => {
+      const target = document.getElementById(id);
+      return target ? target.innerText || target.textContent : "";
+    });
+    const written = (el) => [el.name, el.id, el.getAttribute("placeholder"), el.getAttribute("aria-label"), el.getAttribute("autocomplete"), ...Array.from(el.labels || []).map((l) => l.innerText), ...labelledBy(el)]
+      .filter(Boolean).join(" ");
+    const spaced = (text) => text.replace(/[_\\[\\]\\-.:*]+/g, " ");
+    const words = (el) => spaced(written(el).replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2"));
+    const own = entry.map(words).join(" ");
+    const headings = Array.from(document.querySelectorAll("h1, h2, h3, legend")).map((h) => h.innerText).join(" ") + " " + document.title;
+    const code = ${SIGN_IN_CODE_WORDS};
+    const other = /\\b(promo|promotion(al)?|coupon|discount|voucher|gift|referral|refer|invite|invitation|redeem|zip|postal|post|area|country|source|qr|product|tracking|order|affiliate|campaign|api)\\b/i;
+    if (other.test(own)) return false;
+    const numeric = (el) => el.type === "number" || /^(numeric|decimal)$/i.test(el.getAttribute("inputmode") || "") || ${DIGITS_ONLY_PATTERN}.test(el.getAttribute("pattern") || "");
+    const codeWord = /\\b(codes?|otp|pin|passcode|token|digits?|one ?time|2fa|mfa|totp|authenticator)\\b/i;
+    const cannotHoldCode = (el) => {
+      if (el.type === "email") return true;
+      const text = words(el);
+      if (!/\\b(e ?mail|phone|mobile|name)\\b/i.test(text) || codeWord.test(text)) return false;
+      if (/\\b(name|send|resend|address|number)\\b/i.test(text)) return true;
+      return !/\\b(verification|verify)\\b/i.test(text) && !numeric(el);
+    };
+    if (entry.some(cannotHoldCode)) return false;
+    const saysCode = (el) => /\\b(codes?|otp|pin|token|passcode|digits?)\\b/i.test(words(el));
+    const codeSized = (el) => (el.maxLength >= 4 && el.maxLength <= 8) || ${CODE_SIZED_PATTERN}.test(el.getAttribute("pattern") || "");
+    if (code.test(entry.map((el) => spaced(written(el))).join(" "))) return true;
+    if (code.test(own) && entry.every((el) => saysCode(el) || codeSized(el) || numeric(el))) return true;
+    const heads = headings.replace(/[_\\-]+/g, " ");
+    if (!code.test(heads)) return false;
+    if (split || entry.every((el) => saysCode(el) || codeSized(el))) return true;
+    return entry.every(numeric) && ${CODE_STEP_HEADING}.test(heads);
+  }`;
+  return Boolean(await page.evaluate(`(${script})()`).catch(() => false));
+}
+
+/**
+ * Whether the page the password led to (0.6.0 review, round 2; round 3) is a captcha challenge and nothing else: a
+ * captcha widget shows (reCAPTCHA, hCaptcha, Turnstile: a box, never the reCAPTCHA v3 badge, an invisible one, or a
+ * control one is bound to) or a field says captcha, and the page has no other field to fill in (ENTRY_FIELDS). A
+ * widget alone (no captcha field) counts only when it sits in a form whose submit control moves on (Continue, Verify,
+ * Submit, Next, Sign in …), or when the page's headings or title say it is a check (verify you are human, security
+ * check, "Just a moment…"): a signed-in page with a widget outside any form and nothing to fill in is a success, and so
+ * is a landing page with a captcha in a form next to other fields (a feedback form).
+ */
+async function showsCaptchaChallenge(page: Page): Promise<boolean> {
+  const script = `() => {
+    const shown = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none"; };
+    const norm = (t) => (t || "").replace(/\\s+/g, " ").trim();
+    const widgets = Array.from(document.querySelectorAll(".g-recaptcha, .h-captcha, .cf-turnstile, [data-sitekey], iframe[src*=captcha i], iframe[src*=turnstile i], iframe[src*='challenges.cloudflare' i]"))
+      .filter((el) => !el.closest(".grecaptcha-badge") && !el.matches("button, input, a") && !/size=invisible/i.test(el.getAttribute("src") || "") && shown(el));
+    const says = (el) => /captcha/i.test([el.name, el.id, el.getAttribute("placeholder"), el.getAttribute("aria-label"), ...Array.from(el.labels || []).map((l) => l.innerText)].join(" "));
+    const entry = ${ENTRY_FIELDS}();
+    const captchaFields = entry.filter(says);
+    if (widgets.length === 0 && captchaFields.length === 0) return false;
+    if (!entry.every((el) => captchaFields.includes(el) || widgets.some((w) => w.contains(el)))) return false;
+    if (captchaFields.length > 0) return true;
+    const movesOn = /^(continue|next|verify|submit|proceed|confirm|done|ok|go|sign ?in|log ?in|i('|’)?m (human|not a robot))\\b/i;
+    const submits = (form) => Array.from(form.querySelectorAll("button, input[type=submit], input[type=image]")).some((c) =>
+      shown(c) && c.matches("button:not([type]), button[type=submit], input[type=submit], input[type=image]") &&
+      movesOn.test(norm(c.innerText || c.value || c.getAttribute("aria-label") || c.getAttribute("alt"))));
+    if (widgets.some((w) => { const form = w.closest("form"); return !!form && submits(form); })) return true;
+    const headings = Array.from(document.querySelectorAll("h1, h2, h3, legend")).map((h) => h.innerText).join(" ") + " " + document.title;
+    return /\\b((verify|confirm|prove) (that )?you('|’)?(re| are) (a )?human|are you (a )?(human|robot)|not a robot|security (check|verification)|human verification|captcha|checking your browser|checking if the site|just a moment)\\b/i.test(norm(headings));
   }`;
   return Boolean(await page.evaluate(`(${script})()`).catch(() => false));
 }
@@ -513,10 +938,32 @@ function passwordIn(password: string): (text: string) => boolean {
  * characters around it (/steal/<password>x, /log-<password>-end.gif) is found too (0.6.0 review, round 3).
  */
 function urlCarries(url: URL, password: string, holds: (text: string) => boolean): boolean {
-  if (holds(url.search) || holds(url.hash)) return true;
+  if (queryCarries(url, holds)) return true;
   for (const segment of url.pathname.split("/")) if (segment && (safeDecode(segment) === password || percentDecoded(segment) === password)) return true;
-  if (!isWeak(password) && holds(url.pathname)) return true;
+  return !isWeak(password) && holds(url.pathname);
+}
+
+/**
+ * Whether `url`'s query, hash, or user name and password carry the password (raw or encoded: holds), never its path:
+ * what a request to the sign-in page's own origin is read for (0.6.0 review, round 1). A GET form puts the password in
+ * the query; the path of an ordinary address holds the app's own words ("password" in /api/account/password-status).
+ */
+function queryCarries(url: URL, holds: (text: string) => boolean): boolean {
+  if (holds(url.search) || holds(url.hash)) return true;
   return [url.username, url.password].some((part) => part !== "" && holds(part));
+}
+
+/**
+ * Whether `url`'s host name carries a password that isn't weak (0.6.0 review, round 1): a page that puts it in a
+ * subdomain (http://<password>.evil.example/) sends it to that site's DNS and server. A host name is lower-case (and an
+ * international one punycode), so the password is looked for lower-cased, in the host name as the address has it and
+ * as Unicode. A weak password ("demo") is part of many a host name (demo.example.com), so it isn't looked for there.
+ */
+function hostCarries(url: URL, password: string): boolean {
+  if (isWeak(password) || !url.hostname) return false;
+  const needle = password.toLowerCase();
+  const host = url.hostname.toLowerCase();
+  return [host, domainToUnicode(host).toLowerCase(), percentDecoded(host).toLowerCase()].some((h) => h.includes(needle));
 }
 
 /** Whether a message's text carries `password` (a JSON body's strings included). */
@@ -611,7 +1058,7 @@ export interface BrowserGuardOptions {
    * tab was opened by a page (window.open, a link or form with a target), not by Playwright (storageState's own page).
    */
   admitTab?: (tab: { opener: boolean }) => boolean;
-  /** Told when a new tab of the sign-in context was closed before it ran. */
+  /** Told when a new tab of the sign-in context is refused: every request of it fails, and it is being closed. */
   tabClosed?: () => void;
 }
 
@@ -631,6 +1078,13 @@ const SPECULATION_RULES_HEADER = /^speculation-rules$/i;
  * - **A new tab of the sign-in context is held before it runs** (auto-attached with waitForDebuggerOnStart) and closed,
  *   unless `admitTab` lets it run (Run Hound's own sessionStorage probe, and the page Playwright's storageState opens
  *   to read an origin no tab is on); every request of a tab being closed fails. A password sign-in never opens a tab.
+ *   The tab is closed one round trip of this session after it is attached, not at once (0.6.0, the whole suite's
+ *   load): Playwright holds a new tab too (waitForDebuggerOnStart), and lets it go with Runtime.runIfWaitingForDebugger
+ *   in the setup it sends as soon as its Browser.getWindowForTarget returns (Playwright 1.63). A same-site popup shares
+ *   the renderer of the page that opened it, and one closed before Playwright's release reached it could leave that
+ *   renderer paused for good: the sign-in page stopped running, and signing in never returned. Playwright asks for the
+ *   window as soon as it hears of the tab, before this session does, and the browser answers in order: this session's
+ *   command comes back after Playwright's answer, so the close goes out after Playwright's release.
  * - **A shared worker of the sign-in context is closed** as soon as it is created, and reported with `refuse`. Nothing
  *   else sees its requests or WebSockets, and waitForDebuggerOnStart doesn't hold one (Playwright's own browser session
  *   detaches from it, and that lets it run).
@@ -645,6 +1099,8 @@ export async function guardSignInBrowser(browser: Browser, page: Page, options: 
   const session = await browser.newBrowserCDPSession();
   /** Tabs and workers being closed: every request from one of them fails. */
   const refused = new Set<string>();
+  /** Tabs whose close is on its way (see the attach handler): ending the guard waits for them. */
+  const closing = new Set<Promise<unknown>>();
   session.on("Fetch.requestPaused", (event) => {
     const { requestId } = event;
     let answer: Promise<unknown>;
@@ -675,19 +1131,23 @@ export async function guardSignInBrowser(browser: Browser, page: Page, options: 
     answer.catch(() => undefined);
   });
   session.on("Target.attachedToTarget", ({ sessionId, targetInfo }) => {
+    const { targetId } = targetInfo;
     const letGo = () => void session.send("Target.detachFromTarget", { sessionId }).catch(() => undefined);
-    const close = () => {
-      refused.add(targetInfo.targetId);
-      void session.send("Target.closeTarget", { targetId: targetInfo.targetId }).catch(() => undefined);
-    };
-    if (targetInfo.browserContextId !== sign.browserContextId || targetInfo.targetId === sign.targetId) return letGo();
+    const close = () => session.send("Target.closeTarget", { targetId }).catch(() => undefined);
+    if (targetInfo.browserContextId !== sign.browserContextId || targetId === sign.targetId) return letGo();
     if (targetInfo.type === "shared_worker") {
-      close();
+      // Playwright doesn't hold a shared worker (it detaches from one), so it is closed at once.
+      refused.add(targetId);
+      void close();
       options.refuse("a shared worker");
       return;
     }
     if (targetInfo.type !== "page" || options.admitTab?.({ opener: Boolean(targetInfo.openerId) })) return letGo();
-    close();
+    // Its requests fail from now on; it is closed once Playwright has let it go (one round trip: see above).
+    refused.add(targetId);
+    const closed = session.send("Target.getTargetInfo", { targetId }).catch(() => undefined).then(close);
+    closing.add(closed);
+    void closed.finally(() => closing.delete(closed));
     options.tabClosed?.();
   });
   try {
@@ -703,6 +1163,8 @@ export async function guardSignInBrowser(browser: Browser, page: Page, options: 
     throw err;
   }
   return async () => {
+    // A tab still waiting for its close would be let go by the detach, with no request of it failing any more.
+    await Promise.all(closing);
     await session.detach().catch(() => undefined);
   };
 }
@@ -745,6 +1207,70 @@ function carriesPassword(request: Sent, password: string): boolean {
     if (basic && includesNeedle(Buffer.from(basic[1]!, "base64").toString("utf8"), password)) return true;
   }
   return false;
+}
+
+/** Every string of a JSON text with the key it is under (an array's items under the array's key), or none. */
+function jsonStringsByKey(text: string, key: string): [string, string][] {
+  const out: [string, string][] = [];
+  const walk = (value: unknown, under: string, depth: number) => {
+    if (depth > 8) return;
+    if (typeof value === "string") out.push([under, value]);
+    else if (Array.isArray(value)) value.forEach((v) => walk(v, under, depth + 1));
+    else if (value && typeof value === "object") for (const [k, v] of Object.entries(value)) walk(v, k, depth + 1);
+  };
+  if (/^\s*[[{"]/.test(text)) {
+    try {
+      walk(JSON.parse(text), key, 0);
+    } catch {
+      // Not JSON.
+    }
+  }
+  return out;
+}
+
+/**
+ * Where the session signIn would return keeps the password (0.6.0 review, round 2): "a cookie (<name>)",
+ * "localStorage (<key>)", "IndexedDB (<database>)" or "sessionStorage (<key>)", or null. Each value is read as a
+ * request is (passwordIn: raw, percent-, JSON- or base64-encoded, and the strings of the JSON it holds). A weak
+ * password (isWeak: "demo") or one equal to the username is one of the app's own values too, so it counts only as a
+ * whole value, or a string of the JSON a value holds, under a key that names a password (pw_hint, password, pwd …).
+ */
+export function passwordKeptIn(
+  state: SessionState,
+  sessionStorage: NonNullable<SignedIn["sessionStorage"]>,
+  password: string,
+  username: string,
+): string | null {
+  if (!password) return null;
+  const holds = passwordIn(password);
+  const strict = isWeak(password) || password === username;
+  const namesPassword = (key: string) => {
+    const k = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+    return PASSWORD_KEY.test(k) || /pass|pwd|^pw|secret|credential/.test(k);
+  };
+  const keeps = (value: string, key: string): boolean => {
+    if (!value) return false;
+    const decoded = safeDecode(value);
+    if (strict) {
+      if (namesPassword(key) && (value === password || decoded === password)) return true;
+      return [value, decoded].some((v) => jsonStringsByKey(v, key).some(([k, s]) => s === password && namesPassword(k)));
+    }
+    return textCarries(value, password, holds) || (decoded !== value && textCarries(decoded, password, holds));
+  };
+  for (const cookie of state.cookies) if (keeps(cookie.value, cookie.name)) return `a cookie (${cookie.name})`;
+  for (const origin of state.origins) {
+    for (const item of origin.localStorage) if (keeps(item.value, item.name)) return `localStorage (${item.name})`;
+    for (const db of (origin as { indexedDB?: (IndexedDbState & { name?: string })[] }).indexedDB ?? []) {
+      for (const store of db.stores ?? []) {
+        for (const record of store.records ?? []) {
+          const texts = [record.value, record.key].map((v) => (typeof v === "string" ? v : JSON.stringify(v ?? null)));
+          if (texts.some((t) => keeps(t, store.name ?? ""))) return `IndexedDB (${db.name ?? store.name ?? "a database"})`;
+        }
+      }
+    }
+  }
+  for (const entry of sessionStorage) for (const item of entry.items) if (keeps(item.value, item.name)) return `sessionStorage (${item.name})`;
+  return null;
 }
 
 /** Same origin and path (query and hash ignored). */
@@ -1022,7 +1548,10 @@ async function passwordStepForm(page: Page, label: string, shownUrl: string): Pr
   const creates = forms.filter((f) => {
     const passwords = f.fields.filter(isPassword);
     const words = formWords(f);
-    return passwords.length > 0 && (passwords.every((p) => /new-password/i.test(p.autocomplete ?? "")) || (SIGN_UP_WORDS.test(words) && !SIGN_IN_WORDS.test(words)));
+    return (
+      passwords.length > 0 &&
+      (passwords.every((p) => /new-password/i.test(p.autocomplete ?? "")) || ((SIGN_UP_WORDS.test(words) || asksForName(f)) && !SIGN_IN_WORDS.test(words)))
+    );
   });
   const selectors = creates.map((f) => f.fields.filter(isPassword).map((p) => p.selector));
   const fresh = (await page.evaluate(`(${NEW_ELEMENTS})(${JSON.stringify(selectors.flat())})`).catch(() => [])) as boolean[];
@@ -1131,6 +1660,11 @@ async function typePassword(handle: ElementHandle<Node>, password: string): Prom
  *   made a rules script: its type alone changes nothing). Every built-in it uses is taken before any page script runs,
  *   so a page can't disarm it by replacing one. The rules of a Speculation-Rules header are dropped by
  *   guardSignInBrowser. It remains an in-page layer: a declarative shadow root's rules are not watched.
+ * - **WebRTC and WebTransport** (0.6.0 review, round 1). A peer connection sends its ICE servers' user names over UDP
+ *   (a TURN server given the password as its username gets it), and a WebTransport session is an HTTP/3 connection:
+ *   neither is seen by any interception layer, and a password sign-in needs neither. RTCPeerConnection, its
+ *   webkitRTCPeerConnection alias and WebTransport are replaced with constructors that throw, in every frame (an
+ *   about:blank frame the page makes gets this script too), before any page script can keep the built-ins.
  * - **window.close.** The sign-in tab is never closed by its page: what a document sends while it is being left would
  *   go out as the tab closes. (Chromium already ignores window.close() in a tab opened the way Run Hound opens it, with
  *   two history entries: this holds if that changes.)
@@ -1141,6 +1675,10 @@ async function typePassword(handle: ElementHandle<Node>, password: string): Prom
 const SIGN_IN_HARDENING = String.raw`(() => {
   for (const k of ["Worker", "SharedWorker"]) {
     try { Object.defineProperty(window, k, { configurable: true, value: function () { throw new Error("Run Hound blocks workers during sign-in"); } }); } catch (e) {}
+  }
+  for (const k of ["RTCPeerConnection", "webkitRTCPeerConnection", "WebTransport"]) {
+    if (!(k in window)) continue;
+    try { Object.defineProperty(window, k, { configurable: true, writable: true, value: function () { throw new Error("Run Hound blocks " + k + " during sign-in"); } }); } catch (e) {}
   }
   try { Object.defineProperty(window, "close", { configurable: true, value: function () {} }); } catch (e) {}
   try {
@@ -1258,6 +1796,24 @@ async function readSessionStorage(
   return out;
 }
 
+/** The most request addresses signIn keeps after the submit (for idsInAddresses). */
+const MAX_ADDRESSES = 2_000;
+
+/**
+ * What says who is signed in, now (0.6.0 review, round 1): each cookie with a session-like name (SESSION_NAME) as its
+ * name and value, and each session value the page's origin keeps in localStorage or sessionStorage (sessionSecrets,
+ * localStorage's rules). A submit that signed in adds or changes one; a captcha challenge in the form's place doesn't.
+ */
+async function sessionMarks(context: BrowserContext, page: Page): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const c of await context.cookies().catch(() => [])) if (c.value && SESSION_NAME.test(c.name)) out.add(`cookie ${c.domain} ${c.path} ${c.name}=${c.value}`);
+  if (page.isClosed()) return out;
+  const items = [...(await page.localStorage.items().catch(() => [])), ...(await page.sessionStorage.items().catch(() => []))];
+  const stored: SessionState = { cookies: [], origins: [{ origin: "", localStorage: items.map(({ name, value }) => ({ name, value })) }] };
+  for (const value of sessionSecrets(stored, [], { sessionStorageSession: false })) out.add(`storage ${value}`);
+  return out;
+}
+
 /**
  * Signs `account` in with a fresh, guarded browser context (docs/v2-spec.md "Signing in", steps 1-7) and returns its
  * session. Throws SignInError when the slot isn't ready, the login URL fails the safety gate, no sign-in form is found,
@@ -1311,14 +1867,24 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
     let passwordTyped = false;
     // A request that sends the password in its address (a GET form, or a script's request on the sign-in origin) would
     // put it in the app's access log (and a page's in the browser history): it is stopped before it leaves the browser,
-    // and signing in fails with the reason. A weak password ("demo") counts in any query value of a navigation, and in a
-    // script's request only under a key that names a password ("?password=demo", "&pwd=demo"): a same-origin fetch or
-    // image whose query merely equals it under another key ("?user=demo") is not a leak (0.6.0 review).
+    // and signing in fails with the reason. On the sign-in origin only the address's query, hash and user info are read
+    // (queryCarries), never its path: a GET form puts the password in the query, and an ordinary address holds the
+    // app's own words ("password" in /api/account/password-status: 0.6.0 review, round 1). A weak password ("demo")
+    // counts in any query value of a navigation, and in a script's request only under a key that names a password
+    // ("?password=demo", "&pwd=demo"): a same-origin fetch or image whose query merely equals it under another key
+    // ("?user=demo") is not a leak (0.6.0 review). A password equal to the username counts on the sign-in origin only
+    // under a key that names a password (or as an address's own password), in a navigation and a script's request
+    // alike: the username is in many of the app's own addresses (/api/users/<username>, ?name=<username>). Another
+    // origin is read as for any password: the password must not reach it, whatever else it equals.
     let passwordInAddress: "navigation" | "request" | null = null;
+    const passwordIsUsername = password === account.username;
     // The password is only ever sent to the sign-in page's own origin: a request to any other origin (a form action
-    // pointing elsewhere, a script that copies the form) that carries it, in whatever encoding (carriesPassword), is
-    // stopped before it leaves the browser.
+    // pointing elsewhere, a script that copies the form) that carries it, in whatever encoding (carriesPassword), or in
+    // its host name (hostCarries: http://<password>.evil.example/), is stopped before it leaves the browser.
     let passwordElsewhere: string | null = null;
+    /** The password was in the host name of a request to another origin: the message never shows that address. */
+    let passwordInHostName = false;
+    const loginHost = new URL(loginUrl).hostname;
     // A worker the page started although SIGN_IN_HARDENING blocks the constructors: held or closed before it ran
     // (stopUnrouted, guardSignInBrowser), and the sign-in fails.
     let refusedWorker: string | null = null;
@@ -1335,15 +1901,24 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
         return false;
       }
       if (!/^https?:$/.test(url.protocol)) return false;
-      if (url.origin !== loginOrigin && carriesPassword(sent, password)) {
-        passwordElsewhere = url.origin;
-        return true;
+      if (url.origin !== loginOrigin) {
+        // The sign-in host on another port is never read for it: the password is not what named that host.
+        if (url.hostname !== loginHost && hostCarries(url, password)) {
+          passwordInHostName = true;
+          return true;
+        }
+        if (carriesPassword(sent, password)) {
+          passwordElsewhere = url.origin;
+          return true;
+        }
       }
-      const inAddress = weak
-        ? sent.navigation
-          ? carriesInQuery(url, password)
-          : carriesUnderPasswordKey(url, password)
-        : urlCarries(url, password, holds);
+      const inAddress = passwordIsUsername
+        ? carriesUnderPasswordKey(url, password) || (url.password !== "" && safeDecode(url.password) === password)
+        : weak
+          ? sent.navigation
+            ? carriesInQuery(url, password)
+            : carriesUnderPasswordKey(url, password)
+          : queryCarries(url, holds);
       if (inAddress) {
         passwordInAddress ??= sent.navigation ? "navigation" : "request";
         return true;
@@ -1384,6 +1959,12 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
       },
     );
     const elsewhere = () => {
+      if (passwordInHostName) {
+        // Not the address: its host name holds the password, lower-cased, which the redaction wouldn't find.
+        throw new SignInError(
+          `${label} could not sign in: the sign-in page on ${shownUrl} sends the password to another site, inside that site's host name. Run Hound stopped it before it was sent.`,
+        );
+      }
       if (passwordElsewhere === null) return;
       throw new SignInError(
         `${label} could not sign in: the sign-in form on ${shownUrl} sends the password to ${redactSecrets(passwordElsewhere)}, not to ${redactSecrets(loginOrigin)} where it was saved for. Run Hound stopped it before it was sent.`,
@@ -1484,14 +2065,39 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
     // 2. The sign-in form; else (0.6.0) the first step of a two-step sign-in, then the password step's sign-in form.
     const found = await discoverPage(page);
     let form = signInForm(found.forms);
+    // A first step beside a password form that doesn't say by itself that it signs in (0.6.0 review, round 2: a trial
+    // sign-up form next to an email-first sign-in; round 3: whatever the password form's words, "Start for free" or
+    // "Create workspace", and whether the first step's sign-in words are its own or the page's): the sign-in goes
+    // through the first step, and the password form is never filled. firstStepForm already needs sign-in words, from
+    // the form, the text before it, the page's title or its address.
+    let first: FirstStep | null = null;
+    if (form && !hasCurrentPassword(form)) {
+      const step = await firstStepForm(page, found.forms, loginUrl);
+      if (step && !signsInItself(form, step)) {
+        first = step;
+        form = null;
+      }
+    }
     const twoStep = form === null;
     /** A two-step sign-in's first step (0.6.0): its page, its identifier field and its form, to see the page go back to it. */
     let firstStep: { url: string; field: string; form: string } | null = null;
     if (!form) {
-      const first = await firstStepForm(page, found.forms, loginUrl);
+      first ??= await firstStepForm(page, found.forms, loginUrl);
       if (!first) {
+        // A passwordless form ("Send magic link") is never submitted (0.6.0 review, round 1): the message says why.
+        const sends = passwordlessWords(found.forms);
+        const passwordless = sends
+          ? ` The page signs in with a link or a code it sends ("${sends}"), and that isn't supported: use a test account that signs in with a password.`
+          : "";
         const providers = (await offersProviders(page)) ? " Sign-in through another provider (Google, GitHub, …) isn't supported." : "";
-        throw new SignInError(`No sign-in form (a form with a password field) was found on ${shownUrl}.${providers}`);
+        // Password forms the page has, every one of them a sign-up form (round 3): the message says so.
+        const signUp = found.forms.filter((f) => f.fields.some(isPassword)).map(signUpReason);
+        if (signUp.length > 0 && signUp.every((why) => why !== null)) {
+          throw new SignInError(
+            `No sign-in form was found on ${shownUrl}: its form with a password field looks like a sign-up form (${signUp[0]}), and the account's password is never typed into one.${passwordless}${providers}`,
+          );
+        }
+        throw new SignInError(`No sign-in form (a form with a password field) was found on ${shownUrl}.${passwordless}${providers}`);
       }
       ledElsewhere();
       firstStep = { url: page.url(), field: first.field.selector, form: first.form.selector };
@@ -1525,6 +2131,9 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
     } catch (err) {
       throw couldNotFill(err);
     }
+    // The cookies before the password is typed (0.6.0 review, round 2): a session cookie the submit sets or changes says
+    // the session lives in a cookie, whatever its name (sessionInStorage).
+    const cookiesBefore: CookieJar = await context.cookies().catch(() => []);
     // The password goes into the field of a document on the sign-in origin, checked on that very element, and is typed
     // in that element's own document (typePassword), never with the page keyboard: a navigation that commits in between
     // makes the handle fail, and a page that moves the focus elsewhere (into another origin's frame) fails the sign-in,
@@ -1559,6 +2168,19 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
       }
     }
     const before = page.url();
+    // What the app sends from now on (0.6.0 review, round 1), in memory for the time of the sign-in only: the values of
+    // its credential headers, and the addresses of its requests. They say whether the session lives in sessionStorage,
+    // and which of its values are ids rather than secrets (step 7).
+    const credentials = new Set<string>();
+    const addresses: string[] = [];
+    context.on("request", (request) => {
+      try {
+        for (const [name, value] of Object.entries(request.headers())) if (value && isCredentialName(name)) credentials.add(value);
+        if (addresses.length < MAX_ADDRESSES) addresses.push(request.url());
+      } catch {
+        // A request of a page that is gone.
+      }
+    });
     /**
      * Error texts on the page: around the password step's form and, in a two-step sign-in, around the first step's form
      * too (a page that goes back to the email step after a wrong password shows its message there).
@@ -1569,6 +2191,9 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
     const freshErrors = async () => (await pageErrors()).filter((t) => !alertsBefore.has(t));
     /** Whether a captcha showed before the submit: one that shows only after it, in the password step's place, fails (step 6). */
     const captchaBefore = await showsCaptcha(page);
+    /** What said who is signed in before the submit (sessionMarks): a submit that adds or changes one started a session. */
+    const marksBefore = await sessionMarks(page.context(), page);
+    const sessionStarted = async () => [...(await sessionMarks(page.context(), page))].some((mark) => !marksBefore.has(mark));
     /** Two-step (0.6.0): the tab is on the first step's page, or on the password step's. */
     const onFirstStepPage = () => firstStep !== null && !page.isClosed() && (samePage(page.url(), before) || samePage(page.url(), firstStep.url));
     /** Two-step: the first step's identifier field shown and editable again, and no password field shown that is new since the first step. */
@@ -1620,7 +2245,7 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
     let alertSince: number | null = null;
     let doneSince: number | null = null;
     while (Date.now() < deadline) {
-      if (passwordInAddress !== null || passwordElsewhere !== null || refusedWorker !== null || page.isClosed()) break;
+      if (passwordInAddress !== null || passwordElsewhere !== null || passwordInHostName || refusedWorker !== null || page.isClosed()) break;
       const left = !samePage(page.url(), before);
       const gone = left || !(await passwordBox.isVisible().catch(() => false));
       const watchAlerts = !gone || onFirstStepPage();
@@ -1660,21 +2285,29 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
       );
     }
     const onSignInPage = samePage(page.url(), before);
-    if (await showsCodeField(page, onSignInPage)) {
+    const stillShown =
+      (await passwordBox.isVisible().catch(() => false)) || (onSignInPage && (await page.locator("input[type=password]:visible").count().catch(() => 0)) > 0);
+    // Off the sign-in page's address (0.6.0 review, round 2), and at that address once the password field is gone
+    // (round 3: a single-page app that swaps in a code split over six boxes), a code step without
+    // autocomplete=one-time-code counts too: its only field, or its split boxes, say a sign-in code (showsCodeStep).
+    if ((await showsCodeField(page, onSignInPage)) || ((!onSignInPage || !stillShown) && (await showsCodeStep(page)))) {
       throw new SignInError(
         `${label}'s sign-in asks for a verification code after the password. Codes (multi-factor sign-in) aren't supported: use a test account that signs in with a password alone.`,
       );
     }
-    const stillShown =
-      (await passwordBox.isVisible().catch(() => false)) || (onSignInPage && (await page.locator("input[type=password]:visible").count().catch(() => 0)) > 0);
     const captchaMessage = (quote: string) =>
       `${label} could not sign in: the sign-in form has a captcha, and captchas aren't supported. Turn it off for test accounts in your development setup.${quote ? ` The page said: "${quote}"` : ""}`;
     // A captcha challenge that took the password step's place at the same address (0.6.0 review): the password field is
     // gone, but nobody signed in. Only a captcha that showed after the submit, and only on that page: a landing page
-    // with an invisible captcha badge elsewhere in the app is still a success.
-    if (!stillShown && onSignInPage && !captchaBefore && (await showsCaptcha(page))) {
+    // with an invisible captcha badge elsewhere in the app is still a success. And only when the submit started no
+    // session (0.6.0 review, round 1): an app that renders its signed-in view at the sign-in page's own address may have
+    // a captcha in a form of its own (a feedback form's Turnstile widget).
+    if (!stillShown && onSignInPage && !captchaBefore && (await showsCaptcha(page)) && !(await sessionStarted())) {
       throw new SignInError(captchaMessage((await freshErrors()).slice(0, 2).join(" ").slice(0, 300)));
     }
+    // A captcha challenge on the page the password led to (0.6.0 review, round 2): the challenge is all it asks for. The
+    // submit may have set a pre-session cookie, so whether it started a session says nothing here.
+    if (!stillShown && !onSignInPage && (await showsCaptchaChallenge(page))) throw new SignInError(captchaMessage(""));
     if (stillShown) {
       const quote = (await freshErrors()).slice(0, 2).join(" ").slice(0, 300);
       if (await showsCaptcha(page)) throw new SignInError(captchaMessage(quote));
@@ -1720,10 +2353,25 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
     inAddress();
     elsewhere();
     workerStarted();
+    // Returned (and so seeded into every context of the identity) only when the session lives there (0.6.0 review,
+    // round 1: sessionInStorage); else read by localStorage's rules. The ids the app's own addresses carried are left
+    // out of the secrets either way.
+    const hosts = [loginHost, ...(isWebUrl(landedUrl) ? [new URL(landedUrl).hostname] : [])];
+    const inStorage = sessionInStorage(state, kept, credentials, cookiesBefore, hosts);
+    // A session that holds the password (0.6.0 review, round 2: a "remember me" hint cookie, a login draft in
+    // localStorage) is never handed to the run: every check context would be seeded with it, and the app's pages could
+    // carry it to another origin, where no sign-in layer watches any more.
+    const keptIn = passwordKeptIn(state, inStorage ? kept : [], password, account.username);
+    if (keptIn) {
+      throw new SignInError(
+        `${label} could not sign in: the sign-in page on ${shownUrl} keeps the password in ${keptIn}, and Run Hound won't carry it into the run, where the app's pages could send it to another site. Make the app stop keeping the password there.`,
+      );
+    }
+    const addressValues = inStorage ? idsInAddresses(addresses, new Set(kept.map((e) => e.origin)), credentials) : new Set<string>();
     // Registered before the landing address is redacted: an implicit flow leaves its token in the address's hash.
-    const secrets = sessionSecrets(state, kept);
+    const secrets = sessionSecrets(state, kept, { sessionStorageSession: inStorage, addressValues });
     registrations.push(registerSecretLiterals(secrets));
-    return { state, landedOn: redactSecrets(landedUrl), secrets, ...(kept.length > 0 ? { sessionStorage: kept } : {}) };
+    return { state, landedOn: redactSecrets(landedUrl), secrets, ...(inStorage ? { sessionStorage: kept } : {}) };
   } finally {
     // Closing the context runs no pagehide handler in its pages: nothing is sent on the way out. The browser-level
     // session ends after it, so no tab of the context is ever left without it.

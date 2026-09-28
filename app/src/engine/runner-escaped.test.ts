@@ -1,15 +1,17 @@
 /**
  * A scenario whose page left the allowed targets (the navigation guard's `escaped`) ends "error" with no findings, and
- * its notes say where the page went (guardSummary). The check's own notes stay beside that summary: a write-side
- * check's restore note ("… could not be undone: check Account A", docs/v2-spec.md "Safety contract") or paywall-trust's
- * "blocked (payment provider)" must never be lost to the escape, whether the check returned its result or threw with
- * those notes in its message (as write-access and paywall-trust do), and whether the scenario then ran past its time
- * limit or the run was stopped (a stopped scenario's notes still start "Stopped by you", which the app matches on).
+ * its notes say where the page went (guardSummary). A check that changes Account A (mass-assignment, csrf,
+ * write-access, paywall-trust) keeps its own notes beside that summary: a write-side check's restore note ("… could
+ * not be undone: check Account A", docs/v2-spec.md "Safety contract") or paywall-trust's "blocked (payment provider)"
+ * must never be lost to the escape, whether the check returned its result or threw with those notes in its message
+ * (as write-access and paywall-trust do), and whether the scenario then ran past its time limit or the run was
+ * stopped (a stopped scenario's notes still start "Stopped by you", which the app matches on).
  * The error Playwright throws once the guard closed the context repeats where the page went, so it is left out when a
  * thrown message starts with it; a note that quotes it in a sentence is kept as the check wrote it. The notes a check
  * adds after the "Call log:" Playwright puts at the end of an interrupted call's error stay, with or without an
  * escape; the call log does not, even when an entry spans lines (a filled value). Secrets in the check's message are
- * still redacted. Fake checks only.
+ * still redacted. Any other check's notes are the summary alone, as in 0.5.0, whatever it returned or threw (the
+ * built-in checks on a real escape: runner-escaped-checks.test.ts). Fake checks only.
  */
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -331,6 +333,81 @@ describe("a scenario that escaped the allowed targets", () => {
     expect(result.notes).not.toContain("sk-proj-FAKE");
     expect(ended.notes).not.toContain("sk-proj-FAKE");
     expect(await readFile(join(dir, "report.json"), "utf8")).not.toContain("sk-proj-FAKE");
+  });
+});
+
+describe("a scenario that escaped, of a check that does not change the target", () => {
+  // As on 0.5.0: only the guard summary. What such a check noticed after its page left was not the target, and the
+  // error its next browser call threw (the guard closed the context) repeats where the page went.
+  it("says only where the page went when the check returned the error its next browser call threw", async () => {
+    let caught = "";
+    const check = fakeCheck("axe-states", "axe:waited", async (ctx, s) => {
+      const page = await escape(ctx);
+      // As axe-states, keyboard-completion and pii-leak do: a wait that fails once the context is closed.
+      caught = await thrownBy(page.waitForTimeout(50));
+      return { checkId: "axe-states", scenarioId: s.id, status: "error", findings: [], durationMs: 1, notes: caught };
+    });
+    const { report, result, ended } = await run(check, "axe:waited");
+    // What this test is about: Playwright's "<object.method>: " and the closed-context message, as the check's notes.
+    expect(caught).toMatch(/^page\.waitForTimeout: /);
+    expect(result.status).toBe("error");
+    expect(result.findings).toEqual([]);
+    expect(result.notes).toBe(SUMMARY);
+    expect(ended.notes).toBe(result.notes);
+    expect(report.summary.errored).toBe(1);
+  });
+
+  it("says only where the page went when the check returned Playwright's closed-context message", async () => {
+    const check = fakeCheck("persistence", "persist:reload", async (ctx, s) => {
+      await escape(ctx);
+      // As the canary-reload scenario's notes read once the guard closed its context.
+      return { checkId: "persistence", scenarioId: s.id, status: "error", findings: [], durationMs: 1, notes: "page.reload: Target page, context or browser has been closed" };
+    });
+    const { result } = await run(check, "persist:reload");
+    expect(result.status).toBe("error");
+    expect(result.notes).toBe(SUMMARY);
+  });
+
+  it("says only where the page went, not what the check counted on a page that was not the target", async () => {
+    const saves = fakeCheck("double-submit", "ds:counted", async (ctx, s) => {
+      await escape(ctx);
+      return { checkId: "double-submit", scenarioId: s.id, status: "pass", findings: [], durationMs: 1, notes: "1 save request(s), each to a different endpoint: POST /book." };
+    });
+    const checked = fakeCheck("silent-failure", "sf:checked", async (ctx, s) => {
+      await escape(ctx);
+      return { checkId: "silent-failure", scenarioId: s.id, status: "pass", findings: [], durationMs: 1, notes: "Checked 0 responses and the page text." };
+    });
+    for (const [check, sid] of [[saves, "ds:counted"], [checked, "sf:checked"]] as const) {
+      const { result } = await run(check, sid);
+      expect(result.status).toBe("error");
+      expect(result.notes).toBe(SUMMARY);
+    }
+  });
+
+  it("says only where the page went when the check threw", async () => {
+    const check = fakeCheck("pii-leak", "pii:threw", async (ctx) => {
+      const page = await escape(ctx);
+      throw new Error(`${await thrownBy(page.waitForTimeout(50))} while typing the canary.`);
+    });
+    const { result } = await run(check, "pii:threw");
+    expect(result.status).toBe("error");
+    expect(result.notes).toBe(SUMMARY);
+  });
+});
+
+describe("a scenario that escaped, of every check that changes Account A", () => {
+  // mass-assignment, csrf, write-access and paywall-trust: their restore notes must reach the report.
+  it("keeps the notes each one returned, after the guard summary", async () => {
+    for (const id of ["mass-assignment", "csrf", "write-access", "paywall-trust"] as const) {
+      const sid = `${id}:restore`;
+      const check = fakeCheck(id, sid, async (ctx, s) => {
+        await escape(ctx);
+        return { checkId: id, scenarioId: s.id, status: "fail", findings: [finding(id)], durationMs: 1, notes: RESTORE_NOTE };
+      });
+      const { result } = await run(check, sid);
+      expect(result.status).toBe("error");
+      expect(result.notes, id).toBe(`${SUMMARY} ${RESTORE_NOTE}`);
+    }
   });
 });
 

@@ -10,9 +10,12 @@ import {
   ENTITLEMENT_KEYS,
   changedEntitlement,
   findEntitlement,
+  findEntitlements,
   gainedEntitlement,
   isPaid,
+  onlyRaised,
   rereadEntitlement,
+  saysFree,
   type EntitlementSnapshot,
   type ObservedRead,
 } from "./entitlement.js";
@@ -466,5 +469,260 @@ describe("entitlement: rereadEntitlement reads again as Account A", () => {
       throw new Error("That address isn't an allowed target.");
     });
     await expect(rereadEntitlement(ctx, snapAt("", { plan: "free" }))).resolves.toBeNull();
+  });
+});
+
+describe("entitlement: 0.6.0 review, round 1", () => {
+  const later = new Date(Date.now() + 14 * 86_400_000).toISOString();
+  const earlier = new Date(Date.now() - 14 * 86_400_000).toISOString();
+
+  it("findEntitlements keeps every GET that holds Account A's plan, account endpoints before auth or session ones", () => {
+    const reads = [
+      read("/api/auth/session", { user: { email: ALEX, plan: "free" }, expires: "2026-10-01T00:00:00Z" }),
+      read("/api/me", { email: ALEX, plan: "free" }),
+      read("/api/me", { email: ALEX, plan: "free" }),
+      read("/api/team", [{ email: SAM, plan: "pro" }, { email: ALEX, plan: "free" }]),
+      read("/api/billing", { account: { email: ALEX, subscription: null } }),
+    ];
+    const snaps = findEntitlements(reads, ACCOUNT);
+    expect(snaps.map((s) => s.url)).toEqual([`${ORIGIN}/api/me`, `${ORIGIN}/api/billing`, `${ORIGIN}/api/auth/session`]);
+    expect(snaps[2]).toEqual({ url: `${ORIGIN}/api/auth/session`, path: "user", values: { plan: "free" } });
+    expect(findEntitlements([], ACCOUNT)).toEqual([]);
+    // findEntitlement still takes the first the app made.
+    expect(findEntitlement(reads, ACCOUNT)?.url).toBe(`${ORIGIN}/api/auth/session`);
+  });
+
+  it("keeps the trial markers kept beside the plan, and never takes them for an entitlement on their own", () => {
+    const snap = findEntitlement([read("/api/me", { email: ALEX, plan: "free", subscription_status: null, trial_ends_at: null, isTrial: false, status: "active" })], ACCOUNT);
+    expect(snap?.values).toEqual({ plan: "free", subscription_status: null, trial_ends_at: null, isTrial: false });
+    expect(findEntitlement([read("/api/me", { email: ALEX, isTrial: false, trial_ends_at: null })], ACCOUNT)).toBeNull();
+    const trialing = findEntitlement([read("/api/me", { email: ALEX, plan: "pro", status: "trialing" })], ACCOUNT);
+    expect(trialing?.values).toEqual({ plan: "pro", status: "trialing" });
+  });
+
+  it("names nothing gained when a free plan moves to a trial kept beside the plan (a flag, an end date, a status)", () => {
+    expect(gainedEntitlement({ plan: "free", subscription_status: null }, { plan: "pro", subscription_status: "trialing" })).toEqual([]);
+    expect(gainedEntitlement({ plan: "free", subscriptionStatus: null }, { plan: "pro", subscriptionStatus: "trialing" })).toEqual([]);
+    expect(gainedEntitlement({ plan: "free", trial_ends_at: null }, { plan: "pro", trial_ends_at: later })).toEqual([]);
+    expect(gainedEntitlement({ plan: "free", trialEndsAt: null }, { plan: "pro", trialEndsAt: Math.floor(Date.parse(later) / 1000) })).toEqual([]);
+    expect(gainedEntitlement({ plan: { id: "free", name: "Free" } }, { plan: { id: "pro", name: "Pro", trial_ends_at: later } })).toEqual([]);
+    expect(gainedEntitlement({ plan: "free", isTrial: false }, { plan: "pro", isTrial: true })).toEqual([]);
+    expect(gainedEntitlement({ plan: "free", is_trial: 0 }, { plan: "pro", is_trial: 1 })).toEqual([]);
+    expect(gainedEntitlement({ plan: "free" }, { plan: "pro", status: "trialing" })).toEqual([]);
+    expect(gainedEntitlement({ "user.plan": "free" }, { "user.plan": "pro", "user.trial": true })).toEqual([]);
+    // A trial that ended (its end date is past) is no trial: a paid plan then is a gain.
+    expect(gainedEntitlement({ plan: "free", trial_ends_at: null }, { plan: "pro", trial_ends_at: earlier })).toEqual(["plan"]);
+    expect(gainedEntitlement({ plan: "free", subscription_status: null }, { plan: "pro", subscription_status: "active" })).toEqual(["plan"]);
+  });
+
+  it("names nothing gained when only a usage counter of an entitlement went up; a new entry, a flag on or a raised limit still count", () => {
+    const entry = (o: Record<string, unknown>) => ({ plan: "free", entitlements: [{ key: "ai_summaries", limit: 10, used: 3, ...o }] });
+    expect(gainedEntitlement(entry({}), entry({ used: 4 }))).toEqual([]);
+    expect(gainedEntitlement(entry({}), entry({ usage: 5, used: 5 }))).toEqual([]);
+    expect(gainedEntitlement({ features: { ai: { limit: 10, usedThisMonth: 3 } } }, { features: { ai: { limit: 10, usedThisMonth: 4 } } })).toEqual([]);
+    expect(gainedEntitlement({ features: { ai_used: 3, ai_count: 1 } }, { features: { ai_used: 4, ai_count: 2 } })).toEqual([]);
+    expect(gainedEntitlement({ entitlements: [{ id: "a", used: 1 }, { id: "b", used: 0 }] }, { entitlements: [{ id: "b", used: 0 }, { id: "a", used: 2 }] })).toEqual([]);
+    // Gains: a raised limit, a flag turned on, a new identity.
+    expect(gainedEntitlement(entry({}), entry({ limit: 100 }))).toEqual(["entitlements"]);
+    expect(gainedEntitlement({ entitlements: [{ key: "sso", enabled: false }] }, { entitlements: [{ key: "sso", enabled: true }] })).toEqual(["entitlements"]);
+    expect(gainedEntitlement(entry({}), { plan: "free", entitlements: [{ key: "ai_summaries", limit: 10, used: 3 }, { key: "export", limit: 5, used: 0 }] })).toEqual(["entitlements"]);
+    expect(gainedEntitlement({ features: { ai: { limit: 10, used: 3 } } }, { features: { ai: { limit: 20, used: 3 } } })).toEqual(["features"]);
+  });
+
+  it("matches entries with no key, id or name by their title, label, display name or type: a list in another order with a bumped timestamp gains nothing (0.6.0 review, round 3)", () => {
+    // A free account's feature rows read with no ORDER BY: a page that used Exports bumped its last_used_at, and the
+    // updated row comes back last. Nothing was gained.
+    const before = {
+      plan: "free",
+      features: [
+        { title: "Exports", enabled: true, last_used_at: "2026-09-28T10:00:00Z" },
+        { title: "API access", enabled: false, last_used_at: null },
+      ],
+    };
+    const after = {
+      plan: "free",
+      features: [
+        { title: "API access", enabled: false, last_used_at: null },
+        { title: "Exports", enabled: true, last_used_at: "2026-09-28T10:05:00Z" },
+      ],
+    };
+    expect(gainedEntitlement(before, after)).toEqual([]);
+    for (const key of ["label", "displayName", "display_name", "type"]) {
+      const rows = (exports: Record<string, unknown>, api: Record<string, unknown>) => [
+        { [key]: "Exports", enabled: true, ...exports },
+        { [key]: "API access", enabled: false, ...api },
+      ];
+      expect(gainedEntitlement({ features: rows({ lastUsedAt: null }, {}) }, { features: rows({ lastUsedAt: "2026-09-28T10:05:00Z" }, {}).reverse() }), key).toEqual([]);
+      // Still a gain: the API access row turned on, whatever the order.
+      expect(gainedEntitlement({ features: rows({}, {}) }, { features: rows({}, { enabled: true }).reverse() }), key).toEqual(["features"]);
+    }
+    // A timestamp set or moved on a matched entry is no gain (an ISO date, a number of seconds, a Firestore timestamp).
+    expect(
+      gainedEntitlement({ entitlements: [{ key: "api", enabled: false, last_used_at: null }] }, { entitlements: [{ key: "api", enabled: false, last_used_at: "2026-09-28T10:05:00Z" }] }),
+    ).toEqual([]);
+    expect(gainedEntitlement({ features: { export: { enabled: true, updatedAt: 1727517600 } } }, { features: { export: { enabled: true, updatedAt: 1727517900 } } })).toEqual([]);
+    expect(
+      gainedEntitlement(
+        { features: { export: { enabled: true, lastUsed: { seconds: 1727517600, nanoseconds: 0 } } } },
+        { features: { export: { enabled: true, lastUsed: { seconds: 1727517900, nanoseconds: 0 } } } },
+      ),
+    ).toEqual([]);
+  });
+
+  it("never matches entries with no identity by position: one gained only when no entry before was at least as good (0.6.0 review, round 3)", () => {
+    const before = {
+      plan: "free",
+      features: [
+        { enabled: true, limit: 10, used: 3, last_used_at: "2026-09-28T10:00:00Z" },
+        { enabled: false, limit: 0, last_used_at: null },
+      ],
+    };
+    // The same two rows in the other order, one of them used (its counter and timestamp moved).
+    const after = {
+      plan: "free",
+      features: [
+        { enabled: false, limit: 0, last_used_at: null },
+        { enabled: true, limit: 10, used: 4, last_used_at: "2026-09-28T10:05:00Z" },
+      ],
+    };
+    expect(gainedEntitlement(before, after)).toEqual([]);
+    // A row as good as one before is no gain, even as a new row.
+    expect(gainedEntitlement(before, { plan: "free", features: [...after.features, { enabled: true, limit: 10 }] })).toEqual([]);
+    // A row better than every row before (a limit no row had) is a gain.
+    expect(gainedEntitlement(before, { plan: "free", features: [after.features[0], { enabled: true, limit: 100, last_used_at: null }] })).toEqual(["features"]);
+    expect(gainedEntitlement({ features: [] }, { features: [{ enabled: true }] })).toEqual(["features"]);
+    // Two rows that share an identity are told apart the same way (the identity isn't one).
+    const shared = (a: boolean, b: boolean) => [
+      { type: "boolean", enabled: a, last_used_at: null },
+      { type: "boolean", enabled: b, last_used_at: "2026-09-28T10:05:00Z" },
+    ];
+    expect(gainedEntitlement({ features: shared(true, false) }, { features: shared(false, true) })).toEqual([]);
+    expect(gainedEntitlement({ features: shared(false, false) }, { features: shared(false, true) })).toEqual(["features"]);
+  });
+
+  it("onlyRaised: a gain made only of numbers that went up (credits, a limit or allowance) is one a second visit can repeat; a new entry or a flag turned on is not", () => {
+    expect(onlyRaised({ plan: "free", credits: 5 }, { plan: "free", credits: 6 })).toBe(true);
+    expect(onlyRaised({ credits: null }, { credits: 100 })).toBe(true);
+    expect(onlyRaised({ entitlements: [{ key: "ai", limit: 10, used: 3 }] }, { entitlements: [{ key: "ai", limit: 20, used: 3 }] })).toBe(true);
+    expect(onlyRaised({ features: { ai: { remaining: 2 } } }, { features: { ai: { remaining: 3 } } })).toBe(true);
+    expect(onlyRaised({ features: { seats: 1 } }, { features: { seats: 10 } })).toBe(true);
+    expect(onlyRaised({ credits: 5, features: { seats: 1 } }, { credits: 6, features: { seats: 2 } })).toBe(true);
+    expect(onlyRaised({ entitlements: ["basic"] }, { entitlements: ["basic", "export"] })).toBe(false);
+    expect(onlyRaised({ features: { export: false } }, { features: { export: true } })).toBe(false);
+    expect(onlyRaised({ credits: 5, features: [] }, { credits: 6, features: ["sso"] })).toBe(false);
+    expect(onlyRaised({ plan: "free", credits: 0 }, { plan: "pro", credits: 500 })).toBe(false);
+    // Nothing gained.
+    expect(onlyRaised({ credits: 5 }, { credits: 5 })).toBe(false);
+    expect(onlyRaised({ credits: 5 }, { credits: 4 })).toBe(false);
+  });
+
+  it("reads isPro or pro kept as 1 or \"1\" as on, and 0 or \"0\" as off", () => {
+    expect(gainedEntitlement({ isPro: 0 }, { isPro: 1 })).toEqual(["isPro"]);
+    expect(gainedEntitlement({ pro: "0" }, { pro: "1" })).toEqual(["pro"]);
+    expect(gainedEntitlement({ isPro: 1 }, { isPro: 0 })).toEqual([]);
+    expect(isPaid({ isPro: 1 })).toBe(true);
+    expect(isPaid({ pro: "1" })).toBe(true);
+    expect(isPaid({ isPro: 0 })).toBe(false);
+    expect(isPaid({ pro: "0" })).toBe(false);
+  });
+
+  it("counts a plan in the after-state as a gain only when its name says paid or it is active; a free plan renamed or an unknown name is not", () => {
+    for (const to of ["free_v2", "Free (legacy)", "free-2026", "free_2026", "Free tier 2026", "basic", "starter", "default", "pending", "legacy"]) {
+      expect(gainedEntitlement({ plan: "free" }, { plan: to }), to).toEqual([]);
+    }
+    for (const to of ["pro", "Pro (annual)", "pro_monthly", "premium", "Plus", "business", "Team", "enterprise", "paid", "growth"]) {
+      expect(gainedEntitlement({ plan: "free" }, { plan: to }), to).toEqual(["plan"]);
+    }
+    expect(gainedEntitlement({ plan: { id: "free", status: "active" } }, { plan: { id: "starter", status: "active" } })).toEqual([]);
+    // An active subscription makes the account paid: every plan field that changed with it is named.
+    expect(gainedEntitlement({ plan: "free", subscription: null }, { plan: "starter", subscription: { status: "active" } })).toEqual(["plan", "subscription"]);
+    expect(gainedEntitlement({ plan: { name: "Free" } }, { plan: { name: "Starter", status: "active" } })).toEqual([]);
+    expect(gainedEntitlement({ plan: { name: "Free" } }, { plan: { name: "Pro", status: "active" } })).toEqual(["plan"]);
+    expect(gainedEntitlement({ plan: null }, { plan: { status: "active" } })).toEqual(["plan"]);
+    // A name that says free is a free plan before probing too.
+    expect(isPaid({ plan: "free_2026" })).toBe(false);
+    expect(isPaid({ plan: "Free (legacy)" })).toBe(false);
+    // Unknown names still count as paid before probing (the safe side: the check skips).
+    expect(isPaid({ plan: "starter" })).toBe(true);
+    expect(isPaid({ plan: "Pro free trial" })).toBe(true);
+  });
+
+  it("saysFree: the values name a free plan and nothing that could be paid or a trial", () => {
+    expect(saysFree({ plan: "free_2026" })).toBe(true);
+    expect(saysFree({ plan: "Free (legacy)", role: "member" })).toBe(true);
+    expect(saysFree({ plan: { id: "free", name: "Free" } })).toBe(true);
+    expect(saysFree({ plan: "pending" })).toBe(false);
+    expect(saysFree({ plan: "pro" })).toBe(false);
+    expect(saysFree({ plan: "free", isPro: 1 })).toBe(false);
+    expect(saysFree({ plan: "free", subscription: { status: "active" } })).toBe(false);
+    expect(saysFree({ plan: "pro", subscription_status: "trialing" })).toBe(false);
+    expect(saysFree({ credits: 3 })).toBe(false);
+  });
+});
+
+describe("entitlement: 0.6.0 review, round 2", () => {
+  const later = new Date(Date.now() + 14 * 86_400_000).toISOString();
+  const earlier = new Date(Date.now() - 14 * 86_400_000).toISOString();
+  const soonSeconds = Math.floor(Date.now() / 1000) + 14 * 86_400;
+
+  it("reads a snake_case or kebab-case plan flag (is_pro, IS_PRO, is-pro) as isPro", () => {
+    const snap = findEntitlement([read("/api/me", { id: "u_alex", email: ALEX, full_name: "Alex Rivera", credits: 3, is_pro: false })], ACCOUNT);
+    expect(snap?.values).toEqual({ credits: 3, is_pro: false });
+    expect(gainedEntitlement({ credits: 3, is_pro: false }, { credits: 3, is_pro: true })).toEqual(["is_pro"]);
+    expect(gainedEntitlement({ IS_PRO: 0 }, { IS_PRO: 1 })).toEqual(["IS_PRO"]);
+    expect(gainedEntitlement({ "is-pro": "0" }, { "is-pro": "1" })).toEqual(["is-pro"]);
+    expect(gainedEntitlement({ "user.is_pro": false }, { "user.is_pro": true })).toEqual(["user.is_pro"]);
+    expect(isPaid({ is_pro: true })).toBe(true);
+    expect(isPaid({ is_pro: false })).toBe(false);
+    expect(saysFree({ plan: "free", is_pro: 1 })).toBe(false);
+    expect(findEntitlement([read("/api/me", { email: ALEX, Plan_Tier: "free" })], ACCOUNT)).toBeNull();
+  });
+
+  it("names nothing gained when a free plan moves to a clean trial kept in other shapes", () => {
+    const cases: [string, unknown, unknown][] = [
+      ["a trial object", { email: ALEX, plan: "free", trial: null }, { email: ALEX, plan: "pro", trial: { ends_at: later, active: true } }],
+      ["a trial object with only its end", { email: ALEX, plan: "free", trial: null }, { email: ALEX, plan: "pro", trial: { endsAt: later } }],
+      ["a trial object with a status", { email: ALEX, plan: "free", trial: null }, { email: ALEX, plan: "pro", trial: { status: "active" } }],
+      ["trialDaysLeft", { email: ALEX, plan: "free", trialDaysLeft: 0 }, { email: ALEX, plan: "pro", trialDaysLeft: 14 }],
+      ["trial_days_remaining", { email: ALEX, plan: "free" }, { email: ALEX, plan: "pro", trial_days_remaining: 14 }],
+      ["a root marker, the plan in a child", { user: { email: ALEX, plan: "free" }, subscription_status: null }, { user: { email: ALEX, plan: "pro" }, subscription_status: "trialing" }],
+      ["a billing sibling", { user: { email: ALEX, plan: "free" }, billing: { status: "none" } }, { user: { email: ALEX, plan: "pro" }, billing: { status: "trialing", trial_ends_at: later } }],
+      ["a flat stripe_status", { email: ALEX, plan: "free", stripe_status: null }, { email: ALEX, plan: "pro", stripe_status: "trialing" }],
+      ["a Firestore timestamp", { email: ALEX, plan: "free", trialEndsAt: null }, { email: ALEX, plan: "pro", trialEndsAt: { _seconds: soonSeconds, _nanoseconds: 0 } }],
+      ["trial_expires_on", { email: ALEX, plan: "free" }, { email: ALEX, plan: "pro", trial_expires_on: later }],
+    ];
+    for (const [name, before, after] of cases) {
+      const b = findEntitlements([read("/api/me", before)], ACCOUNT)[0];
+      const a = findEntitlements([read("/api/me", after)], ACCOUNT)[0];
+      expect(b, name).toBeDefined();
+      expect(a, name).toBeDefined();
+      expect(a!.path, name).toBe(b!.path);
+      expect(changedEntitlement(b!.values, a!.values).length, name).toBeGreaterThan(0);
+      expect(gainedEntitlement(b!.values, a!.values), name).toEqual([]);
+      // A trial is never a free plan a cancel has nothing to undo on.
+      expect(saysFree(a!.values), name).toBe(false);
+    }
+  });
+
+  it("still counts a paid plan when the trial those shapes hold is over or off", () => {
+    expect(gainedEntitlement({ plan: "free", trial: null }, { plan: "pro", trial: { ends_at: earlier, active: false } })).toEqual(["plan"]);
+    expect(gainedEntitlement({ plan: "free", trial: null }, { plan: "pro", trial: { active: false } })).toEqual(["plan"]);
+    expect(gainedEntitlement({ plan: "free", trialDaysLeft: 0 }, { plan: "pro", trialDaysLeft: 0 })).toEqual(["plan"]);
+    expect(gainedEntitlement({ plan: "free", stripe_status: null }, { plan: "pro", stripe_status: "active" })).toEqual(["plan"]);
+    expect(gainedEntitlement({ plan: "free", trialEndsAt: null }, { plan: "pro", trialEndsAt: { _seconds: Math.floor(Date.parse(earlier) / 1000), _nanoseconds: 0 } })).toEqual(["plan"]);
+    expect(gainedEntitlement({ plan: "free", trial_expires_on: null }, { plan: "pro", trial_expires_on: earlier })).toEqual(["plan"]);
+  });
+
+  it("keeps the markers of the object that holds Account A's own object, and re-reads them the same way", async () => {
+    const reads = [read("/api/me", { user: { email: ALEX, plan: "free" }, subscription_status: null, billing: { status: "none", provider: "stripe" } })];
+    const snap = findEntitlements(reads, ACCOUNT)[0]!;
+    expect(snap.path).toBe("");
+    expect(snap.values).toEqual({ "user.plan": "free", subscription_status: null });
+    // Without any marker beside it, Account A's own object is taken as before.
+    expect(findEntitlements([read("/api/me", { user: { email: ALEX, plan: "free" }, expires: later })], ACCOUNT)[0]).toMatchObject({ path: "user", values: { plan: "free" } });
+    const { ctx } = fakeContext(() => ok({ user: { email: ALEX, plan: "pro" }, subscription_status: "trialing", billing: { status: "trialing", trial_ends_at: later } }));
+    const now = await rereadEntitlement(ctx, snap);
+    expect(now).toEqual({ "user.plan": "pro", subscription_status: "trialing", "billing.status": "trialing", "billing.trial_ends_at": later });
+    expect(gainedEntitlement(snap.values, now!)).toEqual([]);
   });
 });

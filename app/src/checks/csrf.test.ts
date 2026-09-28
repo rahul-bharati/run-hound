@@ -377,6 +377,10 @@ describe("csrf: the cross-site page and its verdict", () => {
     expect(result.status).toBe("fail");
     expect(result.findings).toHaveLength(1);
     expect(result.notes).toMatch(/JSON sent as text\/plain/);
+    // The stored text/plain forge carried the session cookie (the app refuses a request without it): its answer is seen,
+    // so the finding names that cookie, never "the save needs no session".
+    expect(result.findings[0]!.title).toBe("A page on another site can change Account A's data (no CSRF protection)");
+    expect(result.findings[0]!.meaning).toMatch(/sid \(SameSite=None\)/);
   }, 60_000);
 
   it("finds it, noted as a CORS issue, when the JSON save's CORS reflects the other site with credentials", async () => {
@@ -575,6 +579,87 @@ describe("csrf: a record Account A already had", () => {
     expect(fromOtherSite(server)).toEqual([]);
     expect(server.titles.some((title) => /cf7e57a1csrf/.test(title))).toBe(false);
   }, 60_000);
+});
+
+/**
+ * Account A's own task t1 ("Groceries") is there before the run, and the page lists A's tasks (GET /api/tasks). The
+ * form renames it, naming it under a key other than id (0.6.0 round 1): the list is keyed `taskId` (a DynamoDB-style
+ * API) and the save POSTs taskId=t1 form-encoded to /api/tasks/rename ("keyed"), or the list is keyed `id` and the
+ * save names t1 as {taskId} in its JSON body ("body"), as ?taskId=t1 ("query") or as task_id=t1 ("form"). SameSite=None
+ * cookie and no CSRF defence, so a forge at t1 would be stored.
+ */
+async function renameApp(where: "keyed" | "body" | "query" | "form"): Promise<FixtureServer & { tasks: Record<string, string>[]; titles: string[] }> {
+  const key = where === "keyed" ? "taskId" : "id";
+  const tasks: Record<string, string>[] = [{ [key]: "t1", title: "Groceries" }];
+  const titles: string[] = [];
+  const signedIn = (cookie: string | undefined) => /(?:^|;\s*)sid=a-session\b/.test(cookie ?? "");
+  const send =
+    where === "keyed"
+      ? `fetch('/api/tasks/rename', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ taskId: 't1', title: t.value }).toString() })`
+      : where === "body"
+        ? `fetch('/api/tasks/rename', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 't1', title: t.value }) })`
+        : where === "query"
+          ? `fetch('/api/tasks/rename?taskId=t1', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: t.value }) })`
+          : `fetch('/api/tasks/rename', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ task_id: 't1', title: t.value }).toString() })`;
+  const server = await startFixtureServer({
+    pages: {
+      "/app": `<!doctype html><html lang="en"><head><title>Tasks</title></head><body><main><h1>Tasks</h1>
+<form id="edit" aria-label="Rename top task"><label for="t">Title</label><input id="t" name="title" required><button type="submit">Save</button></form>
+<ul id="list"></ul></main>
+<script>
+var t = document.getElementById('t');
+function load() { fetch('/api/tasks').then(function (r) { return r.ok ? r.json() : { tasks: [] }; }).then(function (d) {
+  document.getElementById('list').innerHTML = d.tasks.map(function (x) { return '<li>' + String(x.title).replace(/</g, '&lt;') + '</li>'; }).join(''); }); }
+document.getElementById('edit').addEventListener('submit', function (e) { e.preventDefault(); ${send}.then(load); });
+load();
+</script></body></html>`,
+    },
+    routes: {
+      "GET /api/tasks": (req, res) => (signedIn(req.headers.cookie) ? end(res, 200, { tasks }) : end(res, 401, { error: "Sign in first" })),
+      // Renames the task the query or body names, whatever the body's content-type.
+      "POST /api/tasks/rename": (req, res) => {
+        if (!signedIn(req.headers.cookie)) return end(res, 401, { error: "Sign in first" });
+        let fields: Record<string, unknown>;
+        try {
+          fields = JSON.parse(req.body) as Record<string, unknown>;
+        } catch {
+          fields = Object.fromEntries(new URLSearchParams(req.body));
+        }
+        const id = new URL(req.url, "http://x").searchParams.get("taskId") ?? fields.taskId ?? fields.task_id;
+        const task = tasks.find((x) => x[key] === id);
+        const title = fields.title;
+        if (!task || typeof title !== "string" || !title) return end(res, 400, { error: "Bad request" });
+        task.title = title;
+        titles.push(title);
+        return end(res, 200, { task });
+      },
+      "GET /favicon.ico": (_req, res) => {
+        res.writeHead(204);
+        res.end();
+      },
+    },
+  });
+  servers.push(server);
+  return Object.assign(server, { tasks, titles });
+}
+
+describe("csrf: a record Account A already had, named under a key other than id", () => {
+  it.each(["keyed", "body", "query", "form"] as const)(
+    "never lets the form's own save reach it, nor forges a write at it (%s): skipped with the reason",
+    async (where) => {
+      const server = await renameApp(where);
+      const result = await runApp(server, "None");
+      expect(result.findings).toEqual([]);
+      expect(result.status, result.notes).toBe("skipped");
+      expect(result.notes).toMatch(/changes a record Account A already had/);
+      expect(result.notes).toMatch(/stopped the form's save \(POST \/api\/tasks\/rename(\?taskId=t1)?\) before it reached the app/);
+      expect(fromOtherSite(server)).toEqual([]);
+      expect(server.titles).toEqual([]);
+      expect(server.tasks[0]!.title).toBe("Groceries");
+      expect(result.notes).not.toMatch(/test record/);
+    },
+    60_000,
+  );
 });
 
 describe("csrf: the cross-site origin", () => {

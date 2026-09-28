@@ -12,6 +12,7 @@ import {
   type AccountRef,
   type Check,
   type CheckGroup,
+  type CheckId,
   type CheckResult,
   type DiscoveredForm,
   type DiscoveredPage,
@@ -691,14 +692,23 @@ function thrownNote(message: string): string {
 }
 
 /**
- * Notes of a scenario whose page left the allowed targets (it ends "error" with no findings): the guard summary first,
- * as the reason for the error, then the check's own notes or error message, never dropped. A write-side check's
- * restore note ("… could not be undone: check Account A", docs/v2-spec.md "Safety contract") or paywall-trust's
- * "blocked (payment provider)" must reach the report whatever else went wrong. A thrown message is cleaned as any
- * (thrownNote) and loses the closed-context message it starts with (CLOSED_BY_GUARD); returned notes stay as the check
- * wrote them. Secrets are redacted as in any error note.
+ * The checks that change Account A's data (docs/v2-spec.md "0.5.0: write-side checks" and "0.6.0"), each with an
+ * interruptedNote: their notes can say what they could not put back, so an escape never drops them (escapedNotes).
  */
-function escapedNotes(guard: NavigationGuard, own: string | undefined, thrown: boolean): string {
+const CHANGES_ACCOUNT_A: ReadonlySet<CheckId> = new Set<CheckId>(["mass-assignment", "csrf", "write-access", "paywall-trust"]);
+
+/**
+ * Notes of a scenario whose page left the allowed targets (it ends "error" with no findings): the guard summary first,
+ * as the reason for the error. A check that changes Account A (CHANGES_ACCOUNT_A) keeps its own notes or error message
+ * after it, never dropped: a restore note ("… could not be undone: check Account A", docs/v2-spec.md "Safety contract")
+ * or paywall-trust's "blocked (payment provider)" must reach the report whatever else went wrong. Its thrown message is
+ * cleaned as any (thrownNote) and loses the closed-context message it starts with (CLOSED_BY_GUARD); its returned notes
+ * stay as it wrote them. Secrets are redacted as in any error note. Any other check's notes are the guard summary
+ * alone, as in 0.5.0: what it noticed after its page left was not the target, and its next browser call's error
+ * ("page.reload: Target page, context or browser has been closed") only repeats that the page left.
+ */
+function escapedNotes(guard: NavigationGuard, check: Check, own: string | undefined, thrown: boolean): string {
+  if (!CHANGES_ACCOUNT_A.has(check.id)) return guardSummary(guard)!;
   const kept = thrown ? thrownNote(own ?? "").replace(CLOSED_BY_GUARD, "").trim() : (own ?? "").trim();
   return [guardSummary(guard), redactSecrets(kept)].filter(Boolean).join(" ");
 }
@@ -1057,10 +1067,10 @@ async function runPlanWith(plan: Plan, options: RunOptions, secrets: SecretRegis
         return withSteps({ ...base, status: "error", findings: [], durationMs: Date.now() - started, notes });
       }
       const result = outcome;
-      // A scenario that left the allowed targets never produces findings: whatever it saw was not the target. Its own
-      // notes stay (a restore note must never be lost), after the guard summary.
+      // A scenario that left the allowed targets never produces findings: whatever it saw was not the target. A check
+      // that changes Account A keeps its own notes (a restore note must never be lost), after the guard summary.
       if (ctx.escaped.length > 0) {
-        return withSteps({ ...base, status: "error", findings: [], durationMs: Date.now() - started, notes: escapedNotes(ctx, result.notes, false) });
+        return withSteps({ ...base, status: "error", findings: [], durationMs: Date.now() - started, notes: escapedNotes(ctx, check, result.notes, false) });
       }
       const notes = [result.notes, ctx.blocked.length > 0 ? guardSummary(ctx) : null].filter(Boolean).join(" ");
       // Each finding says which form (or the whole page) it is about.
@@ -1069,8 +1079,8 @@ async function runPlanWith(plan: Plan, options: RunOptions, secrets: SecretRegis
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       // A write-side check throws with its restore notes in the message, after Playwright's call log: they stay, after
-      // an escape too.
-      const notes = ctx.escaped.length > 0 ? escapedNotes(ctx, message, true) : redactSecrets(thrownNote(message));
+      // an escape too (escapedNotes).
+      const notes = ctx.escaped.length > 0 ? escapedNotes(ctx, check, message, true) : redactSecrets(thrownNote(message));
       return withSteps({ ...base, status: "error", findings: [], durationMs: Date.now() - started, notes });
     } finally {
       clearTimeout(timer);

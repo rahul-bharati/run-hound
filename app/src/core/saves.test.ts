@@ -4,7 +4,7 @@
  * save requests; analytics beacons and preflights are not.
  */
 import { describe, expect, it } from "vitest";
-import { carriesTestValues, isAcceptedStatus, isLocalOrigin, isPagePost, isSameOrigin, isSaveRequest, isWrite, tokenKey } from "./saves.js";
+import { carriesTestValues, isAcceptedStatus, isGraphQlDocument, isGraphQlRead, isLocalOrigin, isPagePost, isSameOrigin, isSaveRequest, isWrite, tokenKey } from "./saves.js";
 
 const TARGET = "http://localhost:5173/signup";
 const TOKEN = "ab12cd34";
@@ -76,5 +76,59 @@ describe("helpers", () => {
     }
     expect(isLocalOrigin("http://myapp.test:5174/api", "http://myapp.test:5173/")).toBe(true);
     for (const url of ["https://api.example.com/x", "http://8.8.8.8/", "http://172.32.0.1/", "not a url"]) expect(isLocalOrigin(url, TARGET), url).toBe(false);
+  });
+});
+
+/**
+ * A GraphQL read sent as a POST (0.6.0 close-out round 2): every operation of the body holds nothing but GraphQL request
+ * keys (query, variables, operationName, extensions), and its query text, with comments left out, starts a GraphQL
+ * document that holds no mutation. A REST body with a "query" field (a saved search, a default-search setting) is a
+ * write, never a read: the existing-record hold judges it, and the test-record count counts it.
+ */
+describe("isGraphQlRead: only a GraphQL request body whose query is a GraphQL document with no mutation", () => {
+  const body = (o: unknown) => JSON.stringify(o);
+
+  it.each([
+    ["an anonymous query", { query: "{ tasks { id title } }" }],
+    ["a named query with variables (Apollo's POST)", { operationName: "Tasks", query: "query Tasks($first: Int) { tasks(first: $first) { id } }", variables: { first: 10 } }],
+    ["a query with a directive and extensions", { query: "query Me @cached { me { id } }", extensions: { persistedQuery: { version: 1, sha256Hash: "ab12" } } }],
+    ["a query led by a comment", { query: "# the page's own read\nquery { me { id } }" }],
+    ["fragments first", { query: "fragment T on Task { id title }\nquery { tasks { ...T } }" }],
+    ["a subscription", { query: "subscription OnTask { taskAdded { id } }" }],
+  ])("is a read: %s", (_name, op) => {
+    expect(isGraphQlRead(body(op))).toBe(true);
+  });
+
+  it("is a read: a batch of queries", () => {
+    expect(isGraphQlRead(body([{ query: "{ me { id } }" }, { query: "query { tasks { id } }", variables: {} }]))).toBe(true);
+  });
+
+  it.each([
+    ["a saved search's {name, query}", { name: "Name c3d4e5f6wab", query: "Search c3d4e5f6wab" }],
+    ["a default-search setting {query}", { query: "search c3d4e5f6xsite" }],
+    ["a saved search's edit by id", { id: "s1", name: "Open", query: "status:open" }],
+    ["a GraphQL query beside a key GraphQL doesn't send", { query: "{ me { id } }", name: "x" }],
+    ["a JSON filter kept as text", { query: '{"status":"open"}' }],
+    ["a word that only starts like a keyword", { query: "queryString { x }" }],
+    ["a query with no selection set", { query: "query Tasks" }],
+    ["a mutation", { query: "mutation { updateTask(id: 1) { id } }" }],
+    ["a document with a query and a mutation", { query: "query A { a } mutation B { b }", operationName: "A" }],
+    ["a persisted query with no text", { operationName: "Tasks", variables: {}, extensions: { persistedQuery: { version: 1, sha256Hash: "ab12" } } }],
+  ])("is not a read: %s", (_name, op) => {
+    expect(isGraphQlRead(body(op))).toBe(false);
+  });
+
+  it("is not a read: a batch with one REST body in it, an empty batch, a form body, no body", () => {
+    expect(isGraphQlRead(body([{ query: "{ me { id } }" }, { query: "status:open", name: "x" }]))).toBe(false);
+    expect(isGraphQlRead("[]")).toBe(false);
+    expect(isGraphQlRead("query=%7B+me+%7B+id+%7D+%7D")).toBe(false);
+    expect(isGraphQlRead(null)).toBe(false);
+  });
+
+  it("isGraphQlDocument: a selection set, or query, subscription or fragment before one", () => {
+    for (const text of ["{ a }", "  query { a }", "query Q($x: [ID!] = [\"a\"]) { a(x: $x) }", "fragment F on T { id } query { ...F }", "#c\n{ a }"]) {
+      expect(isGraphQlDocument(text), text).toBe(true);
+    }
+    for (const text of ["", "status:open", '{"a":1}', "{ }", "query", "queries { a }", "Query { a }"]) expect(isGraphQlDocument(text), text).toBe(false);
   });
 });

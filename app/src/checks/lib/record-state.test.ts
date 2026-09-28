@@ -8,6 +8,7 @@ import type { Capture, CheckContext, IdentityRequest, IdentityResponse } from ".
 import {
   changedFields,
   changesReadRecord,
+  editsExistingRecord,
   findOwnRecord,
   jsonObjectBody,
   locateRecord,
@@ -166,6 +167,56 @@ describe("findOwnRecord (moved from mass-assignment)", () => {
     };
     expect((await findOwnRecord(ctx, capture, [TEST_VALUE]))?.url).toBe("http://localhost:4200/api/tasks");
     expect(sent.map((r) => [r.as, r.method, r.url])).toEqual([["self", "GET", "http://localhost:4200/api/tasks"]]);
+  });
+
+  // 0.6.0 round 2: a search-as-you-type hint (GET /api/tasks/similar?q=<title>) echoes the typed value back
+  // ({query, matches}) before the save. It is not the record endpoint: that is a GET after the save.
+  const save = (postData: string) => captured({ url: "http://localhost:4100/api/tasks", method: "POST", postData, responseBody: "{}" });
+  const similar = captured({
+    url: `http://localhost:4100/api/tasks/similar?q=${encodeURIComponent(TEST_VALUE)}`,
+    responseBody: JSON.stringify({ query: TEST_VALUE, matches: [] }),
+  });
+  const list = captured({ url: "http://localhost:4100/api/tasks", responseBody: JSON.stringify([{ id: 1, title: "Groceries" }, { id: 7, title: TEST_VALUE }]) });
+
+  it("never takes a GET made before the save, such as a search that echoes the typed value", async () => {
+    const { ctx } = fakeContext(() => status(500));
+    const capture: Capture = { requests: [similar, save(JSON.stringify({ title: TEST_VALUE })), list], console: [], pageErrors: [] };
+    expect((await findOwnRecord(ctx, capture, [TEST_VALUE], { arrays: true }))?.url).toBe("http://localhost:4100/api/tasks");
+    // Nor when it is the only read that holds the value: there is then no record endpoint.
+    const only: Capture = { requests: [similar, save(`title=${encodeURIComponent(TEST_VALUE)}`)], console: [], pageErrors: [] };
+    expect(await findOwnRecord(ctx, only, [TEST_VALUE], { arrays: true })).toBeNull();
+  });
+
+  it("never takes an answer whose test value only echoes its own query, even after the save", async () => {
+    const { ctx } = fakeContext(() => status(500));
+    const capture: Capture = { requests: [save(JSON.stringify({ title: TEST_VALUE })), similar, list], console: [], pageErrors: [] };
+    expect((await findOwnRecord(ctx, capture, [TEST_VALUE], { arrays: true }))?.url).toBe("http://localhost:4100/api/tasks");
+    expect((await findOwnRecord(ctx, capture, [TEST_VALUE], { arrays: true, save: capture.requests[0]! }))?.url).toBe("http://localhost:4100/api/tasks");
+    // A record read by its value (?title=…) is still the record: the value is in an object with an id.
+    const byTitle = captured({
+      url: `http://localhost:4100/api/tasks?title=${encodeURIComponent(TEST_VALUE)}`,
+      responseBody: JSON.stringify([{ id: 7, title: TEST_VALUE }]),
+    });
+    const found: Capture = { requests: [save(JSON.stringify({ title: TEST_VALUE })), byTitle], console: [], pageErrors: [] };
+    expect((await findOwnRecord(ctx, found, [TEST_VALUE], { arrays: true }))?.url).toBe(byTitle.url);
+  });
+
+  it("prefers a GET made after the reload to one made between the save and the reload", async () => {
+    const { ctx } = fakeContext(() => status(500));
+    const capture: Capture = {
+      requests: [
+        save(JSON.stringify({ title: TEST_VALUE })),
+        captured({ url: "http://localhost:4100/api/activity", responseBody: JSON.stringify({ latest: `Created ${TEST_VALUE}` }) }),
+        captured({ url: "http://localhost:4100/app", resourceType: "document", responseBody: "<!doctype html>" }),
+        captured({ url: "http://localhost:4100/api/tasks", responseBody: JSON.stringify({ tasks: [{ id: 7, title: TEST_VALUE }] }) }),
+      ],
+      console: [],
+      pageErrors: [],
+    };
+    expect((await findOwnRecord(ctx, capture, [TEST_VALUE], { arrays: true }))?.url).toBe("http://localhost:4100/api/tasks");
+    // With nothing after the reload, a GET between the save and the reload still counts.
+    const early: Capture = { ...capture, requests: capture.requests.slice(0, 3) };
+    expect((await findOwnRecord(ctx, early, [TEST_VALUE], { arrays: true }))?.url).toBe("http://localhost:4100/api/activity");
   });
 });
 
@@ -426,5 +477,84 @@ describe("changesReadRecord: the form's save judged before it reaches the app", 
   it("knows nothing the page didn't read: an id it never saw is a new one", () => {
     expect(judge(post("/api/tasks/t1", { title: TEST_VALUE }), [])).toBe(false);
     expect(judge(post("/api/tasks/update", { id: "t77", title: TEST_VALUE }))).toBe(false);
+  });
+});
+
+/**
+ * Record ids under keys other than id/_id/uuid (0.6.0 round 1): a DynamoDB-style taskId, a task_id column, Django's pk,
+ * Parse's objectId. The record's own id is such a key when it names the resource the record is read as (taskId in
+ * GET /api/tasks, or under a "tasks" key); a reference to another resource (projectId on a task) never is. The hold
+ * stops a save that names an id the page read under such a key, in its path, its query or its body, while a create
+ * that references another record beside the typed values still goes through.
+ */
+describe("record ids under other keys (taskId, task_id, pk, objectId)", () => {
+  const API = "http://localhost:4100";
+  const LIST = `${API}/api/tasks`;
+
+  it("snapshotFrom takes the key that names the record's own resource, never a reference to another one", () => {
+    const keyed = (record: JsonObject, url = LIST, wrap = true) =>
+      snapshotFrom(url, wrap ? { tasks: [{ taskId: "k0", title: "own" }, record] } : [record], [TEST_VALUE], RUN_TOKEN)?.id ?? null;
+    expect(keyed({ taskId: "k1", projectId: "p1", title: TEST_VALUE })).toEqual({ key: "taskId", value: "k1" });
+    expect(keyed({ task_id: 7, project_id: 2, title: TEST_VALUE }, LIST, false)).toEqual({ key: "task_id", value: 7 });
+    expect(keyed({ TaskID: "T-9", title: TEST_VALUE }, LIST, false)).toEqual({ key: "TaskID", value: "T-9" });
+    expect(keyed({ pk: 3, title: TEST_VALUE }, LIST, false)).toEqual({ key: "pk", value: 3 });
+    expect(keyed({ objectId: "xY7", title: TEST_VALUE }, LIST, false)).toEqual({ key: "objectId", value: "xY7" });
+    // Under a "tasks" key of a read whose URL names something else (a dashboard).
+    expect(snapshotFrom(`${API}/api/dashboard`, { tasks: [{ taskId: "k1", title: TEST_VALUE }] }, [TEST_VALUE], RUN_TOKEN)?.id).toEqual({ key: "taskId", value: "k1" });
+    // A reference to another record is not the record's own id.
+    expect(keyed({ projectId: "p1", title: TEST_VALUE }, LIST, false)).toBeNull();
+    expect(recordId({ projectId: "p1", title: "x" })).toBeNull();
+  });
+
+  const byTaskId = { url: LIST, body: JSON.stringify({ tasks: [{ taskId: "t1", title: "Groceries", projectId: "p1" }] }) };
+  const byId = { url: LIST, body: JSON.stringify({ tasks: [{ id: "t1", title: "Groceries" }] }) };
+  const projects = { url: `${API}/api/projects`, body: JSON.stringify([{ id: "p1", name: "Home" }]) };
+  const post = (url: string, body: string) => ({ method: "POST", url: `${API}${url}`, postData: body });
+  const json = (o: unknown) => JSON.stringify(o);
+  const judge = (req: ReturnType<typeof post>, answers: { url: string; body: string }[]) => changesReadRecord(req, answers, RUN_TOKEN);
+
+  it("changesReadRecord stops a save that names an id the page read under taskId, task_id or ?taskId=", () => {
+    // The list is keyed taskId.
+    expect(judge(post("/api/tasks/rename", `taskId=t1&title=${encodeURIComponent(TEST_VALUE)}`), [byTaskId])).toBe(true);
+    expect(judge(post("/api/tasks/t1", json({ title: TEST_VALUE })), [byTaskId])).toBe(true);
+    expect(judge(post("/api/rename", json({ taskId: "t1", title: TEST_VALUE })), [byTaskId])).toBe(true);
+    expect(judge(post("/api/tasks", json({ taskId: "t1", title: TEST_VALUE })), [byTaskId])).toBe(true);
+    // The list is keyed id; the save names the record under a key of its own.
+    expect(judge(post("/api/tasks/rename", json({ taskId: "t1", title: TEST_VALUE })), [byId])).toBe(true);
+    expect(judge(post("/api/tasks/rename?taskId=t1", json({ title: TEST_VALUE })), [byId])).toBe(true);
+    expect(judge(post("/api/tasks/rename", `task_id=t1&title=${encodeURIComponent(TEST_VALUE)}`), [byId])).toBe(true);
+    expect(judge(post("/api/tasks/rename", `task%5Btask_id%5D=t1&task%5Btitle%5D=x`), [byId])).toBe(true);
+    const multipart = `------b\r\nContent-Disposition: form-data; name="taskId"\r\n\r\nt1\r\n------b\r\nContent-Disposition: form-data; name="title"\r\n\r\n${TEST_VALUE}\r\n------b--\r\n`;
+    expect(judge(post("/api/tasks/rename", multipart), [byId])).toBe(true);
+  });
+
+  it("changesReadRecord lets a create through that references another record by projectId, project_id or ?projectId=", () => {
+    expect(judge(post("/api/tasks", json({ title: TEST_VALUE, projectId: "p1" })), [byTaskId, projects])).toBe(false);
+    expect(judge(post("/api/tasks?projectId=p1", json({ title: TEST_VALUE })), [byTaskId, projects])).toBe(false);
+    expect(judge(post("/api/tasks", `title=${encodeURIComponent(TEST_VALUE)}&project_id=p1`), [byId, projects])).toBe(false);
+    // A create at a path the page never read as a list, with a reference beside the typed values.
+    expect(judge(post("/api/task-create", json({ title: TEST_VALUE, projectId: "p1" })), [byId, projects])).toBe(false);
+    // An id nobody read is a new one.
+    expect(judge(post("/api/tasks/rename", json({ taskId: "t77", title: TEST_VALUE })), [byId])).toBe(false);
+  });
+});
+
+describe("editsExistingRecord: a test record with no id Run Hound recognises", () => {
+  const LIST = "http://localhost:4100/api/tasks";
+  const save = captured({ method: "POST", url: `${LIST}/rename`, postData: JSON.stringify({ title: TEST_VALUE }), status: 200 });
+
+  it("is an edit unless the list the page read before the save gained a record", () => {
+    const after = { tasks: [{ title: TEST_VALUE, done: false }, { title: "Reading list", done: false }] };
+    const recordGet = { url: LIST, body: JSON.stringify(after) };
+    const snap = snapshotFrom(LIST, after, [TEST_VALUE], RUN_TOKEN)!;
+    expect(snap.id).toBeNull();
+    // The page read the same list with as many records before the save: the save changed one of them.
+    const sameCount = [{ url: LIST, body: JSON.stringify({ tasks: [{ title: "Groceries", done: false }, { title: "Reading list", done: false }] }) }];
+    expect(editsExistingRecord(save, snap, recordGet, sameCount.map((r) => r.body), RUN_TOKEN, sameCount)).toBe(true);
+    // The page never read the list before the save: nothing says the record is new.
+    expect(editsExistingRecord(save, snap, recordGet, [], RUN_TOKEN, [])).toBe(true);
+    // The list gained a record: a create.
+    const fewer = [{ url: LIST, body: JSON.stringify({ tasks: [{ title: "Reading list", done: false }] }) }];
+    expect(editsExistingRecord({ ...save, url: LIST }, snap, recordGet, fewer.map((r) => r.body), RUN_TOKEN, fewer)).toBe(false);
   });
 });
