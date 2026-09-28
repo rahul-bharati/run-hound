@@ -1,0 +1,365 @@
+/*
+ * The docs shell (DESIGN.md §3.4, §3.5): the hub's card grid, and on a docs page the sticky docs bar under the header
+ * (below 1024 px: "Docs menu" and "On this page" as two exclusive <details name="docs-bar"> that work without
+ * JavaScript), the sidebar (from 1024 px), the article and "On this page" (inline under the opening from 1024 px, a
+ * sticky StepTrail column from 1280 px). Both sticky bars go static at max-height 30rem (400% zoom), where the anchor
+ * offset is 16 px (tokens.css). In the components layer, so utilities still win. Sizes, spaces and colours are tokens
+ * (src/styles/tokens.css); the one literal is the sidebar's 13.5 rem and the column's 12 rem, which §3.5 gives.
+ *
+ * The current page in the sidebar has a 2 px accent left rule (§3.5), drawn on a 2 px line rule every link has, so the
+ * text never shifts. Like the filled current ring of "On this page", it is exempt from the accent budget (docs/brand.md).
+ */
+@layer components {
+  /* ---- The docs bar (< 1024 px) ------------------------------------------------------------------------------- */
+  .docs-bar {
+    position: sticky;
+    top: var(--header-height);
+    z-index: 30;
+    height: var(--docs-bar-height);
+    border-bottom: 1px solid var(--rh-line-soft);
+    background: var(--rh-bg);
+  }
+  .docs-bar-inner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: 100%;
+  }
+  .docs-bar-item > summary {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--spacing-target);
+    padding-inline: var(--space-3);
+    border-radius: var(--radius-chip);
+    font-size: var(--text-small);
+    font-weight: 500;
+    color: var(--rh-fg);
+    list-style: none;
+    cursor: pointer;
+    transition: background-color var(--transition-duration-micro) var(--ease-move);
+  }
+  .docs-bar-item:first-child > summary {
+    margin-inline-start: calc(-1 * var(--space-3));
+  }
+  .docs-bar-item > summary::-webkit-details-marker {
+    display: none;
+  }
+  /* A chevron that points down, and up while the panel is open. */
+  .docs-bar-item > summary::after {
+    content: "";
+    width: 0.4375rem;
+    height: 0.4375rem;
+    margin-top: calc(-1 * var(--space-1));
+    border-right: 1.5px solid var(--rh-muted);
+    border-bottom: 1.5px solid var(--rh-muted);
+    transform: rotate(45deg);
+  }
+  .docs-bar-item[open] > summary::after {
+    margin-top: var(--space-1);
+    transform: rotate(-135deg);
+  }
+  .docs-bar-item > summary:hover,
+  .docs-bar-item[open] > summary {
+    background: var(--rh-surface);
+  }
+  /* The open panel: full width under the bar, as tall as the viewport allows, scrolling inside. */
+  .docs-bar-panel {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    left: 0;
+    max-height: calc(100dvh - var(--header-height) - var(--docs-bar-height));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--space-4) var(--gutter) var(--space-6);
+    border-bottom: 1px solid var(--rh-line);
+    background: var(--rh-bg);
+  }
+  @media (width >= 64rem) {
+    .docs-bar {
+      display: none;
+    }
+  }
+  @media (max-height: 30rem) {
+    .docs-bar {
+      position: static;
+    }
+    .docs-bar-panel {
+      max-height: none;
+    }
+  }
+
+  /* ---- The page: sidebar, article, "On this page" ------------------------------------------------------------ */
+  .docs-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    padding-block: var(--space-6) var(--space-16);
+  }
+  @media (width >= 64rem) {
+    .docs-layout {
+      grid-template-columns: 13.5rem minmax(0, 1fr);
+      column-gap: var(--space-12);
+      padding-block-start: var(--space-10);
+    }
+  }
+  @media (width >= 80rem) {
+    .docs-layout {
+      grid-template-columns: 13.5rem minmax(0, 1fr) 12rem;
+    }
+  }
+  .docs-sidebar,
+  .docs-toc {
+    display: none;
+  }
+  @media (width >= 64rem) {
+    .docs-sidebar {
+      display: block;
+      position: sticky;
+      top: calc(var(--header-height) + var(--space-10));
+      align-self: start;
+      max-height: calc(100dvh - var(--header-height) - var(--space-10));
+      overflow-y: auto;
+      padding-bottom: var(--space-6);
+    }
+  }
+  @media (width >= 80rem) {
+    .docs-toc {
+      display: block;
+      position: sticky;
+      top: calc(var(--header-height) + var(--space-10));
+      align-self: start;
+    }
+  }
+  @media (max-height: 30rem) {
+    .docs-sidebar,
+    .docs-toc {
+      position: static;
+      max-height: none;
+    }
+  }
+  .docs-article {
+    min-width: 0;
+  }
+
+  /* The docs sidebar, and the same list in the bar's "Docs menu". */
+  .docs-nav-section + .docs-nav-section {
+    margin-top: var(--space-6);
+  }
+  .docs-nav-group {
+    font-family: var(--font-mono);
+    font-size: var(--text-mono);
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--rh-muted);
+  }
+  .docs-nav-list {
+    display: flex;
+    flex-direction: column;
+    margin-top: var(--space-2);
+  }
+  .docs-nav-link {
+    display: flex;
+    align-items: center;
+    min-height: var(--spacing-target-row);
+    padding-inline-start: var(--space-3);
+    border-left: 2px solid var(--rh-line);
+    font-size: var(--text-small);
+    line-height: 1.4;
+    color: var(--rh-muted);
+    transition: color var(--transition-duration-micro) var(--ease-move);
+  }
+  .docs-nav-link:hover {
+    color: var(--rh-fg);
+  }
+  .docs-nav-link[aria-current="page"] {
+    border-left-color: var(--rh-accent);
+    font-weight: 500;
+    color: var(--rh-fg);
+  }
+
+  /* "On this page": a StepTrail with the moving marker in the column, a plain one inline and in the bar. */
+  .docs-toc-title {
+    margin-bottom: var(--space-3);
+    font-family: var(--font-mono);
+    font-size: var(--text-mono);
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--rh-muted);
+  }
+  .docs-toc .step-trail {
+    --step-gap: var(--space-3);
+    font-size: var(--text-small);
+  }
+  /* In the bar's panel and the inline box: a plain list of links, 36 px rows. Inside the prose (the inline box) it
+     sheds the prose's list numbers, indent and spacing. */
+  .docs-toc-list,
+  .prose-doc .docs-toc-list {
+    display: flex;
+    flex-direction: column;
+    padding-inline-start: 0;
+    list-style: none;
+  }
+  .prose-doc .docs-toc-list > li + li {
+    margin-top: 0;
+  }
+  .docs-toc-link {
+    display: flex;
+    align-items: center;
+    min-height: var(--spacing-target-row);
+    font-size: var(--text-small);
+    line-height: 1.4;
+    color: var(--rh-muted);
+    transition: color var(--transition-duration-micro) var(--ease-move);
+  }
+  .docs-toc-link:hover {
+    color: var(--rh-fg);
+  }
+  .docs-toc-inline {
+    display: none;
+  }
+  @media (width >= 64rem) and (width < 80rem) {
+    .docs-toc-inline {
+      display: block;
+      padding: var(--space-4) var(--space-6);
+      border: 1px solid var(--rh-line);
+      border-radius: var(--radius-card);
+      background: var(--rh-surface);
+    }
+  }
+
+  /* The top of a docs page and of the hub: breadcrumb, h1 (Display L), the meta line in mono, the opening. */
+  .docs-head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    margin-bottom: var(--space-8);
+  }
+  .docs-h1 {
+    font-family: var(--font-display);
+    font-size: var(--rh-text-display-l);
+    font-weight: 800;
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+    color: var(--rh-fg);
+    text-wrap: balance;
+  }
+  .docs-meta {
+    font-family: var(--font-mono);
+    font-size: var(--text-mono);
+    font-weight: 500;
+    line-height: 1.5;
+    color: var(--rh-muted);
+  }
+  .docs-lede {
+    max-width: var(--container-prose);
+    font-size: var(--rh-text-lead);
+    line-height: 1.6;
+    color: var(--rh-muted);
+  }
+  .docs-foot {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
+    max-width: var(--container-prose);
+    margin-top: var(--space-16);
+  }
+
+  /* A table in the prose: it scrolls sideways inside itself when it can't fit (a focusable region). */
+  .table-region {
+    overflow-x: auto;
+    border: 1px solid var(--rh-line);
+    border-radius: var(--radius-card);
+    background: var(--rh-surface);
+  }
+  .table-region table {
+    margin: 0;
+  }
+  .table-region caption {
+    padding: var(--space-3) var(--space-3) 0;
+    font-size: var(--text-small);
+    text-align: left;
+    color: var(--rh-muted);
+  }
+  .table-region tr:last-child > * {
+    border-bottom: 0;
+  }
+
+  /* ---- The hub (§3.4) ------------------------------------------------------------------------------------------ */
+  .docs-hub {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-10);
+    padding-block: var(--space-6) var(--space-16);
+  }
+  @media (width >= 64rem) {
+    .docs-hub {
+      padding-block-start: var(--space-10);
+    }
+  }
+  .docs-hub .docs-head {
+    margin-bottom: 0;
+  }
+  .docs-hub-title {
+    margin-bottom: var(--space-4);
+    font-family: var(--font-mono);
+    font-size: var(--text-mono);
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--rh-muted);
+  }
+  /* The four groups: stacked on phones (each a 2-column grid from 640 px), two columns of groups from 1024 px and four
+     from 1280 px, each group's cards then stacked in its column, so the hub stays within 2 desktop screens (§3.4). */
+  .docs-hub-groups {
+    display: grid;
+    gap: var(--space-10);
+  }
+  @media (width >= 64rem) {
+    .docs-hub-groups {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--space-10) var(--space-6);
+    }
+  }
+  @media (width >= 80rem) {
+    .docs-hub-groups {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+  .docs-hub-grid {
+    display: grid;
+    gap: var(--space-4);
+  }
+  @media (width >= 40rem) and (width < 64rem) {
+    .docs-hub-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  .docs-hub-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-4) var(--space-4) var(--space-6);
+  }
+  .docs-hub-card-title {
+    font-size: var(--rh-text-title);
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--rh-fg);
+  }
+  /* The title's link covers the whole card, so the card is one target; the focus ring stays on the title itself. */
+  .docs-hub-link::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+  .docs-hub-card-text {
+    font-size: var(--rh-text-body);
+    line-height: 1.6;
+    color: var(--rh-muted);
+  }
+}

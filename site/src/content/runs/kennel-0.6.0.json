@@ -1,0 +1,3099 @@
+{
+  "runHoundVersion": "0.6.0",
+  "app": "kennel",
+  "extractedWith": [
+    "scripts/extract-run.mjs",
+    "--app",
+    "kennel",
+    "--run",
+    ".lab-out/R1/runs/kennel-0.6.0/runs/20260927-153524-2d830d",
+    "--run",
+    ".lab-out/R1/runs/kennel-0.6.0/container/runs/20260928-114630-d50ea1",
+    "--out",
+    "src/content/runs/kennel-0.6.0.json",
+    "--assets",
+    "src/assets/runs/0.6.0/kennel",
+    "--feature",
+    "20260928-114630-d50ea1/verbose-errors#oversized-and-malformed-1",
+    "--feature",
+    "all",
+    "--crop",
+    "double-submit-bookings=027-double-click-book.gif@last:580,242,304,148"
+  ],
+  "runs": [
+    {
+      "runId": "20260927-153524-2d830d",
+      "runHoundVersion": "0.6.0",
+      "target": "http://localhost:3160/book",
+      "startedAt": "2026-09-27T15:35:24.471Z",
+      "durationMs": 56828,
+      "signedIn": null,
+      "form": {
+        "name": "Book a sitter",
+        "fieldCount": 9,
+        "fields": [
+          {
+            "label": "Pet name",
+            "type": "text"
+          },
+          {
+            "label": "Pet type",
+            "type": "custom"
+          },
+          {
+            "label": "Start date",
+            "type": "date"
+          },
+          {
+            "label": "End date",
+            "type": "date"
+          },
+          {
+            "label": "Owner email",
+            "type": "email"
+          },
+          {
+            "label": null,
+            "type": "tel"
+          },
+          {
+            "label": "Special instructions",
+            "type": "textarea"
+          },
+          {
+            "label": "Password",
+            "type": "password"
+          },
+          {
+            "label": "Confirm password",
+            "type": "password"
+          }
+        ]
+      },
+      "planned": 20,
+      "approved": 20,
+      "summary": {
+        "critical": 3,
+        "high": 13,
+        "medium": 8,
+        "low": 0,
+        "passed": 0,
+        "failed": 20,
+        "errored": 0,
+        "skipped": 0
+      },
+      "scenarios": [
+        {
+          "id": "axe-states:four-states",
+          "checkId": "axe-states",
+          "title": "Scan the form with axe-core before, during and after submitting",
+          "status": "fail",
+          "note": "Scanned states: initial, invalid submit, server error, success",
+          "steps": [
+            "Scanning the empty form with axe",
+            "Marking the 1 element that fail \"button-name\"",
+            "Marking the 2 elements that fail \"color-contrast\"",
+            "Marking the 1 element that fail \"label\"",
+            "Submitting the empty form",
+            "Scanning the form after an empty submit",
+            "Filling the form; the server will answer 500",
+            "Scanning the form after a server error",
+            "Submitting with test values (1st submission)",
+            "Submitting with test values (2nd submission)",
+            "Scanning the page after two submissions",
+            "Marking the 1 element that also fail \"button-name\"",
+            "Marking the 2 elements that fail \"target-size\""
+          ]
+        },
+        {
+          "id": "keyboard-completion:keyboard-only",
+          "checkId": "keyboard-completion",
+          "title": "Fill in and submit the form using only the keyboard",
+          "status": "fail",
+          "note": "Tab reached 8/9 target field(s); submit status not sent",
+          "steps": [
+            "Pressing Tab through the form and filling each field from the keyboard",
+            "Recording the Tab sequence",
+            "Tab 1: Pet name (typed a value)",
+            "Tab 2: button (no name)",
+            "Tab 3: Start date (typed a value)",
+            "Tab 4: End date (typed a value)",
+            "Tab 5: Owner email (typed a value)",
+            "Tab 6: Phone (typed a value)",
+            "Tab 7: Special instructions (typed a value)",
+            "Tab 8: Password (typed a value)",
+            "Tab 9: Confirm password (typed a value)",
+            "Tab 10: Book"
+          ]
+        },
+        {
+          "id": "focus-visible:tab-through",
+          "checkId": "focus-visible",
+          "title": "Tab through every control and look for a focus indicator",
+          "status": "fail",
+          "note": "Tabbed through 14 focusable elements",
+          "steps": [
+            "Pressing Tab through every control",
+            "Recording the Tab sequence",
+            "Tab 1: Pet name",
+            "Tab 4: End date",
+            "Tab 5: Owner email",
+            "Tab 6: Phone",
+            "Tab 7: Special instructions",
+            "Tab 8: Password",
+            "Tab 9: Confirm password"
+          ]
+        },
+        {
+          "id": "error-announcement:empty-submit",
+          "checkId": "error-announcement",
+          "title": "Submit the form empty and check errors are announced",
+          "status": "fail",
+          "note": "Checked 5 required field(s) after an empty submit (1 found by the errors the form showed; nothing marks it as required)",
+          "steps": [
+            "Submitting the form with every field empty",
+            "Reading aria-invalid, aria-describedby and live regions",
+            "Marking \"Pet name\" (error not announced)",
+            "Marking \"Pet type\" (error not announced)",
+            "Marking \"Start date\" (error not announced)",
+            "Marking \"End date\" (error not announced)",
+            "Marking \"Owner email\" (error not announced)"
+          ]
+        },
+        {
+          "id": "credential-fields:paste-and-autocomplete",
+          "checkId": "credential-fields",
+          "title": "Paste into password fields and check autofill hints",
+          "status": "fail",
+          "note": "Checked 2 credential field(s)",
+          "steps": [
+            "Pasting a test value into \"Password\"",
+            "Pasting a test value into \"Confirm password\""
+          ]
+        },
+        {
+          "id": "reflow-320:narrow-viewport",
+          "checkId": "reflow-320",
+          "title": "Load the page on a 320 px wide screen",
+          "status": "fail",
+          "note": "scrollWidth 613, clientWidth 320 at 320x800",
+          "steps": [
+            "Measuring the page width at 320 px",
+            "Capturing the whole page at 320 px"
+          ]
+        },
+        {
+          "id": "golden-path",
+          "checkId": "console-network-errors",
+          "title": "Load the form and complete it with valid data",
+          "status": "fail",
+          "steps": [
+            "Loaded the form, watching the console and network",
+            "Filling every field with valid test values",
+            "Submitting the form",
+            "Counting console errors, page errors and failed requests"
+          ]
+        },
+        {
+          "id": "activate-controls",
+          "checkId": "dead-control",
+          "title": "Click every button except the submit button",
+          "status": "fail",
+          "note": "\"unnamed button\": DOM change; \"Save draft\": no reaction",
+          "steps": [
+            "Clicking \"unnamed button\" and watching for a reaction",
+            "Clicking \"Save draft\" and watching for a reaction",
+            "\"Save draft\" did nothing; recording the click as evidence",
+            "Before clicking \"Save draft\"",
+            "1.5 s after clicking \"Save draft\""
+          ]
+        },
+        {
+          "id": "server-error-500",
+          "checkId": "silent-failure",
+          "title": "Submit while the server answers with an error",
+          "status": "fail",
+          "steps": [
+            "Filling the form with valid test values",
+            "Form filled with valid data",
+            "Submitted; the save request was answered with 500",
+            "Waiting up to 5 s for an error message",
+            "Checking the typed values are still there",
+            "5.0 s after the failed save"
+          ]
+        },
+        {
+          "id": "canary-reload",
+          "checkId": "persistence",
+          "title": "Submit unique values, reload and look for them",
+          "status": "fail",
+          "steps": [
+            "Typing a unique test value into every field",
+            "Typed unique test values",
+            "Submitting the form",
+            "Submitted; the server saved it",
+            "Reloading the page and looking for every test value",
+            "After reload"
+          ]
+        },
+        {
+          "id": "double-click-submit",
+          "checkId": "double-submit",
+          "title": "Double-click \"Book\" with valid data",
+          "status": "fail",
+          "steps": [
+            "Filling the form with valid test values",
+            "Form filled with valid data",
+            "Double-clicked \"Book\"",
+            "Waiting for the save requests to finish",
+            "After the double click: 2 save requests"
+          ]
+        },
+        {
+          "id": "replay-invalid",
+          "checkId": "client-only-validation",
+          "title": "Send an end date before the start date straight to the server",
+          "status": "fail",
+          "steps": [
+            "Filling the form and capturing its save request (answered by Run Hound)",
+            "Sending POST /api/bookings to the server with End date (2026-10-08) set before Start date (2026-10-11)"
+          ]
+        },
+        {
+          "id": "page-controls:click-outside-forms",
+          "checkId": "page-controls",
+          "title": "Click every button outside the forms",
+          "status": "fail",
+          "note": "\"Refresh\": no reaction",
+          "steps": [
+            "Clicking \"Refresh\" and watching for a reaction",
+            "\"Refresh\" did nothing; recording the click as evidence",
+            "Before clicking \"Refresh\"",
+            "1.5 s after clicking \"Refresh\""
+          ]
+        },
+        {
+          "id": "bundle-secrets:scan-scripts",
+          "checkId": "bundle-secrets",
+          "title": "Scan every loaded script for secret keys",
+          "status": "fail",
+          "note": "Scanned 4 script/page sources",
+          "steps": [
+            "Downloading every script the page loads",
+            "Searching 4 scripts and the HTML for secret keys",
+            "Found openai-key in http://localhost:3160/config/ai-client.js",
+            "Found supabase-service-role in http://localhost:3160/config/supabase-client.js"
+          ]
+        },
+        {
+          "id": "pii-leak:canary-submit",
+          "checkId": "pii-leak",
+          "title": "Submit a test email and phone number and watch third-party requests",
+          "status": "fail",
+          "note": "Submitted canaries (save response 201); inspected 1 third-party request(s)",
+          "steps": [
+            "Filling the form with a test email and phone number",
+            "Capturing the form at submit",
+            "Submitting and watching requests to other sites",
+            "Found the test email address in a request to localhost:3161"
+          ]
+        },
+        {
+          "id": "oversized-and-malformed",
+          "checkId": "verbose-errors",
+          "title": "Send oversized and malformed input",
+          "status": "fail",
+          "note": "Checked 2 responses and the page text.",
+          "steps": [
+            "Filling free-text fields with far too much text",
+            "Submitting the oversized input",
+            "Replaying POST /api/bookings with a malformed body",
+            "Scanning the responses and the page for stack traces and file paths"
+          ]
+        },
+        {
+          "id": "security-headers:response-headers",
+          "checkId": "security-headers",
+          "title": "Check the page's security headers",
+          "status": "fail",
+          "steps": [
+            "Reading the headers of the page's response"
+          ]
+        },
+        {
+          "id": "cookie-flags:session-cookies",
+          "checkId": "cookie-flags",
+          "title": "Check the flags on session cookies",
+          "status": "fail",
+          "steps": [
+            "Reading the cookies the page set"
+          ]
+        },
+        {
+          "id": "cors:foreign-origin",
+          "checkId": "cors",
+          "title": "Ask the app's API whether other websites may read it",
+          "status": "fail",
+          "steps": [
+            "Sending GET /api/__config from a sandboxed frame (Origin: null)",
+            "Sending GET /api/bookings from a sandboxed frame (Origin: null)",
+            "Sending GET /book from a sandboxed frame (Origin: null)"
+          ]
+        },
+        {
+          "id": "source-maps:public-maps",
+          "checkId": "source-maps",
+          "title": "Look for public source maps",
+          "status": "fail",
+          "steps": [
+            "Looking for the source map of /assets/index-CaF1WP60.js",
+            "Looking for the source map of /config/ai-client.js",
+            "Looking for the source map of /config/supabase-client.js"
+          ]
+        }
+      ],
+      "findings": [
+        {
+          "id": "axe-states#1",
+          "checkId": "axe-states",
+          "scenarioId": "axe-states:four-states",
+          "featured": true,
+          "title": "Buttons must have discernible text (2 elements)",
+          "severity": "high",
+          "confidence": "confirmed",
+          "meaning": "A button has no name, so screen readers announce it only as \"button\". Found on 2 elements (icon-only button next to the \"Pet name\" field, icon-only button next to the \"Pet name\" field (2)) in the initial, invalid submit, server error, success states of the form.",
+          "impact": "Screen reader and voice-control users can't tell what the button does or ask for it by name.",
+          "fix": "Give the icon-only button an accessible name: aria-label=\"…\" or visually hidden text inside it. Affected: icon-only button next to the \"Pet name\" field, icon-only button next to the \"Pet name\" field (2).",
+          "location": "icon-only button next to the \"Pet name\" field",
+          "locations": [
+            "icon-only button next to the \"Pet name\" field",
+            "icon-only button next to the \"Pet name\" field (2)"
+          ],
+          "scope": "Book a sitter form",
+          "spec": {
+            "filename": "axe-states-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\nimport { AxeBuilder } from \"@axe-core/playwright\";\n\n// Generated by Run Hound (axe-states). Fails while the problem is present.\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"no \\\"button-name\\\" violations in the initial state\", async ({ page }) => {\n  await page.goto(TARGET, { waitUntil: \"networkidle\" });\n  // Let entrance animations end first, so text is not measured while it fades in.\n  await page.evaluate(() => Promise.race([\n    Promise.all(document.getAnimations().filter((a) => Number.isFinite(a.effect?.getComputedTiming().endTime)).map((a) => a.finished.catch(() => undefined))),\n    new Promise((resolve) => setTimeout(resolve, 3000)),\n  ]));\n  const results = await new AxeBuilder({ page }).withTags([\"wcag2a\",\"wcag2aa\",\"wcag21a\",\"wcag21aa\",\"wcag22aa\"]).withRules(\"button-name\").analyze();\n  expect(results.violations).toEqual([]);\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "axe",
+              "label": "axe rule \"button-name\" (critical), seen in: initial, invalid submit, server error, success",
+              "data": {
+                "ruleId": "button-name",
+                "impact": "critical",
+                "helpUrl": "https://dequeuniversity.com/rules/axe/4.13/button-name?application=playwright",
+                "states": [
+                  "initial",
+                  "invalid submit",
+                  "server error",
+                  "success"
+                ]
+              }
+            },
+            {
+              "kind": "frame",
+              "label": "axe button-name in the initial state",
+              "step": "axe scan: initial state",
+              "facts": [
+                {
+                  "label": "Rule",
+                  "value": "button-name: Buttons must have discernible text"
+                },
+                {
+                  "label": "Impact",
+                  "value": "critical"
+                },
+                {
+                  "label": "WCAG criteria",
+                  "value": "4.1.2"
+                },
+                {
+                  "label": "Form state",
+                  "value": "initial"
+                },
+                {
+                  "label": "Failing nodes",
+                  "value": "1"
+                },
+                {
+                  "label": "Failure summary",
+                  "value": "Element does not have inner text that is visible to screen readers; aria-label attribute does not exist or is empty"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "button-name: no accessible name",
+                  "box": {
+                    "x": 650,
+                    "y": 614,
+                    "width": 32,
+                    "height": 32
+                  }
+                }
+              ],
+              "artifact": "001-axe-button-name-in-the-initial-state.png",
+              "asset": "assets/runs/0.6.0/kennel/axe-states-frame-1.png",
+              "width": 1640,
+              "height": 1641
+            },
+            {
+              "kind": "frame",
+              "label": "axe button-name in the success state",
+              "step": "axe scan: success state",
+              "facts": [
+                {
+                  "label": "Rule",
+                  "value": "button-name: Buttons must have discernible text"
+                },
+                {
+                  "label": "Impact",
+                  "value": "critical"
+                },
+                {
+                  "label": "WCAG criteria",
+                  "value": "4.1.2"
+                },
+                {
+                  "label": "Form state",
+                  "value": "success"
+                },
+                {
+                  "label": "Failing nodes",
+                  "value": "1"
+                },
+                {
+                  "label": "Failure summary",
+                  "value": "Element does not have inner text that is visible to screen readers; aria-label attribute does not exist or is empty"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "button-name: no accessible name",
+                  "box": {
+                    "x": 650,
+                    "y": 614,
+                    "width": 32,
+                    "height": 32
+                  }
+                }
+              ],
+              "artifact": "004-axe-button-name-in-the-success-state.png",
+              "asset": null
+            }
+          ]
+        },
+        {
+          "id": "axe-states#2",
+          "checkId": "axe-states",
+          "scenarioId": "axe-states:four-states",
+          "featured": false,
+          "title": "Elements must meet minimum color contrast ratio thresholds (2 elements)",
+          "severity": "medium",
+          "confidence": "confirmed",
+          "location": "We only use this to confirm your booking."
+        },
+        {
+          "id": "axe-states#3",
+          "checkId": "axe-states",
+          "scenarioId": "axe-states:four-states",
+          "featured": false,
+          "title": "Form elements must have labels",
+          "severity": "high",
+          "confidence": "confirmed",
+          "location": "Phone"
+        },
+        {
+          "id": "axe-states#4",
+          "checkId": "axe-states",
+          "scenarioId": "axe-states:four-states",
+          "featured": false,
+          "title": "All touch targets must be 24px large, or leave sufficient space (2 elements)",
+          "severity": "medium",
+          "confidence": "confirmed",
+          "location": "Remove booking for Rh 6d779656ax"
+        },
+        {
+          "id": "keyboard-completion#1",
+          "checkId": "keyboard-completion",
+          "scenarioId": "keyboard-completion:keyboard-only",
+          "featured": true,
+          "title": "\"Pet type\" can't be reached with the keyboard",
+          "severity": "high",
+          "confidence": "confirmed",
+          "meaning": "Pressing Tab never moves to \"Pet type\", so someone using only a keyboard can't choose a value and can't finish the form.",
+          "impact": "People who can't use a mouse (including many screen reader users and people with motor impairments) are completely blocked from completing the form.",
+          "fix": "Build \"Pet type\" from native controls (for example <input type=\"radio\"> in a <fieldset> with a <legend>), or give each custom widget role=\"radiogroup\"/role=\"radio\", tabindex and arrow-key/Space handlers.",
+          "location": "Pet type",
+          "scope": "Book a sitter form",
+          "spec": {
+            "filename": "keyboard-completion-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Generated by Run Hound (keyboard-completion). Fails while the problem is present.\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"Pet type can be reached with the Tab key\", async ({ page }) => {\n  await page.goto(TARGET, { waitUntil: \"networkidle\" });\n  const tabTo = async (target: import(\"@playwright/test\").Locator) => {\n    for (let i = 0; i < 200; i++) {\n      await page.keyboard.press(\"Tab\");\n      if (await target.evaluate((t) => t === document.activeElement || t.contains(document.activeElement))) return true;\n    }\n    return false;\n  };\n  expect(await tabTo(page.getByRole(\"radio\", { name: \"Dog\", exact: true }).or(page.getByText(\"Dog\", { exact: true })).first()), \"Pet type\").toBe(true);\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "dom",
+              "label": "Keyboard walk through the form (14 stops)",
+              "data": {
+                "problem": "unreachable",
+                "tabStops": 14,
+                "submitStatus": null
+              }
+            },
+            {
+              "kind": "gif",
+              "label": "Tab sequence through the form",
+              "step": "Page loaded; only the keyboard is used from here → Tab 1: Pet name, typed a value → Tab 2: button (no name) → Tab 3: Start date, Tab skipped a field → Tab 4: End date, typed a value → Tab 5: Owner email, typed a value → Tab 6: Phone, typed a value → Tab 7: Special instructions, typed a value → Tab 8: Password, typed a value → Tab 9: Confirm password, typed a value → Tab 10: Book → End of the Tab order",
+              "facts": [
+                {
+                  "label": "Tab stops visited",
+                  "value": "14: Pet name → button (no name) → Start date → End date → Owner email → … 6 more … → Refresh → Remove booking for Rh 6d779656ax → Remove booking for Rh 6d779656ay"
+                },
+                {
+                  "label": "Field not reached by Tab",
+                  "value": "Pet type"
+                },
+                {
+                  "label": "Submit button reached",
+                  "value": "yes"
+                },
+                {
+                  "label": "Submit status",
+                  "value": "not sent"
+                }
+              ],
+              "frames": 12,
+              "durationMs": 12400,
+              "markers": [
+                {
+                  "label": "Must be usable from the keyboard",
+                  "box": {
+                    "x": 56,
+                    "y": 610,
+                    "width": 499,
+                    "height": 50
+                  }
+                },
+                {
+                  "label": "Focus: Pet name",
+                  "box": {
+                    "x": 56,
+                    "y": 526,
+                    "width": 499,
+                    "height": 40
+                  }
+                },
+                {
+                  "label": "Focus: button (no name)",
+                  "box": {
+                    "x": 522,
+                    "y": 532,
+                    "width": 28,
+                    "height": 28
+                  }
+                },
+                {
+                  "label": "Focus: Start date",
+                  "box": {
+                    "x": 56,
+                    "y": 347,
+                    "width": 243,
+                    "height": 42
+                  }
+                },
+                {
+                  "label": "Skipped by Tab",
+                  "box": {
+                    "x": 56,
+                    "y": 251,
+                    "width": 499,
+                    "height": 50
+                  }
+                },
+                {
+                  "label": "Focus: End date",
+                  "box": {
+                    "x": 313,
+                    "y": 347,
+                    "width": 243,
+                    "height": 42
+                  }
+                },
+                {
+                  "label": "Focus: Owner email",
+                  "box": {
+                    "x": 56,
+                    "y": 433,
+                    "width": 243,
+                    "height": 40
+                  }
+                },
+                {
+                  "label": "Focus: Phone",
+                  "box": {
+                    "x": 313,
+                    "y": 408,
+                    "width": 243,
+                    "height": 40
+                  }
+                },
+                {
+                  "label": "Focus: Special instructions",
+                  "box": {
+                    "x": 56,
+                    "y": 542,
+                    "width": 499,
+                    "height": 83
+                  }
+                },
+                {
+                  "label": "Focus: Password",
+                  "box": {
+                    "x": 75,
+                    "y": 403,
+                    "width": 225,
+                    "height": 40
+                  }
+                },
+                {
+                  "label": "Focus: Confirm password",
+                  "box": {
+                    "x": 313,
+                    "y": 403,
+                    "width": 225,
+                    "height": 40
+                  }
+                },
+                {
+                  "label": "Focus: Book",
+                  "box": {
+                    "x": 56,
+                    "y": 500,
+                    "width": 118,
+                    "height": 42
+                  }
+                },
+                {
+                  "label": "Never reached by Tab",
+                  "box": {
+                    "x": 56,
+                    "y": 526,
+                    "width": 499,
+                    "height": 50
+                  }
+                }
+              ],
+              "artifact": "006-tab-sequence-through-the-form.gif",
+              "asset": "assets/runs/0.6.0/kennel/keyboard-completion-gif-1.gif",
+              "width": 1200,
+              "height": 718
+            }
+          ]
+        },
+        {
+          "id": "focus-visible#1",
+          "checkId": "focus-visible",
+          "scenarioId": "focus-visible:tab-through",
+          "featured": true,
+          "title": "No visible focus indicator on 6 controls",
+          "severity": "high",
+          "confidence": "confirmed",
+          "meaning": "When someone moves to \"Pet name\", \"Owner email\", \"Phone\", \"Special instructions\", \"Password\" and \"Confirm password\" with the Tab key, nothing on screen shows that the control is focused, so keyboard users can't tell where they are. 6 controls in total, in Tab order.",
+          "impact": "People who use a keyboard instead of a mouse (including many people with motor or vision impairments) get lost in the form and may type into the wrong field.",
+          "fix": "Don't remove the focus outline without a replacement on these controls (#petName, #ownerEmail, #phone, #instructions, #password, #confirmPassword). Add a clear :focus-visible style, for example outline: 3px solid <brand colour>; outline-offset: 2px (a visible border, background or ring change works too).",
+          "location": "Pet name",
+          "locations": [
+            "Pet name",
+            "Owner email",
+            "Phone",
+            "Special instructions",
+            "Password",
+            "Confirm password"
+          ],
+          "scope": "Whole page",
+          "spec": {
+            "filename": "focus-visible-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Generated by Run Hound (focus-visible). Fails while the problem is present.\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"every control shows a visible focus indicator\", async ({ page }) => {\n  await page.goto(TARGET, { waitUntil: \"networkidle\" });\n  const indicator = (e: Element) => {\n    const s = getComputedStyle(e);\n    return {\n      outlineShown: s.outlineStyle !== \"none\" && parseFloat(s.outlineWidth) > 0,\n      style: [s.outlineStyle, s.outlineWidth, s.outlineColor, s.boxShadow, s.borderStyle, s.borderWidth, s.borderColor, s.backgroundColor, s.textDecorationLine].join(\" | \"),\n    };\n  };\n  for (const selector of [\"#petName\",\"#ownerEmail\",\"#phone\",\"#instructions\",\"#password\",\"#confirmPassword\"]) {\n    await page.goto(TARGET, { waitUntil: \"networkidle\" });\n    const el = page.locator(selector).first();\n    const resting = await el.evaluate(indicator);\n    for (let i = 0; i < 300; i++) {\n      await page.keyboard.press(\"Tab\");\n      if (await el.evaluate((e) => e === document.activeElement)) break;\n    }\n    const focused = await el.evaluate(indicator);\n    // Focus must either draw an outline or change something visible about the control.\n    expect(focused.outlineShown || focused.style !== resting.style, selector).toBe(true);\n  }\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "dom",
+              "label": "Computed focus styles of the 6 controls"
+            },
+            {
+              "kind": "frame",
+              "label": "Focus on Pet name",
+              "step": "Tab 1: Pet name (focused)",
+              "facts": [
+                {
+                  "label": "Pixels that change on focus",
+                  "value": "0 of 37296 around the control (focused vs blurred screenshot)"
+                },
+                {
+                  "label": "Outline at rest",
+                  "value": "none 3px rgb(43, 29, 20)"
+                },
+                {
+                  "label": "Outline focused",
+                  "value": "none 3px rgb(43, 29, 20)"
+                },
+                {
+                  "label": "Box-shadow at rest",
+                  "value": "rgba(67, 38, 14, 0.06) 0px 1px 2px 0px"
+                },
+                {
+                  "label": "Box-shadow focused",
+                  "value": "rgba(67, 38, 14, 0.06) 0px 1px 2px 0px"
+                },
+                {
+                  "label": "Border at rest",
+                  "value": "solid 1px rgb(160, 138, 116)"
+                },
+                {
+                  "label": "Border focused",
+                  "value": "solid 1px rgb(160, 138, 116)"
+                },
+                {
+                  "label": "Background at rest",
+                  "value": "rgb(255, 255, 255) none"
+                },
+                {
+                  "label": "Background focused",
+                  "value": "rgb(255, 255, 255) none"
+                },
+                {
+                  "label": "Tab stops",
+                  "value": "14"
+                },
+                {
+                  "label": "No visible focus on",
+                  "value": "Pet name, Owner email, Phone, Special instructions, Password, Confirm password"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "No visible focus",
+                  "box": {
+                    "x": 57,
+                    "y": 599,
+                    "width": 592,
+                    "height": 62
+                  }
+                }
+              ],
+              "artifact": "007-focus-on-pet-name.png",
+              "asset": null
+            },
+            {
+              "kind": "frame",
+              "label": "Focus on Owner email",
+              "step": "Tab 5: Owner email (focused)",
+              "facts": [
+                {
+                  "label": "Pixels that change on focus",
+                  "value": "0 of 18648 around the control (focused vs blurred screenshot)"
+                },
+                {
+                  "label": "Outline at rest",
+                  "value": "none 3px rgb(43, 29, 20)"
+                },
+                {
+                  "label": "Outline focused",
+                  "value": "none 3px rgb(43, 29, 20)"
+                },
+                {
+                  "label": "Box-shadow at rest",
+                  "value": "rgba(67, 38, 14, 0.06) 0px 1px 2px 0px"
+                },
+                {
+                  "label": "Box-shadow focused",
+                  "value": "rgba(67, 38, 14, 0.06) 0px 1px 2px 0px"
+                },
+                {
+                  "label": "Border at rest",
+                  "value": "solid 1px rgb(160, 138, 116)"
+                },
+                {
+                  "label": "Border focused",
+                  "value": "solid 1px rgb(160, 138, 116)"
+                },
+                {
+                  "label": "Background at rest",
+                  "value": "rgb(255, 255, 255) none"
+                },
+                {
+                  "label": "Background focused",
+                  "value": "rgb(255, 255, 255) none"
+                },
+                {
+                  "label": "Tab stops",
+                  "value": "14"
+                },
+                {
+                  "label": "No visible focus on",
+                  "value": "Pet name, Owner email, Phone, Special instructions, Password, Confirm password"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "No visible focus",
+                  "box": {
+                    "x": 57,
+                    "y": 491,
+                    "width": 296,
+                    "height": 62
+                  }
+                }
+              ],
+              "artifact": "008-focus-on-owner-email.png",
+              "asset": null
+            },
+            {
+              "kind": "frame",
+              "label": "Focus on Phone",
+              "step": "Tab 6: Phone (focused)",
+              "facts": [
+                {
+                  "label": "Pixels that change on focus",
+                  "value": "0 of 18648 around the control (focused vs blurred screenshot)"
+                },
+                {
+                  "label": "Outline at rest",
+                  "value": "none 3px rgb(43, 29, 20)"
+                },
+                {
+                  "label": "Outline focused",
+                  "value": "none 3px rgb(43, 29, 20)"
+                },
+                {
+                  "label": "Box-shadow at rest",
+                  "value": "rgba(67, 38, 14, 0.06) 0px 1px 2px 0px"
+                },
+                {
+                  "label": "Box-shadow focused",
+                  "value": "rgba(67, 38, 14, 0.06) 0px 1px 2px 0px"
+                },
+                {
+                  "label": "Border at rest",
+                  "value": "solid 1px rgb(160, 138, 116)"
+                },
+                {
+                  "label": "Border focused",
+                  "value": "solid 1px rgb(160, 138, 116)"
+                },
+                {
+                  "label": "Background at rest",
+                  "value": "rgb(255, 255, 255) none"
+                },
+                {
+                  "label": "Background focused",
+                  "value": "rgb(255, 255, 255) none"
+                },
+                {
+                  "label": "Tab stops",
+                  "value": "14"
+                },
+                {
+                  "label": "No visible focus on",
+                  "value": "Pet name, Owner email, Phone, Special instructions, Password, Confirm password"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "No visible focus",
+                  "box": {
+                    "x": 353,
+                    "y": 462,
+                    "width": 296,
+                    "height": 62
+                  }
+                }
+              ],
+              "artifact": "009-focus-on-phone.png",
+              "asset": null
+            },
+            {
+              "kind": "frame",
+              "label": "Focus on Special instructions",
+              "step": "Tab 7: Special instructions (focused)",
+              "facts": [
+                {
+                  "label": "Pixels that change on focus",
+                  "value": "0 of 66896 around the control (focused vs blurred screenshot)"
+                },
+                {
+                  "label": "Outline at rest",
+                  "value": "none 3px rgb(43, 29, 20)"
+                },
+                {
+                  "label": "Outline focused",
+                  "value": "none 3px rgb(43, 29, 20)"
+                },
+                {
+                  "label": "Box-shadow at rest",
+                  "value": "rgba(67, 38, 14, 0.06) 0px 1px 2px 0px"
+                },
+                {
+                  "label": "Box-shadow focused",
+                  "value": "rgba(67, 38, 14, 0.06) 0px 1px 2px 0px"
+                },
+                {
+                  "label": "Border at rest",
+                  "value": "solid 1px rgb(160, 138, 116)"
+                },
+                {
+                  "label": "Border focused",
+                  "value": "solid 1px rgb(160, 138, 116)"
+                },
+                {
+                  "label": "Background at rest",
+                  "value": "rgb(255, 255, 255) none"
+                },
+                {
+                  "label": "Background focused",
+                  "value": "rgb(255, 255, 255) none"
+                },
+                {
+                  "label": "Tab stops",
+                  "value": "14"
+                },
+                {
+                  "label": "No visible focus on",
+                  "value": "Pet name, Owner email, Phone, Special instructions, Password, Confirm password"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "No visible focus",
+                  "box": {
+                    "x": 57,
+                    "y": 617,
+                    "width": 592,
+                    "height": 112
+                  }
+                }
+              ],
+              "artifact": "010-focus-on-special-instructions.png",
+              "asset": null
+            },
+            {
+              "kind": "frame",
+              "label": "Focus on Password",
+              "step": "Tab 8: Password (focused)",
+              "facts": [
+                {
+                  "label": "Pixels that change on focus",
+                  "value": "0 of 17325 around the control (focused vs blurred screenshot)"
+                },
+                {
+                  "label": "Outline at rest",
+                  "value": "none 3px rgb(43, 29, 20)"
+                },
+                {
+                  "label": "Outline focused",
+                  "value": "none 3px rgb(43, 29, 20)"
+                },
+                {
+                  "label": "Box-shadow at rest",
+                  "value": "rgba(67, 38, 14, 0.06) 0px 1px 2px 0px"
+                },
+                {
+                  "label": "Box-shadow focused",
+                  "value": "rgba(67, 38, 14, 0.06) 0px 1px 2px 0px"
+                },
+                {
+                  "label": "Border at rest",
+                  "value": "solid 1px rgb(160, 138, 116)"
+                },
+                {
+                  "label": "Border focused",
+                  "value": "solid 1px rgb(160, 138, 116)"
+                },
+                {
+                  "label": "Background at rest",
+                  "value": "rgb(255, 255, 255) none"
+                },
+                {
+                  "label": "Background focused",
+                  "value": "rgb(255, 255, 255) none"
+                },
+                {
+                  "label": "Tab stops",
+                  "value": "14"
+                },
+                {
+                  "label": "No visible focus on",
+                  "value": "Pet name, Owner email, Phone, Special instructions, Password, Confirm password"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "No visible focus",
+                  "box": {
+                    "x": 78,
+                    "y": 457,
+                    "width": 275,
+                    "height": 62
+                  }
+                }
+              ],
+              "artifact": "011-focus-on-password.png",
+              "asset": null
+            },
+            {
+              "kind": "frame",
+              "label": "Focus on Confirm password",
+              "step": "Tab 9: Confirm password (focused)",
+              "facts": [
+                {
+                  "label": "Pixels that change on focus",
+                  "value": "0 of 17325 around the control (focused vs blurred screenshot)"
+                },
+                {
+                  "label": "Outline at rest",
+                  "value": "none 3px rgb(43, 29, 20)"
+                },
+                {
+                  "label": "Outline focused",
+                  "value": "none 3px rgb(43, 29, 20)"
+                },
+                {
+                  "label": "Box-shadow at rest",
+                  "value": "rgba(67, 38, 14, 0.06) 0px 1px 2px 0px"
+                },
+                {
+                  "label": "Box-shadow focused",
+                  "value": "rgba(67, 38, 14, 0.06) 0px 1px 2px 0px"
+                },
+                {
+                  "label": "Border at rest",
+                  "value": "solid 1px rgb(160, 138, 116)"
+                },
+                {
+                  "label": "Border focused",
+                  "value": "solid 1px rgb(160, 138, 116)"
+                },
+                {
+                  "label": "Background at rest",
+                  "value": "rgb(255, 255, 255) none"
+                },
+                {
+                  "label": "Background focused",
+                  "value": "rgb(255, 255, 255) none"
+                },
+                {
+                  "label": "Tab stops",
+                  "value": "14"
+                },
+                {
+                  "label": "No visible focus on",
+                  "value": "Pet name, Owner email, Phone, Special instructions, Password, Confirm password"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "No visible focus",
+                  "box": {
+                    "x": 353,
+                    "y": 457,
+                    "width": 275,
+                    "height": 62
+                  }
+                }
+              ],
+              "artifact": "012-focus-on-confirm-password.png",
+              "asset": null
+            },
+            {
+              "kind": "gif",
+              "label": "Tab sequence through the page",
+              "step": "Tab 1: Pet name: no visible focus → Tab 4: End date: focus visible → Tab 5: Owner email: no visible focus → Tab 6: Phone: no visible focus → Tab 7: Special instructions: no visible focus → Tab 8: Password: no visible focus → Tab 9: Confirm password: no visible focus",
+              "facts": [
+                {
+                  "label": "Tab stops",
+                  "value": "14"
+                },
+                {
+                  "label": "No visible focus on",
+                  "value": "Pet name, Owner email, Phone, Special instructions, Password, Confirm password"
+                }
+              ],
+              "frames": 7,
+              "durationMs": 7900,
+              "markers": [
+                {
+                  "label": "No visible focus",
+                  "box": {
+                    "x": 49,
+                    "y": 519,
+                    "width": 513,
+                    "height": 54
+                  }
+                },
+                {
+                  "label": "No visible focus",
+                  "box": {
+                    "x": 49,
+                    "y": 426,
+                    "width": 257,
+                    "height": 54
+                  }
+                },
+                {
+                  "label": "No visible focus",
+                  "box": {
+                    "x": 306,
+                    "y": 401,
+                    "width": 257,
+                    "height": 54
+                  }
+                },
+                {
+                  "label": "No visible focus",
+                  "box": {
+                    "x": 49,
+                    "y": 535,
+                    "width": 513,
+                    "height": 97
+                  }
+                },
+                {
+                  "label": "No visible focus",
+                  "box": {
+                    "x": 68,
+                    "y": 396,
+                    "width": 238,
+                    "height": 54
+                  }
+                },
+                {
+                  "label": "No visible focus",
+                  "box": {
+                    "x": 306,
+                    "y": 396,
+                    "width": 238,
+                    "height": 54
+                  }
+                }
+              ],
+              "artifact": "013-tab-sequence-through-the-page.gif",
+              "asset": "assets/runs/0.6.0/kennel/focus-visible-gif-1.gif",
+              "width": 1200,
+              "height": 680
+            }
+          ]
+        },
+        {
+          "id": "error-announcement#1",
+          "checkId": "error-announcement",
+          "scenarioId": "error-announcement:empty-submit",
+          "featured": true,
+          "title": "Errors on 5 fields are not announced to screen readers",
+          "severity": "high",
+          "confidence": "confirmed",
+          "meaning": "After submitting the form with its required fields empty, 5 fields give a screen reader no error: \"Pet name\" (not marked invalid (no aria-invalid=\"true\") and its error message is not linked to it (aria-describedby) and nothing is announced in a live region); \"Pet type\" (not marked invalid (no aria-invalid=\"true\") and its error message is not linked to it (aria-describedby) and nothing is announced in a live region); \"Start date\" (not marked invalid (no aria-invalid=\"true\") and its error message is not linked to it (aria-describedby) and nothing is announced in a live region); \"End date\" (not marked invalid (no aria-invalid=\"true\") and its error message is not linked to it (aria-describedby) and nothing is announced in a live region); \"Owner email\" (not marked invalid (no aria-invalid=\"true\") and its error message is not linked to it (aria-describedby) and nothing is announced in a live region). The errors may be visible on screen, but a screen reader user is not told which fields have a problem or what it is.",
+          "impact": "Blind and low-vision users submit the form, nothing seems to happen, and they can't find out what to fix, so they can't complete the form.",
+          "fix": "When \"Pet name\", \"Pet type\", \"Start date\", \"End date\" and \"Owner email\" fail validation, set aria-invalid=\"true\" on each field, point its aria-describedby at the error message element, and announce a summary in a polite live region (role=\"status\") or move focus to the first invalid field.",
+          "location": "Pet name",
+          "locations": [
+            "Pet name",
+            "Pet type",
+            "Start date",
+            "End date",
+            "Owner email"
+          ],
+          "scope": "Book a sitter form",
+          "spec": {
+            "filename": "error-announcement-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Generated by Run Hound (error-announcement). Fails while the problem is present.\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"empty required fields are announced as errors\", async ({ page }) => {\n  await page.goto(TARGET, { waitUntil: \"networkidle\" });\n  await page.locator(\"#root > div > main > div:nth-of-type(2) > div:nth-of-type(1) > form > div:nth-of-type(6) > div:nth-of-type(1) > button:nth-of-type(1)\").click();\n  for (const selector of [\"input[name=\\\"petName\\\"]\",\"#root > div > main > div:nth-of-type(2) > div:nth-of-type(1) > form > div:nth-of-type(2) > div:nth-of-type(2)\",\"input[name=\\\"startDate\\\"]\",\"input[name=\\\"endDate\\\"]\",\"input[name=\\\"ownerEmail\\\"]\"]) {\n    const field = page.locator(selector);\n    const control = (await field.evaluate((e) => e.matches(\"input,select,textarea\"))) ? field : field.locator(\"input,select,textarea\").first();\n    await expect(control, selector).toHaveAttribute(\"aria-invalid\", \"true\");\n    const describedBy = (await control.getAttribute(\"aria-describedby\")) ?? \"\";\n    const texts = await Promise.all(describedBy.split(/\\s+/).filter(Boolean).map((id) => page.locator(\"#\" + id).textContent()));\n    expect(texts.join(\" \").trim().length, selector).toBeGreaterThan(0);\n  }\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "dom",
+              "label": "Error wiring on 5 fields after an empty submit"
+            },
+            {
+              "kind": "frame",
+              "label": "Error on Pet name after an empty submit",
+              "step": "Submit the form empty",
+              "facts": [
+                {
+                  "label": "Field",
+                  "value": "Pet name"
+                },
+                {
+                  "label": "aria-invalid",
+                  "value": "not set"
+                },
+                {
+                  "label": "aria-describedby",
+                  "value": "none"
+                },
+                {
+                  "label": "Live region text",
+                  "value": "nothing announced"
+                },
+                {
+                  "label": "Visible error text",
+                  "value": "\"Enter your pet's name.\""
+                },
+                {
+                  "label": "Fields with this problem",
+                  "value": "Pet name, Pet type, Start date, End date, Owner email"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "Not announced: Pet name",
+                  "box": {
+                    "x": 113,
+                    "y": 441,
+                    "width": 576,
+                    "height": 46
+                  }
+                },
+                {
+                  "label": "Shown on screen only: \"Enter your pet's name.\"",
+                  "box": {
+                    "x": 113,
+                    "y": 494,
+                    "width": 576,
+                    "height": 21
+                  }
+                }
+              ],
+              "artifact": "014-error-on-pet-name-after-an-empty-submit.png",
+              "asset": "assets/runs/0.6.0/kennel/error-announcement-frame-1.png",
+              "width": 1640,
+              "height": 908
+            },
+            {
+              "kind": "frame",
+              "label": "Error on Pet type after an empty submit",
+              "step": "Submit the form empty",
+              "facts": [
+                {
+                  "label": "Field",
+                  "value": "Pet type"
+                },
+                {
+                  "label": "aria-invalid",
+                  "value": "not set"
+                },
+                {
+                  "label": "aria-describedby",
+                  "value": "none"
+                },
+                {
+                  "label": "Live region text",
+                  "value": "nothing announced"
+                },
+                {
+                  "label": "Visible error text",
+                  "value": "\"Choose a pet type.\""
+                },
+                {
+                  "label": "Fields with this problem",
+                  "value": "Pet name, Pet type, Start date, End date, Owner email"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "Not announced: Pet type",
+                  "box": {
+                    "x": 113,
+                    "y": 566,
+                    "width": 576,
+                    "height": 58
+                  }
+                },
+                {
+                  "label": "Shown on screen only: \"Choose a pet type.\"",
+                  "box": {
+                    "x": 113,
+                    "y": 631,
+                    "width": 576,
+                    "height": 21
+                  }
+                }
+              ],
+              "artifact": "015-error-on-pet-type-after-an-empty-submit.png",
+              "asset": null
+            },
+            {
+              "kind": "frame",
+              "label": "Error on Start date after an empty submit",
+              "step": "Submit the form empty",
+              "facts": [
+                {
+                  "label": "Field",
+                  "value": "Start date"
+                },
+                {
+                  "label": "aria-invalid",
+                  "value": "not set"
+                },
+                {
+                  "label": "aria-describedby",
+                  "value": "none"
+                },
+                {
+                  "label": "Live region text",
+                  "value": "nothing announced"
+                },
+                {
+                  "label": "Visible error text",
+                  "value": "\"Enter a start date.\""
+                },
+                {
+                  "label": "Fields with this problem",
+                  "value": "Pet name, Pet type, Start date, End date, Owner email"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "Not announced: Start date",
+                  "box": {
+                    "x": 113,
+                    "y": 704,
+                    "width": 280,
+                    "height": 48
+                  }
+                },
+                {
+                  "label": "Shown on screen only: \"Enter a start date.\"",
+                  "box": {
+                    "x": 113,
+                    "y": 759,
+                    "width": 280,
+                    "height": 21
+                  }
+                }
+              ],
+              "artifact": "016-error-on-start-date-after-an-empty-submit.png",
+              "asset": null
+            },
+            {
+              "kind": "frame",
+              "label": "Error on End date after an empty submit",
+              "step": "Submit the form empty",
+              "facts": [
+                {
+                  "label": "Field",
+                  "value": "End date"
+                },
+                {
+                  "label": "aria-invalid",
+                  "value": "not set"
+                },
+                {
+                  "label": "aria-describedby",
+                  "value": "none"
+                },
+                {
+                  "label": "Live region text",
+                  "value": "nothing announced"
+                },
+                {
+                  "label": "Visible error text",
+                  "value": "\"Enter an end date.\""
+                },
+                {
+                  "label": "Fields with this problem",
+                  "value": "Pet name, Pet type, Start date, End date, Owner email"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "Not announced: End date",
+                  "box": {
+                    "x": 409,
+                    "y": 704,
+                    "width": 280,
+                    "height": 48
+                  }
+                },
+                {
+                  "label": "Shown on screen only: \"Enter an end date.\"",
+                  "box": {
+                    "x": 409,
+                    "y": 759,
+                    "width": 280,
+                    "height": 21
+                  }
+                }
+              ],
+              "artifact": "017-error-on-end-date-after-an-empty-submit.png",
+              "asset": null
+            },
+            {
+              "kind": "frame",
+              "label": "Error on Owner email after an empty submit",
+              "step": "Submit the form empty",
+              "facts": [
+                {
+                  "label": "Field",
+                  "value": "Owner email"
+                },
+                {
+                  "label": "aria-invalid",
+                  "value": "not set"
+                },
+                {
+                  "label": "aria-describedby",
+                  "value": "#email-hint: \"We only use this to confirm your booking.\""
+                },
+                {
+                  "label": "Live region text",
+                  "value": "nothing announced"
+                },
+                {
+                  "label": "Visible error text",
+                  "value": "\"Enter your email address.\""
+                },
+                {
+                  "label": "Fields with this problem",
+                  "value": "Pet name, Pet type, Start date, End date, Owner email"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "Not announced: Owner email",
+                  "box": {
+                    "x": 113,
+                    "y": 441,
+                    "width": 280,
+                    "height": 46
+                  }
+                },
+                {
+                  "label": "Shown on screen only: \"Enter your email address.\"",
+                  "box": {
+                    "x": 113,
+                    "y": 522,
+                    "width": 280,
+                    "height": 21
+                  }
+                }
+              ],
+              "artifact": "018-error-on-owner-email-after-an-empty-submit.png",
+              "asset": null
+            }
+          ]
+        },
+        {
+          "id": "credential-fields#1",
+          "checkId": "credential-fields",
+          "scenarioId": "credential-fields:paste-and-autocomplete",
+          "featured": true,
+          "title": "Paste is blocked in \"Confirm password\"",
+          "severity": "medium",
+          "confidence": "confirmed",
+          "meaning": "The \"Confirm password\" field stops people from pasting. Password managers and people who copy their password from somewhere else can't fill it in.",
+          "impact": "People with memory or motor difficulties, and anyone using a password manager, have to type a long password by hand, and many will give up or pick a weaker one.",
+          "fix": "Remove the code that cancels paste on \"Confirm password\" (an onPaste/\"paste\" handler calling preventDefault or returning false).",
+          "location": "Confirm password",
+          "scope": "Book a sitter form",
+          "spec": {
+            "filename": "credential-fields-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Generated by Run Hound (credential-fields). Fails while the problem is present.\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"paste is allowed in Confirm password\", async ({ page }) => {\n  await page.goto(TARGET, { waitUntil: \"networkidle\" });\n  for (const selector of [\"input[name=\\\"confirmPassword\\\"]\"]) {\n    const allowed = await page.locator(selector).evaluate((el) => {\n      const dt = new DataTransfer();\n      dt.setData(\"text/plain\", \"Pasted-Test-Value-123\");\n      return el.dispatchEvent(new ClipboardEvent(\"paste\", { clipboardData: dt, bubbles: true, cancelable: true }));\n    });\n    expect(allowed, selector).toBe(true);\n  }\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "dom",
+              "label": "Paste event on input[name=\"confirmPassword\"] was cancelled by the page"
+            },
+            {
+              "kind": "frame",
+              "label": "Paste into Confirm password",
+              "step": "Paste 21 characters into \"Confirm password\"",
+              "facts": [
+                {
+                  "label": "Pasted text length",
+                  "value": "21 characters"
+                },
+                {
+                  "label": "Value length after paste",
+                  "value": "0 characters"
+                },
+                {
+                  "label": "Paste event",
+                  "value": "cancelled by the page (preventDefault)"
+                },
+                {
+                  "label": "autocomplete attribute",
+                  "value": "\"new-password\""
+                }
+              ],
+              "markers": [
+                {
+                  "label": "Paste blocked",
+                  "box": {
+                    "x": 409,
+                    "y": 545,
+                    "width": 259,
+                    "height": 46
+                  }
+                },
+                {
+                  "label": "Same paste accepted in \"Password\"",
+                  "box": {
+                    "x": 134,
+                    "y": 545,
+                    "width": 259,
+                    "height": 46
+                  }
+                }
+              ],
+              "artifact": "019-paste-into-confirm-password.png",
+              "asset": "assets/runs/0.6.0/kennel/credential-fields-frame-1.png",
+              "width": 1640,
+              "height": 908
+            }
+          ]
+        },
+        {
+          "id": "reflow-320#1",
+          "checkId": "reflow-320",
+          "scenarioId": "reflow-320:narrow-viewport",
+          "featured": true,
+          "title": "Page scrolls sideways on a 320 px wide screen",
+          "severity": "medium",
+          "confidence": "confirmed",
+          "meaning": "On a small phone, or when someone zooms in to read, the page is 613 px wide but the screen is only 320 px, so people have to scroll left and right to read and fill in the form.",
+          "impact": "People with low vision who zoom in, and people on small phones, can miss fields or give up.",
+          "fix": "Make the layout fluid: replace fixed widths with max-width and percentages (start with form.booking-form, 576 px wide), so everything fits in a 320 px wide viewport without horizontal scrolling.",
+          "location": "Page layout (form.booking-form)",
+          "scope": "Whole page",
+          "spec": {
+            "filename": "reflow-320-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Generated by Run Hound (reflow-320). Fails while the problem is present.\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"page does not scroll horizontally at 320 px\", async ({ page }) => {\n  await page.goto(TARGET, { waitUntil: \"networkidle\" });\n  await page.setViewportSize({ width: 320, height: 800 });\n  const { scrollWidth, clientWidth } = await page.evaluate(() => ({\n    scrollWidth: document.documentElement.scrollWidth,\n    clientWidth: document.documentElement.clientWidth,\n  }));\n  expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "dom",
+              "label": "Measured page width at 320x800",
+              "data": {
+                "scrollWidth": 613,
+                "clientWidth": 320
+              }
+            },
+            {
+              "kind": "frame",
+              "label": "Page at 320 px wide",
+              "step": "Load the page at 320x800",
+              "facts": [
+                {
+                  "label": "Viewport width",
+                  "value": "320 px (visible width 320 px)"
+                },
+                {
+                  "label": "Page scroll width",
+                  "value": "613 px"
+                },
+                {
+                  "label": "Horizontal overflow",
+                  "value": "293 px"
+                },
+                {
+                  "label": "Widest element",
+                  "value": "form.booking-form, 576 px wide: \"Pet namePet typeDogCatOtherStart dateEnd dateOwner emailWe o\""
+                },
+                {
+                  "label": "Its right edge",
+                  "value": "613 px from the left (293 px past the screen)"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "576 px wide: 256 px wider than the screen",
+                  "box": {
+                    "x": 37,
+                    "y": 807,
+                    "width": 576,
+                    "height": 861
+                  }
+                },
+                {
+                  "label": "Visible screen: 320 px",
+                  "box": {
+                    "x": 0,
+                    "y": 64,
+                    "width": 320,
+                    "height": 800
+                  }
+                }
+              ],
+              "artifact": "020-page-at-320-px-wide.png",
+              "asset": "assets/runs/0.6.0/kennel/reflow-320-frame-1.png",
+              "width": 973,
+              "height": 2449
+            }
+          ]
+        },
+        {
+          "id": "console-network-errors#golden-path-1",
+          "checkId": "console-network-errors",
+          "scenarioId": "golden-path",
+          "featured": true,
+          "title": "The page has errors while the form is filled in and sent: 1 failed request, 2 console errors",
+          "severity": "medium",
+          "confidence": "confirmed",
+          "meaning": "While loading and submitting the form, something behind the scenes went wrong: the page asked the server for something that failed, or the code hit an error. Users may not notice right away, but part of the page is not working as built.",
+          "impact": "A feature that depends on the failing request or code (for example, showing availability) silently does not work.",
+          "fix": "Ask your AI or developer: \"Open the page, complete the form and fix every error in the browser console and every failed network request. Failing items: GET http://localhost:3160/undefined/api/availability (404); Failed to load resource: the server responded with a status of 404 (Not Found); Could not check sitter availability: Error: availability request failed with 404\n    at http://localhost:3160/assets/index-CaF1WP60.js:9:67233.\"",
+          "location": "Book a sitter page",
+          "scope": "Book a sitter form",
+          "spec": {
+            "filename": "console-network-errors-no-errors-on-golden-path-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Exported by Run Hound. Runs on its own: npx playwright test <this file>\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"loads and submits the form without errors\", async ({ page }) => {\n  await page.goto(TARGET);\n  const errors: string[] = [];\n  page.on(\"console\", (m) => { if (m.type() === \"error\") errors.push(m.text()); });\n  page.on(\"pageerror\", (e) => errors.push(e.message));\n  page.on(\"requestfailed\", (r) => errors.push(\"failed: \" + r.url()));\n  page.on(\"response\", (r) => { if (r.status() >= 400) errors.push(r.status() + \" \" + r.url()); });\n  await page.getByLabel(\"Pet name\", { exact: true }).fill(\"name 6d779656cne\");\n  await page.getByText(\"Dog\", { exact: true }).first().click(); // Pet type\n  await page.getByLabel(\"Start date\", { exact: true }).fill(\"2026-10-11\");\n  await page.getByLabel(\"End date\", { exact: true }).fill(\"2026-10-14\");\n  await page.getByLabel(\"Owner email\", { exact: true }).fill(\"owner.6d779656cne@example.test\");\n  await page.getByPlaceholder(\"Phone\", { exact: true }).or(page.getByLabel(\"Phone\", { exact: true })).first().fill(\"+1 555 0179 187\");\n  await page.getByLabel(\"Special instructions\", { exact: true }).fill(\"Feed twice a day, note 6d779656cne\");\n  await page.getByLabel(\"Password\", { exact: true }).fill(\"Fake-Passw0rd-6d779656cne!\");\n  await page.getByLabel(\"Confirm password\", { exact: true }).fill(\"Fake-Passw0rd-6d779656cne!\");\n  await page.getByRole(\"button\", { name: \"Book\", exact: true }).click();\n  await page.waitForLoadState(\"networkidle\");\n  expect(errors).toEqual([]);\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "card",
+              "label": "errors while loading and submitting",
+              "facts": [
+                {
+                  "label": "Console errors",
+                  "value": "2"
+                },
+                {
+                  "label": "Page errors (uncaught)",
+                  "value": "0"
+                },
+                {
+                  "label": "Failed requests",
+                  "value": "1"
+                },
+                {
+                  "label": "Requests watched",
+                  "value": "11"
+                }
+              ],
+              "title": "3 errors while loading and submitting the form",
+              "subtitle": "http://localhost:3160/book",
+              "lines": [
+                "  Failed requests (1)",
+                ">   GET http://localhost:3160/undefined/api/availability → 404  (while loading)",
+                "  Console errors (2)",
+                ">   console.error: Failed to load resource: the server responded with a status of 404 (Not Found)  (while loading)",
+                ">   console.error: Could not check sitter availability: Error: availability request failed with 404  (while loading)",
+                "  ",
+                "  Form submit: POST /api/bookings → 201"
+              ],
+              "artifact": "021-errors-while-loading-and-submitting.png",
+              "asset": "assets/runs/0.6.0/kennel/console-network-errors-card-1.png",
+              "width": 960,
+              "height": 397
+            },
+            {
+              "kind": "frame",
+              "label": "page after submitting",
+              "step": "After loading and submitting the form",
+              "facts": [
+                {
+                  "label": "Form submitted",
+                  "value": "POST /api/bookings → 201"
+                },
+                {
+                  "label": "Console errors",
+                  "value": "2"
+                },
+                {
+                  "label": "Page errors (uncaught)",
+                  "value": "0"
+                },
+                {
+                  "label": "Failed requests",
+                  "value": "1"
+                },
+                {
+                  "label": "Requests watched",
+                  "value": "11"
+                },
+                {
+                  "label": "Failed request 1",
+                  "value": "GET /undefined/api/availability → 404"
+                },
+                {
+                  "label": "Console error 1",
+                  "value": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+                },
+                {
+                  "label": "Console error 2",
+                  "value": "Could not check sitter availability: Error: availability request failed with 404"
+                }
+              ],
+              "artifact": "022-page-after-submitting.png",
+              "asset": "assets/runs/0.6.0/kennel/console-network-errors-frame-1.png",
+              "width": 1640,
+              "height": 908
+            },
+            {
+              "kind": "network",
+              "label": "GET http://localhost:3160/undefined/api/availability → 404",
+              "data": {
+                "method": "GET",
+                "url": "http://localhost:3160/undefined/api/availability",
+                "status": 404,
+                "failure": null
+              }
+            },
+            {
+              "kind": "console",
+              "label": "Console error",
+              "data": {
+                "type": "error",
+                "text": "Failed to load resource: the server responded with a status of 404 (Not Found)",
+                "url": "http://localhost:3160/undefined/api/availability"
+              }
+            },
+            {
+              "kind": "console",
+              "label": "Console error",
+              "data": {
+                "type": "error",
+                "text": "Could not check sitter availability: Error: availability request failed with 404\n    at http://localhost:3160/assets/index-CaF1WP60.js:9:67233",
+                "url": "http://localhost:3160/assets/index-CaF1WP60.js"
+              }
+            }
+          ]
+        },
+        {
+          "id": "dead-control#activate-controls-1",
+          "checkId": "dead-control",
+          "scenarioId": "activate-controls",
+          "featured": true,
+          "title": "\"Save draft\" button does nothing",
+          "severity": "high",
+          "confidence": "confirmed",
+          "meaning": "Clicking \"Save draft\" has no visible or hidden effect: nothing is saved, nothing changes on the page, no request is sent and focus does not move. The button looks like it works but is not connected to anything.",
+          "impact": "People who click \"Save draft\" think it worked (or keep clicking) and lose whatever they expected it to do for them.",
+          "fix": "Ask your AI or developer: \"The Save draft button (#root > div > main > div:nth-of-type(2) > div:nth-of-type(1) > form > div:nth-of-type(6) > div:nth-of-type(1) > button:nth-of-type(2)) has no working click handler. Connect it to the intended action and show a confirmation when it succeeds.\"",
+          "location": "\"Save draft\" button",
+          "scope": "Book a sitter form",
+          "spec": {
+            "filename": "dead-control-save-draft-does-something-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Exported by Run Hound. Runs on its own: npx playwright test <this file>\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"clicking \\\"Save draft\\\" does something\", async ({ page }) => {\n  await page.goto(TARGET);\n  await page.getByLabel(\"Pet name\", { exact: true }).fill(\"name 6d779656dead\");\n  await page.getByText(\"Dog\", { exact: true }).first().click(); // Pet type\n  await page.getByLabel(\"Start date\", { exact: true }).fill(\"2026-10-11\");\n  await page.getByLabel(\"End date\", { exact: true }).fill(\"2026-10-14\");\n  await page.getByLabel(\"Owner email\", { exact: true }).fill(\"owner.6d779656dead@example.test\");\n  await page.getByPlaceholder(\"Phone\", { exact: true }).or(page.getByLabel(\"Phone\", { exact: true })).first().fill(\"+1 555 0167 915\");\n  await page.getByLabel(\"Special instructions\", { exact: true }).fill(\"Feed twice a day, note 6d779656dead\");\n  await page.getByLabel(\"Password\", { exact: true }).fill(\"Fake-Passw0rd-6d779656dead!\");\n  await page.getByLabel(\"Confirm password\", { exact: true }).fill(\"Fake-Passw0rd-6d779656dead!\");\n  // The same reactions Run Hound looks for: DOM, storage, URL, field values, a request, or focus moving elsewhere.\n  const snapshot = () =>\n    page.evaluate(() =>\n      JSON.stringify([\n        document.body.innerHTML,\n        { ...localStorage },\n        { ...sessionStorage },\n        location.href,\n        [...document.querySelectorAll(\"input, select, textarea\")].map((e) => { const i = e as HTMLInputElement; return i.type === \"checkbox\" || i.type === \"radio\" ? i.checked : i.value; }),\n      ]),\n    );\n  {\n    const control = page.getByRole(\"button\", { name: \"Save draft\", exact: true });\n    // Let the page finish loading first, so its own loading isn't mistaken for the click's effect.\n    await page.waitForLoadState(\"networkidle\");\n    await control.waitFor();\n    const requests: string[] = [];\n    page.on(\"request\", (r) => requests.push(r.url()));\n    const before = await snapshot();\n    await page.evaluate(() => { (window as unknown as { focusBefore: Element | null }).focusBefore = document.activeElement; });\n    await control.click();\n    await page.waitForTimeout(1500);\n    const after = await snapshot();\n    const focusMoved = await control.evaluate((c) => { const a = document.activeElement; return !!a && a !== c && a !== document.body && a !== (window as unknown as { focusBefore: Element | null }).focusBefore; });\n    expect(after !== before || requests.length > 0 || focusMoved, \"\\\"Save draft\\\" should change something\").toBe(true);\n  }\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "gif",
+              "label": "clicking Save draft does nothing",
+              "step": "Before clicking \"Save draft\" → 1.5 s after clicking \"Save draft\"",
+              "facts": [
+                {
+                  "label": "Control",
+                  "value": "\"Save draft\" button, visible and enabled"
+                },
+                {
+                  "label": "Watched for",
+                  "value": "1500 ms after the click"
+                },
+                {
+                  "label": "Requests sent",
+                  "value": "0"
+                },
+                {
+                  "label": "DOM changes",
+                  "value": "0"
+                },
+                {
+                  "label": "Storage changes",
+                  "value": "0"
+                },
+                {
+                  "label": "Focus or value changes",
+                  "value": "0"
+                },
+                {
+                  "label": "Navigation",
+                  "value": "none"
+                }
+              ],
+              "frames": 2,
+              "durationMs": 3400,
+              "markers": [
+                {
+                  "label": "About to click \"Save draft\"",
+                  "box": {
+                    "x": 191,
+                    "y": 580,
+                    "width": 112,
+                    "height": 35
+                  }
+                },
+                {
+                  "label": "Clicked: nothing happened",
+                  "box": {
+                    "x": 191,
+                    "y": 480,
+                    "width": 112,
+                    "height": 35
+                  }
+                }
+              ],
+              "artifact": "023-clicking-save-draft-does-nothing.gif",
+              "asset": "assets/runs/0.6.0/kennel/dead-control-gif-1.gif",
+              "width": 1200,
+              "height": 664
+            },
+            {
+              "kind": "dom",
+              "label": "Clicked \"Save draft\" and watched for 1500 ms",
+              "data": {
+                "observed": "no request, navigation, DOM change, storage change, value change or focus change"
+              }
+            }
+          ]
+        },
+        {
+          "id": "silent-failure#server-error-500-1",
+          "checkId": "silent-failure",
+          "scenarioId": "server-error-500",
+          "featured": true,
+          "title": "When saving fails, no error message appears",
+          "severity": "high",
+          "confidence": "confirmed",
+          "meaning": "When the server fails to save the form, nothing tells the user within 5 seconds. The form just sits there (often with a spinner), so it looks like it is still working or like it worked.",
+          "impact": "People leave thinking their submission went through when it did not, or give up and never come back.",
+          "fix": "Ask your AI or developer: \"When the submit request fails (any non-2xx response or network error), stop the spinner, re-enable the button and show a clear error in an element with role=\\\"alert\\\" within a second or two.\"",
+          "location": "\"Book\" button",
+          "scope": "Book a sitter form",
+          "spec": {
+            "filename": "silent-failure-server-error-is-announced-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Exported by Run Hound. Runs on its own: npx playwright test <this file>\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"a server error shows an announced message\", async ({ page }) => {\n  await page.goto(TARGET);\n  await page.route(\"http://localhost:3160/api/bookings\", (route) =>\n    route.request().method() === \"POST\" ? route.fulfill({ status: 500, json: { error: \"Something went wrong\" } }) : route.fallback());\n  await page.getByLabel(\"Pet name\", { exact: true }).fill(\"name 6d779656silent\");\n  await page.getByText(\"Dog\", { exact: true }).first().click(); // Pet type\n  await page.getByLabel(\"Start date\", { exact: true }).fill(\"2026-10-11\");\n  await page.getByLabel(\"End date\", { exact: true }).fill(\"2026-10-14\");\n  await page.getByLabel(\"Owner email\", { exact: true }).fill(\"owner.6d779656silent@example.test\");\n  await page.getByPlaceholder(\"Phone\", { exact: true }).or(page.getByLabel(\"Phone\", { exact: true })).first().fill(\"+1 555 0124 852\");\n  await page.getByLabel(\"Special instructions\", { exact: true }).fill(\"Feed twice a day, note 6d779656silent\");\n  await page.getByLabel(\"Password\", { exact: true }).fill(\"Fake-Passw0rd-6d779656silent!\");\n  await page.getByLabel(\"Confirm password\", { exact: true }).fill(\"Fake-Passw0rd-6d779656silent!\");\n  await page.getByRole(\"button\", { name: \"Book\", exact: true }).click();\n  await expect(page.getByRole(\"alert\").filter({ hasText: /error|wrong|fail|could not|couldn't|can't|cannot|unable|problem|try again|sorry|unavailable/i })).toBeVisible({ timeout: 5000 });\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "gif",
+              "label": "submit while the server fails",
+              "step": "Form filled with valid data → Submitted; the save request was answered with 500 → 5.0 s after the failed save",
+              "facts": [
+                {
+                  "label": "Fields filled",
+                  "value": "9"
+                },
+                {
+                  "label": "Server answer",
+                  "value": "500, simulated by Run Hound (nothing is saved)"
+                },
+                {
+                  "label": "Injected status",
+                  "value": "500 (simulated; the request never reached the server)"
+                },
+                {
+                  "label": "Request",
+                  "value": "POST /api/bookings"
+                },
+                {
+                  "label": "Waited for an error",
+                  "value": "5.0 s after submitting"
+                },
+                {
+                  "label": "Error message",
+                  "value": "none"
+                },
+                {
+                  "label": "Values kept",
+                  "value": "yes, all 9 fields"
+                }
+              ],
+              "frames": 3,
+              "durationMs": 4300,
+              "markers": [
+                {
+                  "label": "Submitting next",
+                  "box": {
+                    "x": 83,
+                    "y": 580,
+                    "width": 100,
+                    "height": 35
+                  }
+                },
+                {
+                  "label": "No error shown after 5 s",
+                  "box": {
+                    "x": 83,
+                    "y": 47,
+                    "width": 421,
+                    "height": 585
+                  }
+                }
+              ],
+              "artifact": "024-submit-while-the-server-fails.gif",
+              "asset": "assets/runs/0.6.0/kennel/silent-failure-gif-1.gif",
+              "width": 1200,
+              "height": 664
+            },
+            {
+              "kind": "network",
+              "label": "Simulated 500 for POST http://localhost:3160/api/bookings",
+              "data": {
+                "method": "POST",
+                "url": "http://localhost:3160/api/bookings",
+                "simulatedStatus": 500
+              }
+            },
+            {
+              "kind": "dom",
+              "label": "No error message within 5 s",
+              "data": {
+                "visibleMessage": null,
+                "waitedMs": 5012
+              }
+            }
+          ]
+        },
+        {
+          "id": "persistence#canary-reload-1",
+          "checkId": "persistence",
+          "scenarioId": "canary-reload",
+          "featured": true,
+          "title": "\"Special instructions\" is not saved",
+          "severity": "critical",
+          "confidence": "confirmed",
+          "meaning": "The form accepted a value in \"Special instructions\" and reported success, but after reloading the page that value is nowhere to be found. It was never saved (or is saved and not shown).",
+          "impact": "Anything people type into \"Special instructions\" is silently lost, so they rely on information that does not exist, for example a note or instruction that nobody ever sees.",
+          "fix": "Ask your AI or developer: \"The Special instructions field (instructions) is dropped between the form and the database. Make sure it is sent in the request, stored by the server and shown again after reload.\"",
+          "location": "\"Special instructions\" field",
+          "scope": "Book a sitter form",
+          "spec": {
+            "filename": "persistence-special-instructions-is-saved-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Exported by Run Hound. Runs on its own: npx playwright test <this file>\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"\\\"Special instructions\\\" is still shown after saving and reloading\", async ({ page }) => {\n  await page.goto(TARGET);\n  await page.getByLabel(\"Pet name\", { exact: true }).fill(\"name 6d779656keep\");\n  await page.getByText(\"Dog\", { exact: true }).first().click(); // Pet type\n  await page.getByLabel(\"Start date\", { exact: true }).fill(\"2026-10-11\");\n  await page.getByLabel(\"End date\", { exact: true }).fill(\"2026-10-14\");\n  await page.getByLabel(\"Owner email\", { exact: true }).fill(\"owner.6d779656keep@example.test\");\n  await page.getByPlaceholder(\"Phone\", { exact: true }).or(page.getByLabel(\"Phone\", { exact: true })).first().fill(\"+1 555 0140 588\");\n  await page.getByLabel(\"Special instructions\", { exact: true }).fill(\"Feed twice a day, note 6d779656keep\");\n  await page.getByLabel(\"Password\", { exact: true }).fill(\"Fake-Passw0rd-6d779656keep!\");\n  await page.getByLabel(\"Confirm password\", { exact: true }).fill(\"Fake-Passw0rd-6d779656keep!\");\n  await page.getByRole(\"button\", { name: \"Book\", exact: true }).click();\n  await page.waitForLoadState(\"networkidle\");\n  await page.reload();\n  await page.waitForLoadState(\"networkidle\");\n  // Shown as text on the page, or as a field's value (a settings form shows the saved record in its fields).\n  const shown = (value: string) =>\n    page.evaluate((v) => {\n      const norm = (s: string) => s.toLowerCase().replace(/\\s+/g, \" \").trim();\n      const fields = [...document.querySelectorAll(\"input, textarea, select\")].map((f) => (f as HTMLInputElement).value);\n      return [document.body.innerText, ...fields].some((text) => norm(text).includes(norm(v)));\n    }, value);\n  expect(await shown(\"Feed twice a day, note 6d779656keep\"), \"Special instructions\").toBe(true);\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "gif",
+              "label": "values after save and reload",
+              "step": "Typed unique test values → Submitted; the server saved it → After reload",
+              "facts": [
+                {
+                  "label": "Test values typed",
+                  "value": "4"
+                },
+                {
+                  "label": "Outside the captured area",
+                  "value": "Typed \"Feed twice a day, note 6d779656keep\" (textarea[name=\"instructions\"])"
+                },
+                {
+                  "label": "Save request",
+                  "value": "POST /api/bookings → 201"
+                },
+                {
+                  "label": "Canary (Special instructions)",
+                  "value": "Feed twice a day, note 6d779656keep"
+                },
+                {
+                  "label": "Field",
+                  "value": "Special instructions"
+                },
+                {
+                  "label": "Searched",
+                  "value": "the page text and every field's value after reload"
+                },
+                {
+                  "label": "Other test values found",
+                  "value": "3 of 4"
+                },
+                {
+                  "label": "Saved record's full text",
+                  "value": "name 6d779656keepDog3 nights2026-10-11 to 2026-10-14owner.6d779656keep@example.test Phone: +1 555 0140 588"
+                }
+              ],
+              "frames": 3,
+              "durationMs": 4300,
+              "markers": [
+                {
+                  "label": "Typed \"name 6d779656keep\"",
+                  "box": {
+                    "x": 83,
+                    "y": 323,
+                    "width": 421,
+                    "height": 34
+                  }
+                },
+                {
+                  "label": "Typed \"owner.6d779656keep@example.test\"",
+                  "box": {
+                    "x": 83,
+                    "y": 547,
+                    "width": 205,
+                    "height": 34
+                  }
+                },
+                {
+                  "label": "Typed \"+1 555 0140 588\"",
+                  "box": {
+                    "x": 299,
+                    "y": 525,
+                    "width": 205,
+                    "height": 34
+                  }
+                },
+                {
+                  "label": "Not found after reload: Special instructions",
+                  "box": {
+                    "x": 607,
+                    "y": 334,
+                    "width": 256,
+                    "height": 12
+                  }
+                }
+              ],
+              "artifact": "025-values-after-save-and-reload.gif",
+              "asset": "assets/runs/0.6.0/kennel/persistence-gif-1.gif",
+              "width": 1200,
+              "height": 664
+            },
+            {
+              "kind": "card",
+              "label": "Special instructions in the save request",
+              "facts": [
+                {
+                  "label": "Canary value",
+                  "value": "Feed twice a day, note 6d779656keep"
+                },
+                {
+                  "label": "Field",
+                  "value": "Special instructions"
+                },
+                {
+                  "label": "In request",
+                  "value": "no"
+                },
+                {
+                  "label": "In response",
+                  "value": "no"
+                }
+              ],
+              "title": "\"Special instructions\" was typed, but the save request does not carry it",
+              "subtitle": "POST /api/bookings → 201  http://localhost:3160/api/bookings",
+              "lines": [
+                "  Request body",
+                "    {",
+                "      \"petName\": \"name 6d779656keep\",",
+                "      \"petType\": \"dog\",",
+                "      \"startDate\": \"2026-10-11\",",
+                "      \"endDate\": \"2026-10-14\",",
+                "      \"ownerEmail\": \"owner.6d779656keep@example.test\",",
+                "      \"phone\": \"+1 555 0140 588\",",
+                ">     \"instructions\": \"\"",
+                "    }",
+                "  Response 201",
+                "    {",
+                "      \"id\": \"27de7229-97ce-483b-aaa4-5c58e8162a8b\",",
+                "      \"petName\": \"name 6d779656keep\",",
+                "      \"petType\": \"dog\",",
+                "      \"startDate\": \"2026-10-11\",",
+                "      \"endDate\": \"2026-10-14\",",
+                "      \"ownerEmail\": \"owner.6d779656keep@example.test\",",
+                "      \"phone\": \"+1 555 0140 588\",",
+                "      \"instructions\": \"\",",
+                "      \"createdAt\": \"2026-09-27T15:36:05.035Z\"",
+                "    }"
+              ],
+              "artifact": "026-special-instructions-in-the-save-request.png",
+              "asset": "assets/runs/0.6.0/kennel/persistence-card-1.png",
+              "width": 960,
+              "height": 677
+            },
+            {
+              "kind": "network",
+              "label": "Save request and response",
+              "data": {
+                "method": "POST",
+                "url": "http://localhost:3160/api/bookings",
+                "status": 201,
+                "failure": null,
+                "requestBody": "{\"petName\":\"name 6d779656keep\",\"petType\":\"dog\",\"startDate\":\"2026-10-11\",\"endDate\":\"2026-10-14\",\"ownerEmail\":\"owner.6d779656keep@example.test\",\"phone\":\"+1 555 0140 588\",\"instructions\":\"\"}",
+                "responseBody": "{\"id\":\"27de7229-97ce-483b-aaa4-5c58e8162a8b\",\"petName\":\"name 6d779656keep\",\"petType\":\"dog\",\"startDate\":\"2026-10-11\",\"endDate\":\"2026-10-14\",\"ownerEmail\":\"owner.6d779656keep@example.test\",\"phone\":\"+1 555 0140 588\",\"instructions\":\"\",\"createdAt\":\"2026-09-27T15:36:05.035Z\"}"
+              }
+            },
+            {
+              "kind": "dom",
+              "label": "\"Special instructions\" value missing after reload"
+            }
+          ]
+        },
+        {
+          "id": "double-submit#double-click-submit-1",
+          "checkId": "double-submit",
+          "scenarioId": "double-click-submit",
+          "featured": true,
+          "title": "Double-clicking \"Book\" saves 2 times",
+          "severity": "high",
+          "confidence": "confirmed",
+          "meaning": "The \"Book\" button keeps working while the first save is still in progress, so a quick double click sends the same form 2 times.",
+          "impact": "People who double-click (common on slow connections) get duplicate records (bookings, orders, sign-ups), and may be charged or contacted twice.",
+          "fix": "Ask your AI or developer: \"Disable the Book button (or ignore clicks) while the save request is pending, and re-enable it when the request finishes.\"",
+          "location": "\"Book\" button",
+          "scope": "Book a sitter form",
+          "spec": {
+            "filename": "double-submit-double-click-saves-once-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Exported by Run Hound. Runs on its own: npx playwright test <this file>\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"double-clicking \\\"Book\\\" sends one save request\", async ({ page }) => {\n  await page.goto(TARGET);\n  const creates: string[] = [];\n  page.on(\"request\", (r) => {\n    if (![\"GET\", \"HEAD\", \"OPTIONS\"].includes(r.method()) && new URL(r.url()).origin === new URL(TARGET).origin) creates.push(r.method() + \" \" + r.url());\n  });\n  await page.getByLabel(\"Pet name\", { exact: true }).fill(\"name 6d779656twice\");\n  await page.getByText(\"Dog\", { exact: true }).first().click(); // Pet type\n  await page.getByLabel(\"Start date\", { exact: true }).fill(\"2026-10-11\");\n  await page.getByLabel(\"End date\", { exact: true }).fill(\"2026-10-14\");\n  await page.getByLabel(\"Owner email\", { exact: true }).fill(\"owner.6d779656twice@example.test\");\n  await page.getByPlaceholder(\"Phone\", { exact: true }).or(page.getByLabel(\"Phone\", { exact: true })).first().fill(\"+1 555 0109 697\");\n  await page.getByLabel(\"Special instructions\", { exact: true }).fill(\"Feed twice a day, note 6d779656twice\");\n  await page.getByLabel(\"Password\", { exact: true }).fill(\"Fake-Passw0rd-6d779656twice!\");\n  await page.getByLabel(\"Confirm password\", { exact: true }).fill(\"Fake-Passw0rd-6d779656twice!\");\n  await page.getByRole(\"button\", { name: \"Book\", exact: true }).dblclick();\n  await page.waitForTimeout(3000);\n  expect(creates).toHaveLength(1);\n});\n"
+          },
+          "requests": [
+            {
+              "label": "Save request 1",
+              "method": "POST",
+              "path": "/api/bookings",
+              "status": 201,
+              "atMs": 29.8
+            },
+            {
+              "label": "Save request 2",
+              "method": "POST",
+              "path": "/api/bookings",
+              "status": 201,
+              "atMs": 30
+            }
+          ],
+          "evidence": [
+            {
+              "kind": "gif",
+              "label": "double-click Book",
+              "step": "Form filled with valid data → Double-clicked \"Book\" → After the double click: 2 save requests",
+              "facts": [
+                {
+                  "label": "Save requests so far",
+                  "value": "0"
+                },
+                {
+                  "label": "Save requests so far",
+                  "value": "2"
+                },
+                {
+                  "label": "Save request 1",
+                  "value": "POST /api/bookings → 201 at +29.8 ms, record cf6e508e-d306-4618-bd62-a144830afad0"
+                },
+                {
+                  "label": "Save request 2",
+                  "value": "POST /api/bookings → 201 at +30.0 ms, record e217c8b4-ed64-49e1-b791-006527c4975f"
+                }
+              ],
+              "frames": 3,
+              "durationMs": 4300,
+              "markers": [
+                {
+                  "label": "Double-clicking next",
+                  "box": {
+                    "x": 83,
+                    "y": 580,
+                    "width": 100,
+                    "height": 35
+                  }
+                },
+                {
+                  "label": "Clicked twice",
+                  "box": {
+                    "x": 83,
+                    "y": 580,
+                    "width": 100,
+                    "height": 35
+                  }
+                },
+                {
+                  "label": "Saved copy 1",
+                  "box": {
+                    "x": 607,
+                    "y": 334,
+                    "width": 256,
+                    "height": 12
+                  }
+                },
+                {
+                  "label": "Saved copy 2",
+                  "box": {
+                    "x": 607,
+                    "y": 345,
+                    "width": 256,
+                    "height": 12
+                  }
+                }
+              ],
+              "artifact": "027-double-click-book.gif",
+              "asset": "assets/runs/0.6.0/kennel/double-submit-gif-1.gif",
+              "width": 1200,
+              "height": 664
+            },
+            {
+              "kind": "card",
+              "label": "save requests from one double click",
+              "facts": [
+                {
+                  "label": "Requests to one endpoint",
+                  "value": "2"
+                },
+                {
+                  "label": "Distinct records created",
+                  "value": "2"
+                },
+                {
+                  "label": "Save request 1",
+                  "value": "POST /api/bookings → 201 at +29.8 ms, record cf6e508e-d306-4618-bd62-a144830afad0"
+                },
+                {
+                  "label": "Save request 2",
+                  "value": "POST /api/bookings → 201 at +30.0 ms, record e217c8b4-ed64-49e1-b791-006527c4975f"
+                }
+              ],
+              "title": "POST /api/bookings sent 2 times by one double click",
+              "subtitle": "http://localhost:3160/api/bookings",
+              "lines": [
+                "> #1  +29.8 ms after the double click started  POST http://localhost:3160/api/bookings",
+                "        {",
+                "          \"petName\": \"name 6d779656twice\",",
+                "          \"petType\": \"dog\",",
+                "          \"startDate\": \"2026-10-11\",",
+                "          \"endDate\": \"2026-10-14\",",
+                "          \"ownerEmail\": \"owner.6d779656twice@example.test\",",
+                "          \"phone\": \"+1 555 0109 697\",",
+                "          \"instructions\": \"\"",
+                "        }",
+                ">     ← 201  created record cf6e508e-d306-4618-bd62-a144830afad0",
+                "> #2  +30.0 ms after the double click started  POST http://localhost:3160/api/bookings",
+                "        {",
+                "          \"petName\": \"name 6d779656twice\",",
+                "          \"petType\": \"dog\",",
+                "          \"startDate\": \"2026-10-11\",",
+                "          \"endDate\": \"2026-10-14\",",
+                "          \"ownerEmail\": \"owner.6d779656twice@example.test\",",
+                "          \"phone\": \"+1 555 0109 697\",",
+                "          \"instructions\": \"\"",
+                "        }",
+                ">     ← 201  created record e217c8b4-ed64-49e1-b791-006527c4975f"
+              ],
+              "artifact": "028-save-requests-from-one-double-click.png",
+              "asset": "assets/runs/0.6.0/kennel/double-submit-card-1.png",
+              "width": 960,
+              "height": 789
+            },
+            {
+              "kind": "network",
+              "label": "Save request 1: POST http://localhost:3160/api/bookings → 201",
+              "data": {
+                "method": "POST",
+                "url": "http://localhost:3160/api/bookings",
+                "status": 201,
+                "failure": null
+              }
+            },
+            {
+              "kind": "network",
+              "label": "Save request 2: POST http://localhost:3160/api/bookings → 201",
+              "data": {
+                "method": "POST",
+                "url": "http://localhost:3160/api/bookings",
+                "status": 201,
+                "failure": null
+              }
+            }
+          ]
+        },
+        {
+          "id": "client-only-validation#replay-invalid-1",
+          "checkId": "client-only-validation",
+          "scenarioId": "replay-invalid",
+          "featured": true,
+          "title": "The server accepts End date (2026-10-08) set before Start date (2026-10-11)",
+          "severity": "high",
+          "confidence": "confirmed",
+          "meaning": "Run Hound sent the form's save request straight to the server with End date (2026-10-08) set before Start date (2026-10-11), skipping any checks in the browser, and the server saved it (201). Anyone who sends the request directly (a script, a modified page, an old app version) can save invalid data.",
+          "impact": "Invalid records end up in your database, which can break reports, billing or schedules, and a check that only runs in the browser gives a false sense of safety.",
+          "fix": "Ask your AI or developer: \"Repeat the End date validation on the server for /api/bookings and answer 400 with a clear message when it fails. Never rely on browser-only checks.\"",
+          "location": "\"End date\" field",
+          "scope": "Book a sitter form",
+          "spec": {
+            "filename": "client-only-validation-server-rejects-invalid-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Exported by Run Hound. Runs on its own: npx playwright test <this file>\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"the server rejects End date (2026-10-08) set before Start date (2026-10-11)\", async ({ page }) => {\n  await page.goto(TARGET);\n  const response = await page.request.fetch(\"http://localhost:3160/api/bookings\", {\n    method: \"POST\",\n    headers: {\"content-type\":\"application/json\"},\n    data: \"{\\\"petName\\\":\\\"name 6d779656replay\\\",\\\"petType\\\":\\\"dog\\\",\\\"startDate\\\":\\\"2026-10-11\\\",\\\"endDate\\\":\\\"2026-10-08\\\",\\\"ownerEmail\\\":\\\"owner.6d779656replay@example.test\\\",\\\"phone\\\":\\\"+1 555 0182 110\\\",\\\"instructions\\\":\\\"\\\"}\",\n  });\n  expect(response.status()).toBeGreaterThanOrEqual(400);\n  expect(response.status()).toBeLessThan(500);\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "card",
+              "label": "replayed request and response",
+              "facts": [
+                {
+                  "label": "Field changed",
+                  "value": "End date"
+                },
+                {
+                  "label": "Value sent",
+                  "value": "2026-10-08"
+                },
+                {
+                  "label": "Rule broken",
+                  "value": "End date (2026-10-08) set before Start date (2026-10-11)"
+                },
+                {
+                  "label": "Response status",
+                  "value": "201 (the server accepted it)"
+                },
+                {
+                  "label": "Request",
+                  "value": "POST /api/bookings"
+                }
+              ],
+              "title": "POST /api/bookings with End date (2026-10-08) set before Start date (2026-10-11) → 201",
+              "subtitle": "http://localhost:3160/api/bookings (sent by Run Hound, skipping the browser's checks)",
+              "lines": [
+                "  POST http://localhost:3160/api/bookings",
+                "  content-type: application/json",
+                "  ",
+                "  {",
+                "    \"petName\": \"name 6d779656replay\",",
+                "    \"petType\": \"dog\",",
+                "    \"startDate\": \"2026-10-11\",",
+                ">   \"endDate\": \"2026-10-08\",",
+                "    \"ownerEmail\": \"owner.6d779656replay@example.test\",",
+                "    \"phone\": \"+1 555 0182 110\",",
+                "    \"instructions\": \"\"",
+                "  }",
+                "  ",
+                "> Response 201 (accepted)",
+                "  {",
+                "    \"id\": \"37b0bb38-28d6-40b6-a2e1-d30dfe390b8b\",",
+                "    \"petName\": \"name 6d779656replay\",",
+                "    \"petType\": \"dog\",",
+                "    \"startDate\": \"2026-10-11\",",
+                ">   \"endDate\": \"2026-10-08\",",
+                "    \"ownerEmail\": \"owner.6d779656replay@example.test\",",
+                "    \"phone\": \"+1 555 0182 110\",",
+                "    \"instructions\": \"\",",
+                "    \"createdAt\": \"2026-09-27T15:36:09.055Z\"",
+                "  }"
+              ],
+              "artifact": "029-replayed-request-and-response.png",
+              "asset": "assets/runs/0.6.0/kennel/client-only-validation-card-1.png",
+              "width": 960,
+              "height": 793
+            },
+            {
+              "kind": "network",
+              "label": "Replayed POST http://localhost:3160/api/bookings with End date (2026-10-08) set before Start date (2026-10-11) → 201",
+              "data": {
+                "method": "POST",
+                "url": "http://localhost:3160/api/bookings",
+                "change": "End date (2026-10-08) set before Start date (2026-10-11)",
+                "requestBody": "{\"petName\":\"name 6d779656replay\",\"petType\":\"dog\",\"startDate\":\"2026-10-11\",\"endDate\":\"2026-10-08\",\"ownerEmail\":\"owner.6d779656replay@example.test\",\"phone\":\"+1 555 0182 110\",\"instructions\":\"\"}",
+                "status": 201,
+                "responseBody": "{\"id\":\"37b0bb38-28d6-40b6-a2e1-d30dfe390b8b\",\"petName\":\"name 6d779656replay\",\"petType\":\"dog\",\"startDate\":\"2026-10-11\",\"endDate\":\"2026-10-08\",\"ownerEmail\":\"owner.6d779656replay@example.test\",\"phone\":\"+1 555 0182 110\",\"instructions\":\"\",\"createdAt\":\"2026-09-27T15:36:09.055Z\"}"
+              }
+            }
+          ]
+        },
+        {
+          "id": "page-controls#page-controls:click-outside-forms-1",
+          "checkId": "page-controls",
+          "scenarioId": "page-controls:click-outside-forms",
+          "featured": true,
+          "title": "\"Refresh\" button does nothing",
+          "severity": "high",
+          "confidence": "confirmed",
+          "meaning": "Clicking \"Refresh\" has no visible or hidden effect: nothing is saved, nothing changes on the page, no request is sent and focus does not move. The button looks like it works but is not connected to anything.",
+          "impact": "People who click \"Refresh\" think it worked (or keep clicking) and lose whatever they expected it to do for them.",
+          "fix": "Ask your AI or developer: \"The Refresh button (#root > div > main > div:nth-of-type(2) > div:nth-of-type(2) > section:nth-of-type(1) > div:nth-of-type(1) > button) has no working click handler. Connect it to the intended action and show a confirmation when it succeeds.\"",
+          "location": "\"Refresh\" button",
+          "scope": "Whole page",
+          "spec": {
+            "filename": "page-controls-refresh-does-something-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Exported by Run Hound. Runs on its own: npx playwright test <this file>\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"clicking \\\"Refresh\\\" does something\", async ({ page }) => {\n  await page.goto(TARGET);\n  // The same reactions Run Hound looks for: DOM, storage, URL, field values, a request, or focus moving elsewhere.\n  const snapshot = () =>\n    page.evaluate(() =>\n      JSON.stringify([\n        document.body.innerHTML,\n        { ...localStorage },\n        { ...sessionStorage },\n        location.href,\n        [...document.querySelectorAll(\"input, select, textarea\")].map((e) => { const i = e as HTMLInputElement; return i.type === \"checkbox\" || i.type === \"radio\" ? i.checked : i.value; }),\n      ]),\n    );\n  {\n    const control = page.getByRole(\"button\", { name: \"Refresh\", exact: true });\n    // Let the page finish loading first, so its own loading isn't mistaken for the click's effect.\n    await page.waitForLoadState(\"networkidle\");\n    await control.waitFor();\n    const requests: string[] = [];\n    page.on(\"request\", (r) => requests.push(r.url()));\n    const before = await snapshot();\n    await page.evaluate(() => { (window as unknown as { focusBefore: Element | null }).focusBefore = document.activeElement; });\n    await control.click();\n    await page.waitForTimeout(1500);\n    const after = await snapshot();\n    const focusMoved = await control.evaluate((c) => { const a = document.activeElement; return !!a && a !== c && a !== document.body && a !== (window as unknown as { focusBefore: Element | null }).focusBefore; });\n    expect(after !== before || requests.length > 0 || focusMoved, \"\\\"Refresh\\\" should change something\").toBe(true);\n  }\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "gif",
+              "label": "clicking Refresh does nothing",
+              "step": "Before clicking \"Refresh\" → 1.5 s after clicking \"Refresh\"",
+              "facts": [
+                {
+                  "label": "Control",
+                  "value": "\"Refresh\" button, visible and enabled"
+                },
+                {
+                  "label": "Watched for",
+                  "value": "1500 ms after the click"
+                },
+                {
+                  "label": "Requests sent",
+                  "value": "0"
+                },
+                {
+                  "label": "DOM changes",
+                  "value": "0"
+                },
+                {
+                  "label": "Storage changes",
+                  "value": "0"
+                },
+                {
+                  "label": "Focus or value changes",
+                  "value": "0"
+                },
+                {
+                  "label": "Navigation",
+                  "value": "none"
+                }
+              ],
+              "frames": 2,
+              "durationMs": 3400,
+              "markers": [
+                {
+                  "label": "About to click \"Refresh\"",
+                  "box": {
+                    "x": 787,
+                    "y": 368,
+                    "width": 75,
+                    "height": 26
+                  }
+                },
+                {
+                  "label": "Clicked: nothing happened",
+                  "box": {
+                    "x": 787,
+                    "y": 47,
+                    "width": 75,
+                    "height": 26
+                  }
+                }
+              ],
+              "artifact": "030-clicking-refresh-does-nothing.gif",
+              "asset": "assets/runs/0.6.0/kennel/page-controls-gif-1.gif",
+              "width": 1200,
+              "height": 664
+            },
+            {
+              "kind": "dom",
+              "label": "Clicked \"Refresh\" and watched for 1500 ms",
+              "data": {
+                "observed": "no request, navigation, DOM change, storage change, value change or focus change"
+              }
+            }
+          ]
+        },
+        {
+          "id": "bundle-secrets#1",
+          "checkId": "bundle-secrets",
+          "scenarioId": "bundle-secrets:scan-scripts",
+          "featured": true,
+          "title": "Secret key shipped to every visitor: an AI provider secret key (sk-…)",
+          "severity": "critical",
+          "confidence": "confirmed",
+          "meaning": "The page's JavaScript contains an AI provider secret key (sk-…). Anything in the page's scripts can be read by anyone who opens the site, so this key is effectively public. It was found in http://localhost:3160/config/ai-client.js (line 6).",
+          "impact": "Anyone can copy the key and use it as you: run up bills on your account, read or change your data, or bypass your security rules.",
+          "fix": "Remove the key from the frontend code and move the call that needs it to your server (or an edge function). Then revoke the key and create a new one, because the old one has already been exposed.",
+          "location": "http://localhost:3160/config/ai-client.js",
+          "scope": "Whole page",
+          "spec": {
+            "filename": "bundle-secrets-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Generated by Run Hound (bundle-secrets). Fails while the problem is present.\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"no openai-key in http://localhost:3160/config/ai-client.js\", async ({ page }) => {\n  await page.goto(TARGET, { waitUntil: \"networkidle\" });\n  const res = await page.request.get(\"http://localhost:3160/config/ai-client.js\");\n  const text = await res.text();\n  expect(text).not.toMatch(new RegExp(\"sk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}\"));\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "network",
+              "label": "Script containing the key (value redacted)",
+              "data": {
+                "script": "http://localhost:3160/config/ai-client.js",
+                "foundIn": [
+                  "http://localhost:3160/config/ai-client.js"
+                ],
+                "kind": "openai-key",
+                "preview": "sk-p…(44 chars)",
+                "line": 6,
+                "column": 12
+              }
+            },
+            {
+              "kind": "card",
+              "label": "openai-key in the page's JavaScript",
+              "facts": [
+                {
+                  "label": "Script",
+                  "value": "http://localhost:3160/config/ai-client.js"
+                },
+                {
+                  "label": "Line",
+                  "value": "6"
+                },
+                {
+                  "label": "Column",
+                  "value": "12"
+                },
+                {
+                  "label": "Key type",
+                  "value": "openai-key"
+                },
+                {
+                  "label": "Key (redacted)",
+                  "value": "sk-p…(44 chars)"
+                }
+              ],
+              "title": "AI provider secret key (sk-…) in /config/ai-client.js",
+              "subtitle": "http://localhost:3160/config/ai-client.js (line 6, column 12)",
+              "firstLineNumber": 2,
+              "lines": [
+                "  // The key is obviously FAKE and only exists so Run Hound's bundle-secrets check has something to find.",
+                "  window.kennelAssistant = {",
+                "    provider: \"openai-compatible\",",
+                "    model: \"gpt-demo\",",
+                ">   apiKey: \"[REDACTED:openai-key]\",",
+                "  };",
+                "  "
+              ],
+              "artifact": "031-openai-key-in-the-page-s-javascript.png",
+              "asset": "assets/runs/0.6.0/kennel/bundle-secrets-card-1.png",
+              "width": 960,
+              "height": 377
+            }
+          ]
+        },
+        {
+          "id": "bundle-secrets#2",
+          "checkId": "bundle-secrets",
+          "scenarioId": "bundle-secrets:scan-scripts",
+          "featured": false,
+          "title": "Supabase service_role key is shipped to every visitor",
+          "severity": "critical",
+          "confidence": "confirmed",
+          "location": "http://localhost:3160/config/supabase-client.js"
+        },
+        {
+          "id": "pii-leak#1",
+          "checkId": "pii-leak",
+          "scenarioId": "pii-leak:canary-submit",
+          "featured": true,
+          "title": "Customer email address sent to a third party (localhost:3161)",
+          "severity": "high",
+          "confidence": "confirmed",
+          "meaning": "After the form is submitted, the page sends the customer's email address to localhost:3161, a different site from yours.",
+          "impact": "Customers' personal data is shared with another company without them knowing. That can break privacy laws (GDPR, CCPA) and your own privacy policy, and localhost:3161 may store or resell it.",
+          "fix": "Stop sending the email address to localhost:3161: remove it from the tracking or analytics call (URL and body) and send only an event name or an anonymous id.",
+          "location": "Request to localhost:3161",
+          "scope": "Book a sitter form",
+          "spec": {
+            "filename": "pii-leak-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Generated by Run Hound (pii-leak). Fails while the problem is present.\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"email address is not sent to localhost:3161\", async ({ page }) => {\n  await page.goto(TARGET, { waitUntil: \"networkidle\" });\n  // Any request to another origin than the app (not only localhost:3161) must not carry the value.\n  const backends: string[] = [];\n  const leaks: string[] = [];\n  const decode = (text: string) => {\n    try {\n      return decodeURIComponent(text);\n    } catch {\n      return text;\n    }\n  };\n  page.on(\"request\", (req) => {\n    const text = req.url() + \" \" + decode(req.url()) + \" \" + (req.postData() ?? \"\");\n    const origin = new URL(req.url()).origin;\n    if (origin !== new URL(TARGET).origin && !backends.includes(origin) && text.includes(\"runhound-6d779656@example.com\")) leaks.push(req.url());\n  });\n  await page.getByLabel(\"Pet name\", { exact: true }).fill(\"Rh 6d779656\");\n  await page.getByText(\"Dog\", { exact: true }).first().click(); // Pet type\n  await page.getByLabel(\"Start date\", { exact: true }).fill(\"2026-10-27\");\n  await page.getByLabel(\"End date\", { exact: true }).fill(\"2026-10-30\");\n  await page.getByLabel(\"Owner email\", { exact: true }).fill(\"runhound-6d779656@example.com\");\n  await page.getByPlaceholder(\"Phone\", { exact: true }).or(page.getByLabel(\"Phone\", { exact: true })).first().fill(\"5556748419\");\n  await page.getByLabel(\"Special instructions\", { exact: true }).fill(\"Run Hound test 6d779656\");\n  await page.getByRole(\"button\", { name: \"Book\", exact: true }).click();\n  await page.waitForLoadState(\"networkidle\");\n  await page.waitForTimeout(1500);\n  expect(leaks).toEqual([]);\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "card",
+              "label": "GET to localhost:3161 with the email address",
+              "facts": [
+                {
+                  "label": "Third-party origin",
+                  "value": "http://localhost:3161"
+                },
+                {
+                  "label": "Found in",
+                  "value": "URL query string"
+                },
+                {
+                  "label": "Hashed",
+                  "value": "no, plain text"
+                },
+                {
+                  "label": "Test email address",
+                  "value": "runhound-6d779656@example.com"
+                }
+              ],
+              "title": "GET localhost:3161/collect: carries the customer's email address",
+              "subtitle": "Third-party request sent after submitting the form. Marked: the email address as plain text.",
+              "lines": [
+                "  GET http://localhost:3161/collect",
+                "      ?event=booking_created",
+                ">     &email=runhound-6d779656@example.com"
+              ],
+              "artifact": "034-get-to-localhost-3161-with-the-email-address.png",
+              "asset": "assets/runs/0.6.0/kennel/pii-leak-card-1.png",
+              "width": 960,
+              "height": 297
+            },
+            {
+              "kind": "frame",
+              "label": "Form at submit with the test values",
+              "step": "Submit the form with test values",
+              "facts": [
+                {
+                  "label": "Test email",
+                  "value": "runhound-6d779656@example.com"
+                },
+                {
+                  "label": "Test phone",
+                  "value": "5556748419"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "Test email address",
+                  "box": {
+                    "x": 113,
+                    "y": 913,
+                    "width": 280,
+                    "height": 46
+                  }
+                },
+                {
+                  "label": "Test phone number",
+                  "box": {
+                    "x": 409,
+                    "y": 884,
+                    "width": 280,
+                    "height": 46
+                  }
+                },
+                {
+                  "label": "Submitted next",
+                  "box": {
+                    "x": 113,
+                    "y": 1390,
+                    "width": 136,
+                    "height": 48
+                  }
+                }
+              ],
+              "artifact": "033-form-at-submit-with-the-test-values.png",
+              "asset": "assets/runs/0.6.0/kennel/pii-leak-frame-1.png",
+              "width": 1640,
+              "height": 1641
+            },
+            {
+              "kind": "network",
+              "label": "GET to localhost:3161: email address as plain text in the URL",
+              "data": {
+                "method": "GET",
+                "url": "http://localhost:3161/collect?event=booking_created&email=runhound-6d779656%40example.com",
+                "where": "URL",
+                "encoding": "as plain text",
+                "body": null
+              }
+            },
+            {
+              "kind": "note",
+              "label": "Test values used",
+              "data": {
+                "email": "runhound-6d779656@example.com",
+                "phone": "5556748419",
+                "thirdPartyHost": "localhost:3161"
+              }
+            }
+          ]
+        },
+        {
+          "id": "verbose-errors#oversized-and-malformed-1",
+          "checkId": "verbose-errors",
+          "scenarioId": "oversized-and-malformed",
+          "featured": false,
+          "title": "The server returns a stack trace in its error response",
+          "severity": "medium",
+          "confidence": "confirmed",
+          "location": "POST /api/bookings"
+        },
+        {
+          "id": "security-headers#1",
+          "checkId": "security-headers",
+          "scenarioId": "security-headers:response-headers",
+          "featured": true,
+          "title": "3 security header problems (Content-Security-Policy, Clickjacking protection, X-Content-Type-Options)",
+          "severity": "medium",
+          "confidence": "confirmed",
+          "meaning": "The page's response is missing protections that browsers only apply when the server asks for them: Content-Security-Policy missing; Clickjacking protection (frame-ancestors or X-Frame-Options) missing; X-Content-Type-Options missing.",
+          "impact": "Without them, nothing limits which scripts the page may run, so a single injected script (XSS) can do anything a signed-in user can; and any website can load this page in an invisible frame and trick people into clicking its buttons (clickjacking); and browsers may guess a file's type, so an uploaded or user-supplied file can be run as a script.",
+          "fix": "Ask your AI or developer: \"Send these response headers on every page (in the server, framework config or hosting config): Content-Security-Policy: default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; X-Content-Type-Options: nosniff. Check the app still loads its scripts, styles and API calls with the new Content-Security-Policy.\"",
+          "location": "Response headers of GET /book",
+          "locations": [
+            "Content-Security-Policy",
+            "Clickjacking protection (frame-ancestors or X-Frame-Options)",
+            "X-Content-Type-Options"
+          ],
+          "scope": "Whole page",
+          "spec": {
+            "filename": "security-headers-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Generated by Run Hound (security-headers). Fails while the problem is present.\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"the page sends security headers\", async ({ page }) => {\n  await page.goto(TARGET, { waitUntil: \"networkidle\" });\n  const response = await page.reload();\n  const headers = response!.headers();\n  expect(headers[\"content-security-policy\"], \"Content-Security-Policy should be set\").toBeTruthy();\n  expect(/frame-ancestors/.test(headers[\"content-security-policy\"] ?? \"\") || /^(DENY|SAMEORIGIN)$/i.test(headers[\"x-frame-options\"] ?? \"\"), \"the page should refuse to be framed by other sites\").toBe(true);\n  expect(headers[\"x-content-type-options\"], \"X-Content-Type-Options should be nosniff\").toBe(\"nosniff\");\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "card",
+              "label": "security headers of the page",
+              "facts": [
+                {
+                  "label": "Problems",
+                  "value": "3"
+                },
+                {
+                  "label": "Page",
+                  "value": "http://localhost:3160/book"
+                },
+                {
+                  "label": "Dev server",
+                  "value": "no"
+                }
+              ],
+              "title": "GET /book → 200",
+              "subtitle": "Response headers of the page (missing ones listed at the end)",
+              "lines": [
+                "  cache-control: no-store",
+                "  connection: keep-alive",
+                "  content-length: 752",
+                "  content-type: text/html; charset=utf-8",
+                "  date: Sun, 27 Sep 2026 15:36:18 GMT",
+                "  keep-alive: timeout=5",
+                "  set-cookie: kennel_session=… (value hidden); Path=/; SameSite=Lax",
+                "  ",
+                "> ✗ Content-Security-Policy: missing",
+                "> ✗ Clickjacking protection (frame-ancestors or X-Frame-Options): missing",
+                "> ✗ X-Content-Type-Options: missing"
+              ],
+              "artifact": "036-security-headers-of-the-page.png",
+              "asset": "assets/runs/0.6.0/kennel/security-headers-card-1.png",
+              "width": 960,
+              "height": 457
+            }
+          ]
+        },
+        {
+          "id": "cookie-flags#1",
+          "checkId": "cookie-flags",
+          "scenarioId": "cookie-flags:session-cookies",
+          "featured": true,
+          "title": "Session cookie \"kennel_session\" has no HttpOnly",
+          "severity": "high",
+          "confidence": "confirmed",
+          "meaning": "\"kennel_session\": any script on the page can read it.",
+          "impact": "A session cookie is the key to someone's account. If a script can read it, one injected script (XSS) can steal every visitor's session and sign in as them.",
+          "fix": "Ask your AI or developer: \"Set the session cookie \"kennel_session\" from the server with HttpOnly; SameSite=Lax; Secure (Secure in production). Never write session tokens with document.cookie or keep them in localStorage.\"",
+          "location": "Cookie \"kennel_session\"",
+          "locations": [
+            "Cookie \"kennel_session\""
+          ],
+          "scope": "Whole page",
+          "spec": {
+            "filename": "cookie-flags-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Generated by Run Hound (cookie-flags). Fails while the problem is present.\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"session cookies are HttpOnly\", async ({ page }) => {\n  await page.goto(TARGET, { waitUntil: \"networkidle\" });\n  const cookies = await page.context().cookies();\n  expect(cookies.find((c) => c.name === \"kennel_session\")?.httpOnly, \"kennel_session should be HttpOnly\").toBe(true);\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "card",
+              "label": "session cookies without protection",
+              "facts": [
+                {
+                  "label": "kennel_session",
+                  "value": "missing HttpOnly"
+                },
+                {
+                  "label": "Dev server",
+                  "value": "no"
+                }
+              ],
+              "title": "Cookies after loading the page (1)",
+              "subtitle": "Values hidden; flags as the browser stored them",
+              "lines": [
+                "> kennel_session=… (36 chars)  no HttpOnly; no Secure; SameSite=Lax; Path=/"
+              ],
+              "artifact": "037-session-cookies-without-protection.png",
+              "asset": "assets/runs/0.6.0/kennel/cookie-flags-card-1.png",
+              "width": 960,
+              "height": 257
+            }
+          ]
+        },
+        {
+          "id": "cors#1",
+          "checkId": "cors",
+          "scenarioId": "cors:foreign-origin",
+          "featured": true,
+          "title": "2 endpoints let any website read them with the visitor's cookies",
+          "severity": "high",
+          "confidence": "confirmed",
+          "meaning": "Asked from a sandboxed frame (Origin: null, which any website can produce), the app answered with Access-Control-Allow-Origin: null and Access-Control-Allow-Credentials: true. The browser therefore lets every website read GET /api/__config, GET /api/bookings.",
+          "impact": "Any website a signed-in user visits can quietly call these endpoints with the user's cookies and read the answers: their data, their account details, anything the app returns.",
+          "fix": "Ask your AI or developer: \"Our CORS setup trusts the 'null' origin (it echoes the request's Origin with Access-Control-Allow-Credentials: true). Only allow our own front-end origins (an explicit list), never echo the request's Origin, never allow 'null', and only send Access-Control-Allow-Credentials for origins on that list.\"",
+          "location": "GET /api/__config",
+          "locations": [
+            "GET /api/__config",
+            "GET /api/bookings"
+          ],
+          "scope": "Whole page",
+          "spec": {
+            "filename": "cors-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Generated by Run Hound (cors). Fails while the problem is present.\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"the API doesn't trust unknown websites\", async ({ page }) => {\n  await page.goto(TARGET, { waitUntil: \"networkidle\" });\n  // A request as a sandboxed frame on any website sends it.\n  {\n    const r = await page.request.get(\"http://localhost:3160/api/__config\", { headers: { Origin: \"null\" } });\n    expect(r.headers()[\"access-control-allow-origin\"] ?? \"\", \"must not trust the null origin\").not.toBe(\"null\");\n  }\n  {\n    const r = await page.request.get(\"http://localhost:3160/api/bookings\", { headers: { Origin: \"null\" } });\n    expect(r.headers()[\"access-control-allow-origin\"] ?? \"\", \"must not trust the null origin\").not.toBe(\"null\");\n  }\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "card",
+              "label": "answers that other websites may read",
+              "facts": [
+                {
+                  "label": "Origin sent",
+                  "value": "null"
+                },
+                {
+                  "label": "Requests",
+                  "value": "3"
+                },
+                {
+                  "label": "Readable by any site",
+                  "value": "2"
+                },
+                {
+                  "label": "Dev server",
+                  "value": "no"
+                }
+              ],
+              "title": "GET from a sandboxed frame (Origin: null)",
+              "subtitle": "Each request was sent by the browser from a sandboxed frame, as any website can send it",
+              "lines": [
+                "  GET /api/__config → 200",
+                ">   access-control-allow-origin: null",
+                ">   access-control-allow-credentials: true",
+                "  GET /api/bookings → 200",
+                ">   access-control-allow-origin: null",
+                ">   access-control-allow-credentials: true",
+                "  GET /book → blocked by the browser (not readable)",
+                "    access-control-allow-origin: (not sent)",
+                "    access-control-allow-credentials: (not sent)"
+              ],
+              "artifact": "038-answers-that-other-websites-may-read.png",
+              "asset": "assets/runs/0.6.0/kennel/cors-card-1.png",
+              "width": 960,
+              "height": 417
+            }
+          ]
+        },
+        {
+          "id": "source-maps#1",
+          "checkId": "source-maps",
+          "scenarioId": "source-maps:public-maps",
+          "featured": true,
+          "title": "Source map is public, with the original source code (/assets/index-CaF1WP60.js)",
+          "severity": "medium",
+          "confidence": "confirmed",
+          "meaning": "Anyone can download a source map for the app's scripts, which contain the original, unminified source code (\"../../../../node_modules/react/cjs/react.production.js\", \"../../../../node_modules/react/index.js\", \"../../../../node_modules/scheduler/cjs/scheduler.production.js\" and \"../../../../node_modules/scheduler/index.js\").",
+          "impact": "Readable source makes it much easier to find weak spots: hidden admin routes, API endpoints, feature flags, comments and any keys left in the code. Production sites usually keep source maps private or upload them only to their error tracker.",
+          "fix": "Ask your AI or developer: \"Stop serving source maps publicly in production: turn them off in the build (Vite: build.sourcemap false or 'hidden'; Next.js: productionBrowserSourceMaps false), or upload them to the error tracker and block *.map on the server.\"",
+          "location": "http://localhost:3160/assets/index-CaF1WP60.js.map",
+          "locations": [
+            "http://localhost:3160/assets/index-CaF1WP60.js.map"
+          ],
+          "scope": "Whole page",
+          "spec": {
+            "filename": "source-maps-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Generated by Run Hound (source-maps). Fails while the problem is present.\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"source maps are not public\", async ({ page }) => {\n  await page.goto(TARGET, { waitUntil: \"networkidle\" });\n  expect((await page.request.get(\"http://localhost:3160/assets/index-CaF1WP60.js.map\", { maxRedirects: 0 })).status(), \"http://localhost:3160/assets/index-CaF1WP60.js.map should not be public\").not.toBe(200);\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "card",
+              "label": "public source maps",
+              "facts": [
+                {
+                  "label": "Scripts checked",
+                  "value": "3"
+                },
+                {
+                  "label": "Public maps",
+                  "value": "1"
+                },
+                {
+                  "label": "With source code",
+                  "value": "1"
+                }
+              ],
+              "title": "1 public source map",
+              "subtitle": "Downloaded from inside the page, no redirects followed",
+              "lines": [
+                "> http://localhost:3160/assets/index-CaF1WP60.js.map",
+                "    for http://localhost:3160/assets/index-CaF1WP60.js (guessed (<script>.map))",
+                "    13 source files, with their full source code",
+                "      ../../../../node_modules/react/cjs/react.production.js",
+                "      ../../../../node_modules/react/index.js",
+                "      ../../../../node_modules/scheduler/cjs/scheduler.production.js",
+                "      ../../../../node_modules/scheduler/index.js"
+              ],
+              "artifact": "039-public-source-maps.png",
+              "asset": "assets/runs/0.6.0/kennel/source-maps-card-1.png",
+              "width": 960,
+              "height": 377
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "runId": "20260928-114630-d50ea1",
+      "runHoundVersion": "0.6.0",
+      "target": "http://localhost:3160/book",
+      "startedAt": "2026-09-28T11:46:30.672Z",
+      "durationMs": 845,
+      "signedIn": null,
+      "form": {
+        "name": "Book a sitter",
+        "fieldCount": 9,
+        "fields": [
+          {
+            "label": "Pet name",
+            "type": "text"
+          },
+          {
+            "label": "Pet type",
+            "type": "custom"
+          },
+          {
+            "label": "Start date",
+            "type": "date"
+          },
+          {
+            "label": "End date",
+            "type": "date"
+          },
+          {
+            "label": "Owner email",
+            "type": "email"
+          },
+          {
+            "label": null,
+            "type": "tel"
+          },
+          {
+            "label": "Special instructions",
+            "type": "textarea"
+          },
+          {
+            "label": "Password",
+            "type": "password"
+          },
+          {
+            "label": "Confirm password",
+            "type": "password"
+          }
+        ]
+      },
+      "planned": 20,
+      "approved": 1,
+      "summary": {
+        "critical": 0,
+        "high": 0,
+        "medium": 1,
+        "low": 0,
+        "passed": 0,
+        "failed": 1,
+        "errored": 0,
+        "skipped": 0
+      },
+      "scenarios": [
+        {
+          "id": "oversized-and-malformed",
+          "checkId": "verbose-errors",
+          "title": "Send oversized and malformed input",
+          "status": "fail",
+          "note": "Checked 2 responses and the page text.",
+          "steps": [
+            "Filling free-text fields with far too much text",
+            "Submitting the oversized input",
+            "Replaying POST /api/bookings with a malformed body",
+            "Scanning the responses and the page for stack traces and file paths"
+          ]
+        }
+      ],
+      "findings": [
+        {
+          "id": "verbose-errors#oversized-and-malformed-1",
+          "checkId": "verbose-errors",
+          "scenarioId": "oversized-and-malformed",
+          "featured": true,
+          "title": "The server returns a stack trace in its error response",
+          "severity": "medium",
+          "confidence": "confirmed",
+          "meaning": "The server answers bad input with its internal error details (code locations and file paths). Even if the page hides it, anyone can read the response.",
+          "impact": "Attackers learn your file layout, libraries and code paths, which helps them find weaknesses.",
+          "fix": "Ask your AI or developer: \"In the /api/bookings handler, validate input and return 400 with friendly messages; catch unexpected errors and return a generic 500 without the stack.\"",
+          "location": "POST /api/bookings",
+          "scope": "Book a sitter form",
+          "spec": {
+            "filename": "verbose-errors-response-hides-internals-1.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Exported by Run Hound. Runs on its own: npx playwright test <this file>\nconst TARGET = \"http://localhost:3160/book\";\n\ntest(\"error responses never include internal details\", async ({ page }) => {\n  await page.goto(TARGET);\n  const bodies: string[] = [];\n  page.on(\"response\", async (r) => { if (r.request().method() !== \"GET\") bodies.push(await r.text().catch(() => \"\")); });\n  await page.getByLabel(\"Pet name\", { exact: true }).fill(\"name e823b0c6verbose xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\");\n  await page.getByText(\"Dog\", { exact: true }).first().click(); // Pet type\n  await page.getByLabel(\"Start date\", { exact: true }).fill(\"2026-10-12\");\n  await page.getByLabel(\"End date\", { exact: true }).fill(\"2026-10-15\");\n  await page.getByLabel(\"Owner email\", { exact: true }).fill(\"owner.e823b0c6verbose@example.test\");\n  await page.getByPlaceholder(\"Phone\", { exact: true }).or(page.getByLabel(\"Phone\", { exact: true })).first().fill(\"+1 555 0122 635 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\");\n  await page.getByLabel(\"Special instructions\", { exact: true }).fill(\"Feed twice a day, note e823b0c6verbose xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\");\n  await page.getByLabel(\"Password\", { exact: true }).fill(\"Fake-Passw0rd-e823b0c6verbose!\");\n  await page.getByLabel(\"Confirm password\", { exact: true }).fill(\"Fake-Passw0rd-e823b0c6verbose!\");\n  await page.getByRole(\"button\", { name: \"Book\", exact: true }).click();\n  await page.waitForLoadState(\"networkidle\");\n  for (const body of bodies) expect(body).not.toMatch(/\\bat\\s.*\\/\\S+:\\d+(:\\d+)?|node:internal\\//);\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "card",
+              "label": "error response with internals",
+              "facts": [
+                {
+                  "label": "Status",
+                  "value": "500"
+                },
+                {
+                  "label": "Request",
+                  "value": "POST /api/bookings (form submitted with oversized input)"
+                },
+                {
+                  "label": "Matched pattern",
+                  "value": "stack trace"
+                },
+                {
+                  "label": "Matched text",
+                  "value": "at validateBooking (file:///kennel/server/index.mjs:209:39)"
+                }
+              ],
+              "title": "POST /api/bookings → 500: stack trace in the response",
+              "subtitle": "http://localhost:3160/api/bookings (form submitted with oversized input)",
+              "lines": [
+                "  POST http://localhost:3160/api/bookings",
+                "  {",
+                "    \"petName\": \"name e823b0c6verbose xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx… (2037 characters)",
+                "    \"petType\": \"dog\",",
+                "    \"startDate\": \"2026-10-12\",",
+                "    \"endDate\": \"2026-10-15\",",
+                "    \"ownerEmail\": \"owner.e823b0c6verbose@example.test\",",
+                "    \"phone\": \"+1 555 0122 635 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx… (230 characters)",
+                "    \"instructions\": \"\"",
+                "  }",
+                "  ",
+                "  Response 500",
+                "  {\"error\":\"Something went wrong\",\"stack\":\"Error: Cannot normalise booking: petName, phone",
+                ">     at validateBooking (file:///kennel/server/index.mjs:209:39)",
+                "      at createBooking (file:///kennel/server/index.mjs:224:18)",
+                "      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+                "      at async Server.<anonymous> (file:///kennel/server/index.mjs:320:50)\"}"
+              ],
+              "artifact": "001-error-response-with-internals.png",
+              "asset": "assets/runs/0.6.0/kennel/verbose-errors-card-1.png",
+              "width": 960,
+              "height": 713
+            },
+            {
+              "kind": "network",
+              "label": "POST http://localhost:3160/api/bookings → 500",
+              "data": {
+                "method": "POST",
+                "url": "http://localhost:3160/api/bookings",
+                "status": 500,
+                "excerpt": "{\"error\":\"Something went wrong\",\"stack\":\"Error: Cannot normalise booking: petName, phone\n    at validateBooking (file:///kennel/server/index.mjs:209:39)\n    at createBooking (file:///kennel/server/index.mjs:224:18)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async Server.<anonymous> (file:///kennel/server/index.mjs:320:50)\"}"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "crops": [
+    {
+      "id": "double-submit-bookings",
+      "runId": "20260927-153524-2d830d",
+      "findingId": "double-submit#double-click-submit-1",
+      "artifact": "027-double-click-book.gif",
+      "frame": 2,
+      "source": {
+        "width": 1200,
+        "height": 664
+      },
+      "box": {
+        "x": 580,
+        "y": 242,
+        "width": 304,
+        "height": 148
+      },
+      "pageWidth": 1280,
+      "pageScale": 0.7317,
+      "asset": "assets/runs/0.6.0/kennel/double-submit-bookings.png",
+      "width": 304,
+      "height": 148
+    }
+  ]
+}

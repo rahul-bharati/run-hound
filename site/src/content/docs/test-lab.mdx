@@ -1,0 +1,83 @@
+The test lab is Run Hound with a set of local test apps, started by one compose file. Try it on apps with planted bugs and on clean ones before you point it at your own.
+
+## Start the lab \{#start\}
+
+You need Docker with Compose, or Podman with podman-compose, and an empty folder. The first start downloads about 0.5 GB of images:
+
+<Shell block="lab" label="The test lab, from an empty folder" />
+
+When the log prints `open http://localhost:4000`, open that address. Every port is bound to `127.0.0.1` only, and reports land in `./runs`.
+
+The same with Podman, and in Windows PowerShell:
+
+<Shell block="podmanLab" label="The test lab with Podman" />
+
+<Shell block="windowsLab" label="The test lab, Windows PowerShell" />
+
+Ports taken, or a setting to change? Every setting has a default. Put your changes in a `.env` file next to the compose file, starting from the documented example:
+
+<Shell block="labEnv" label="Optional settings" />
+
+<Shell block="windowsLabEnv" label="Optional settings, Windows PowerShell" />
+
+Every service has a health check, so the status shows when each one is ready:
+
+<Shell block="labStatus" label="Check the lab" />
+
+To stop the lab, press Ctrl+C, then remove its containers:
+
+<Shell block="labStop" label="Stop the lab" />
+
+## The apps in the lab \{#apps\}
+
+Enter these addresses in the web UI. Inside the lab, each app is reached by its service name; each is also published on `127.0.0.1`, with the ports in `.env.example`.
+
+- **Kennel**, a pet-sitting booking page with every planted bug on: `http://kennel:3000/book`.
+- **Kennel (clean)**, the same page built correctly: `http://kennel-clean:3000/book`.
+- **Fernway**, a small project-planning app built the way AI app builders build apps (Vite, React, Tailwind, Radix, sonner), clean: `http://fernway:4110/`.
+- **Fernway (bugs)**, the same app with its planted bugs on: `http://fernway-bugs:4110/`.
+- **classic-post**, a sign-up form with no JavaScript that posts and redirects: `http://classic-post:4101/signup`.
+- **spa-fetch**, a contact form that saves with fetch and lists what it saved: `http://spa-fetch:4102/`.
+- **login**, an email and password sign-in form with a show-password toggle: `http://login:4103/`.
+- **cross-origin-api**, an RSVP form whose API lives on another origin: `http://cross-origin-api:4104/`.
+- **multi-form**, three forms on one page and buttons outside them: `http://multi-form:4106/`.
+
+Kennel and Fernway with their bugs on should give findings for the planted bugs. The clean apps are built correctly on purpose, so **any confirmed finding on them is a false positive**, and worth reporting.
+
+## Try it on Kennel \{#kennel\}
+
+Trying Kennel first shows you what findings, evidence and a clean run look like. It takes about 10 minutes.
+
+1. Open `http://localhost:4000`, enter `http://kennel:3000/book` and press **Plan checks**.
+2. Read the plan: each scenario says what it does and whether it creates test records. Keep them all ticked and press **Start run**.
+3. Watch the live view: the page under test, the current scenario, the elapsed time and a log. **Stop run** stops it for real, and still writes a report.
+4. Read the report. It should show most of Kennel's planted bugs, such as a button that does nothing and a double submit. Others are a secret key in the bundle, an email sent to an analytics service and missing focus outlines.
+5. Run the clean Kennel, `http://kennel-clean:3000/book`. **It should give zero confirmed findings.** If it doesn't, please report it.
+
+The same run from the command line, in the folder with the compose file:
+
+```sh label="One run on Kennel from the command line"
+$ docker compose -f run-hound.compose.yml run --rm run-hound run http://kennel:3000/book --approve all
+```
+
+In the lab, Kennel isn't on `localhost`, so `client-only-validation` is skipped, and the report says why. Header, cookie and CORS findings on a dev server are marked advisory.
+
+From the report, **Re-run** runs the same scenarios again, and **Open HTML report** and **Download** give you the files. The **Runs** page lists every run on this machine.
+
+## Kennel from source \{#from-source\}
+
+From a clone ([Install](/docs/install/#from-source)), start Kennel and the web UI in two terminals at its root. Kennel's analytics port must differ from its own.
+
+```sh label="Terminal 1: Kennel with every bug on"
+$ KENNEL_BUGS=all PORT=5310 ANALYTICS_PORT=5311 pnpm kennel
+```
+
+```sh label="Terminal 2: the web UI"
+$ pnpm serve --port 4310
+```
+
+Open `http://localhost:4310` and enter `http://localhost:5310/book`. For the clean run, restart Kennel with `KENNEL_BUGS=none`. From the command line, in `app/`: `pnpm exec tsx src/cli.ts run http://localhost:5310/book --approve all`.
+
+## Signed in, on Fernway \{#fernway\}
+
+Fernway's signed-in pages need its two accounts as test accounts. [Signed-in runs](/docs/signed-in-runs/#fernway) walks through a run as account A, and what the access checks find there.

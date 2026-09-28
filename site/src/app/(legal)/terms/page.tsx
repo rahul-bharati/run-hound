@@ -1,6 +1,5 @@
-import Link from "next/link";
-import { LegalDoc, LegalHeading, type LegalTocItem, MailLink } from "@/components/legal/legal";
-import { legalPages } from "@/components/legal/pages";
+import { LegalDoc, LegalHeading, LegalLink, type LegalTocItem, MailLink } from "@/components/legal/legal";
+import { legalPages } from "@/content/legal";
 import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
@@ -86,7 +85,7 @@ export default function TermsPage() {
 
       <LegalHeading id="acceptable-use">Acceptable Use Policy</LegalHeading>
       <p>
-        Our <Link href="/acceptable-use">Acceptable Use Policy</Link> is part of these terms. It explains what you may
+        Our <LegalLink to="acceptable-use">Acceptable Use Policy</LegalLink> is part of these terms. It explains what you may
         test, how {site.name} is designed to enforce that, and which uses are prohibited.
       </p>
 
@@ -94,7 +93,7 @@ export default function TermsPage() {
       <p>
         Please do not attempt to disrupt the website, access it in ways that put an unreasonable load on it, or use it
         for anything unlawful. If you find a security issue, please report it as described on our{" "}
-        <Link href="/security">Security page</Link>.
+        <LegalLink to="security">Security page</LegalLink>.
       </p>
 
       <LegalHeading id="content" level={3}>Content and trademarks</LegalHeading>

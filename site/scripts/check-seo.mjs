@@ -3,11 +3,15 @@
  * prerendered page, and fails the build when a page would ship without it. Every page is prerendered, so these files
  * are exactly what visitors and crawlers get.
  *
- * For each .html under .next/server/app, except Next.js's own pages (_not-found, _global-error) and pages marked
- * noindex, the build fails when:
+ * For each .html under .next/server/app (or the NEXT_DIST_DIR build folder's), except Next.js's own pages (_not-found,
+ * _global-error), the build fails when an internal route (a path segment starting with "_", such as /_design/) isn't
+ * noindex; and for each page not marked noindex, when:
  * - a page marked noindex is listed in sitemap.xml, or (when sitemap.xml exists) an indexable page isn't listed in it
  *   or it lists a page that wasn't prerendered;
- * - the page has no <title> or meta description, or has other than one h1;
+ * - the page has no <title> or meta description, or has other than one h1, or another heading comes before the h1
+ *   (a closed dialog's h2 in the header counts: the h1 must be the first heading a screen reader or crawler meets);
+ * - the page shows a breadcrumb (nav aria-label="Breadcrumb"; aria-hidden separators are no part of a name) whose
+ *   names or links differ from its BreadcrumbList, or has none;
  * - its canonical link is missing, isn't an absolute http(s) URL ending in "/", isn't the page's own route, or (when
  *   NEXT_PUBLIC_SITE_URL is set, as in the Docker build) isn't on that address;
  * - a JSON-LD block (<script type="application/ld+json">, components/json-ld.tsx) doesn't parse, lacks "@context" or
@@ -25,16 +29,18 @@
  * than 160 characters (search results cut it) or shorter than 70 (too thin to be shown rather than replaced by text
  * from the page).
  *
- * Usage: node scripts/check-seo.mjs [--strict] [dir]   (dir: .next/server/app by default)
+ * Usage: node scripts/check-seo.mjs [--strict] [dir]   (dir: .next/server/app, or NEXT_DIST_DIR's, by default)
  */
 import { existsSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
-import { join, relative, resolve, sep } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
+// The file-to-route mapping and the HTML helpers every build guard, pagefind and the lab share.
+import { appDir, decode, htmlFiles, isFrameworkPage, routeOf, tags, visibleBreadcrumb } from "./lib/build-output.mjs";
 
 const site = join(import.meta.dirname, "..");
 const args = process.argv.slice(2);
 const strict = args.includes("--strict");
-const dir = resolve(site, args.find((arg) => !arg.startsWith("--")) ?? ".next/server/app");
+const dir = resolve(site, args.find((arg) => !arg.startsWith("--")) ?? appDir);
 // `||`, as in lib/site.ts: Docker passes an unset build arg as an empty string.
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "";
 
@@ -49,49 +55,6 @@ const ratingTypes = new Set(["AggregateRating", "Review", "Rating"]);
 
 const errors = [];
 const warnings = [];
-
-const entities = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
-function decode(text) {
-  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, entity) => {
-    if (entity[0] === "#") {
-      const code = entity[1].toLowerCase() === "x" ? parseInt(entity.slice(2), 16) : parseInt(entity.slice(1), 10);
-      return String.fromCodePoint(code);
-    }
-    return entities[entity.toLowerCase()] ?? match;
-  });
-}
-
-/** The attributes of one start tag, names lower-cased and values decoded. */
-function attributesOf(tag) {
-  const attributes = {};
-  const inside = tag.replace(/^<[a-z]+/i, "").replace(/\/?>$/, "");
-  for (const [, name, double, single, bare] of inside.matchAll(
-    /([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g,
-  )) {
-    attributes[name.toLowerCase()] = decode(double ?? single ?? bare ?? "");
-  }
-  return attributes;
-}
-
-const tags = (html, name) => [...html.matchAll(new RegExp(`<${name}\\b[^>]*>`, "gi"))].map(([tag]) => attributesOf(tag));
-
-async function* htmlFiles(folder) {
-  for (const entry of await readdir(folder, { withFileTypes: true })) {
-    const path = join(folder, entry.name);
-    if (entry.isDirectory()) yield* htmlFiles(path);
-    else if (entry.name.endsWith(".html")) yield path;
-  }
-}
-
-/** The route a prerendered file serves, with the trailing slash: index.html is "/", docs.html "/docs/". */
-function routeOf(name) {
-  const segments = name
-    .replace(/\.html$/, "")
-    .split(sep)
-    .filter((segment) => !/^\(.*\)$/.test(segment));
-  if (segments.at(-1) === "index") segments.pop();
-  return segments.length === 0 ? "/" : `/${segments.join("/")}/`;
-}
 
 const typesOf = (node) => [node["@type"]].flat().filter((type) => typeof type === "string");
 
@@ -133,8 +96,8 @@ let blocks = 0;
 
 for await (const file of htmlFiles(dir)) {
   const name = relative(dir, file);
-  // Next.js's own pages: their names start with "_", which the app directory never routes.
-  if (name.split(sep).some((segment) => segment.startsWith("_"))) continue;
+  // Next.js's own pages (the 404 and the error page) need no canonical and are never indexed.
+  if (isFrameworkPage(name)) continue;
   const html = await readFile(file, "utf8");
   const fail = (message) => errors.push(`${name}: ${message}`);
   const warn = (message) => warnings.push(`${name}: ${message}`);
@@ -147,7 +110,14 @@ for await (const file of htmlFiles(dir)) {
   const metas = tags(head, "meta");
   const robots = metas.filter((meta) => meta.name?.toLowerCase() === "robots").map((meta) => meta.content ?? "");
   const route = routeOf(name);
-  if (robots.some((content) => /\bnoindex\b/i.test(content))) {
+  const noindex = robots.some((content) => /\bnoindex\b/i.test(content));
+  // An internal route (a path segment starting with "_": /_design/ lives in app/%5Fdesign) is for reviewing the site,
+  // never for search: it must be noindex, and it stays out of the sitemap check.
+  if (route.split("/").some((segment) => segment.startsWith("_")) && !noindex) {
+    fail(`${route} is an internal route and must be noindex`);
+    continue;
+  }
+  if (noindex) {
     if (sitemapPaths.has(route)) fail(`is noindex but sitemap.xml lists ${route}`);
     continue;
   }
@@ -158,8 +128,11 @@ for await (const file of htmlFiles(dir)) {
   if (!title) fail("no <title>");
   else if (title.length > 60) warn(`title is ${title.length} characters (at most 60)`);
   // Outside scripts, so text in the RSC payload can't count.
-  const h1s = html.replace(/<script\b[\s\S]*?<\/script\s*>/gi, "").match(/<h1\b/gi)?.length ?? 0;
+  const withoutScripts = html.replace(/<script\b[\s\S]*?<\/script\s*>/gi, "");
+  const h1s = withoutScripts.match(/<h1\b/gi)?.length ?? 0;
   if (h1s !== 1) fail(`${h1s} h1 elements, not 1`);
+  const firstHeading = withoutScripts.match(/<h([1-6])\b/i)?.[1];
+  if (h1s > 0 && firstHeading !== "1") fail(`the first heading is an h${firstHeading}, not the h1`);
   const description = metas.find((meta) => meta.name?.toLowerCase() === "description")?.content?.trim();
   if (!description) fail("no meta description");
   else if (description.length > 160) warn(`meta description is ${description.length} characters (at most about 155)`);
@@ -194,6 +167,7 @@ for await (const file of htmlFiles(dir)) {
 
   let pageBlocks = 0;
   let pageNodes = 0;
+  let breadcrumbList;
   for (const [, attributes, body] of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
     if (!/\btype\s*=\s*["']?application\/ld\+json/i.test(attributes)) continue;
     pageBlocks += 1;
@@ -238,6 +212,7 @@ for await (const file of htmlFiles(dir)) {
       if (origin && types.includes("WebSite") && node.url !== `${origin}/`) {
         fail(`${block}: the WebSite url ${JSON.stringify(node.url)} is not the home page ${origin}/`);
       }
+      if (types.includes("BreadcrumbList")) breadcrumbList = node;
       if (canonical && types.includes("BreadcrumbList")) {
         const last = [node.itemListElement].flat().at(-1)?.item;
         const lastUrl = last && typeof last === "object" ? (last["@id"] ?? last.url) : last;
@@ -249,6 +224,27 @@ for await (const file of htmlFiles(dir)) {
       if ("aggregateRating" in node || "review" in node || types.some((type) => ratingTypes.has(type))) {
         fail(`${block}: a rating or review (the site has none; lib/structured-data.ts)`);
       }
+    }
+  }
+  const visible = visibleBreadcrumb(withoutScripts);
+  if (visible && !breadcrumbList) fail("a visible breadcrumb but no BreadcrumbList");
+  else if (visible) {
+    const items = [breadcrumbList.itemListElement].flat();
+    const names = items.map((item) => item?.name);
+    if (JSON.stringify(visible.map((crumb) => crumb.name)) !== JSON.stringify(names)) {
+      fail(`the visible breadcrumb ${JSON.stringify(visible.map((crumb) => crumb.name))} is not the BreadcrumbList ${JSON.stringify(names)}`);
+    } else {
+      visible.forEach((crumb, i) => {
+        const item = items[i]?.item;
+        const value = item && typeof item === "object" ? (item["@id"] ?? item.url) : item;
+        let path;
+        try {
+          path = new URL(value).pathname;
+        } catch {
+          path = String(value);
+        }
+        if (crumb.href && crumb.href !== path) fail(`the visible breadcrumb's "${crumb.name}" links ${crumb.href}, the BreadcrumbList ${path}`);
+      });
     }
   }
   if (pageBlocks === 0) fail("no JSON-LD (lib/structured-data.ts, components/json-ld.tsx)");

@@ -1,0 +1,146 @@
+{
+  "$comment": [
+    "Byte budgets for scripts/check-budgets.mjs (pnpm build), from the redesign's \u00a75.2. JS = gzip -9 of the first-party <script src> files a modern browser runs (noModule left out). HTML = the prerendered page, raw and gzip -9, the inline RSC payload included.",
+    "Routes that exist today hold the \u00a75.2 JS gates (all 13 are within them) and their measured HTML plus 5% (the ratchet, measured on 2026-09-28 from the 0.6.0 tree at e2efe48).",
+    "/docs/: D1 replaces the hub (\u00a73.4: about 150 words and the cards), so it has the docs pages' HTML gate (90,000 B raw, 15,000 B gzip, as its JS budget already is the docs pages' 156,000) as its target, enforced from the moment src/content/docs/quick-start.mdx (D1's) exists. /checks/: \u00a75.2 gives the hub no number of its own (it is neither a check page nor one of the 'other pages' the redesign leaves alone), so it kept the ratchet until E1 lowered it to what C1's hub measured on 2026-09-28 (147,722 B raw, 25,926 B gzip) plus 5%.",
+    "'/' also has the \u00a75.2 homepage gate as its target (135,000 B raw, 25,000 B gzip): a note while the old homepage is built, and a budget that fails the build from the moment src/content/home.ts exists (target.enforceWhen, the same switch check-copy uses for the 750 words).",
+    "New docs pages (/docs/*/) and check pages (/checks/*/) hold the \u00a75.2 gates from their first build. /_design/ is internal and holds only the chunk bans and the font budget. '*' is the default for any other page (the \u00a75.2 JS gate for other pages, and 90,000 / 18,000 B of HTML): a new kind of page gets it unless it has its own entry.",
+    "lazy.gsapGzip is the after-load motion budget plus the on-approach one (32,000 + 22,000), over every lazy chunk with GSAP's core, ScrollTrigger or DrawSVG in it; lazy.maxChunkGzip the after-load budget, for any one lazy chunk. lazy.search is \u00a75.2's 'search on open \u2264 16,000 (dialog + pagefind.js)': the lazy chunk that imports /pagefind/pagefind.js plus pagefind.js itself (12,951 B at gzip -9 in Pagefind 1.5.2, leaving the dialog about 3,000 B), a note until H1's src/components/search exists, then a budget; the lab's request log measures the same on a real open.",
+    "arbitraryValues: class strings like px-[72px] in src (tests left out), no growth over the 139 of today.",
+    "/checks/csrf/, /checks/paywall-trust/, /checks/verbose-errors/ and /checks/write-access/ carry the full exported spec of a real run, which Next.js also embeds in the page's inline RSC payload for hydration, so it is in the HTML twice; removing either copy would take the spec out of the server HTML (no-JS readers, search). They hold their measured HTML of 2026-09-28 plus 5% instead of the check pages' 15,000 B gzip (decision 2026-09-28-long-spec-check-page-budgets)."
+  ],
+  "shared": {
+    "jsGzip": 153000
+  },
+  "fonts": {
+    "preloadBytes": 130000
+  },
+  "arbitraryValues": 139,
+  "lazy": {
+    "maxChunkGzip": 32000,
+    "gsapGzip": 54000,
+    "search": {
+      "gzip": 16000,
+      "enforceWhen": "src/components/search"
+    }
+  },
+  "routes": {
+    "/": {
+      "jsGzip": 158000,
+      "pageJsGzip": 5000,
+      "htmlRaw": 427214,
+      "htmlGzip": 75075,
+      "target": {
+        "htmlRaw": 135000,
+        "htmlGzip": 25000,
+        "enforceWhen": "src/content/home.ts"
+      }
+    },
+    "/_design/": {},
+    "/acceptable-use/": {
+      "jsGzip": 155000,
+      "htmlRaw": 57731,
+      "htmlGzip": 11742
+    },
+    "/ai-built-apps/": {
+      "jsGzip": 155000,
+      "htmlRaw": 111570,
+      "htmlGzip": 22972
+    },
+    "/checks/": {
+      "jsGzip": 156000,
+      "htmlRaw": 155000,
+      "htmlGzip": 27200
+    },
+    "/checks/*/": {
+      "jsGzip": 156000,
+      "htmlRaw": 90000,
+      "htmlGzip": 15000
+    },
+    "/checks/csrf/": {
+      "jsGzip": 156000,
+      "htmlRaw": 90000,
+      "htmlGzip": 16800
+    },
+    "/checks/paywall-trust/": {
+      "jsGzip": 156000,
+      "htmlRaw": 90000,
+      "htmlGzip": 19100
+    },
+    "/checks/verbose-errors/": {
+      "jsGzip": 156000,
+      "htmlRaw": 93500,
+      "htmlGzip": 16600
+    },
+    "/checks/write-access/": {
+      "jsGzip": 156000,
+      "htmlRaw": 90000,
+      "htmlGzip": 17000
+    },
+    "/compare/": {
+      "jsGzip": 155000,
+      "htmlRaw": 130389,
+      "htmlGzip": 19140
+    },
+    "/demo/": {
+      "jsGzip": 155000,
+      "htmlRaw": 160644,
+      "htmlGzip": 27810
+    },
+    "/docs/": {
+      "jsGzip": 156000,
+      "htmlRaw": 353443,
+      "htmlGzip": 72198,
+      "target": {
+        "htmlRaw": 90000,
+        "htmlGzip": 15000,
+        "enforceWhen": "src/content/docs/quick-start.mdx"
+      }
+    },
+    "/docs/*/": {
+      "jsGzip": 156000,
+      "htmlRaw": 90000,
+      "htmlGzip": 15000
+    },
+    "/faq/": {
+      "jsGzip": 155000,
+      "htmlRaw": 134754,
+      "htmlGzip": 21367
+    },
+    "/how-it-works/": {
+      "jsGzip": 155000,
+      "htmlRaw": 117960,
+      "htmlGzip": 23770
+    },
+    "/open-source/": {
+      "jsGzip": 155000,
+      "htmlRaw": 94634,
+      "htmlGzip": 18856
+    },
+    "/privacy/": {
+      "jsGzip": 155000,
+      "htmlRaw": 78935,
+      "htmlGzip": 17671
+    },
+    "/security/": {
+      "jsGzip": 155000,
+      "htmlRaw": 58322,
+      "htmlGzip": 11546
+    },
+    "/terms/": {
+      "jsGzip": 155000,
+      "htmlRaw": 61569,
+      "htmlGzip": 12264
+    },
+    "404": {
+      "jsGzip": 155000,
+      "htmlRaw": 35390,
+      "htmlGzip": 6388
+    },
+    "*": {
+      "jsGzip": 155000,
+      "htmlRaw": 90000,
+      "htmlGzip": 18000
+    }
+  }
+}

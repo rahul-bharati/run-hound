@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join, posix } from "node:path";
 import { BRAND, FONT_MONO, FONT_SANS, MARK_DATA_URI } from "../core/brand.js";
 import { formatDuration } from "../core/format.js";
+import { checkPageUrl } from "../core/links.js";
 import { flowStepWords } from "../ai/describe.js";
 import {
   AI_CHECK_IDS,
@@ -378,7 +379,10 @@ function scenarioCount(n: number): string {
   return `${n} ${n === 1 ? "scenario" : "scenarios"}`;
 }
 
-/** Markdown report: summary counts, findings by severity (meaning / impact / fix / evidence), passed checks, not-visible list. */
+/**
+ * Markdown report: summary counts, findings by severity (meaning / impact / fix / the check's page / evidence), passed
+ * checks, not-visible list.
+ */
 export function renderMarkdown(report: Report): string {
   const s = report.summary;
   const finished = finishedIn(report);
@@ -426,6 +430,8 @@ export function renderMarkdown(report: Report): string {
       if (places.length === 1) lines.push(`- Where: ${oneLine(places[0]!)}`);
       else if (places.length > 1) lines.push(`- Where (${places.length} places):`, ...places.map((p) => `  - ${oneLine(p)}`));
       lines.push(`- What it means: ${f.meaning}`, `- Impact: ${f.impact}`, `- Fix: ${f.fix}`);
+      const page = checkPage(f);
+      if (page) lines.push(`- About this check: ${page}`);
       if (f.ai) {
         lines.push(`- AI explanation (advisory, from ${oneLine(f.ai.model)}): ${oneLine(f.ai.summary)}`, `  - Ask your AI: ${oneLine(f.ai.askYourAi)}`);
       }
@@ -558,8 +564,28 @@ function findingHtml(f: Finding): string {
 <p class="meta">${findingGroupLabel(f) ? `${esc(findingGroupLabel(f)!)} · ` : ""}${f.scope ? `${esc(f.scope)} · ` : ""}${esc(f.checkId)} · <span class="sev">${esc(f.severity)}</span> · ${esc(f.confidence)}${places.length === 1 ? ` · ${esc(places[0]!)}` : ""}</p>
 ${places.length > 1 ? `<p class="where">Where (${places.length} places):</p><ul class="where">${places.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}
 <dl><dt>What it means</dt><dd>${esc(f.meaning)}</dd><dt>Impact</dt><dd>${esc(f.impact)}</dd><dt>Fix</dt><dd>${esc(f.fix)}</dd></dl>
+${checkLinkHtml(f)}
 ${aiExplanationHtml(f)}${spec}${figures}${details}
 </article>`;
+}
+
+/**
+ * The finding's check page on Run Hound's site (core/links.ts), built from the check id alone, so it carries no run data.
+ * Undefined for an id outside CHECK_IDS, which gets no link, as in the web UI (where a hand-edited report.json can carry
+ * one; the runner, this module's only caller, never passes one).
+ */
+function checkPage(f: Finding): string | undefined {
+  return CHECK_IDS.includes(f.checkId) ? checkPageUrl(f.checkId) : undefined;
+}
+
+/**
+ * "About the <id> check", opened in a new tab; rel="noreferrer" keeps the report's address out of the request. "" when
+ * the check has no page (checkPage).
+ */
+function checkLinkHtml(f: Finding): string {
+  const page = checkPage(f);
+  if (!page) return "";
+  return `<p class="check-link"><a href="${esc(page)}" target="_blank" rel="noopener noreferrer">About the ${esc(f.checkId)} check</a></p>`;
 }
 
 /** A finding's AI explanation, labelled advisory, after the built-in texts; "" when it has none. */
@@ -674,6 +700,7 @@ a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outli
 .finding dl { margin:.5rem 0 0; }
 .finding dt { font:600 .7rem/1.4 var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--dim); }
 dd { margin: 0 0 .5rem; overflow-wrap:anywhere; }
+p.check-link { margin:0 0 .5rem; font-size:.92rem; }
 pre, code { font-family: var(--mono); }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg-deep); border:1px solid var(--line); padding: .6rem; border-radius: 8px; font-size: .85rem; }
 summary { cursor:pointer; color:var(--accent); }

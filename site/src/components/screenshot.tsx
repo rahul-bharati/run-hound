@@ -17,7 +17,8 @@ type Crop = { left: number; top?: number; width: number; height: number };
 export const PrefetchScreenshots = createContext(false);
 
 /**
- * A real Run Hound screenshot in a dark window frame. `sizes` must describe the rendered width so next/image picks
+ * A real Run Hound screenshot in a window frame (DESIGN.md §2.4: bg-deep, a line-strong border, radius 16, a 28 px
+ * title bar with three dots, no shadow). `sizes` must describe the rendered width so next/image picks
  * the right file from the srcset. Screenshots load lazily: even the home hero's starts below the fold on phones and
  * laptops, where a preload took bandwidth from the fonts, and lazy loading fetches it as soon as it nears the
  * viewport. The blur placeholder and the static import's width and height keep the layout from shifting while it
@@ -65,13 +66,11 @@ export function Screenshot({
   }
 
   return (
-    <div
-      className={`overflow-hidden rounded-[14px] border border-line-strong bg-bg-deep shadow-[0_40px_80px_-24px_rgba(0,0,0,0.75),0_0_0_1px_rgba(94,230,163,0.04)] ${className}`}
-    >
-      <div aria-hidden="true" className="flex items-center gap-1.5 border-b border-line px-3.5 py-2.5">
-        <span className="size-2.5 rounded-full bg-line-strong" />
-        <span className="size-2.5 rounded-full bg-line-strong" />
-        <span className="size-2.5 rounded-full bg-line-strong" />
+    <div className={`win ${className}`}>
+      <div aria-hidden="true" className="win-bar">
+        <span className="win-dot" />
+        <span className="win-dot" />
+        <span className="win-dot" />
       </div>
       <div style={cropStyle} className={phoneCrop ? "overflow-hidden max-sm:aspect-(--crop-ar)" : undefined}>
         <Image

@@ -1,0 +1,54 @@
+AI is optional and off until you turn it on. Bring your own model, and it reviews the plan, suggests extra flows and explains findings. It never decides pass or fail: real checks do.
+
+## What it does \{#what-it-does\}
+
+- **Reviews the plan:** it recommends and ranks each built-in scenario with a one-line reason. It never ticks a destructive scenario, and adds, removes or reorders nothing.
+- **Suggests extra flows:** up to 5, built only from the fields and buttons Run Hound found. Each is checked by fixed assertions, the `ai-flow` check. They start unticked, and their findings are advisory.
+- **Explains findings:** an "AI explanation (advisory)" beside the built-in text.
+
+It works with Ollama, LM Studio, llama.cpp, vLLM, any OpenAI-compatible endpoint, or Amazon Bedrock. If the model fails or times out, you get the built-in plan with a warning. The easiest start is Ollama on your machine, with `ollama pull qwen3:8b` or any model.
+
+## In the web UI \{#web-ui\}
+
+1. Open **Settings → AI**, turn on **Use AI** and pick a provider. In a container, the Ollama address is `http://host.docker.internal:11434/v1` (Podman: `host.containers.internal`).
+2. Choose a model the server has, or type any id under **Other…**. Press **Save**, then **Test connection**.
+3. Plan a page with **Review with AI** ticked. Planning takes longer: about a minute for a 9B model on a laptop. Tick the **Suggested by AI** flows that look useful.
+4. After the run, findings have an **AI explanation** below the built-in one.
+
+## From the command line \{#command-line\}
+
+From source, in `app/`; in a container, they follow the image name. The last one plans Kennel, the test lab's pet-sitting booking page, [started from source](/docs/test-lab/#from-source) on port 5310.
+
+```sh label="AI from the command line, from source"
+$ cd app
+$ pnpm exec tsx src/cli.ts ai status
+$ pnpm exec tsx src/cli.ts ai test --ai-provider ollama --ai-model qwen3:8b
+$ pnpm exec tsx src/cli.ts run http://localhost:5310/book --ai --ai-provider ollama --ai-model qwen3:8b --plan-only
+```
+
+`ai status` shows the settings in effect and what's missing, never a key. `ai test` makes one small call to check the model answers.
+
+Settings come from the Settings page, saved to `~/.config/run-hound/ai.json` (or `RUNHOUND_CONFIG_DIR` when it is set). `RUNHOUND_AI_*` environment variables override the saved settings, and the `--ai` flags override both. The repository's `.env.example` lists them all.
+
+## In Docker or Podman \{#docker\}
+
+The Settings page is the easiest way: in a container, what you save there is kept in `./runs/.config`. Or pass the `RUNHOUND_AI_*` variables with `-e`, or put them in the `.env` next to the test lab's compose file.
+
+The Ollama address depends on how the container reaches your machine. With the host network on Linux, it is `http://127.0.0.1:11434/v1`. Otherwise it is `host.docker.internal` (Docker) or `host.containers.internal` (Podman), and Ollama must listen on all interfaces: `OLLAMA_HOST=0.0.0.0 ollama serve`.
+
+A key you save sits in `./runs/.config/ai.json`, so share a single `runs/<runId>` folder, never the whole runs folder.
+
+## What is sent \{#what-is-sent\}
+
+- Only **redacted page structure**: the page title and path, field labels and types, option labels, button names and the scenario list. A local model also gets the redacted address with its query. Explanations also get each finding's text and facts, without test values.
+- Never typed values, cookies, response bodies or screenshots. On a signed-in run, the accounts' usernames and secrets are hidden too.
+- A local endpoint needs nothing more. A remote one, such as OpenAI, OpenRouter or Bedrock, is refused until you consent for that host. Consent with the Settings checkbox, `--ai-allow-remote` or `RUNHOUND_AI_ALLOW_REMOTE=1`. Without consent, nothing is sent.
+- API keys stay on the server and never appear in the web UI or reports. A key is only sent to the endpoint it was saved for.
+
+## Models and timeouts \{#models\}
+
+Small local models work: it was tested with a 9B model on Ollama. Ollama is called through its own API with thinking turned off. With other servers, prefer a model without reasoning, or turn reasoning off.
+
+Each request may take 2 minutes. An explanation that times out is tried once more. After two timeouts in a row, the rest are skipped with a warning. For a slow model, raise `RUNHOUND_AI_TIMEOUT_MS`.
+
+Bedrock takes a Bedrock API key, AWS access keys, or an AWS profile from `~/.aws`. Profiles that assume a role aren't supported yet.

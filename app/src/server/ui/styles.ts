@@ -416,6 +416,9 @@ fieldset.acct .error, fieldset.acct .saved, fieldset.acct .acct-test { margin-to
 .panel p { color:var(--muted); font-size:.92rem; overflow-wrap:anywhere; }
 .panel p.fg { color:var(--fg); }
 .panel p + p { margin-top:.4rem; }
+.panel p.check-link { margin-top:.6rem; }
+.check-link a { display:inline-flex; align-items:center; gap:.35rem; min-height:24px; }
+.check-link .ic svg { width:1rem; height:1rem; }
 .repro { list-style:none; counter-reset: rs; display:grid; gap:.5rem; }
 .repro li { counter-increment: rs; display:grid; grid-template-columns: 1.5rem minmax(0, 1fr); gap:.6rem; font-size:.88rem; color:var(--fg); }
 .repro li::before { content: counter(rs); display:grid; place-items:center; width:1.4rem; height:1.4rem; border-radius:50%; border:1px solid var(--line-strong); font:600 .7rem/1 var(--mono); color:var(--muted); }

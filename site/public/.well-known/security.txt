@@ -1,0 +1,5 @@
+Contact: https://github.com/rahul-bharati/run-hound/security/advisories/new
+Policy: https://run-hound.rahulbharati.com/security/
+Canonical: https://run-hound.rahulbharati.com/.well-known/security.txt
+Preferred-Languages: en
+Expires: 2027-09-26T00:00:00Z

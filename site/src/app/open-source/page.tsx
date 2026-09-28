@@ -1,307 +1,188 @@
-import Link from "next/link";
-import { ButtonLink, GitHubIcon } from "@/components/button-link";
+import type { ReactNode } from "react";
 import { JsonLd } from "@/components/json-ld";
-import { Card, PageHeader, Section } from "@/components/layout";
-import { openSourceJsonLd, openSourcePage } from "@/components/oss/open-source";
-import { RoadmapList, type RoadmapStage } from "@/components/oss/roadmap-list";
-import { pageMetadata } from "@/lib/metadata";
-import { site } from "@/lib/site";
+import { CodeText } from "@/components/oss/code-text";
+import { opensOn } from "@/components/oss/opens";
+import { PageIntro } from "@/components/oss/page-intro";
+import { ProjectBand } from "@/components/oss/project-band";
+import { RoadmapList } from "@/components/oss/roadmap-list";
+import { Card } from "@/components/primitives/card";
+import { ArrowLink, TextLink } from "@/components/primitives/links";
+import {
+  changelogLink,
+  howToHelp,
+  licenseLine,
+  maintainer,
+  openCore,
+  openSourceIntro,
+  openSourceJsonLd,
+  openSourceSections,
+  privacyPromise,
+  roadmap,
+  roadmapNote,
+  scoring,
+  securityLine,
+  stability,
+  testApps,
+  type OssLink,
+} from "@/content/open-source";
+import { routeMetadata } from "@/lib/metadata";
 
-export const metadata = pageMetadata(openSourcePage);
+export const metadata = routeMetadata("open-source");
 
-const openCore: { core: string; later: string }[] = [
-  {
-    core: "The test engine and all checks: functional, accessibility and security",
-    later: "Hosted inference: run without a GPU, Ollama or your own model API key",
-  },
-  {
-    core: "Plan approval UI, reports and Playwright spec export",
-    later: "Hosted runner: test a deployed app behind domain-ownership verification",
-  },
-  {
-    core: "Bring your own model (optional, off by default): local via Ollama, LM Studio, llama.cpp or vLLM, or any OpenAI-compatible endpoint or Amazon Bedrock",
-    later: "Team dashboard: run history, trends and regressions across runs",
-  },
-  {
-    core: "CLI, local web UI and Docker or Podman set-up; localhost, with domain verification planned",
-    later: "CI / GitHub app: pull request comments and scheduled regression runs",
-  },
-  {
-    core: "The test apps (Kennel, Fernway and the sample apps) and their scoring",
-    later: "Compliance exports: WCAG and European Accessibility Act conformance reports",
-  },
-  {
-    core: "The JSON report format (report.json)",
-    later: "Organisation features: SSO, roles, audit log, priority support",
-  },
-];
+/** A standalone link at the foot of a block: an ArrowLink with a 36 px row, so it is an easy target (WCAG 2.5.8). */
+function FootLink({ link }: { link: OssLink }) {
+  return (
+    <ArrowLink href={link.href} opens={opensOn(link.href)} className="inline-flex min-h-target-row items-center">
+      {link.label}
+    </ArrowLink>
+  );
+}
 
-const roadmap: RoadmapStage[] = [
-  {
-    stage: "V0",
-    name: "Single form",
-    status: "shipped",
-    release: "Release 0.1.0",
-    summary:
-      "Point it at a form on localhost. It plans golden- and danger-path scenarios, you approve them, it runs them and reports with evidence and exported Playwright tests.",
-    adds: "15 checks. Shipped as 0.1.0.",
-  },
-  {
-    stage: "V1",
-    name: "Single page",
-    status: "shipped",
-    release: "Releases 0.2.0–0.4.0",
-    summary:
-      "Point it at a page. It finds the forms and controls on it, plans form checks for each form plus page-wide checks, you approve, and it runs them in a real browser. Local only.",
-    adds: `0.2.0 adds security headers, cookie flags, CORS, public source maps and dead controls across the whole page, and one Docker or Podman command starts it with the test apps. 0.3.0 adds optional AI with your own model: plan review, up to 5 suggested flows and explanations, off by default and never the judge of pass or fail. 0.4.0 finds and fills the custom widgets and dialog forms of AI-built apps.`,
-  },
-  {
-    stage: "V2",
-    name: "Single feature",
-    status: "preview",
-    release: "Since 0.4.0",
-    summary: "Give it a feature such as signup or checkout and it tests that feature end to end across pages.",
-    adds: `A preview ships in 0.4.0: test accounts and signed-in runs, access checks (can another account, or a visitor who isn't signed in, read your data?), mass assignment and deep links. 0.5.0 adds the CSRF check: can another website change your data? 0.6.0 adds write access (can another account or a visitor change or delete your data?) and paywall trust (can a free account get the paid plan without paying?), and sign-in on pages that ask for the email first and with sessions kept in sessionStorage. Still planned: testing a feature across pages, the other two paid-plan probes, rate limits, file uploads and prompt injection.`,
-  },
-  {
-    stage: "V3",
-    name: "Whole app",
-    status: "planned",
-    summary:
-      "Point it at the app. It discovers and prioritises features, then tests the paths that give the most value first.",
-    adds: "Adds a dead-link crawl, cross-browser runs, Core Web Vitals, SEO and social previews.",
-  },
-  {
-    stage: "V4",
-    name: "Live staging",
-    status: "planned",
-    release: "Release 1.0.0",
-    summary:
-      "Support for testing live staging and dev sites behind ownership verification. Completing it is the 1.0.0 release.",
-    adds: "Adds checks for live hosts, such as mixed content and email DNS records.",
-  },
-];
-
-// What CI scores on every pull request (docs/fixtures.md "Scoring"); stability across repeated runs is planned.
-const kennelScoring = [
-  { name: "Recall", body: "With each planted bug switched on alone, the check that must catch it reports it." },
-  { name: "False positives", body: "Findings in clean mode, where every bug is fixed properly. Target: zero." },
-  { name: "Evidence", body: "Every finding has a screenshot, a GIF or a request card on disk, and no run leaks a secret." },
-  { name: "Stability (planned)", body: "Repeating the same run to check the findings stay the same, tracked per bug." },
-];
-
-const externalLink = "text-accent underline underline-offset-4 hover:text-accent-strong";
+/** A plain list with dim bullets, for the open core's two columns and the maintainer's "how it is built". */
+function Bullets({ items }: { items: readonly ReactNode[] }) {
+  return (
+    <ul className="flex list-disc flex-col gap-2 pl-5 text-body text-muted marker:text-dim">
+      {items.map((item, i) => (
+        <li key={i}>{item}</li>
+      ))}
+    </ul>
+  );
+}
 
 export default function OpenSourcePage() {
+  const total = openSourceSections.length;
+  // Each band names its id literally (other pages and content/trust.test.ts look for it); its heading, intro and place
+  // in the band index come from the section list, whose order open-source.test.ts checks against the rendered page.
+  const band = (id: string) => {
+    const at = openSourceSections.findIndex((s) => s.id === id);
+    const s = openSourceSections[at];
+    return { headingId: s.headingId, title: s.title, intro: s.intro, index: { n: at + 1, total } };
+  };
+
   return (
     <>
       <JsonLd data={openSourceJsonLd()} />
-      <PageHeader
-        eyebrow="OPEN SOURCE"
-        title={
-          <>
-            Open source, <span className="text-accent">every check included.</span>
-          </>
-        }
-        lede="Finding the holes is the whole point, so no check will ever sit behind a paywall. The code is public on GitHub: clone it, try it, file issues."
-      >
-        <p className="max-w-2xl text-[15px] leading-relaxed text-dim">
-          {site.name} {site.version} is released under the MIT license. The{" "}
-          <a href={site.github} className={externalLink}>
-            repository
-          </a>{" "}
-          is public: anyone can clone it, try it and{" "}
-          <a href={site.feedback} className={externalLink}>
-            file an issue
-          </a>
+      <PageIntro id="open-source" title={openSourceIntro.title} lede={openSourceIntro.lede} />
+
+      <ProjectBand id="license" {...band("license")}>
+        <p className="max-w-measure text-body text-muted">
+          {licenseLine.text}{" "}
+          <TextLink href={licenseLine.link.href} opens="GitHub">
+            {licenseLine.link.label}
+          </TextLink>
           .
         </p>
-      </PageHeader>
+      </ProjectBand>
 
-      <Section
-        id="license"
-        title="License"
-        intro="Run Hound is released under the MIT License."
-      >
-        <Card className="flex max-w-3xl flex-col gap-3">
-          <p className="font-mono text-xs tracking-widest text-accent">IN EFFECT · {site.license.toUpperCase()}</p>
-          <p className="text-lg leading-relaxed">
-            In one line: you can use, copy, modify, distribute and sell it, as long as you keep the copyright and
-            license notice; it comes with no warranty.
-          </p>
-          <p className="text-[15px] leading-relaxed text-dim">
-            The full text is in the{" "}
-            <a href={site.licenseUrl} className={externalLink}>
-              LICENSE file
-            </a>{" "}
-            in the repository.
-          </p>
-        </Card>
-      </Section>
-
-      <Section
-        id="open-core"
-        title="Every check is in the core"
-        intro="Everything one developer needs to test their own app is free and open source. Paid services are possible later, only if there is demand, and only for things that run on our servers."
-        className="bg-band"
-      >
-        <div
-          role="region"
-          aria-labelledby="open-core-caption"
-          tabIndex={0}
-          className="overflow-x-auto rounded-2xl border border-line bg-surface"
-        >
-          <table className="w-full min-w-[36rem] border-collapse text-left text-[15px]">
-            <caption id="open-core-caption" className="sr-only">
-              Open core compared with possible later hosted services
-            </caption>
-            <thead>
-              <tr className="border-b border-line">
-                <th scope="col" className="w-1/2 px-5 py-4 align-bottom sm:px-7">
-                  <span className="block font-mono text-xs tracking-widest text-accent">OPEN CORE · FREE</span>
-                  <span className="mt-1 block font-display text-lg font-bold">In the open-source core</span>
-                </th>
-                <th scope="col" className="w-1/2 px-5 py-4 align-bottom sm:px-7">
-                  <span className="block font-mono text-xs tracking-widest text-dim">POSSIBLE, LATER</span>
-                  <span className="mt-1 block font-display text-lg font-bold">
-                    Hosted services, only if there is demand
-                  </span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {openCore.map((row) => (
-                <tr key={row.core} className="border-b border-line-soft last:border-b-0">
-                  <td className="px-5 py-4 align-top leading-relaxed sm:px-7">{row.core}</td>
-                  <td className="px-5 py-4 align-top leading-relaxed text-muted sm:px-7">{row.later}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <ProjectBand id="open-core" {...band("open-core")}>
+        <div className="grid gap-4 lg:grid-cols-2 lg:gap-6">
+          {[openCore.core, openCore.later].map((column) => (
+            <Card key={column.title} className="flex flex-col gap-4">
+              <h3 className="text-title text-fg">{column.title}</h3>
+              <Bullets items={column.items} />
+            </Card>
+          ))}
         </div>
-        <p className="max-w-3xl leading-relaxed text-muted">
-          None of the hosted services exist. If they are ever built, they would be unlocked with an API key passed to
-          the container, and without a key the core runs fully. Read the full reasoning in the{" "}
-          <a href={`${site.github}/blob/main/docs/business-model.md`} className={externalLink}>
-            business model document
-          </a>
-          .
+        <p className="mt-6 max-w-measure text-body text-muted">{openCore.note}</p>
+        <p className="mt-4">
+          <FootLink link={openCore.link} />
         </p>
-      </Section>
+      </ProjectBand>
 
-      <Section
-        id="roadmap"
-        title="Roadmap"
-        intro={
-          <>
-            V0 to V4 are stages of what Run Hound can test, from one form to a live staging site; they are not version
-            numbers. V0 and V1 have shipped, and V2 is in preview: 0.4.0, 0.5.0 and 0.6.0 add signed-in runs, access
-            checks, a CSRF check, write access and paywall trust. The rest of V2, the whole app (V3) and live staging (V4) are planned. Releases stay 0.x
-            while the stages are built: 1.0.0 is the release that completes V4, and 0.9.9, right before it, is the{" "}
-            <code className="font-mono text-base text-fg">npx run-hound</code> release.
-          </>
-        }
-      >
+      <ProjectBand id="roadmap" {...band("roadmap")}>
+        <p className="mb-6 max-w-measure text-body text-muted">
+          <CodeText text={roadmapNote} />
+        </p>
         <RoadmapList stages={roadmap} />
-      </Section>
+      </ProjectBand>
 
-      <Section
-        id="kennel"
-        title="Test apps: Kennel and Fernway"
-        intro="Run Hound is developed and scored against test apps that ship in the repository and run on your machine: Kennel, a small, deliberately broken pet-sitting booking app, and Fernway, a project-planning app built the way AI builders such as Lovable build them, with a dashboard behind a sign-in. Every planted bug sits behind its own toggle, and a clean mode fixes them all properly."
-        className="bg-band"
-      >
-        <p className="max-w-3xl leading-relaxed text-muted">
-          Because we know exactly which bugs are planted, we can measure what Run Hound finds, what it misses and what
-          it makes up. Made-up findings are the biggest product risk, so clean mode matters as much as the planted bugs.
+      <ProjectBand id="kennel" {...band("kennel")}>
+        <div className="grid gap-4 lg:grid-cols-2 lg:gap-6">
+          {testApps.apps.map((app) => (
+            <Card key={app.name} className="flex flex-col gap-2">
+              <h3 className="text-title text-fg">{app.name}</h3>
+              <p className="text-body text-muted">{app.text}</p>
+              <FootLink link={app.link} />
+            </Card>
+          ))}
+        </div>
+        <p className="mt-8 max-w-measure text-body text-muted">{testApps.why}</p>
+        <dl className="mt-6 grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
+          {scoring.map((item) => (
+            <div key={item.name} className="flex flex-col gap-1 border-t border-line-soft pt-4">
+              <dt className="text-small font-semibold text-fg">{item.name}</dt>
+              <dd className="text-small text-muted">{item.text}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-6 max-w-measure text-body text-muted">{testApps.samples}</p>
+        <p className="mt-4">
+          <FootLink link={testApps.demo} />
         </p>
-        <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {kennelScoring.map((item) => (
-            <li key={item.name}>
-              <Card className="h-full">
-                <h3 className="font-display text-lg font-bold">{item.name}</h3>
-                <p className="mt-2 text-[15px] leading-relaxed text-muted">{item.body}</p>
-              </Card>
+      </ProjectBand>
+
+      <ProjectBand id="stability" {...band("stability")}>
+        <dl className="grid gap-4 lg:grid-cols-3 lg:gap-6">
+          {stability.map((item) => (
+            <div key={item.title} className="card flex flex-col gap-2">
+              <dt className="text-title text-fg">{item.title}</dt>
+              <dd className="text-body text-muted">{item.text}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-4">
+          <FootLink link={changelogLink} />
+        </p>
+      </ProjectBand>
+
+      <ProjectBand id="maintainer" {...band("maintainer")}>
+        <Card className="flex max-w-heading flex-col gap-4">
+          <p className="text-lead text-fg">
+            Run Hound is made by{" "}
+            <TextLink href={maintainer.github} opens="GitHub">
+              {maintainer.name}
+            </TextLink>
+            .
+          </p>
+          <p className="text-body text-muted">{maintainer.why}</p>
+          <h3 className="text-title text-fg">How it is built</h3>
+          <Bullets items={maintainer.how} />
+          <FootLink link={{ label: maintainer.decisionsLabel, href: maintainer.decisions }} />
+        </Card>
+      </ProjectBand>
+
+      <ProjectBand id="contributing" {...band("contributing")} tone="band">
+        <ul className="grid gap-4 lg:grid-cols-3 lg:gap-6">
+          {howToHelp.map((card) => (
+            <Card as="li" key={card.title} className="flex flex-col gap-2">
+              <h3 className="text-title text-fg">{card.title}</h3>
+              <p className="text-body text-muted">{card.text}</p>
+              <div className="mt-auto flex flex-col pt-2">
+                {card.links.map((link) => (
+                  <FootLink key={link.href} link={link} />
+                ))}
+              </div>
+            </Card>
+          ))}
+        </ul>
+        <p className="mt-6 text-body text-muted">
+          {securityLine.text}{" "}
+          <TextLink href={securityLine.link.href}>{securityLine.link.label}</TextLink>.
+        </p>
+      </ProjectBand>
+
+      <ProjectBand id="privacy" {...band("privacy")}>
+        <ul className="flex max-w-measure list-disc flex-col gap-3 pl-5 text-body text-muted marker:text-dim">
+          {privacyPromise.items.map((item) => (
+            <li key={item.lead}>
+              <strong className="font-semibold text-fg">{item.lead}</strong> {item.text}
             </li>
           ))}
         </ul>
-        <p className="leading-relaxed text-muted">
-          See every planted bug in{" "}
-          <a href={site.kennelBugs} className={externalLink}>
-            Kennel&apos;s bug list
-          </a>{" "}
-          and{" "}
-          <a href={site.fernwayBugs} className={externalLink}>
-            Fernway&apos;s
-          </a>
-          . Five sample apps, built well on purpose, complete the set: any confirmed finding on them is a false positive.
-          The demo shows{" "}
-          <Link href="/demo/" className={externalLink}>
-            the findings and evidence from real runs on Kennel and Fernway
-          </Link>
-          .
+        <p className="mt-4">
+          <FootLink link={privacyPromise.link} />
         </p>
-      </Section>
-
-      <Section id="contributing" title="Contributing">
-        <div className="grid gap-6 lg:grid-cols-2">
-          <Card className="flex flex-col gap-3">
-            <h3 className="font-display text-xl font-bold">Issues and feedback</h3>
-            <p className="leading-relaxed text-muted">
-              Anyone can file feedback and bugs with the issue forms on GitHub. Tell us which holes you keep finding in
-              AI-built apps; that shapes the checks.
-            </p>
-            <div className="mt-2 flex flex-wrap gap-3">
-              <ButtonLink href={site.github} variant="secondary">
-                <GitHubIcon />
-                View on GitHub
-              </ButtonLink>
-              <ButtonLink href={site.feedback} variant="ghost">
-                Send feedback
-              </ButtonLink>
-            </div>
-          </Card>
-          <Card className="flex flex-col gap-3">
-            <h3 className="font-display text-xl font-bold">Code contributions</h3>
-            <p className="leading-relaxed text-muted">
-              Contribution guidelines are coming. We will decide between a Contributor License Agreement (CLA) and a
-              Developer Certificate of Origin (DCO) before accepting the first outside contribution, and document it
-              in the repository.
-            </p>
-            <p className="leading-relaxed text-muted">
-              To work on the code,{" "}
-              <Link href="/docs/#install" className={externalLink}>
-                set up Run Hound from source
-              </Link>
-              : it runs with Node from a clone of the repository.
-            </p>
-          </Card>
-        </div>
-      </Section>
-
-      <Section id="privacy" title="Privacy promise" className="bg-band">
-        <Card className="flex max-w-3xl flex-col gap-4">
-          <ul className="flex list-disc flex-col gap-3 pl-5 leading-relaxed text-muted marker:text-dim">
-            <li>
-              <strong className="font-semibold text-fg">It runs locally.</strong> Run Hound runs on your machine,
-              with Node or in Docker or Podman. AI is optional and off by default; turn it on and only redacted page
-              structure and finding text go to the model you choose, local or cloud. Run Hound operates no AI service
-              of its own. Test accounts stay on your machine too, and their passwords never appear in a report.
-            </li>
-            <li>
-              <strong className="font-semibold text-fg">No telemetry about the app you test.</strong> Nothing about
-              your app, its pages or its findings is sent to us.
-            </li>
-            <li>
-              <strong className="font-semibold text-fg">Paid features would not change this.</strong> If a license
-              key ever exists, its check would send only the key and version.
-            </li>
-          </ul>
-          <p className="text-[15px] leading-relaxed text-dim">
-            More detail in the <Link href="/privacy" className={externalLink}>privacy policy</Link>.
-          </p>
-        </Card>
-      </Section>
+      </ProjectBand>
     </>
   );
 }

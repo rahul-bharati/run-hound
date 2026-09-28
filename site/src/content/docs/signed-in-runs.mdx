@@ -1,0 +1,59 @@
+Give Run Hound two test accounts you own, A and B, and it signs in before it tests. Pages behind a login get every check, plus the access and write checks.
+
+Signed-in runs are a preview of the V2 stage. Use accounts made for testing, on a development database. [Known limitations](/docs/limitations/#sign-in) lists the sign-ins it can't do.
+
+## Set up two test accounts \{#set-up\}
+
+1. Open **Settings → Test accounts**. For each account, give a label (the name reports use), the sign-in page's address, the username and the password. Press **Save**, then **Test sign-in**. A saved password is never shown again.
+2. Keep **A and B must not see each other's data** ticked when they are different users, not teammates in one workspace. The check that B can't read A's data runs only then.
+3. In **New Run**, pick **Sign in as → Account A** and plan the page. The plan and the report say "Signed in as Account A".
+
+Saved accounts go to `accounts.json`, in `./runs/.config` in a container or `~/.config/run-hound` from source. That folder holds your passwords, so **share a single `runs/<runId>` folder, never the whole runs folder.**
+
+## From the command line \{#command-line\}
+
+`--password-stdin` reads the password from what you type or pipe in, never from a flag. So it stays out of your shell history:
+
+```sh label="Test accounts from the command line, from source"
+$ cd app
+$ pnpm exec tsx src/cli.ts accounts set a --login-url http://localhost:5173/login --username a@example.test --password-stdin
+$ pnpm exec tsx src/cli.ts accounts set b --login-url http://localhost:5173/login --username b@example.test --password-stdin
+$ pnpm exec tsx src/cli.ts accounts test
+$ pnpm exec tsx src/cli.ts run http://localhost:5173/dashboard --as a --approve all
+```
+
+`accounts test` signs in as A and B and exits 0 when both work. `accounts status` shows where each value comes from, never a password. In a container, the commands follow the image name. `RUNHOUND_ACCOUNT_A_*` and `RUNHOUND_ACCOUNT_B_*` variables, listed in `.env.example`, override the saved values.
+
+## What a signed-in run does \{#what-it-does\}
+
+- It signs in fresh, in its own browser, at the start of each plan and run. A failed sign-in stops the run before any scenario and says why.
+- It never clicks Log out or Sign out, and never submits a form that sets a password, even with `--allow-destructive`.
+- Its test records belong to account A, and the report says so.
+
+## The access checks \{#access-checks\}
+
+- `access-control`: as A, it saves a test record. Then it replays the requests that returned A's data, as B and as a signed-out visitor. Either one getting A's data back is a critical finding. It replays only A's own reads.
+- `mass-assignment`, unticked by default: it replays A's save with fields the form never sends, such as `role` or `plan`. Then it reads the record again. It puts back what it changed.
+- `deep-links`, signed in or not: it opens up to 10 of the page's own links directly, as a reload or a shared link would. It never opens one that signs out, deletes or accepts an invitation.
+
+## The write checks \{#write-checks\}
+
+These change account A's data on purpose, so they stay unticked until you tick them. Each writes only the test record it just created as A. It decides from a re-read as A, not a status code, and puts the record back. The report says what it couldn't undo.
+
+- `csrf`: a page on another site sends the form's save from A's own browser. A forged value that sticks is a high finding. It needs your app on `localhost` or `127.0.0.1`; elsewhere it is inconclusive, never a pass.
+- `write-access`: as B, and as a visitor, it sends the update and delete requests your app itself sent for A's record. A change or a deletion is a critical finding.
+- `paywall-trust`: as A on the free plan, it opens your app's own success and upgraded pages, with every payment provider blocked. Then it reads A's plan again. A paid plan without a payment is a critical finding. It puts the plan back with your app's own cancel or downgrade control.
+
+None of them touches sign-out, password, email, account deletion, payment or invitation endpoints.
+
+## Secrets stay out of what it writes \{#secrets\}
+
+- Passwords are write-only. A saved password is only ever sent to the sign-in site it was saved for.
+- Passwords, session cookies, tokens and the accounts' usernames are hidden in reports, evidence, Playwright tests, logs and AI prompts. Reports name accounts by label.
+- Screenshots dot out the account's name and session values. The live view isn't masked; it stays on your machine.
+
+## Try it in the test lab \{#fernway\}
+
+The [test lab](/docs/test-lab/) has Fernway, a small SaaS app built the way AI app builders build apps. Set up its two accounts as A and B, with the sign-in page `http://fernway-bugs:4110/login`. Their emails and passwords are in [Fernway's README](https://github.com/rahul-bharati/run-hound/blob/main/fixtures/fernway/README.md#accounts). Plan `http://fernway-bugs:4110/app` signed in as A, with every scenario ticked.
+
+The planted bugs show up as access-control and deep-links findings: `/app/help` answers 404 when opened directly. Plan `http://fernway-bugs:4110/app/settings` too, where mass-assignment finds Fernway's bug. On clean Fernway, `http://fernway:4110`, the same runs should give no confirmed findings.

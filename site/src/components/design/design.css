@@ -1,0 +1,230 @@
+/* /_design/'s own styles (DESIGN.md §3.14): the header specimens, the motion moments and their controls, and the D18
+   comparison. Imported by app/%5Fdesign/page.tsx only; every class starts with "dz-", so the sheet can't touch another
+   page if it stays loaded after a navigation. Sizes and colours are tokens (src/styles/tokens.css); the header
+   specimens reuse the header's own classes (components/header/chrome.css) and change only what a picture of it needs:
+   no sticky position, and the state fixed instead of following the page's scroll. Unlayered, so a rule here wins over
+   the header's and the primitives' component classes. */
+
+/* ---- Header specimens ------------------------------------------------------------------------------------------ */
+
+.dz-headers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+/* A page under the bar: a line of text the bar covers, so transparent and opaque look different. */
+.dz-stage {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--rh-line);
+  border-radius: var(--radius-card);
+  background: var(--rh-bg);
+}
+.dz-stage-phone {
+  max-width: 24.375rem; /* 390 px: the lab's phone */
+}
+/* It starts past the brand (the mark and the wordmark take about 130 px), so the mark never sits on text: brand.md,
+   never on a busy background. */
+.dz-stage-text {
+  position: absolute;
+  top: var(--space-6);
+  left: calc(var(--space-6) + 11rem);
+  font-family: var(--font-display);
+  font-size: var(--rh-text-display-m);
+  font-weight: 700;
+  line-height: 1.08;
+  color: var(--rh-muted);
+  white-space: nowrap;
+}
+.dz-header {
+  position: relative;
+  z-index: 1;
+}
+/* The top of a page: what the scroll-driven bar shows before 8 px of scroll (chrome.css). */
+.dz-header[data-header-specimen="transparent"] {
+  animation: none;
+  background-color: transparent;
+  border-bottom-color: transparent;
+}
+/* Scrolled: the scroll-driven animation's own keyframes (chrome.css site-header-solid), at their end. */
+.dz-header[data-header-specimen="opaque"],
+.dz-header[data-header-specimen="menu"] {
+  animation: site-header-solid 0s steps(1, end) both;
+}
+/* The live bar lays out in the page column (880 px at 1024, 1136 px from 1280) and needs nearly all of it (about
+   1,120 px from 1280 px). A picture of it inside that column would squeeze it, so from 1024 px the picture reaches
+   24 px into the page gutter on each side (72 px wide there), and the bar keeps a 12 px gutter inside the picture
+   (16 px in the phone-width specimen, the phone's). The lab compares each part's width with the live header's. */
+.dz-header .site-header-bar {
+  padding-inline: var(--space-3);
+}
+@media (width >= 64rem) {
+  .dz-stage:not(.dz-stage-phone) {
+    margin-inline: calc(-1 * var(--space-6));
+  }
+}
+.dz-header[data-header-specimen="menu"] .site-header-bar,
+.dz-header[data-header-specimen="menu"] .site-menu .container-page {
+  padding-inline: var(--space-4);
+}
+.dz-header[data-header-specimen="menu"] {
+  height: auto;
+}
+/* The phone's search button: an icon with no outline (chrome.css outlines it from 1280 px of viewport). */
+.dz-header[data-header-specimen="menu"] .search-trigger {
+  padding-inline: 0;
+  border-color: transparent;
+}
+.dz-header[data-header-specimen="menu"] .site-header-bar {
+  height: calc(var(--header-height) - 1px);
+}
+/* The open menu in the flow of the picture, not over what follows it. */
+.dz-header .site-menu {
+  position: static;
+  max-height: none;
+  overflow: visible;
+}
+/* Menu open: its border shows the state, as aria-expanded="true" does on the real button (chrome.css). */
+.dz-header .site-menu-button[data-open] {
+  border-color: var(--rh-fg);
+}
+.dz-header-figure .figure-caption {
+  margin-top: var(--space-3);
+}
+
+/* ---- Breadcrumbs on a phone ------------------------------------------------------------------------------------ */
+
+/* A 320 px screen with the phone's 16 px gutter: the trail stays on one line and its middle item shortens (§2.5). */
+.dz-stage-crumbs {
+  max-width: 20rem;
+  padding: var(--space-4);
+}
+
+/* ---- Motion moments -------------------------------------------------------------------------------------------- */
+
+.dz-moments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+.dz-moment {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.dz-moment-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: var(--container-measure);
+}
+.dz-stage-hero {
+  max-width: 44rem;
+}
+.dz-stage-trail {
+  max-width: var(--container-close);
+}
+.dz-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) var(--space-8);
+}
+.dz-range {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--spacing-target);
+}
+.dz-range input {
+  width: 16rem;
+  max-width: 60vw;
+  min-height: var(--spacing-target);
+  accent-color: var(--rh-fg);
+}
+/* The Replay buttons: the hero's own Replay's look (home.css .hm-replay), a 44 px text button. */
+.dz-replay {
+  min-height: var(--spacing-target);
+  padding-inline: var(--space-2);
+  font-size: var(--text-small);
+  font-weight: 600;
+  color: var(--rh-fg);
+  text-decoration-line: underline;
+  text-decoration-color: var(--rh-line-strong);
+  text-underline-offset: 3px;
+}
+.dz-replay:hover {
+  text-decoration-color: var(--rh-accent);
+}
+/* Said only when there is nothing to replay. */
+.dz-reduced-note {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dz-reduced-note {
+    display: block;
+  }
+}
+
+/* ---- D18: opsz ------------------------------------------------------------------------------------------------- */
+
+.dz-opsz {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  margin-top: var(--space-12);
+}
+.dz-opsz-pair {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+/* Scrolls sideways where 80 px is wider than a phone, so the page never does. */
+.dz-opsz-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  overflow-x: auto;
+  padding-bottom: var(--space-2);
+}
+.dz-opsz-line {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.dz-opsz-label {
+  font-size: var(--text-small);
+  color: var(--rh-muted);
+}
+/* Each size as the site sets it: 40 px is Display M's desktop size (700, -0.02em); 60 and 80 px take Display XL's
+   800 and -0.035em. Leading 1.1, not the steps' 0.98-1.08: the lab screenshots each sample's own box, and at 0.98 the
+   descender of "g" would fall outside it. inline-block: its width is the words'. */
+.dz-opsz-sample {
+  display: inline-block;
+  align-self: flex-start;
+  font-family: var(--font-display);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+  color: var(--rh-fg);
+  white-space: nowrap;
+}
+.dz-opsz-sample[data-size="40"] {
+  font-size: 2.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.dz-opsz-sample[data-size="60"] {
+  font-size: 3.75rem;
+}
+.dz-opsz-sample[data-size="80"] {
+  font-size: 5rem;
+}
+.dz-opsz-auto {
+  font-optical-sizing: auto;
+}
+/* "Without the axis": the default opsz of Bricolage's opsz axis in next/font's Google font data (opszDefault();
+   design.test.ts keeps the two equal), which is what a file served without the axis renders. */
+.dz-opsz-sample[data-opsz="default"] {
+  font-variation-settings: "opsz" 14;
+}

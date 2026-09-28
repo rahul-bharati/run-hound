@@ -8,13 +8,11 @@ const github = "https://github.com/rahul-bharati/run-hound";
 const composeFileUrl = raw("run-hound.compose.yml");
 // Run Hound's image without a tag, i.e. `latest`: the main pull-and-run commands use it, so they never go stale.
 const imageName = "ghcr.io/rahul-bharati/run-hound";
-// The main way to run it (README.md "Quick start", docs/install.md): the web UI on http://localhost:4000, reports in ./runs, apps on
-// your machine reached as http://host.docker.internal:<port>. The image sets RUNHOUND_ALLOWED_HOSTS
-// (host.docker.internal,host.containers.internal) and RUNHOUND_CONFIG_DIR (/repo/app/runs/.config) itself, and its
-// entrypoint prints the address to open; -e still overrides either. Podman: the same with `podman`.
-const runFlags = `--rm --init -p 127.0.0.1:4000:4000 --add-host host.docker.internal:host-gateway`;
-const runsMount = `-v "$PWD/runs:/repo/app/runs"`;
 
+/**
+ * Facts about Run Hound and this site: the release, dates, addresses, images and contacts, and the few names every page
+ * shares. The words pages say live in src/content/, every shell command in src/content/commands.ts.
+ */
 export const site = {
   name: "Run Hound",
   tagline: "Your AI said it's done. Let's check.",
@@ -58,19 +56,13 @@ export const site = {
   fernwayGuide: `${github}/blob/main/fixtures/fernway/README.md`,
   kennelBugs: `${github}/blob/main/fixtures/kennel/bugs.json`,
   fernwayBugs: `${github}/blob/main/fixtures/fernway/bugs.json`,
+  // The commands that pull and run it are in src/content/commands.ts.
   imageName,
-  // Pull and run, on one line (for a copy button) and as a block of three.
-  dockerCommand: `docker pull ${imageName} && mkdir -p runs && docker run ${runFlags} ${runsMount} ${imageName}`,
-  runCommands: `docker pull ${imageName}
-mkdir -p runs                    # reports land in ./runs
-docker run ${runFlags} \\
-  ${runsMount} ${imageName}`,
-  // The test lab, the second way: downloads run-hound.compose.yml and starts Run Hound, Kennel, Fernway and the sample
-  // apps from the published images. Podman: `podman compose -f run-hound.compose.yml up`.
+  // The test lab, the second way: run-hound.compose.yml starts Run Hound, Kennel, Fernway and the sample apps from the
+  // published images (content/commands.ts downloads it).
   composeFileUrl,
   // The documented settings file for the compose file, from the same release.
   envFileUrl: raw(".env.example"),
-  labCommand: `curl -fsSLO ${composeFileUrl} && mkdir -p runs && docker compose -f run-hound.compose.yml up`,
   // Published on GHCR with every release, public (no login needed), for linux/amd64 and arm64: run-hound (web UI,
   // CLI and Chromium's headless shell: about 260 MB to download, 715 MB on disk), and the test apps run-hound-kennel,
   // run-hound-samples and run-hound-fernway. The four download about 0.5 GB together. In a clone,

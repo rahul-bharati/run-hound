@@ -1,6 +1,5 @@
-import Link from "next/link";
-import { LegalDoc, LegalHeading, type LegalTocItem, MailLink } from "@/components/legal/legal";
-import { legalPages } from "@/components/legal/pages";
+import { LegalDoc, LegalHeading, LegalLink, type LegalTocItem, MailLink } from "@/components/legal/legal";
+import { legalPages } from "@/content/legal";
 import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
@@ -119,7 +118,7 @@ export default function SecurityPage() {
         <li>access no more data than needed to show the issue, and delete it afterwards;</li>
         <li>give us reasonable time to fix the issue before disclosing it;</li>
         <li>
-          follow our <Link href="/acceptable-use">Acceptable Use Policy</Link> and the law.
+          follow our <LegalLink to="acceptable-use">Acceptable Use Policy</LegalLink> and the law.
         </li>
       </ul>
       <p>

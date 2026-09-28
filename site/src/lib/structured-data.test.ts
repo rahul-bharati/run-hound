@@ -86,7 +86,7 @@ describe("home page nodes", () => {
     });
   });
 
-  test("the app carries this release's facts and no ratings or reviews", () => {
+  test("the app carries this release's facts and no ratings or reviews", async () => {
     const app = softwareNode();
     assert.equal(app["@type"], "SoftwareApplication");
     assert.equal(app["@id"], `${base}/#software`);
@@ -94,7 +94,9 @@ describe("home page nodes", () => {
     assert.equal(app.dateModified, site.releasedIso);
     assert.equal(app.license, site.licenseUrl);
     assert.equal(app.releaseNotes, site.changelog);
-    assert.equal(app.installUrl, `${base}/docs/#quick-start`);
+    // /docs/quick-start/ once D1 registers it (content/routes/docs.ts), today's section of /docs/ before.
+    const { hasRoute } = await import("@/content/routes");
+    assert.equal(app.installUrl, `${base}${hasRoute("docs-quick-start") ? "/docs/quick-start/" : "/docs/#quick-start"}`);
     assert.equal(app.image, `${base}/social-preview.png`);
     assert.deepEqual(app.offers, { "@type": "Offer", price: "0", priceCurrency: "USD" });
     assert.deepEqual(app.sameAs, [site.github]);
@@ -103,6 +105,9 @@ describe("home page nodes", () => {
     const json = JSON.stringify(app);
     for (const key of ["aggregateRating", "review", "downloadUrl", "email"]) assert.equal(json.includes(`"${key}"`), false, key);
     assert.ok((app.featureList as string[]).some((feature) => feature.includes("off by default")));
+    // 0.6.0 as built (verify-060): the write-side checks and the new sign-in forms.
+    const signedIn = (app.featureList as string[]).find((feature) => feature.startsWith("Signed-in runs"));
+    for (const words of ["write-access", "paywall-trust", "csrf", "two-step", "sessionStorage"]) assert.ok(signedIn?.includes(words), words);
   });
 
   test("the app's screenshots are absolute image objects", () => {
@@ -310,5 +315,132 @@ describe("graph", () => {
       assert.ok(String(node["@id"]).startsWith(`${base}/`), String(node["@id"]));
     }
     for (const id of referenced) assert.ok(defined.has(id), `nothing defines ${id}`);
+  });
+});
+
+describe("graphs derived from the route registry", async () => {
+  const { pageTitle } = await import("@/lib/metadata");
+  const { hasRoute, route } = await import("@/content/routes");
+  const { builtInChecks } = await import("@/content/checks/data");
+  const { faqJsonLd, faqItems, answerText, faqPage } = await import("@/content/faq");
+  const { compareJsonLd } = await import("@/content/compare");
+  const { aiBuiltJsonLd } = await import("@/content/ai-built");
+  const { openSourceJsonLd } = await import("@/content/open-source");
+  const { legalJsonLd, legalPages } = await import("@/content/legal");
+  const { checksItemListNode, installPath, routeGraph, routeNodes } = await import("@/lib/structured-data");
+
+  const crumbs = (name: string, path: string) =>
+    breadcrumbNode([
+      { name: "Home", path: "/" },
+      { name, path },
+    ]);
+
+  test("the pages whose graphs live in data modules: routeGraph() builds the same graph, node for node", () => {
+    assert.deepEqual(
+      routeGraph("faq", faqNode(faqItems.map((item) => ({ q: item.q, a: answerText(item) })), faqPage.path)),
+      faqJsonLd(),
+    );
+    assert.deepEqual(routeGraph("compare"), compareJsonLd());
+    assert.deepEqual(routeGraph("ai-built-apps"), aiBuiltJsonLd());
+    assert.deepEqual(
+      routeGraph("open-source", { "@id": webPageId("/open-source/"), mainEntity: { "@id": ids.source } }, sourceCodeNode()),
+      openSourceJsonLd(),
+    );
+    assert.deepEqual(routeGraph("privacy"), legalJsonLd(legalPages.privacy));
+    assert.deepEqual(routeGraph("terms"), legalJsonLd(legalPages.terms));
+    assert.deepEqual(routeGraph("acceptable-use"), legalJsonLd(legalPages.acceptableUse));
+    assert.deepEqual(routeGraph("security"), legalJsonLd(legalPages.security));
+  });
+
+  test("the pages that build their graph in page.tsx: the same nodes, from the registry", () => {
+    const page = (id: Parameters<typeof route>[0]) => route(id);
+    const home = page("home");
+    assert.deepEqual(routeNodes("home"), [
+      webPageNode({ path: "/", name: pageTitle(home), description: home.description }),
+    ]);
+    assert.equal(pageTitle(home), "Run Hound: AI-assisted UI testing for AI-built apps");
+
+    const how = page("how-it-works");
+    assert.deepEqual(routeNodes("how-it-works"), [
+      webPageNode({ path: how.path, name: pageTitle(how), description: how.description }),
+      crumbs("How it works", how.path),
+      techArticleNode({
+        path: how.path,
+        headline: "How Run Hound works: it asks before it tests",
+        description: how.description,
+        dateModified: site.releasedIso,
+      }),
+      maintainerNode(),
+    ]);
+
+    // Today's one-page docs is a TechArticle; D1's hub (§3.4) is a WebPage and its BreadcrumbList only, which the
+    // registry says by dropping the hub's `article` (content/routes/docs.ts).
+    const docsRoute = page("docs");
+    assert.deepEqual(routeNodes("docs"), [
+      webPageNode({ path: docsRoute.path, name: pageTitle(docsRoute), description: docsRoute.description }),
+      crumbs("Docs", docsRoute.path),
+      ...(docsRoute.schema.article
+        ? [
+            techArticleNode({
+              path: docsRoute.path,
+              headline: "Run Hound docs: run it on your machine",
+              description: docsRoute.description,
+              dateModified: site.releasedIso,
+              dependencies: "Docker 24+, Docker Desktop or Podman; or Node.js 22.12 or newer, pnpm and git to run from source",
+            }),
+            maintainerNode(),
+          ]
+        : []),
+    ]);
+
+    const demo = page("demo");
+    assert.deepEqual(routeNodes("demo"), [
+      webPageNode({ path: demo.path, name: pageTitle(demo), description: demo.description }),
+      crumbs("Demo", demo.path),
+    ]);
+
+    const checks = page("checks");
+    const list = checksItemListNode();
+    assert.deepEqual(
+      routeGraph("checks", { "@id": webPageId(checks.path), mainEntity: { "@id": list["@id"] } }, list),
+      graph(
+        webPageNode({
+          path: checks.path,
+          name: pageTitle(checks),
+          description: checks.description,
+          type: "CollectionPage",
+          dateModified: site.releasedIso,
+        }),
+        { "@id": webPageId(checks.path), mainEntity: { "@id": list["@id"] } },
+        crumbs("Checks", checks.path),
+        list,
+      ),
+    );
+  });
+
+  test("the checks list points at each check's hub card until the check has its own page", () => {
+    const list = checksItemListNode();
+    assert.deepEqual(
+      list,
+      itemListNode({
+        path: "/checks/",
+        name: `Built-in checks in ${site.name} ${site.version}`,
+        items: builtInChecks.map((c) => ({
+          name: `${c.name} (${c.id})`,
+          url: hasRoute(`check-${c.id}`) ? `/checks/${c.id}/` : `/checks/#${c.id}`,
+        })),
+      }),
+    );
+    const withPage = checksItemListNode([{ id: "check-double-submit", path: "/checks/double-submit/" }]);
+    const items = withPage.itemListElement as { url: string }[];
+    assert.ok(items.some((i) => i.url === `${base}/checks/double-submit/`));
+    assert.ok(items.some((i) => i.url === `${base}/checks/#axe-states`));
+  });
+
+  test("installUrl: /docs/#quick-start until /docs/quick-start/ is registered", () => {
+    assert.equal(installPath(), hasRoute("docs-quick-start") ? "/docs/quick-start/" : "/docs/#quick-start");
+    assert.equal(installPath([{ id: "docs", path: "/docs/" }]), "/docs/#quick-start");
+    assert.equal(installPath([{ id: "docs-quick-start", path: "/docs/quick-start/" }]), "/docs/quick-start/");
+    assert.equal(softwareNode().installUrl, `${base}${installPath()}`);
   });
 });

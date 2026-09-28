@@ -1,0 +1,1522 @@
+{
+  "runHoundVersion": "0.6.0",
+  "app": "fernway",
+  "extractedWith": [
+    "scripts/extract-run.mjs",
+    "--app",
+    "fernway",
+    "--run",
+    ".lab-out/R1/runs/fernway-0.6.0/app/runs/20260927-185146-dd6aaf",
+    "--run",
+    ".lab-out/R1/runs/fernway-0.6.0/app-settings/runs/20260927-185518-9dd647",
+    "--run",
+    ".lab-out/R1/runs/fernway-0.6.0/app-settings-paywall/runs/20260927-185749-edbe4d",
+    "--out",
+    "src/content/runs/fernway-0.6.0.json",
+    "--assets",
+    "src/assets/runs/0.6.0/fernway",
+    "--feature",
+    "access-control",
+    "--feature",
+    "mass-assignment",
+    "--feature",
+    "deep-links",
+    "--feature",
+    "csrf",
+    "--feature",
+    "write-access",
+    "--feature",
+    "paywall-trust"
+  ],
+  "runs": [
+    {
+      "runId": "20260927-185146-dd6aaf",
+      "runHoundVersion": "0.6.0",
+      "target": "http://localhost:4110/app",
+      "startedAt": "2026-09-27T18:51:46.300Z",
+      "durationMs": 171207,
+      "signedIn": {
+        "as": "Account A",
+        "other": "Account B"
+      },
+      "form": {
+        "name": "Quick add",
+        "fieldCount": 2,
+        "fields": [
+          {
+            "label": "Task",
+            "type": "text"
+          },
+          {
+            "label": "Project",
+            "type": "select"
+          }
+        ]
+      },
+      "planned": 39,
+      "approved": 39,
+      "summary": {
+        "critical": 5,
+        "high": 5,
+        "medium": 1,
+        "low": 0,
+        "passed": 25,
+        "failed": 11,
+        "errored": 0,
+        "skipped": 3
+      },
+      "scenarios": [
+        {
+          "id": "axe-states:four-states",
+          "checkId": "axe-states",
+          "title": "Scan the form with axe-core before, during and after submitting (Quick add form)",
+          "status": "fail",
+          "note": "Scanned states: initial, invalid submit, server error, success",
+          "steps": [
+            "Scanning the empty form with axe",
+            "Marking the 2 elements that fail \"button-name\"",
+            "Submitting the empty form",
+            "Scanning the form after an empty submit",
+            "Filling the form; the server will answer 500",
+            "Scanning the form after a server error",
+            "Submitting with test values (1st submission)",
+            "Submitting with test values (2nd submission)",
+            "Scanning the page after two submissions"
+          ]
+        },
+        {
+          "id": "axe-states:four-states@form-2",
+          "checkId": "axe-states",
+          "title": "Scan the form with axe-core before, during and after submitting (New project form)",
+          "status": "pass",
+          "note": "Scanned states: initial, invalid submit, server error; success state: the form is not on the page (/app), not scanned",
+          "steps": [
+            "Scanning the empty form with axe",
+            "Submitting the empty form",
+            "Scanning the form after an empty submit",
+            "Filling the form; the server will answer 500",
+            "Scanning the form after a server error",
+            "Submitting with test values (1st submission)",
+            "Opening the form again (the last submission led to another page or closed the dialog)",
+            "Submitting with test values (2nd submission)",
+            "Scanning the page after two submissions"
+          ]
+        },
+        {
+          "id": "keyboard-completion:keyboard-only",
+          "checkId": "keyboard-completion",
+          "title": "Fill in and submit the form using only the keyboard (Quick add form)",
+          "status": "pass",
+          "note": "Tab reached 2/2 target field(s); submit status 201",
+          "steps": [
+            "Pressing Tab through the form and filling each field from the keyboard"
+          ]
+        },
+        {
+          "id": "keyboard-completion:keyboard-only@form-2",
+          "checkId": "keyboard-completion",
+          "title": "Fill in and submit the form using only the keyboard (New project form)",
+          "status": "pass",
+          "note": "Tab reached 6/6 target field(s); submit status 201",
+          "steps": [
+            "Pressing Tab through the form and filling each field from the keyboard"
+          ]
+        },
+        {
+          "id": "focus-visible:tab-through",
+          "checkId": "focus-visible",
+          "title": "Tab through every control and look for a focus indicator",
+          "status": "pass",
+          "note": "Tabbed through 38 focusable elements",
+          "steps": [
+            "Pressing Tab through every control"
+          ]
+        },
+        {
+          "id": "error-announcement:empty-submit",
+          "checkId": "error-announcement",
+          "title": "Submit the form empty and check errors are announced (Quick add form)",
+          "status": "pass",
+          "note": "Checked 1 required field(s) after an empty submit (all found by the errors the form showed; nothing marks it as required)",
+          "steps": [
+            "Submitting the form with every field empty",
+            "Reading aria-invalid, aria-describedby and live regions"
+          ]
+        },
+        {
+          "id": "error-announcement:empty-submit@form-2",
+          "checkId": "error-announcement",
+          "title": "Submit the form empty and check errors are announced (New project form)",
+          "status": "pass",
+          "note": "Checked 1 required field(s) after an empty submit (all found by the errors the form showed; nothing marks it as required)",
+          "steps": [
+            "Submitting the form with every field empty",
+            "Reading aria-invalid, aria-describedby and live regions"
+          ]
+        },
+        {
+          "id": "reflow-320:narrow-viewport",
+          "checkId": "reflow-320",
+          "title": "Load the page on a 320 px wide screen",
+          "status": "pass",
+          "note": "scrollWidth 320, clientWidth 320 at 320x800",
+          "steps": [
+            "Measuring the page width at 320 px"
+          ]
+        },
+        {
+          "id": "golden-path",
+          "checkId": "console-network-errors",
+          "title": "Load the form and complete it with valid data (Quick add form)",
+          "status": "pass",
+          "note": "Loaded and submitted the form; 21 requests, no errors.",
+          "steps": [
+            "Loaded the form, watching the console and network",
+            "Filling every field with valid test values",
+            "Submitting the form",
+            "Counting console errors, page errors and failed requests"
+          ]
+        },
+        {
+          "id": "golden-path@form-2",
+          "checkId": "console-network-errors",
+          "title": "Load the form and complete it with valid data (New project form)",
+          "status": "pass",
+          "note": "Loaded and submitted the form; 20 requests, no errors.",
+          "steps": [
+            "Loaded the form, watching the console and network",
+            "Filling every field with valid test values",
+            "Submitting the form",
+            "Counting console errors, page errors and failed requests"
+          ]
+        },
+        {
+          "id": "activate-controls@form-2",
+          "checkId": "dead-control",
+          "title": "Click every button except the submit button (New project form)",
+          "status": "pass",
+          "note": "\"Cancel\": DOM change",
+          "steps": [
+            "Clicking \"Cancel\" and watching for a reaction"
+          ]
+        },
+        {
+          "id": "server-error-500",
+          "checkId": "silent-failure",
+          "title": "Submit while the server answers with an error (Quick add form)",
+          "status": "pass",
+          "note": "Error announced via live region (alert) after ~145 ms: \"Task not added\n\nSomething went wrong on our side. Please try again.\"",
+          "steps": [
+            "Filling the form with valid test values",
+            "Form filled with valid data",
+            "Submitted; the save request was answered with 500",
+            "Waiting up to 5 s for an error message",
+            "Checking the typed values are still there",
+            "0.1 s after the failed save"
+          ]
+        },
+        {
+          "id": "server-error-500@form-2",
+          "checkId": "silent-failure",
+          "title": "Submit while the server answers with an error (New project form)",
+          "status": "pass",
+          "note": "Error announced via live region (aria-live=polite) after ~183 ms: \"Project not created\nSomething went wrong on our side. Please try again.\"",
+          "steps": [
+            "Filling the form with valid test values",
+            "Form filled with valid data",
+            "Submitted; the save request was answered with 500",
+            "Waiting up to 5 s for an error message",
+            "Checking the typed values are still there",
+            "0.2 s after the failed save"
+          ]
+        },
+        {
+          "id": "canary-reload",
+          "checkId": "persistence",
+          "title": "Submit unique values, reload and look for them (Quick add form)",
+          "status": "pass",
+          "note": "All 1 test values were visible after reload.",
+          "steps": [
+            "Typing a unique test value into every field",
+            "Typed unique test values",
+            "Submitting the form",
+            "Submitted; the server saved it",
+            "Reloading the page and looking for every test value"
+          ]
+        },
+        {
+          "id": "canary-reload@form-2",
+          "checkId": "persistence",
+          "title": "Submit unique values, reload and look for them (New project form)",
+          "status": "pass",
+          "note": "The saved record was shown again after reload. Description is not shown on this page at all, not even right after saving, and the server's response (POST /api/projects → 201) carried it, so it was saved; this page just doesn't show that field.",
+          "steps": [
+            "Typing a unique test value into every field",
+            "Typed unique test values",
+            "Submitting the form",
+            "Submitted; the server saved it",
+            "Reloading the page and looking for every test value"
+          ]
+        },
+        {
+          "id": "double-click-submit",
+          "checkId": "double-submit",
+          "title": "Double-click \"Add task\" with valid data (Quick add form)",
+          "status": "fail",
+          "steps": [
+            "Filling the form with valid test values",
+            "Form filled with valid data",
+            "Double-clicked \"Add task\"",
+            "Waiting for the save requests to finish",
+            "After the double click: 2 save requests"
+          ]
+        },
+        {
+          "id": "double-click-submit@form-2",
+          "checkId": "double-submit",
+          "title": "Double-click \"Create project\" with valid data (New project form)",
+          "status": "pass",
+          "note": "1 save request(s), each to a different endpoint: POST /api/projects.",
+          "steps": [
+            "Filling the form with valid test values",
+            "Form filled with valid data",
+            "Double-clicked \"Create project\"",
+            "Waiting for the save requests to finish"
+          ]
+        },
+        {
+          "id": "replay-invalid",
+          "checkId": "client-only-validation",
+          "title": "Send an invalid request straight to the server (Quick add form)",
+          "status": "pass",
+          "note": "Server answered 400 to a request with required Task left empty.",
+          "steps": [
+            "Filling the form and capturing its save request (answered by Run Hound)",
+            "Submitting the form empty to learn which fields it refuses (answered by Run Hound, nothing is saved)",
+            "Sending POST /api/tasks to the server with required Task left empty"
+          ]
+        },
+        {
+          "id": "replay-invalid@form-2",
+          "checkId": "client-only-validation",
+          "title": "Send an invalid request straight to the server (New project form)",
+          "status": "pass",
+          "note": "Server answered 400 to a request with required Project name left empty.",
+          "steps": [
+            "Filling the form and capturing its save request (answered by Run Hound)",
+            "Submitting the form empty to learn which fields it refuses (answered by Run Hound, nothing is saved)",
+            "Sending POST /api/projects to the server with required Project name left empty"
+          ]
+        },
+        {
+          "id": "page-controls:click-outside-forms",
+          "checkId": "page-controls",
+          "title": "Click every button outside the forms",
+          "status": "pass",
+          "note": "\"unnamed button\": DOM change; \"Search\": DOM change; \"Switch to dark theme\": DOM change; \"unnamed button\": DOM change; \"Account menu\": DOM change; \"New project\": DOM change; \"Show chart data\": DOM change; \"Test the trip planner offline\": request (it saves when clicked, so Run Hound set it back to unchecked); \"Sketch the Bramble logo options\": request (it saves when clicked, so Run Hound set it back to unchecked); \"Approve the Northwind color palette\": request (it saves when clicked, so Run Hound set it back to checked); \"Review homepage wireframes\": request (it saves when clicked, so Run Hound set it back to unchecked); \"All\": skipped (already selected, so choosing it again changes nothing); \"Active\": DOM change; \"Paused\": DOM change; \"Done\": DOM change; \"Actions for Northwind rebrand\": DOM change; \"Actions for Atlas mobile app\": DOM change; \"Actions for Juniper website refresh\": DOM change; \"Actions for Harbor & Co. launch video\": DOM change; \"Actions for Maple Studio brand book\": DOM change; \"Send Greenway the print proofs\": skipped (looks destructive; run again with --allow-destructive to include it); \"Send sprint notes to Atlas\": skipped (looks destructive; run again with --allow-destructive to include it)",
+          "steps": [
+            "Clicking \"unnamed button\" and watching for a reaction",
+            "Clicking \"Search\" and watching for a reaction",
+            "Clicking \"Switch to dark theme\" and watching for a reaction",
+            "Clicking \"unnamed button\" and watching for a reaction",
+            "Clicking \"Account menu\" and watching for a reaction",
+            "Clicking \"New project\" and watching for a reaction",
+            "Clicking \"Show chart data\" and watching for a reaction",
+            "Clicking \"Test the trip planner offline\" and watching for a reaction",
+            "Clicking \"Sketch the Bramble logo options\" and watching for a reaction",
+            "Clicking \"Approve the Northwind color palette\" and watching for a reaction",
+            "Clicking \"Review homepage wireframes\" and watching for a reaction",
+            "Clicking \"All\" and watching for a reaction",
+            "Clicking \"Active\" and watching for a reaction",
+            "Clicking \"Paused\" and watching for a reaction",
+            "Clicking \"Done\" and watching for a reaction",
+            "Clicking \"Actions for Northwind rebrand\" and watching for a reaction",
+            "Clicking \"Actions for Atlas mobile app\" and watching for a reaction",
+            "Clicking \"Actions for Juniper website refresh\" and watching for a reaction",
+            "Clicking \"Actions for Harbor & Co. launch video\" and watching for a reaction",
+            "Clicking \"Actions for Maple Studio brand book\" and watching for a reaction"
+          ]
+        },
+        {
+          "id": "deep-links",
+          "checkId": "deep-links",
+          "title": "The app's pages load when opened directly",
+          "status": "fail",
+          "note": "/app/settings: opened directly → 200; /app/help: opened directly → 404",
+          "steps": [
+            "Opening /app/settings directly",
+            "Opening /app/help directly"
+          ]
+        },
+        {
+          "id": "bundle-secrets:scan-scripts",
+          "checkId": "bundle-secrets",
+          "title": "Scan every loaded script for secret keys",
+          "status": "fail",
+          "note": "Scanned 4 script/page sources",
+          "steps": [
+            "Downloading every script the page loads",
+            "Searching 4 scripts and the HTML for secret keys",
+            "Found stripe-secret in http://localhost:4110/config/billing.js"
+          ]
+        },
+        {
+          "id": "oversized-and-malformed",
+          "checkId": "verbose-errors",
+          "title": "Send oversized and malformed input (Quick add form)",
+          "status": "pass",
+          "note": "Checked 0 responses and the page text.",
+          "steps": [
+            "Filling free-text fields with far too much text",
+            "Submitting the oversized input",
+            "Scanning the responses and the page for stack traces and file paths"
+          ]
+        },
+        {
+          "id": "oversized-and-malformed@form-2",
+          "checkId": "verbose-errors",
+          "title": "Send oversized and malformed input (New project form)",
+          "status": "pass",
+          "note": "Checked 0 responses and the page text.",
+          "steps": [
+            "Filling free-text fields with far too much text",
+            "Submitting the oversized input",
+            "Scanning the responses and the page for stack traces and file paths"
+          ]
+        },
+        {
+          "id": "security-headers:response-headers",
+          "checkId": "security-headers",
+          "title": "Check the page's security headers",
+          "status": "fail",
+          "steps": [
+            "Reading the headers of the page's response"
+          ]
+        },
+        {
+          "id": "cookie-flags:session-cookies",
+          "checkId": "cookie-flags",
+          "title": "Check the flags on session cookies",
+          "status": "fail",
+          "steps": [
+            "Reading the cookies the page set"
+          ]
+        },
+        {
+          "id": "cors:foreign-origin",
+          "checkId": "cors",
+          "title": "Ask the app's API whether other websites may read it",
+          "status": "pass",
+          "note": "Sent 5 requests from a sandboxed frame (GET /api/__config, GET /api/me, GET /api/projects, GET /api/members and GET /api/tasks): the browser let other websites read none of them.",
+          "steps": [
+            "Sending GET /api/__config from a sandboxed frame (Origin: null)",
+            "Sending GET /api/me from a sandboxed frame (Origin: null)",
+            "Sending GET /api/projects from a sandboxed frame (Origin: null)",
+            "Sending GET /api/members from a sandboxed frame (Origin: null)",
+            "Sending GET /api/tasks from a sandboxed frame (Origin: null)"
+          ]
+        },
+        {
+          "id": "source-maps:public-maps",
+          "checkId": "source-maps",
+          "title": "Look for public source maps",
+          "status": "pass",
+          "note": "Checked 3 scripts: no public source maps.",
+          "steps": [
+            "Looking for the source map of /theme-init.js",
+            "Looking for the source map of /assets/index-Jgnu2cuX.js",
+            "Looking for the source map of /config/billing.js"
+          ]
+        },
+        {
+          "id": "access-control:other-account",
+          "checkId": "access-control",
+          "title": "Another account can't read Account A's data",
+          "status": "fail",
+          "steps": [
+            "Saving a test record as Account A",
+            "Reloading to see Account A's data",
+            "Opening the page as Account B",
+            "Replaying GET /api/me as Account B",
+            "Replaying GET /api/projects as Account B",
+            "Replaying GET /api/members as Account B",
+            "Replaying GET /api/tasks as Account B"
+          ]
+        },
+        {
+          "id": "access-control:signed-out",
+          "checkId": "access-control",
+          "title": "Signed-out visitors can't read Account A's data",
+          "status": "fail",
+          "steps": [
+            "Saving a test record as Account A",
+            "Reloading to see Account A's data",
+            "Replaying GET /api/me with no session",
+            "Replaying GET /api/projects with no session",
+            "Replaying GET /api/members with no session",
+            "Replaying GET /api/tasks with no session"
+          ]
+        },
+        {
+          "id": "mass-assignment:privilege-fields",
+          "checkId": "mass-assignment",
+          "title": "The server ignores fields the form never sends (role, plan) (Quick add form)",
+          "status": "pass",
+          "note": "The server's answer did not echo the injected fields, and no endpoint reads this record back.",
+          "steps": [
+            "Saving the form as Account A",
+            "Reloading to read the saved record",
+            "Replaying the save with privilege fields added"
+          ]
+        },
+        {
+          "id": "mass-assignment:privilege-fields@form-2",
+          "checkId": "mass-assignment",
+          "title": "The server ignores fields the form never sends (role, plan) (New project form)",
+          "status": "pass",
+          "note": "The server's answer did not echo the injected fields, and no endpoint reads this record back.",
+          "steps": [
+            "Saving the form as Account A",
+            "Reloading to read the saved record",
+            "Replaying the save with privilege fields added"
+          ]
+        },
+        {
+          "id": "csrf:cross-site",
+          "checkId": "csrf",
+          "title": "A page on another site can't change Account A's data (Quick add form)",
+          "status": "fail",
+          "note": "The forged form-encoded request from http://127.0.0.1:44383 was stored. The forged request created a new test record under Account A (it carries the run's test values, and Run Hound doesn't delete records): check Account A.",
+          "steps": [
+            "Saving a test record as Account A",
+            "Reloading to read the saved record",
+            "Opening a page on another site",
+            "Sending the forged save from another site (form-encoded)"
+          ]
+        },
+        {
+          "id": "csrf:cross-site@form-2",
+          "checkId": "csrf",
+          "title": "A page on another site can't change Account A's data (New project form)",
+          "status": "pass",
+          "note": "A page on http://127.0.0.1:45345 could not change Account A's data. The save is sent as JSON, which needs a preflight from another site (the app's CORS doesn't allow that origin), and the app didn't take the forged save otherwise. Tried: form-encoded (403), JSON sent as text/plain (no answer Run Hound could see).",
+          "steps": [
+            "Saving a test record as Account A",
+            "Reloading to read the saved record",
+            "Opening a page on another site",
+            "Sending the forged save from another site (form-encoded)",
+            "Sending the forged save from another site (JSON sent as text/plain)"
+          ]
+        },
+        {
+          "id": "write-access:other-account",
+          "checkId": "write-access",
+          "title": "Account B can't change Account A's records (Quick add form)",
+          "status": "fail",
+          "note": "Account B changed Account A's test record: PATCH /api/tasks/ffb60789-31bc-410f-8423-0a2247330054. Restored title of Account A's test record.",
+          "steps": [
+            "Saving a test record as Account A",
+            "Reloading to read the saved record",
+            "Sending PATCH /api/tasks/ffb60789-31bc-410f-8423-0a2247330054 as Account B"
+          ]
+        },
+        {
+          "id": "write-access:signed-out",
+          "checkId": "write-access",
+          "title": "Signed-out visitors can't change Account A's records (Quick add form)",
+          "status": "fail",
+          "note": "Signed-out visitor changed Account A's test record: PATCH /api/tasks/6b834641-4d75-4f52-86d6-b3030c32ce4a. Restored title of Account A's test record.",
+          "steps": [
+            "Saving a test record as Account A",
+            "Reloading to read the saved record",
+            "Sending PATCH /api/tasks/6b834641-4d75-4f52-86d6-b3030c32ce4a as a signed-out visitor"
+          ]
+        },
+        {
+          "id": "write-access:other-account@form-2",
+          "checkId": "write-access",
+          "title": "Account B can't change Account A's records (New project form)",
+          "status": "skipped",
+          "note": "Skipped: the app showed no update or delete for its test record, so there is nothing to try as Account B.",
+          "steps": [
+            "Saving a test record as Account A",
+            "Reloading to read the saved record"
+          ]
+        },
+        {
+          "id": "write-access:signed-out@form-2",
+          "checkId": "write-access",
+          "title": "Signed-out visitors can't change Account A's records (New project form)",
+          "status": "skipped",
+          "note": "Skipped: the app showed no update or delete for its test record, so there is nothing to try as a signed-out visitor.",
+          "steps": [
+            "Saving a test record as Account A",
+            "Reloading to read the saved record"
+          ]
+        },
+        {
+          "id": "paywall-trust:success-page",
+          "checkId": "paywall-trust",
+          "title": "Opening a success page doesn't give Account A a paid plan",
+          "status": "skipped",
+          "note": "No plan or entitlement data was found, so this can't be checked: none of the requests the page made as Account A while it loaded answered with Account A's own plan, role, credits or entitlements.",
+          "steps": [
+            "Reading Account A's plan from the page's own requests"
+          ]
+        }
+      ],
+      "findings": [
+        {
+          "id": "axe-states#1",
+          "checkId": "axe-states",
+          "scenarioId": "axe-states:four-states",
+          "featured": false,
+          "title": "Buttons must have discernible text (2 elements)",
+          "severity": "high",
+          "confidence": "confirmed",
+          "location": "icon-only button that controls the app sidebar"
+        },
+        {
+          "id": "double-submit#double-click-submit-1",
+          "checkId": "double-submit",
+          "scenarioId": "double-click-submit",
+          "featured": false,
+          "title": "Double-clicking \"Add task\" saves 2 times",
+          "severity": "high",
+          "confidence": "confirmed",
+          "location": "\"Add task\" button"
+        },
+        {
+          "id": "deep-links#deep-links-1",
+          "checkId": "deep-links",
+          "scenarioId": "deep-links",
+          "featured": true,
+          "title": "1 page shows an error when opened directly (a reload or a shared link breaks)",
+          "severity": "high",
+          "confidence": "confirmed",
+          "meaning": "Opening one of the app's own links directly, the way a reload or a shared link would, shows an error or a \"page not found\" view, even though the same link works when clicked inside the app.",
+          "impact": "Anyone who reloads the page, bookmarks it or opens a shared link lands on an error instead of the page they expected. Deep links and refreshes are broken.",
+          "fix": "Ask your AI or developer: \"Opening these pages directly returns an error or a not-found view, though they work when navigated to inside the app. This is usually a single-page app served without a fallback to index.html: configure the host to serve index.html for any unknown path so the client router can handle it.\"",
+          "location": "/app/help (404)",
+          "locations": [
+            "/app/help (404)"
+          ],
+          "scope": "Whole page",
+          "spec": {
+            "filename": "deep-links.spec.ts",
+            "source": "import { test, expect } from \"@playwright/test\";\n\n// Exported by Run Hound. Open each linked page directly (as a shared link or a reload would).\nconst TARGET = \"http://localhost:4110/app\";\nconst PATHS = [\"/app/help\"] as unknown as string[];\n\ntest(\"the app's pages load when opened directly\", async ({ page }) => {\n  for (const path of PATHS) {\n    const url = new URL(path, TARGET).href;\n    const response = await page.goto(url, { waitUntil: \"load\" });\n    expect(response && response.status(), path + \" should not answer with an error\").toBeLessThan(400);\n    const notFound = await page.evaluate(() => /404|not found/i.test((document.title + \" \" + (document.querySelector(\"h1\")?.innerText || \"\"))));\n    expect(notFound, path + \" should not show a not-found view when opened directly\").toBe(false);\n  }\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "frame",
+              "label": "/app/help opened directly (404)",
+              "facts": [
+                {
+                  "label": "Opened directly",
+                  "value": "/app/help"
+                },
+                {
+                  "label": "Status",
+                  "value": "404"
+                }
+              ],
+              "artifact": "004-app-help-opened-directly-404.png",
+              "asset": "assets/runs/0.6.0/fernway/deep-links-frame-1.png",
+              "width": 1640,
+              "height": 908
+            },
+            {
+              "kind": "card",
+              "label": "/app/help opened directly",
+              "title": "GET /app/help → 404",
+              "subtitle": "Opening this link directly answers with an error.",
+              "lines": [
+                "> Direct load: GET /app/help",
+                "  Status: 404",
+                "  Renders: an error page"
+              ],
+              "artifact": "005-app-help-opened-directly.png",
+              "asset": "assets/runs/0.6.0/fernway/deep-links-card-1.png",
+              "width": 960,
+              "height": 237
+            }
+          ]
+        },
+        {
+          "id": "bundle-secrets#1",
+          "checkId": "bundle-secrets",
+          "scenarioId": "bundle-secrets:scan-scripts",
+          "featured": false,
+          "title": "Secret key shipped to every visitor: a Stripe secret key",
+          "severity": "critical",
+          "confidence": "confirmed",
+          "location": "http://localhost:4110/config/billing.js"
+        },
+        {
+          "id": "security-headers#1",
+          "checkId": "security-headers",
+          "scenarioId": "security-headers:response-headers",
+          "featured": false,
+          "title": "3 security header problems (Content-Security-Policy, Clickjacking protection, X-Content-Type-Options)",
+          "severity": "medium",
+          "confidence": "confirmed",
+          "location": "Response headers of GET /app"
+        },
+        {
+          "id": "cookie-flags#1",
+          "checkId": "cookie-flags",
+          "scenarioId": "cookie-flags:session-cookies",
+          "featured": false,
+          "title": "Session cookie \"fernway_session\" has no HttpOnly",
+          "severity": "high",
+          "confidence": "confirmed",
+          "location": "Cookie \"fernway_session\""
+        },
+        {
+          "id": "access-control#access-control:other-account-1",
+          "checkId": "access-control",
+          "scenarioId": "access-control:other-account",
+          "featured": true,
+          "title": "Account B can read Account A's data (1 endpoint)",
+          "severity": "critical",
+          "confidence": "confirmed",
+          "meaning": "Signed in as Account B, Run Hound could read data that belongs to Account A from 1 endpoint. Two accounts that should not see each other's data are not kept apart by the server.",
+          "impact": "Any signed-in user can read another user's private data (their records, their profile), so nothing a person keeps in this app is private from other accounts.",
+          "fix": "Ask your AI or developer: \"These endpoints return one account's data to another signed-in account: GET /api/tasks. Check on the server that the signed-in user owns the record before returning it, and answer 403 or 404 otherwise.\"",
+          "location": "GET /api/tasks (200)",
+          "locations": [
+            "GET /api/tasks (200)"
+          ],
+          "scope": "Whole page",
+          "spec": {
+            "filename": "access-control-other.spec.ts",
+            "source": "import { test, expect, request } from \"@playwright/test\";\n\n// Exported by Run Hound. Set the account environment variables before running:\n//   RUNHOUND_ACCOUNT_A_LOGIN_URL, RUNHOUND_ACCOUNT_A_USERNAME, RUNHOUND_ACCOUNT_A_PASSWORD (and _B_ for Account B).\nconst TARGET = \"http://localhost:4110/app\";\nconst ENDPOINTS = [\"/api/tasks\"] as unknown as string[];\n\n// Sign in through the app's own login form and return the session as storage state (cookies + localStorage).\nasync function sessionFor(slot: \"A\" | \"B\") {\n  const loginUrl = process.env[\"RUNHOUND_ACCOUNT_\" + slot + \"_LOGIN_URL\"]!;\n  const username = process.env[\"RUNHOUND_ACCOUNT_\" + slot + \"_USERNAME\"]!;\n  const password = process.env[\"RUNHOUND_ACCOUNT_\" + slot + \"_PASSWORD\"]!;\n  const ctx = await request.newContext();\n  // Replace with your app's sign-in call; it must set the session cookie or return a token.\n  await ctx.post(new URL(\"/api/login\", loginUrl).href, { data: { username, password } });\n  const state = await ctx.storageState();\n  await ctx.dispose();\n  return state;\n}\n\ntest(\"Account B cannot read Account A's data\", async () => {\n  const a = await request.newContext({ storageState: await sessionFor(\"A\") });\n  const other = await request.newContext({ storageState: await sessionFor(\"B\") });\n\n  for (const path of ENDPOINTS) {\n    const url = new URL(path, TARGET).href;\n    const mine = await a.get(url);\n    expect(mine.ok(), path + \" should return Account A's own data to Account A\").toBe(true);\n    const theirs = await other.get(url);\n    // Account B must not get Account A's record back (a 401/403/404 or an answer without it).\n    expect(theirs.ok() && (await theirs.text()) === (await mine.text()), path + \" leaked Account A's data\").toBe(false);\n  }\n  await a.dispose();\n  await other.dispose();\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "frame",
+              "label": "Account A's record on Account B's page",
+              "facts": [
+                {
+                  "label": "Signed in as",
+                  "value": "Account B"
+                }
+              ],
+              "markers": [
+                {
+                  "label": "Account A's test record",
+                  "box": {
+                    "x": 969,
+                    "y": 443,
+                    "width": 254,
+                    "height": 41
+                  }
+                }
+              ],
+              "artifact": "009-account-a-s-record-on-account-b-s-page.png",
+              "asset": "assets/runs/0.6.0/fernway/access-control-frame-1.png",
+              "width": 1640,
+              "height": 908
+            },
+            {
+              "kind": "card",
+              "label": "GET /api/tasks returned Account A's test record",
+              "facts": [
+                {
+                  "label": "Requested as",
+                  "value": "Account B"
+                },
+                {
+                  "label": "Status",
+                  "value": "200"
+                },
+                {
+                  "label": "Returned",
+                  "value": "Account A's test record"
+                }
+              ],
+              "title": "GET /api/tasks → 200, requested as Account B",
+              "subtitle": "The answer holds Account A's test record (shown here masked; the real value is never printed).",
+              "lines": [
+                "  [",
+                "    {",
+                "      \"id\": \"task-wireframes\",",
+                "      \"title\": \"Review homepage wireframes\",",
+                "      \"projectId\": \"juniper-website\",",
+                "      \"done\": false,",
+                "      \"createdAt\": \"2026-09-01T09:00:00.000Z\"",
+                "    },",
+                "    {",
+                "      \"id\": \"task-sprint-notes\",",
+                "      \"title\": \"Send sprint notes to Atlas\",",
+                "      \"projectId\": \"atlas-mobile-app\",",
+                "      \"done\": false,",
+                "      \"createdAt\": \"2026-09-01T09:00:00.000Z\"",
+                "    },",
+                "    {",
+                "      \"id\": \"task-palette\",",
+                "      \"title\": \"Approve the Northwind color palette\",",
+                "      \"projectId\": \"northwind-rebrand\",",
+                "      \"done\": true,",
+                "  … 80 more lines"
+              ],
+              "artifact": "010-get-api-tasks-returned-account-a-s-test-record.png",
+              "asset": "assets/runs/0.6.0/fernway/access-control-card-1.png",
+              "width": 960,
+              "height": 657
+            }
+          ]
+        },
+        {
+          "id": "access-control#access-control:signed-out-1",
+          "checkId": "access-control",
+          "scenarioId": "access-control:signed-out",
+          "featured": false,
+          "title": "Account A's data is readable without signing in (3 endpoints)",
+          "severity": "critical",
+          "confidence": "confirmed",
+          "location": "GET /api/projects (200)"
+        },
+        {
+          "id": "csrf#csrf:cross-site-1",
+          "checkId": "csrf",
+          "scenarioId": "csrf:cross-site",
+          "featured": true,
+          "title": "A page on another site can change Account A's data (no CSRF protection)",
+          "severity": "high",
+          "confidence": "confirmed",
+          "meaning": "Run Hound opened a page on a different site (http://127.0.0.1:44383) in Account A's browser and sent POST /api/tasks again with a new value (form-encoded). Re-reading the record as Account A showed the new value: the browser attached Account A's cookie fernway_session (SameSite=None) to a request from another site, and the server accepted it with no CSRF token and no Origin check.",
+          "impact": "Any web page Account A visits could silently make this change (or any other this form makes) on their behalf, without them ever submitting the form. This is a cross-site request forgery (CSRF) flaw.",
+          "fix": "Ask your AI or developer: \"The save at POST /api/tasks can be sent from another site. Add a CSRF defence: a SameSite=Lax (or Strict) session cookie, plus a per-request CSRF token the server checks, or an Origin/Referer check that rejects requests from other sites. Accept only application/json for JSON saves.\"",
+          "location": "POST /api/tasks",
+          "scope": "Quick add form",
+          "spec": {
+            "filename": "csrf-cross-site.spec.ts",
+            "source": "import { test, expect, chromium, request } from \"@playwright/test\";\nimport { createServer } from \"node:http\";\nimport type { AddressInfo } from \"node:net\";\n\n// Exported by Run Hound. Set Account A's environment variables before running:\n//   RUNHOUND_ACCOUNT_A_LOGIN_URL, RUNHOUND_ACCOUNT_A_USERNAME, RUNHOUND_ACCOUNT_A_PASSWORD.\n// The save was stored when sent form-encoded from another site.\nconst TARGET = \"http://localhost:4110/app\";\nconst SAVE = \"/api/tasks\"; // the form's own save\nconst RECORD = \"/api/tasks\"; // reads the saved record back as Account A\nconst FIELDS = [\"title\",\"projectId\"] as string[];\nconst FORGED_FIELD = \"title\";\nconst ENCODING = \"form\" as \"form\" | \"text\" | \"json\";\n// A different SITE from the target: localhost and 127.0.0.1 are different sites of each other.\nconst ATTACKER_HOST = \"127.0.0.1\";\n\n// Sign in through the app's own login and return the session as storage state (cookies + localStorage).\nasync function sessionFor(slot: \"A\") {\n  const loginUrl = process.env[\"RUNHOUND_ACCOUNT_\" + slot + \"_LOGIN_URL\"]!;\n  const username = process.env[\"RUNHOUND_ACCOUNT_\" + slot + \"_USERNAME\"]!;\n  const password = process.env[\"RUNHOUND_ACCOUNT_\" + slot + \"_PASSWORD\"]!;\n  const ctx = await request.newContext();\n  // Replace with your app's sign-in call; it must set the session cookie or return a token.\n  await ctx.post(new URL(\"/api/login\", loginUrl).href, { data: { username, password } });\n  const state = await ctx.storageState();\n  await ctx.dispose();\n  return state;\n}\n\ntest(\"a page on another site can't change Account A's data\", async () => {\n  const forged = \"runhound-forged-\" + Date.now();\n  const server = createServer((_req, res) => {\n    res.writeHead(200, { \"content-type\": \"text/html; charset=utf-8\" });\n    res.end(\"<!doctype html><title>Another site</title>\");\n  });\n  await new Promise<void>((resolve) => server.listen(0, ATTACKER_HOST, resolve));\n  const attacker = \"http://\" + ATTACKER_HOST + \":\" + (server.address() as AddressInfo).port;\n  const browser = await chromium.launch();\n  try {\n    const context = await browser.newContext({ storageState: await sessionFor(\"A\") });\n    const page = await context.newPage();\n    await page.goto(attacker + \"/\");\n    const values = Object.fromEntries(FIELDS.map((f) => [f, f === FORGED_FIELD ? forged : \"\"]));\n    await page.evaluate(async ({ url, values, encoding }) => {\n      if (encoding === \"form\") {\n        const iframe = document.createElement(\"iframe\"); iframe.name = \"forged\"; document.body.append(iframe);\n        const form = document.createElement(\"form\"); form.method = \"POST\"; form.action = url; form.target = \"forged\";\n        for (const [k, v] of Object.entries(values)) { const i = document.createElement(\"input\"); i.type = \"hidden\"; i.name = k; i.value = String(v); form.append(i); }\n        document.body.append(form);\n        await new Promise((resolve) => { iframe.addEventListener(\"load\", resolve); form.submit(); setTimeout(resolve, 5000); });\n      } else {\n        const type = encoding === \"text\" ? \"text/plain\" : \"application/json\";\n        await fetch(url, { method: \"POST\", credentials: \"include\", headers: { \"content-type\": type }, body: JSON.stringify(values) }).catch(() => undefined);\n      }\n    }, { url: new URL(SAVE, TARGET).href, values, encoding: ENCODING });\n    // Re-read as Account A, from a page of the app itself: the forged value must NOT be stored.\n    const own = await context.newPage();\n    await own.goto(TARGET);\n    const reread = await own.evaluate(async (u) => {\n      const res = await fetch(u, { credentials: \"include\" });\n      return { ok: res.ok, text: await res.text() };\n    }, new URL(RECORD, TARGET).href);\n    expect(reread.ok, \"the re-read as Account A failed: sign in as Account A so the record can be read\").toBe(true);\n    expect(reread.text, \"the value sent from another site was stored\").not.toContain(forged);\n  } finally {\n    await browser.close();\n    server.close();\n  }\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "card",
+              "label": "The forged cross-site request",
+              "facts": [
+                {
+                  "label": "How it was sent",
+                  "value": "form-encoded"
+                },
+                {
+                  "label": "Cookies attached (SameSite)",
+                  "value": "fernway_session (None)"
+                }
+              ],
+              "title": "POST /api/tasks forged from another site",
+              "subtitle": "Sent from a page on a different site in Account A's browser, with a new value.",
+              "lines": [
+                "> Sent as: form-encoded",
+                "> Cookies the browser attached: fernway_session",
+                "> No CSRF token and no Origin check stopped it."
+              ],
+              "artifact": "014-the-forged-cross-site-request.png",
+              "asset": "assets/runs/0.6.0/fernway/csrf-card-1.png",
+              "width": 960,
+              "height": 297
+            }
+          ]
+        },
+        {
+          "id": "write-access#write-access:other-account-1",
+          "checkId": "write-access",
+          "scenarioId": "write-access:other-account",
+          "featured": true,
+          "title": "Account B can change Account A's records",
+          "severity": "critical",
+          "confidence": "confirmed",
+          "meaning": "Run Hound saved a test record as Account A, then sent PATCH /api/tasks/ffb60789-31bc-410f-8423-0a2247330054 as Account B. Re-reading the record as Account A showed it had changed (title). The server doesn't check that the record belongs to whoever sends the update.",
+          "impact": "Any signed-in user can change other users' records by sending their ids (insecure direct object reference).",
+          "fix": "Ask your AI or developer: \"PATCH /api/tasks/ffb60789-31bc-410f-8423-0a2247330054 must only let the signed-in owner of the record change it: require a session, look the record up by id AND the session user's id, and answer 404 (or 403) otherwise. The same for every update and delete route.\"",
+          "location": "PATCH /api/tasks/ffb60789-31bc-410f-8423-0a2247330054",
+          "scope": "Quick add form",
+          "spec": {
+            "filename": "write-access-other-account-1.spec.ts",
+            "source": "import { test, expect, request, type APIRequestContext } from \"@playwright/test\";\n\n// Exported by Run Hound. Set the accounts' environment variables before running:\n//   RUNHOUND_ACCOUNT_A_LOGIN_URL, RUNHOUND_ACCOUNT_A_USERNAME, RUNHOUND_ACCOUNT_A_PASSWORD, and the same with _B_.\n// Create a test record as Account A first and set RECORD_ID to its id: this test sends the request below for it as\n// Account B, which changes it when the app is vulnerable. The verdict comes from re-reading the record as\n// Account A, not from the answer's status (a server can answer 403 and still apply the write, or 200 and ignore it).\nconst TARGET = \"http://localhost:4110/app\";\n// No default: an app that reuses ids could have given Run Hound's test record id to one of Account A's real records.\nconst RECORD_ID = process.env.RECORD_ID ?? \"\";\nconst ID_KEY = \"id\";\nconst RECORD_URL = process.env.RECORD_URL ?? \"/api/tasks/\" + encodeURIComponent(RECORD_ID); // the request Run Hound sent\nconst RECORD_READ = process.env.RECORD_READ ?? \"/api/tasks\"; // reads the record as Account A\nconst METHOD = \"PATCH\";\nconst FIELD = \"title\";\nconst WATCH = [\"title\"] as string[]; // fields that must read the same after the request\n\n// Your app's sign-in request (a path on the login page's origin). Run Hound signed in through the login page, so it\n// doesn't know this request: set it, and the body sessionFor sends, before running the test.\nconst SIGN_IN_ENDPOINT = \"/YOUR-SIGN-IN-ENDPOINT\";\n\n// Sign in through the app's own login and return the session as storage state (cookies + localStorage).\nasync function sessionFor(slot: \"A\" | \"B\") {\n  if (SIGN_IN_ENDPOINT.startsWith(\"/YOUR-\")) throw new Error(\"Replace SIGN_IN_ENDPOINT and sessionFor with your app's sign-in before running this test.\");\n  const loginUrl = process.env[\"RUNHOUND_ACCOUNT_\" + slot + \"_LOGIN_URL\"]!;\n  const username = process.env[\"RUNHOUND_ACCOUNT_\" + slot + \"_USERNAME\"]!;\n  const password = process.env[\"RUNHOUND_ACCOUNT_\" + slot + \"_PASSWORD\"]!;\n  const ctx = await request.newContext();\n  // Your app's sign-in call: it must set the session cookie or return a token.\n  await ctx.post(new URL(SIGN_IN_ENDPOINT, loginUrl).href, { data: { username, password } });\n  const state = await ctx.storageState();\n  await ctx.dispose();\n  return state;\n}\n\n// The object in `node` (the read's JSON) whose ID_KEY is RECORD_ID, or undefined when it isn't there.\nfunction findRecord(node: unknown): Record<string, unknown> | undefined {\n  if (Array.isArray(node)) {\n    for (const item of node) {\n      const found = findRecord(item);\n      if (found) return found;\n    }\n    return undefined;\n  }\n  if (!node || typeof node !== \"object\") return undefined;\n  const obj = node as Record<string, unknown>;\n  if (obj[ID_KEY] !== undefined && String(obj[ID_KEY]) === RECORD_ID) return obj;\n  for (const value of Object.values(obj)) {\n    const found = findRecord(value);\n    if (found) return found;\n  }\n  return undefined;\n}\n\n// The record as Account A reads it, or undefined when it is gone.\nasync function readAsA(a: APIRequestContext) {\n  const res = await a.get(new URL(RECORD_READ, TARGET).href);\n  if (res.status() === 404 || res.status() === 410) return undefined;\n  expect(res.ok(), \"Account A can read its record\").toBe(true);\n  return findRecord(await res.json());\n}\n\ntest(\"Account B can't change Account A's records\", async () => {\n  if (!RECORD_ID) throw new Error(\"Set RECORD_ID to the id of a test record you created as Account A (Run Hound's was ffb60789-31bc-410f-8423-0a2247330054).\");\n  const a = await request.newContext({ storageState: await sessionFor(\"A\") });\n  const other = await request.newContext({ storageState: await sessionFor(\"B\") });\n  try {\n    const before = await readAsA(a);\n    expect(before, \"Account A's record \" + RECORD_ID + \" is there before the test\").toBeDefined();\n    const res = await other.fetch(new URL(RECORD_URL, TARGET).href, { method: METHOD, data: { [FIELD]: \"runhound-\" + Date.now() } });\n    test.info().annotations.push({ type: \"answer\", description: METHOD + \" \" + RECORD_URL + \" answered \" + res.status() });\n    const after = await readAsA(a);\n    expect(after, \"the record is gone after a \" + METHOD + \" from someone who doesn't own it\").toBeDefined();\n    for (const key of WATCH) {\n      expect(after?.[key], key + \" changed after a \" + METHOD + \" from someone who doesn't own it\").toEqual(before?.[key]);\n    }\n  } finally {\n    await other.dispose();\n    await a.dispose();\n  }\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "card",
+              "label": "PATCH /api/tasks/ffb60789-31bc-410f-8423-0a2247330054 as Account B",
+              "facts": [
+                {
+                  "label": "Request",
+                  "value": "PATCH /api/tasks/ffb60789-31bc-410f-8423-0a2247330054"
+                },
+                {
+                  "label": "Sent as",
+                  "value": "Account B"
+                },
+                {
+                  "label": "Status",
+                  "value": "200"
+                },
+                {
+                  "label": "Field changed",
+                  "value": "title"
+                }
+              ],
+              "title": "PATCH /api/tasks/ffb60789-31bc-410f-8423-0a2247330054 sent as Account B",
+              "subtitle": "Re-read as Account A: title changed.",
+              "lines": [
+                "> Sent as: Account B",
+                "  Answer: 200",
+                "> Account A's test record changed after the request (title)."
+              ],
+              "artifact": "015-patch-api-tasks-ffb60789-31bc-410f-8423-0a2247330054-as-acco.png",
+              "asset": "assets/runs/0.6.0/fernway/write-access-card-1.png",
+              "width": 960,
+              "height": 297
+            }
+          ]
+        },
+        {
+          "id": "write-access#write-access:signed-out-1",
+          "checkId": "write-access",
+          "scenarioId": "write-access:signed-out",
+          "featured": false,
+          "title": "Signed-out visitors can change Account A's records",
+          "severity": "critical",
+          "confidence": "confirmed",
+          "location": "PATCH /api/tasks/6b834641-4d75-4f52-86d6-b3030c32ce4a"
+        }
+      ]
+    },
+    {
+      "runId": "20260927-185518-9dd647",
+      "runHoundVersion": "0.6.0",
+      "target": "http://localhost:4110/app/settings",
+      "startedAt": "2026-09-27T18:55:18.924Z",
+      "durationMs": 61922,
+      "signedIn": {
+        "as": "Account A",
+        "other": "Account B"
+      },
+      "form": {
+        "name": "Profile",
+        "fieldCount": 4,
+        "fields": [
+          {
+            "label": "Display name",
+            "type": "text"
+          },
+          {
+            "label": "Email",
+            "type": "email"
+          },
+          {
+            "label": "Bio",
+            "type": "textarea"
+          },
+          {
+            "label": "Time zone",
+            "type": "select"
+          }
+        ]
+      },
+      "planned": 23,
+      "approved": 23,
+      "summary": {
+        "critical": 5,
+        "high": 3,
+        "medium": 1,
+        "low": 0,
+        "passed": 14,
+        "failed": 8,
+        "errored": 0,
+        "skipped": 1
+      },
+      "scenarios": [
+        {
+          "id": "axe-states:four-states",
+          "checkId": "axe-states",
+          "title": "Scan the form with axe-core before, during and after submitting",
+          "status": "pass",
+          "note": "Scanned states: initial, invalid submit, server error, success",
+          "steps": [
+            "Scanning the empty form with axe",
+            "Submitting the empty form",
+            "Scanning the form after an empty submit",
+            "Filling the form; the server will answer 500",
+            "Scanning the form after a server error",
+            "Submitting with test values (1st submission)",
+            "Submitting with test values (2nd submission)",
+            "Scanning the page after two submissions"
+          ]
+        },
+        {
+          "id": "keyboard-completion:keyboard-only",
+          "checkId": "keyboard-completion",
+          "title": "Fill in and submit the form using only the keyboard",
+          "status": "pass",
+          "note": "Tab reached 3/3 target field(s); submit status 200",
+          "steps": [
+            "Pressing Tab through the form and filling each field from the keyboard"
+          ]
+        },
+        {
+          "id": "focus-visible:tab-through",
+          "checkId": "focus-visible",
+          "title": "Tab through every control and look for a focus indicator",
+          "status": "pass",
+          "note": "Tabbed through 19 focusable elements",
+          "steps": [
+            "Pressing Tab through every control"
+          ]
+        },
+        {
+          "id": "error-announcement:empty-submit",
+          "checkId": "error-announcement",
+          "title": "Submit the form empty and check errors are announced",
+          "status": "pass",
+          "note": "Checked 2 required field(s) after a submit with the form's text fields emptied (they load with values) (all found by the errors the form showed; nothing marks them as required)",
+          "steps": [
+            "Submitting the form with every field empty",
+            "Reading aria-invalid, aria-describedby and live regions"
+          ]
+        },
+        {
+          "id": "reflow-320:narrow-viewport",
+          "checkId": "reflow-320",
+          "title": "Load the page on a 320 px wide screen",
+          "status": "pass",
+          "note": "scrollWidth 320, clientWidth 320 at 320x800",
+          "steps": [
+            "Measuring the page width at 320 px"
+          ]
+        },
+        {
+          "id": "golden-path",
+          "checkId": "console-network-errors",
+          "title": "Load the form and complete it with valid data",
+          "status": "pass",
+          "note": "Loaded and submitted the form; 13 requests, no errors.",
+          "steps": [
+            "Loaded the form, watching the console and network",
+            "Filling every field with valid test values",
+            "Submitting the form",
+            "Counting console errors, page errors and failed requests"
+          ]
+        },
+        {
+          "id": "server-error-500",
+          "checkId": "silent-failure",
+          "title": "Submit while the server answers with an error",
+          "status": "pass",
+          "note": "Error announced via live region (alert) after ~135 ms: \"Profile not saved\n\nSomething went wrong on our side. Please try again.\"",
+          "steps": [
+            "Filling the form with valid test values",
+            "Form filled with valid data",
+            "Submitted; the save request was answered with 500",
+            "Waiting up to 5 s for an error message",
+            "Checking the typed values are still there",
+            "0.1 s after the failed save"
+          ]
+        },
+        {
+          "id": "canary-reload",
+          "checkId": "persistence",
+          "title": "Submit unique values, reload and look for them",
+          "status": "fail",
+          "steps": [
+            "Typing a unique test value into every field",
+            "Typed unique test values",
+            "Submitting the form",
+            "Submitted; the server saved it",
+            "Reloading the page and looking for every test value",
+            "After reload"
+          ]
+        },
+        {
+          "id": "double-click-submit",
+          "checkId": "double-submit",
+          "title": "Double-click \"Save changes\" with valid data",
+          "status": "pass",
+          "note": "1 save request(s), each to a different endpoint: PUT /api/users/alex-rivera/profile.",
+          "steps": [
+            "Filling the form with valid test values",
+            "Form filled with valid data",
+            "Double-clicked \"Save changes\"",
+            "Waiting for the save requests to finish"
+          ]
+        },
+        {
+          "id": "replay-invalid",
+          "checkId": "client-only-validation",
+          "title": "Send an invalid request straight to the server",
+          "status": "pass",
+          "note": "Server answered 400 to a request with required Display name left empty.",
+          "steps": [
+            "Filling the form and capturing its save request (answered by Run Hound)",
+            "Submitting the form empty to learn which fields it refuses (answered by Run Hound, nothing is saved)",
+            "Sending PUT /api/users/alex-rivera/profile to the server with required Display name left empty"
+          ]
+        },
+        {
+          "id": "page-controls:click-outside-forms",
+          "checkId": "page-controls",
+          "title": "Click every button outside the forms",
+          "status": "pass",
+          "note": "\"Collapse sidebar\": DOM change; \"Search\": DOM change; \"Switch to dark theme\": DOM change; \"Notifications\": request; \"Account menu\": DOM change; \"Profile\": skipped (already selected, so choosing it again changes nothing); \"Notifications\": DOM change; \"Billing\": DOM change",
+          "steps": [
+            "Clicking \"Collapse sidebar\" and watching for a reaction",
+            "Clicking \"Search\" and watching for a reaction",
+            "Clicking \"Switch to dark theme\" and watching for a reaction",
+            "Clicking \"Notifications\" and watching for a reaction",
+            "Clicking \"Account menu\" and watching for a reaction",
+            "Clicking \"Profile\" and watching for a reaction",
+            "Clicking \"Notifications\" and watching for a reaction",
+            "Clicking \"Billing\" and watching for a reaction"
+          ]
+        },
+        {
+          "id": "deep-links",
+          "checkId": "deep-links",
+          "title": "The app's pages load when opened directly",
+          "status": "fail",
+          "note": "/app: opened directly → 200; /app/help: opened directly → 404; /app/upgraded: opened directly → 200; /: opened directly → 200",
+          "steps": [
+            "Opening /app directly",
+            "Opening /app/help directly",
+            "Opening /app/upgraded directly",
+            "Opening / directly"
+          ]
+        },
+        {
+          "id": "bundle-secrets:scan-scripts",
+          "checkId": "bundle-secrets",
+          "title": "Scan every loaded script for secret keys",
+          "status": "fail",
+          "note": "Scanned 4 script/page sources",
+          "steps": [
+            "Downloading every script the page loads",
+            "Searching 4 scripts and the HTML for secret keys",
+            "Found stripe-secret in http://localhost:4110/config/billing.js"
+          ]
+        },
+        {
+          "id": "pii-leak:canary-submit",
+          "checkId": "pii-leak",
+          "title": "Submit a test email and phone number and watch third-party requests",
+          "status": "pass",
+          "note": "Submitted canaries (save response 200); inspected 0 third-party request(s)",
+          "steps": [
+            "Filling the form with a test email and phone number",
+            "Capturing the form at submit",
+            "Submitting and watching requests to other sites"
+          ]
+        },
+        {
+          "id": "oversized-and-malformed",
+          "checkId": "verbose-errors",
+          "title": "Send oversized and malformed input",
+          "status": "pass",
+          "note": "Checked 0 responses and the page text.",
+          "steps": [
+            "Filling free-text fields with far too much text",
+            "Submitting the oversized input",
+            "Scanning the responses and the page for stack traces and file paths"
+          ]
+        },
+        {
+          "id": "security-headers:response-headers",
+          "checkId": "security-headers",
+          "title": "Check the page's security headers",
+          "status": "fail",
+          "steps": [
+            "Reading the headers of the page's response"
+          ]
+        },
+        {
+          "id": "cookie-flags:session-cookies",
+          "checkId": "cookie-flags",
+          "title": "Check the flags on session cookies",
+          "status": "fail",
+          "steps": [
+            "Reading the cookies the page set"
+          ]
+        },
+        {
+          "id": "cors:foreign-origin",
+          "checkId": "cors",
+          "title": "Ask the app's API whether other websites may read it",
+          "status": "pass",
+          "note": "Sent 5 requests from a sandboxed frame (GET /api/__config, GET /api/me, GET /api/users/alex-rivera/profile, GET /api/notifications and GET /app/settings): the browser let other websites read none of them.",
+          "steps": [
+            "Sending GET /api/__config from a sandboxed frame (Origin: null)",
+            "Sending GET /api/me from a sandboxed frame (Origin: null)",
+            "Sending GET /api/users/alex-rivera/profile from a sandboxed frame (Origin: null)",
+            "Sending GET /api/notifications from a sandboxed frame (Origin: null)",
+            "Sending GET /app/settings from a sandboxed frame (Origin: null)"
+          ]
+        },
+        {
+          "id": "source-maps:public-maps",
+          "checkId": "source-maps",
+          "title": "Look for public source maps",
+          "status": "pass",
+          "note": "Checked 3 scripts: no public source maps.",
+          "steps": [
+            "Looking for the source map of /theme-init.js",
+            "Looking for the source map of /assets/index-Jgnu2cuX.js",
+            "Looking for the source map of /config/billing.js"
+          ]
+        },
+        {
+          "id": "access-control:other-account",
+          "checkId": "access-control",
+          "title": "Another account can't read Account A's data",
+          "status": "fail",
+          "steps": [
+            "Opening the page as Account B",
+            "Replaying GET /api/me as Account B",
+            "Replaying GET /api/users/alex-rivera/profile as Account B"
+          ]
+        },
+        {
+          "id": "access-control:signed-out",
+          "checkId": "access-control",
+          "title": "Signed-out visitors can't read Account A's data",
+          "status": "fail",
+          "steps": [
+            "Replaying GET /api/me with no session",
+            "Replaying GET /api/users/alex-rivera/profile with no session"
+          ]
+        },
+        {
+          "id": "mass-assignment:privilege-fields",
+          "checkId": "mass-assignment",
+          "title": "The server ignores fields the form never sends (role, plan)",
+          "status": "fail",
+          "note": "Account A's record already held plan with the value Run Hound injects, so the replay can't show whether the server accepts it. Restored role to its previous value. isAdmin, is_admin, admin, tier, credits, verified and emailVerified were not there before; Run Hound can't remove them: check Account A.",
+          "steps": [
+            "Saving the form as Account A",
+            "Reloading to read the saved record",
+            "Replaying the save with privilege fields added",
+            "Restoring the fields Run Hound changed"
+          ]
+        },
+        {
+          "id": "paywall-trust:success-page",
+          "checkId": "paywall-trust",
+          "title": "Opening a success page doesn't give Account A a paid plan",
+          "status": "skipped",
+          "note": "No plan or entitlement data was found, so this can't be checked: none of the requests the page made as Account A while it loaded answered with Account A's own plan, role, credits or entitlements.",
+          "steps": [
+            "Reading Account A's plan from the page's own requests"
+          ]
+        }
+      ],
+      "findings": [
+        {
+          "id": "persistence#canary-reload-1",
+          "checkId": "persistence",
+          "scenarioId": "canary-reload",
+          "featured": false,
+          "title": "\"Bio\" is not saved",
+          "severity": "critical",
+          "confidence": "confirmed",
+          "location": "\"Bio\" field"
+        },
+        {
+          "id": "deep-links#deep-links-1",
+          "checkId": "deep-links",
+          "scenarioId": "deep-links",
+          "featured": false,
+          "title": "1 page shows an error when opened directly (a reload or a shared link breaks)",
+          "severity": "high",
+          "confidence": "confirmed",
+          "location": "/app/help (404)"
+        },
+        {
+          "id": "bundle-secrets#1",
+          "checkId": "bundle-secrets",
+          "scenarioId": "bundle-secrets:scan-scripts",
+          "featured": false,
+          "title": "Secret key shipped to every visitor: a Stripe secret key",
+          "severity": "critical",
+          "confidence": "confirmed",
+          "location": "http://localhost:4110/config/billing.js"
+        },
+        {
+          "id": "security-headers#1",
+          "checkId": "security-headers",
+          "scenarioId": "security-headers:response-headers",
+          "featured": false,
+          "title": "3 security header problems (Content-Security-Policy, Clickjacking protection, X-Content-Type-Options)",
+          "severity": "medium",
+          "confidence": "confirmed",
+          "location": "Response headers of GET /app/settings"
+        },
+        {
+          "id": "cookie-flags#1",
+          "checkId": "cookie-flags",
+          "scenarioId": "cookie-flags:session-cookies",
+          "featured": false,
+          "title": "Session cookie \"fernway_session\" has no HttpOnly",
+          "severity": "high",
+          "confidence": "confirmed",
+          "location": "Cookie \"fernway_session\""
+        },
+        {
+          "id": "access-control#access-control:other-account-1",
+          "checkId": "access-control",
+          "scenarioId": "access-control:other-account",
+          "featured": false,
+          "title": "Account B can read Account A's data (1 endpoint)",
+          "severity": "critical",
+          "confidence": "confirmed",
+          "location": "GET /api/users/alex-rivera/profile (200)"
+        },
+        {
+          "id": "access-control#access-control:signed-out-1",
+          "checkId": "access-control",
+          "scenarioId": "access-control:signed-out",
+          "featured": false,
+          "title": "Account A's data is readable without signing in (1 endpoint)",
+          "severity": "critical",
+          "confidence": "confirmed",
+          "location": "GET /api/users/alex-rivera/profile (200)"
+        },
+        {
+          "id": "mass-assignment#mass-assignment:privilege-fields-1",
+          "checkId": "mass-assignment",
+          "scenarioId": "mass-assignment:privilege-fields",
+          "featured": true,
+          "title": "The server accepted admin fields the form never sends: role, isAdmin, is_admin and admin (mass assignment)",
+          "severity": "critical",
+          "confidence": "confirmed",
+          "meaning": "Run Hound added role, isAdmin, is_admin and admin to the form's own save, and the server stored them. The form never offers these fields, but the server takes whatever the browser sends. Anyone can make themselves an admin by adding one field to a request.",
+          "impact": "A normal user can give themselves admin rights, or any other role, by editing the save request in their browser. This is one of the most serious flaws an app can have.",
+          "fix": "Ask your AI or developer: \"The save at PUT /api/users/alex-rivera/profile accepts role, isAdmin, is_admin and admin from the browser. On the server, accept only the fields the form is meant to change and ignore everything else (an allow-list), so role and admin flags can never be set by the client.\"",
+          "location": "PUT /api/users/alex-rivera/profile",
+          "scope": "Profile form",
+          "spec": {
+            "filename": "mass-assignment-admin-fields.spec.ts",
+            "source": "import { test, expect, request } from \"@playwright/test\";\n\n// Exported by Run Hound. Sign in as your test account first (see the account environment variables).\nconst TARGET = \"http://localhost:4110/app/settings\";\nconst SAVE = \"PUT /api/users/alex-rivera/profile\"; // the form's own save request\nconst PRIVILEGE_FIELDS = [\"role\",\"isAdmin\",\"is_admin\",\"admin\"] as unknown as string[];\n\ntest(\"the server ignores privilege fields the form never sends\", async () => {\n  const ctx = await request.newContext(); // add your signed-in storage state here\n  const [method, path] = SAVE.split(\" \");\n  const body = { /* the values your form sends */ };\n  const injected = { ...body, role: \"admin\", isAdmin: true, plan: \"pro\" };\n  const res = await ctx.fetch(new URL(path, TARGET).href, { method, data: injected });\n  const stored = await res.json();\n  for (const field of PRIVILEGE_FIELDS) {\n    expect(JSON.stringify(stored), field + \" was accepted from the browser\").not.toContain(field);\n  }\n  await ctx.dispose();\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "card",
+              "label": "The form's own save",
+              "title": "PUT /api/users/alex-rivera/profile (the form's own save)",
+              "subtitle": "The fields the form itself sends.",
+              "lines": [
+                "  {",
+                "    \"displayName\": \"name 3e43023cmass\"",
+                "    \"email\": \"runhound-3e43023c@example.com\"",
+                "    \"timeZone\": \"Pacific/Honolulu\"",
+                "  }"
+              ],
+              "artifact": "011-the-form-s-own-save.png",
+              "asset": "assets/runs/0.6.0/fernway/mass-assignment-card-1.png",
+              "width": 960,
+              "height": 277
+            },
+            {
+              "kind": "card",
+              "label": "Replayed with privilege fields added",
+              "title": "PUT /api/users/alex-rivera/profile replayed with privilege fields",
+              "subtitle": "The same save, plus fields the form never sends.",
+              "lines": [
+                "  {",
+                "    \"displayName\": \"name 3e43023cmass\"",
+                "    \"email\": \"runhound-3e43023c@example.com\"",
+                "    \"timeZone\": \"Pacific/Honolulu\"",
+                ">   \"role\": \"admin\"",
+                ">   \"isAdmin\": true",
+                ">   \"is_admin\": true",
+                ">   \"admin\": true",
+                ">   \"plan\": \"pro\"",
+                ">   \"tier\": \"pro\"",
+                ">   \"credits\": 999999",
+                ">   \"verified\": true",
+                ">   \"emailVerified\": true",
+                "  }"
+              ],
+              "artifact": "012-replayed-with-privilege-fields-added.png",
+              "asset": "assets/runs/0.6.0/fernway/mass-assignment-card-2.png",
+              "width": 960,
+              "height": 457
+            },
+            {
+              "kind": "card",
+              "label": "Fields the server stored",
+              "facts": [
+                {
+                  "label": "Fields stored",
+                  "value": "role, isAdmin, is_admin, admin, tier, credits, verified and emailVerified"
+                },
+                {
+                  "label": "Where",
+                  "value": "GET /api/users/alex-rivera/profile"
+                }
+              ],
+              "title": "The record after the replay",
+              "subtitle": "These injected fields were stored (values shown are Run Hound's, not Account A's).",
+              "lines": [
+                "  {",
+                ">   \"role\": \"admin\"  ← stored",
+                ">   \"isAdmin\": true  ← stored",
+                ">   \"is_admin\": true  ← stored",
+                ">   \"admin\": true  ← stored",
+                ">   \"tier\": \"pro\"  ← stored",
+                ">   \"credits\": 999999  ← stored",
+                ">   \"verified\": true  ← stored",
+                ">   \"emailVerified\": true  ← stored",
+                "  }"
+              ],
+              "artifact": "013-fields-the-server-stored.png",
+              "asset": "assets/runs/0.6.0/fernway/mass-assignment-card-3.png",
+              "width": 960,
+              "height": 437
+            }
+          ]
+        },
+        {
+          "id": "mass-assignment#mass-assignment:privilege-fields-2",
+          "checkId": "mass-assignment",
+          "scenarioId": "mass-assignment:privilege-fields",
+          "featured": false,
+          "title": "The server accepted plan, billing or verification fields the form never sends: tier, credits, verified and emailVerified",
+          "severity": "high",
+          "confidence": "confirmed",
+          "location": "PUT /api/users/alex-rivera/profile"
+        }
+      ]
+    },
+    {
+      "runId": "20260927-185749-edbe4d",
+      "runHoundVersion": "0.6.0",
+      "target": "http://localhost:4110/app/settings",
+      "startedAt": "2026-09-27T18:57:49.392Z",
+      "durationMs": 7094,
+      "signedIn": {
+        "as": "Account A",
+        "other": null
+      },
+      "form": {
+        "name": "Profile",
+        "fieldCount": 4,
+        "fields": [
+          {
+            "label": "Display name",
+            "type": "text"
+          },
+          {
+            "label": "Email",
+            "type": "email"
+          },
+          {
+            "label": "Bio",
+            "type": "textarea"
+          },
+          {
+            "label": "Time zone",
+            "type": "select"
+          }
+        ]
+      },
+      "planned": 23,
+      "approved": 1,
+      "summary": {
+        "critical": 1,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "passed": 0,
+        "failed": 1,
+        "errored": 0,
+        "skipped": 0
+      },
+      "scenarios": [
+        {
+          "id": "paywall-trust:success-page",
+          "checkId": "paywall-trust",
+          "title": "Opening a success page doesn't give Account A a paid plan",
+          "status": "fail",
+          "note": "Opening /app/upgraded as Account A changed Account A's plan (\"free\" → \"pro\"). Put back: Run Hound clicked the app's own \"Cancel plan\" on /app/settings, and Account A's plan read as it was before afterwards. Opened as Account A: /app/upgraded (answered).",
+          "steps": [
+            "Reading Account A's plan from the page's own requests",
+            "Reading Account A's plan as Account A (GET /api/users/alex-rivera/profile)",
+            "Looking for success and upgrade pages among the page's links",
+            "Reading Account A's plan again after choosing the \"Billing\" tab on /app/settings",
+            "Opening /app/upgraded as Account A",
+            "Reading Account A's plan again after opening /app/upgraded",
+            "Looking for the app's own cancel or downgrade control on /app/settings",
+            "Clicking the app's own \"Cancel plan\" on /app/settings to put Account A's plan back"
+          ]
+        }
+      ],
+      "findings": [
+        {
+          "id": "paywall-trust#paywall-trust:success-page-1",
+          "checkId": "paywall-trust",
+          "scenarioId": "paywall-trust:success-page",
+          "featured": true,
+          "title": "Account A got a paid plan without paying",
+          "severity": "critical",
+          "confidence": "confirmed",
+          "meaning": "Run Hound opened /app/upgraded as Account A, on the free plan and without paying anything, and let the page run as it would for any visitor. Reading Account A's plan again as Account A (GET /api/users/alex-rivera/profile) afterwards showed plan \"free\" → \"pro\": the server changed it because a success page was loaded, not because a payment was confirmed.",
+          "impact": "Anyone with a free account can get the paid plan (or its credits) for nothing, just by opening this address. You lose the revenue, and paid features are open to everyone who finds it.",
+          "fix": "Ask your AI or developer: \"Opening /app/upgraded upgrades the signed-in account without a payment: the server trusts the success page. Grant a plan only from a verified payment: the payment provider's webhook (for example Stripe's checkout.session.completed, checked with its signing secret), or a server-side lookup of the checkout session by its id that checks it was paid, by this account, and wasn't used before. The success page should only show the result.\"",
+          "location": "/app/upgraded",
+          "scope": "Whole page",
+          "spec": {
+            "filename": "paywall-trust-success-page.spec.ts",
+            "source": "import { test, expect, type Page } from \"@playwright/test\";\n\n// Exported by Run Hound. Set Account A's environment variables before running:\n//   RUNHOUND_ACCOUNT_A_LOGIN_URL, RUNHOUND_ACCOUNT_A_USERNAME, RUNHOUND_ACCOUNT_A_PASSWORD.\n// Start with Account A on the free plan. Opening the success route must not change its plan. When it does, put\n// Account A back afterwards with the app's own \"Cancel plan\" or \"Downgrade\".\nconst TARGET = \"http://localhost:4110/app/settings\";\nconst ROUTE = \"/app/upgraded\"; // the page that changed the plan when it loaded\nconst ENTITLEMENT = \"/api/users/alex-rivera/profile\"; // Account A's plan, read as Account A\nconst PATH: string = \"\"; // where Account A's object sits in that answer (\"\" = the whole answer)\nconst FIELDS = [\"plan\"] as string[];\nconst PAYMENT_PROVIDER = new RegExp(\"^https?://([^/]+\\\\.)?(stripe\\\\.com|stripe\\\\.network|paypal\\\\.com|paypalobjects\\\\.com|braintreegateway\\\\.com|braintree-api\\\\.com|venmo\\\\.com|paddle\\\\.com|lemonsqueezy\\\\.com|lmsqueezy\\\\.com|squareup\\\\.com|squareupsandbox\\\\.com|squarecdn\\\\.com|stripecdn\\\\.com|shopify\\\\.com|shop\\\\.app|adyen\\\\.com|adyenpayments\\\\.com|checkout\\\\.com|razorpay\\\\.com|mollie\\\\.com|chargebee\\\\.com|recurly\\\\.com|gumroad\\\\.com|fastspring\\\\.com|onfastspring\\\\.com|2checkout\\\\.com|2co\\\\.com|klarna\\\\.com|afterpay\\\\.com|clearpay\\\\.co\\\\.uk|polar\\\\.sh|authorize\\\\.net|paystack\\\\.co|paystack\\\\.com|flutterwave\\\\.com|mercadopago\\\\.com|payu\\\\.com|wepay\\\\.com|pay\\\\.google\\\\.com|pay\\\\.amazon\\\\.com|payments\\\\.amazon\\\\.com|apple-pay-gateway\\\\.apple\\\\.com|dodopayments\\\\.com|creem\\\\.io|freemius\\\\.com|chargify\\\\.com|zuora\\\\.com|bluesnap\\\\.com|worldpay\\\\.com|commerce\\\\.coinbase\\\\.com)(:\\\\d+)?/\", \"i\");\n\n// Signs in through the app's own sign-in page; the password comes from the environment, never from this file.\nasync function signIn(page: Page) {\n  await page.goto(process.env.RUNHOUND_ACCOUNT_A_LOGIN_URL!);\n  const password = page.locator('input[type=\"password\"]').first();\n  await page\n    .locator('input[autocomplete=\"username\"], input[autocomplete=\"email\"], input[type=\"email\"], input[name*=\"user\" i], input[name*=\"email\" i], input[name*=\"login\" i]')\n    .first()\n    .fill(process.env.RUNHOUND_ACCOUNT_A_USERNAME!);\n  await password.fill(process.env.RUNHOUND_ACCOUNT_A_PASSWORD!);\n  await password.press(\"Enter\");\n  await expect(page.locator('input[type=\"password\"]')).toHaveCount(0, { timeout: 15_000 });\n}\n\n// Account A's plan fields, read with the signed-in page's cookies (an app that sends a bearer token needs its\n// Authorization header added here).\nasync function entitlement(page: Page): Promise<Record<string, unknown>> {\n  const answer = await page.request.get(new URL(ENTITLEMENT, TARGET).href);\n  expect(answer.ok(), \"reading Account A's plan\").toBe(true);\n  let node: any = await answer.json();\n  for (const key of PATH ? PATH.split(\".\") : []) node = node?.[key];\n  return Object.fromEntries(FIELDS.map((f) => [f, f.split(\".\").reduce((o: any, k) => o?.[k], node)]));\n}\n\n// Never reach a payment provider: every request to one is stopped, and so is a new window's first load (it goes out\n// before the window can be watched). Routes never see the hop of a server redirect (a page of the app that answers\n// with a redirect to the provider), so a DevTools-level block on the page stops that one (Chromium only). Once signed\n// in (the sign-in page may be on another site), it also stops every page load off TARGET, a redirect hop included:\n// a checkout host PAYMENT_PROVIDER doesn't name is never reached either.\nlet guardOffSite = false;\nasync function blockPaymentProviders(page: Page) {\n  const context = page.context();\n  await context.route((url) => PAYMENT_PROVIDER.test(url.href), (route) => route.abort());\n  await context.route(\"**/*\", (route, request) => {\n    if (!request.isNavigationRequest()) return route.fallback();\n    let owner: Page | null = null;\n    try {\n      owner = request.frame().page();\n    } catch {\n      owner = null;\n    }\n    return owner === page ? route.fallback() : route.abort();\n  });\n  const cdp = await context.newCDPSession(page);\n  cdp.on(\"Fetch.requestPaused\", (event) => {\n    const url = event.request.url;\n    const offSite = guardOffSite && event.resourceType === \"Document\" && /^https?:/i.test(url) && new URL(url).origin !== new URL(TARGET).origin;\n    const answer = PAYMENT_PROVIDER.test(url) || offSite\n      ? cdp.send(\"Fetch.failRequest\", { requestId: event.requestId, errorReason: \"Aborted\" })\n      : cdp.send(\"Fetch.continueRequest\", { requestId: event.requestId });\n    answer.catch(() => undefined);\n  });\n  await cdp.send(\"Fetch.enable\", { patterns: [{ urlPattern: \"*\" }] });\n}\n\ntest(\"opening a success page doesn't give Account A a paid plan\", async ({ page, browserName }) => {\n  test.skip(browserName !== \"chromium\", \"The payment-provider block needs Chromium's DevTools protocol.\");\n  await blockPaymentProviders(page);\n  await signIn(page);\n  guardOffSite = true;\n  const before = await entitlement(page);\n  await page.goto(new URL(ROUTE, TARGET).href);\n  await page.waitForLoadState(\"networkidle\");\n  const after = await entitlement(page);\n  expect(after, \"Account A's plan changed just by opening \" + ROUTE).toEqual(before);\n});\n"
+          },
+          "evidence": [
+            {
+              "kind": "frame",
+              "label": "/app/upgraded opened as Account A",
+              "facts": [
+                {
+                  "label": "Route opened",
+                  "value": "/app/upgraded"
+                },
+                {
+                  "label": "plan",
+                  "value": "\"free\" → \"pro\""
+                }
+              ],
+              "artifact": "001-app-upgraded-opened-as-account-a.png",
+              "asset": "assets/runs/0.6.0/fernway/paywall-trust-frame-1.png",
+              "width": 1640,
+              "height": 908
+            },
+            {
+              "kind": "card",
+              "label": "Account A's plan before and after",
+              "title": "GET /api/users/alex-rivera/profile as Account A",
+              "subtitle": "Read before and after opening /app/upgraded",
+              "lines": [
+                "  Before: plan: \"free\"",
+                "  Opened /app/upgraded (no payment, no card details)",
+                "> After:  plan: \"pro\""
+              ],
+              "artifact": "002-account-a-s-plan-before-and-after.png",
+              "asset": "assets/runs/0.6.0/fernway/paywall-trust-card-1.png",
+              "width": 960,
+              "height": 237
+            },
+            {
+              "kind": "network",
+              "label": "Account A's plan re-read after opening /app/upgraded",
+              "data": {
+                "route": "/app/upgraded",
+                "read": "GET /api/users/alex-rivera/profile"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "crops": []
+}

@@ -1,0 +1,388 @@
+/*
+ * The site's chrome: the header and its phone menu (DESIGN.md §3.2), the search trigger and dialog (§3.16) and the
+ * footer doormat (§3.3). Imported once by app/layout.tsx, after globals.css, and in its components layer, so Tailwind's
+ * utilities still win. Sizes, spaces and timings come from tokens (src/styles/tokens.css); the few literals are noted
+ * where they sit: the 15 px nav size, the bar's 86% fill and 12 px blur (both carried over from the old header), the
+ * backdrop's scrim, the wordmark's tracking and the link underline offset. What utilities can't say lives here: the
+ * scroll-driven bar, the static bar at 400% zoom, @starting-style entries, the footer's column ratio.
+ */
+
+@layer components {
+  /* ---- Header (§3.2) ------------------------------------------------------------------------------------------- */
+
+  /* 64 px, border included (--header-height, which the anchor offset reads). Browsers without scroll-driven animations
+     get the opaque bar from the start. */
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    height: var(--header-height);
+    border-bottom: 1px solid var(--rh-line-soft);
+    background-color: color-mix(in oklab, var(--rh-bg) 86%, transparent);
+    backdrop-filter: blur(12px);
+  }
+
+  /* Transparent over the top of the page, then bg at 86% with a line-soft border once the page has scrolled 8 px: a
+     step, not a fade, driven by the scroll position in CSS alone (no scroll listener). */
+  @supports (animation-timeline: scroll()) {
+    .site-header {
+      background-color: transparent;
+      border-bottom-color: transparent;
+      animation: site-header-solid steps(1, end) both;
+      animation-timeline: scroll(root);
+      animation-range: 0px 8px;
+    }
+  }
+
+  /* At 400% zoom (320×256) a sticky bar would cover a quarter of the screen: it scrolls away with the page (E3). */
+  @media (max-height: 30rem) {
+    .site-header {
+      position: static;
+    }
+  }
+
+  .site-header-bar {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--space-6);
+    height: 100%;
+  }
+
+  .site-brand {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--spacing-target);
+    font-family: var(--font-display);
+    font-size: var(--rh-text-title);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--rh-fg);
+  }
+
+  .site-nav {
+    display: none;
+  }
+  @media (width >= 64rem) {
+    .site-nav {
+      display: block;
+    }
+  }
+
+  /* Search: a 44 px icon button, and from 1280 px an outlined button with its label and the "Ctrl K" hint. */
+  .search-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    min-width: var(--spacing-target);
+    height: var(--spacing-target);
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
+    font-size: var(--text-small);
+    color: var(--rh-muted);
+    transition-property: color, border-color;
+    transition-duration: var(--transition-duration-micro);
+    transition-timing-function: var(--ease-move);
+  }
+  .search-trigger:hover {
+    color: var(--rh-fg);
+  }
+  .search-trigger svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.75;
+    stroke-linecap: round;
+  }
+  @media (width >= 80rem) {
+    .search-trigger {
+      padding-inline: var(--space-3);
+      border-color: var(--rh-line-strong);
+    }
+    .search-trigger:hover {
+      border-color: var(--rh-muted);
+    }
+  }
+  .search-trigger-hint {
+    padding-inline: var(--space-1);
+    border: 1px solid var(--rh-line-strong);
+    border-radius: var(--radius-chip);
+    font-family: var(--font-mono);
+    font-size: var(--text-mono);
+    line-height: 1.5;
+    color: var(--rh-muted);
+  }
+
+  /* The release chip, "v0.6.0": a line-strong outline, muted mono. */
+  .site-chip {
+    display: inline-flex;
+    align-items: center;
+    height: var(--space-8);
+    padding-inline: var(--space-3);
+    border: 1px solid var(--rh-line-strong);
+    border-radius: var(--radius-pill);
+    font-family: var(--font-mono);
+    font-size: var(--text-mono);
+    color: var(--rh-muted);
+    white-space: nowrap;
+    transition: color var(--transition-duration-micro) var(--ease-move);
+  }
+  .site-chip:hover {
+    color: var(--rh-fg);
+  }
+
+  /* GitHub: a 44 px icon button, and from 1280 px the icon with its label. */
+  .site-icon-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    min-width: var(--spacing-target);
+    height: var(--spacing-target);
+    border-radius: var(--radius-control);
+    font-size: 0.9375rem;
+    color: var(--rh-muted);
+    transition: color var(--transition-duration-micro) var(--ease-move);
+  }
+  .site-icon-link:hover {
+    color: var(--rh-fg);
+  }
+  /* The GitHub mark (the page sprite's path, components/sprite.tsx), 20 px in the link's colour. */
+  .site-icon-link::before {
+    content: "";
+    flex-shrink: 0;
+    width: 1.25rem;
+    height: 1.25rem;
+    background-color: currentColor;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+  }
+  @media (forced-colors: active) {
+    .site-icon-link::before {
+      forced-color-adjust: none;
+      background-color: CanvasText;
+    }
+  }
+
+  .site-menu-button {
+    display: inline-flex;
+    align-items: center;
+    height: var(--spacing-target);
+    padding-inline: var(--space-4);
+    border: 1px solid var(--rh-line-strong);
+    border-radius: var(--radius-control);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--rh-fg);
+    transition: border-color var(--transition-duration-micro) var(--ease-move);
+  }
+  .site-menu-button:hover {
+    border-color: var(--rh-muted);
+  }
+  /* Open: the button keeps its name ("Menu"); aria-expanded carries the state, and the border shows it. */
+  .site-menu-button[aria-expanded="true"] {
+    border-color: var(--rh-fg);
+  }
+
+  /* The phone menu: full width under the bar (and its border), scrolling inside the viewport, rising 8 px into place
+     when it opens (the rise is 0 under reduced motion). */
+  .site-menu {
+    position: absolute;
+    inset-inline: 0;
+    top: calc(100% + 1px);
+    max-height: calc(100dvh - var(--header-height));
+    overflow-y: auto;
+    border-bottom: 1px solid var(--rh-line);
+    background: var(--rh-surface);
+    transition-property: opacity, translate;
+    transition-duration: var(--transition-duration-short);
+    transition-timing-function: var(--ease-enter);
+  }
+  @starting-style {
+    .site-menu {
+      opacity: 0;
+      translate: 0 var(--motion-rise-sm);
+    }
+  }
+  .site-menu > nav {
+    padding-block: var(--space-2);
+  }
+  .site-menu-link {
+    display: flex;
+    align-items: center;
+    min-height: var(--space-12);
+    border-bottom: 1px solid var(--rh-line-soft);
+    font-size: var(--rh-text-body);
+    color: var(--rh-fg);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 0.5rem;
+  }
+  .site-menu-link[aria-current="page"] {
+    text-decoration-line: underline;
+    text-decoration-color: var(--rh-accent);
+  }
+  .site-menu-link.has-ext {
+    gap: var(--space-2);
+  }
+
+  /* ---- Search dialog (§3.16) ------------------------------------------------------------------------------------ */
+
+  .search-dialog {
+    width: min(40rem, calc(100vw - var(--space-8)));
+    max-width: none;
+    max-height: calc(100dvh - var(--space-16) - var(--space-4));
+    margin: var(--space-16) auto auto;
+    padding: 0;
+    overflow-y: auto;
+    border: 1px solid var(--rh-line-strong);
+    border-radius: var(--radius-card);
+    background: var(--rh-surface);
+    color: var(--rh-fg);
+    transition-property: opacity, scale, overlay, display;
+    transition-duration: var(--transition-duration-short);
+    transition-timing-function: var(--ease-enter);
+    transition-behavior: allow-discrete;
+  }
+  @starting-style {
+    .search-dialog[open] {
+      opacity: 0;
+      scale: 0.98;
+    }
+  }
+  .search-dialog::backdrop {
+    background: rgb(0 0 0 / 0.6);
+    transition-property: opacity, overlay, display;
+    transition-duration: var(--transition-duration-short);
+    transition-timing-function: var(--ease-enter);
+    transition-behavior: allow-discrete;
+  }
+  @starting-style {
+    .search-dialog[open]::backdrop {
+      opacity: 0;
+    }
+  }
+  @media (max-height: 30rem) {
+    .search-dialog {
+      max-height: calc(100dvh - var(--space-8));
+      margin-top: var(--space-4);
+    }
+  }
+
+  .search-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4);
+  }
+  .search-close {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--spacing-target);
+    padding-inline: var(--space-3);
+    border-radius: var(--radius-control);
+    font-size: var(--text-small);
+    color: var(--rh-muted);
+  }
+  .search-close:hover {
+    color: var(--rh-fg);
+  }
+  .search-field {
+    min-height: var(--spacing-target);
+    padding-inline: var(--space-3);
+    border: 1px solid var(--rh-line-strong);
+    border-radius: var(--radius-chip);
+    background: var(--rh-bg);
+    font-size: 1rem;
+    color: var(--rh-fg);
+  }
+  .search-results {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .search-result {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-3);
+    border: 1px solid var(--rh-line);
+    border-radius: var(--radius-control);
+    transition: border-color var(--transition-duration-micro) var(--ease-move);
+  }
+  .search-result:is(:hover, :focus-visible) {
+    border-color: color-mix(in oklab, var(--rh-accent) 45%, transparent);
+  }
+  .search-excerpt {
+    font-size: var(--text-small);
+    line-height: 1.5;
+    color: var(--rh-muted);
+  }
+  .search-excerpt mark {
+    background: color-mix(in oklab, var(--rh-accent) 16%, transparent);
+    color: var(--rh-fg);
+  }
+  .search-subs {
+    margin-top: var(--space-1);
+    padding-inline-start: var(--space-3);
+  }
+  .search-sub,
+  .search-docs-link {
+    color: var(--rh-accent-text);
+    text-underline-offset: 3px;
+  }
+  .search-sub {
+    display: flex;
+    align-items: center;
+    min-height: var(--spacing-target-row);
+    font-size: var(--text-small);
+  }
+  .search-sub:hover,
+  .search-docs-link {
+    text-decoration-line: underline;
+  }
+
+  /* ---- Footer doormat (§3.3) ------------------------------------------------------------------------------------ */
+
+  .site-footer {
+    border-top: 1px solid var(--rh-line-soft);
+    background: var(--rh-bg-deep);
+  }
+  /* Two link columns on phones, four from 768 px, and from 1024 px the brand block (1.4 fr) and four columns in one
+     row; the brand block spans the row until then. */
+  .site-footer-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-6);
+    padding-block: var(--space-8);
+  }
+  .site-footer-brand {
+    grid-column: 1 / -1;
+  }
+  @media (width >= 48rem) {
+    .site-footer-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+  @media (width >= 64rem) {
+    .site-footer-grid {
+      grid-template-columns: minmax(0, 1.4fr) repeat(4, minmax(0, 1fr));
+      gap: var(--grid-gap);
+      padding-block: var(--space-10);
+    }
+    .site-footer-brand {
+      grid-column: auto;
+    }
+  }
+  .site-footer .footer-link.has-ext {
+    gap: var(--space-1);
+  }
+}
+
+@keyframes site-header-solid {
+  to {
+    background-color: color-mix(in oklab, var(--rh-bg) 86%, transparent);
+    border-bottom-color: var(--rh-line-soft);
+  }
+}

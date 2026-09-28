@@ -1,7 +1,17 @@
+import { checkPageUrl } from "../../core/links.js";
+import { CHECK_IDS } from "../../core/types.js";
+
+/**
+ * Each check's page on Run Hound's site, by check id (core/links.ts), as JSON: the client script's CHECK_PAGES object
+ * literal. "<" is escaped so the text can never close the inline <script>.
+ */
+const CHECK_PAGES_JSON = JSON.stringify(Object.fromEntries(CHECK_IDS.map((id) => [id, checkPageUrl(id)]))).replace(/</g, "\\u003c");
+
 /**
  * The UI's client script (inline in renderUi's document). Plain browser JavaScript kept as a string: it builds DOM with
  * textContent only (report text is never parsed as HTML; innerHTML is used for the static icon SVGs alone), routes by
- * URL hash and talks to the JSON API. Written without template literals so it can live in this String.raw block.
+ * URL hash and talks to the JSON API. Written without template literals so it can live in this String.raw block; its one
+ * interpolation is CHECK_PAGES_JSON, computed above from core/links.ts.
  */
 export const CLIENT = String.raw`
 (() => {
@@ -20,6 +30,8 @@ export const CLIENT = String.raw`
   const STATUS_TEXT = { pass: "Passed", fail: "Failed", error: "Errored", skipped: "Skipped", running: "Running", queued: "Queued" };
   const SEVERITY_TEXT = { critical: "Critical", high: "High", medium: "Medium", low: "Low" };
   const STOPPED_NOTE = "Stopped by you";
+  // Each check's page on Run Hound's site, by check id (core/links.ts).
+  const CHECK_PAGES = ${CHECK_PAGES_JSON};
 
   // ---------- small helpers ----------
 
@@ -1951,7 +1963,7 @@ export const CLIENT = String.raw`
       parts.push(h("div", { class: "two" }, repro, keyFacts(f, r, steps, report)));
 
       if (f) {
-        parts.push(h("section", { class: "panel", "aria-labelledby": "why-h" }, h("h3", { id: "why-h" }, icon("shield"), "Why it matters"), h("p", { text: f.impact })));
+        parts.push(h("section", { class: "panel", "aria-labelledby": "why-h" }, h("h3", { id: "why-h" }, icon("shield"), "Why it matters"), h("p", { text: f.impact }), checkLink(f.checkId)));
         parts.push(h("section", { class: "panel", "aria-labelledby": "ask-h" },
           h("h3", { id: "ask-h" }, icon("sparkle"), h("span", { class: "grow", text: "What to ask your AI" }), copyButton("Copy", () => f.fix)),
           h("p", { class: "fg", text: f.fix })));
@@ -1961,6 +1973,17 @@ export const CLIENT = String.raw`
       fill(detail, ...parts);
     };
     draw();
+  }
+
+  /**
+   * "About the <id> check" under Why it matters: the check's page on Run Hound's site, in a new tab with no opener and
+   * no referrer (the link carries nothing from the run). Null for an id this version doesn't know (a hand-edited report).
+   */
+  function checkLink(checkId) {
+    if (!Object.prototype.hasOwnProperty.call(CHECK_PAGES, checkId)) return null;
+    return h("p", { class: "check-link" },
+      h("a", { href: CHECK_PAGES[checkId], target: "_blank", rel: "noopener noreferrer" },
+        icon("external"), "About the " + checkId + " check", h("span", { class: "visually-hidden", text: " (opens in a new tab)" })));
   }
 
   /** A model's explanation of a finding (0.3.0), after the built-in "What to ask your AI". Advisory only. */

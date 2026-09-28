@@ -13,6 +13,9 @@ The third slice of V2 finishes its write side and widens sign-in. Two new opt-in
 - **Two-step sign-in**: a sign-in page with no password form but a form that asks for the email or username, with **Continue**, **Next** or a sign-in button (never a sign-up, search, newsletter or password-reset form, nor "Sign in with SSO" or a passkey), gets the identifier, and then the password once a password field shows on the same page or the next page of the sign-in origin. A password step on another origin fails ("The sign-in continued on another site (<host>), so Run Hound won't type the password there."), and so do a code, a captcha, an offer to create an account or no password field after the email, each with its own message. A signed-in plan whose page lands on such a first step fails like one that lands on a password form.
 - **sessionStorage sessions**: after signing in, the sessionStorage of the landing origin and of the sign-in origin comes back with the session (`SignedIn.sessionStorage`), and every browser context opened as that identity (discovery, the run's preparation and every scenario) puts the items back with an init script before any page script runs, on that origin only and only while the tab holds nothing there. `CheckContext.request` keeps sending the credential headers harvested from the app's own requests (a bearer token included).
 - **Fernway sign-in and session modes**: `FERNWAY_LOGIN=two-step` (the email and **Continue**, then the password on the same page, for any email) and `FERNWAY_SESSION=session-storage` (a bearer token kept in sessionStorage, no cookie), in clean mode and with any bugs. Both compose files and `.env.example` pass them through (defaults `one-step` and `cookie`), and Fernway's own tests cover both modes and do by hand what the write-side checks do.
+- **Every finding links to its check's page**: `report.html`, `report.md` and the web UI's finding detail link each finding to `https://run-hound.rahulbharati.com/checks/<id>/`, which explains how the check tests, shows a real finding and its Playwright test, and says how to fix it (`app/src/core/links.ts`).
+- **The site is redesigned**: a shorter homepage (about 720 words, down from 3,885), every hub in the header, site search, the docs as 11 pages plus a glossary, and a page for each of the 26 checks.
+- `SECURITY.md` at the root points to the disclosure policy.
 
 ### Changed
 
@@ -24,6 +27,7 @@ The third slice of V2 finishes its write side and widens sign-in. Two new opt-in
 - Settings → Test accounts names the three write-side checks (`write-access`, `csrf`, `paywall-trust`) and says they change Account A's data and put it back.
 - Fernway: the Billing tab's "Switch back to Free" is now **Cancel plan**, which `paywall-trust` uses to put Alex back on Free; `/app/settings#billing` now opens the Billing tab on every navigation to it, not only on the first load; its README and CONTRACT say which check catches V06, V07 and V09, and that with `FERNWAY_SESSION=session-storage` there is no cookie for W09 or V08.
 - The issue forms list `write-access` and `paywall-trust` where they list checks, and two-step and sessionStorage sign-in under sign-in; the Feedback form gains a "Data not put back" kind.
+- The evidence GIFs on the site play once and rest on the proof frame.
 
 ### Fixed
 

@@ -292,3 +292,94 @@ describe("check-seo fails the build when", () => {
     assert.match(result.stderr, /no indexable prerendered pages/);
   });
 });
+
+describe("check-seo: headings, internal routes and visible breadcrumbs", () => {
+  test("fails when a heading comes before the h1 (a closed dialog's h2 in the header counts: G-T3)", () => {
+    const html = page().replace("<main>", '<header><dialog><h2>Search the docs</h2></dialog></header><main>');
+    const { status, output } = check({ "docs.html": html });
+    assert.equal(status, 1, output);
+    assert.match(output, /docs\.html: the first heading is an h2, not the h1/);
+  });
+
+  test("a heading inside a script (the RSC payload) doesn't count", () => {
+    const { status, output } = check({ "docs.html": page() });
+    assert.equal(status, 0, output);
+  });
+
+  test("an internal route (a path segment starting with _, like /_design/) must be noindex", () => {
+    const design = page({ path: "/_design/", canonical: "", body: "" });
+    const { status, output } = check({ "_design.html": design });
+    assert.equal(status, 1, output);
+    assert.match(output, /_design\.html: \/_design\/ is an internal route and must be noindex/);
+  });
+
+  test("a noindex internal route passes and is left out of the sitemap check", () => {
+    const design = page({ path: "/_design/", canonical: "", robots: '<meta name="robots" content="noindex, nofollow"/>', body: "" });
+    const { status, output } = check({
+      "_design.html": design,
+      "docs.html": page(),
+      "sitemap.xml.body": `<urlset><url><loc>${origin}/</loc></url><url><loc>${origin}/docs/</loc></url></urlset>`,
+    });
+    assert.equal(status, 0, output);
+  });
+
+  test("Next.js's own pages (_not-found, _global-error) are still skipped", () => {
+    const { status, output } = check({ "_not-found.html": "<html><head></head><body><h2>x</h2></body></html>" });
+    assert.equal(status, 0, output);
+  });
+
+  const trail = (items) =>
+    `<nav aria-label="Breadcrumb"><ol>${items
+      .map(([name, href]) => (href ? `<li><a href="${href}">${name}</a></li>` : `<li><span aria-current="page">${name}</span></li>`))
+      .join("")}</ol></nav>`;
+  const withCrumbs = (visible) =>
+    page({
+      h1: `${visible}<h1>Docs</h1>`,
+      body: jsonLd({ "@context": "https://schema.org", "@graph": [...pageGraph("/docs/")["@graph"], breadcrumb("/docs/")] }),
+    });
+
+  test("a visible breadcrumb that equals the BreadcrumbList passes", () => {
+    const { status, output } = check({ "docs.html": withCrumbs(trail([["Home", "/"], ["Docs"]])) });
+    assert.equal(status, 0, output);
+  });
+
+  test("a visible breadcrumb with aria-hidden separators passes (the approved prototype's Breadcrumbs markup)", () => {
+    // site-design/judge-eng/hound/src/components/templates/trail-toc.tsx: a "/" in each <li> after the first, hidden
+    // from screen readers, so it is no part of the crumb's name.
+    const crumbs =
+      '<nav aria-label="Breadcrumb" class="min-w-0"><ol class="flex min-w-0 items-center gap-2">' +
+      '<li class="flex min-w-0 items-center gap-2"><a href="/" class="hover:text-accent">Home</a></li>' +
+      '<li class="flex min-w-0 items-center gap-2"><span aria-hidden="true" class="text-dim">/</span><span aria-current="page" class="truncate text-fg">Docs</span></li>' +
+      "</ol></nav>";
+    const { status, output } = check({ "docs.html": withCrumbs(crumbs) });
+    assert.equal(status, 0, output);
+  });
+
+  test("an aria-hidden separator doesn't hide a wrong name", () => {
+    const crumbs =
+      '<nav aria-label="Breadcrumb"><ol><li><a href="/">Home</a></li>' +
+      '<li><svg aria-hidden="true" viewBox="0 0 8 8"><path d="M2 1l4 3-4 3"/></svg><span aria-current="page">Guide</span></li></ol></nav>';
+    const { status, output } = check({ "docs.html": withCrumbs(crumbs) });
+    assert.equal(status, 1, output);
+    assert.match(output, /docs\.html: the visible breadcrumb \["Home","Guide"\] is not the BreadcrumbList \["Home","Docs"\]/);
+  });
+
+  test("a visible breadcrumb with other names than the BreadcrumbList fails", () => {
+    const { status, output } = check({ "docs.html": withCrumbs(trail([["Start", "/"], ["Docs"]])) });
+    assert.equal(status, 1, output);
+    assert.match(output, /docs\.html: the visible breadcrumb \["Start","Docs"\] is not the BreadcrumbList \["Home","Docs"\]/);
+  });
+
+  test("a visible breadcrumb whose link goes elsewhere than the BreadcrumbList's item fails", () => {
+    const { status, output } = check({ "docs.html": withCrumbs(trail([["Home", "/checks/"], ["Docs"]])) });
+    assert.equal(status, 1, output);
+    assert.match(output, /docs\.html: the visible breadcrumb's "Home" links \/checks\/, the BreadcrumbList \//);
+  });
+
+  test("a visible breadcrumb on a page without a BreadcrumbList fails", () => {
+    const html = page({ h1: `${trail([["Home", "/"], ["Docs"]])}<h1>Docs</h1>` });
+    const { status, output } = check({ "docs.html": html });
+    assert.equal(status, 1, output);
+    assert.match(output, /docs\.html: a visible breadcrumb but no BreadcrumbList/);
+  });
+});

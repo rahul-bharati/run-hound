@@ -1,0 +1,335 @@
+/*
+ * Run Hound's design tokens: the only copy of the site's numbers (site-design/DESIGN.md §2.1 layout, §2.2 type, §4.2
+ * motion; brand rules in docs/brand.md). Imported by src/app/globals.css; src/styles/tokens.test.ts checks every token
+ * the design names, and src/motion/tokens.ts reads the motion ones in the browser (the names it reads are in
+ * src/styles/motion-token-names.ts).
+ *
+ * Colours come in three layers:
+ *   1. the brand palette (--hound-*, and --paper-* for the app under test): raw values, read only by layer 2;
+ *   2. roles (--rh-*): what a colour is for. A theme would redefine only this layer (there is no light theme,
+ *      decision 5; the layer makes one cheap later);
+ *   3. Tailwind utilities (@theme inline): bg-bg, text-muted, border-line… keep the names the site has always used,
+ *      and each resolves to its role.
+ * Everything else (layout, type, radii, motion) is theme-independent. Tailwind turns the @theme tokens into utilities
+ * (text-display-m, rounded-card, max-w-page, h-target, duration-short, ease-move…); the :root ones are for the
+ * component classes in globals.css.
+ */
+
+/* ---- 1. Brand palette (docs/brand.md "Palette") ---------------------------------------------------------------- */
+:root {
+  --hound-bg: #0a1014;
+  --hound-bg-deep: #070b0e;
+  --hound-surface: #10171c;
+  --hound-surface-2: #141d23;
+  --hound-surface-3: #19242b;
+  --hound-band: #0c1318;
+  --hound-stage: #0e151a;
+  --hound-line: #1e2a31;
+  --hound-line-soft: #172127;
+  --hound-line-strong: #2a3841;
+  --hound-fg: #e9efec;
+  --hound-muted: #a7b4b0;
+  --hound-dim: #82918d;
+  --hound-mint: #5ee6a3;
+  --hound-mint-strong: #7dedb6;
+  --hound-mint-ink: #04150d;
+  --hound-red: #ff6b6b;
+  --hound-amber: #f5b642;
+
+  /* The app under test, inside product figures: a paper page that reads as someone else's app, with Kennel's own
+     orange on its "Book" button (§2.3). */
+  --paper: #f4f4f0;
+  --paper-ink: #1b1d21;
+  --paper-muted: #4a4e55;
+  --paper-line: #c9cac4;
+  --paper-fail: #b8392b;
+  --paper-action: #c2410c;
+}
+
+/* ---- 2. Roles ----------------------------------------------------------------------------------------------------- */
+:root {
+  color-scheme: dark;
+
+  --rh-bg: var(--hound-bg); /* page */
+  --rh-bg-deep: var(--hound-bg-deep); /* code, windows, the footer */
+  --rh-surface: var(--hound-surface); /* cards */
+  --rh-surface-2: var(--hound-surface-2); /* icon tiles, inputs */
+  --rh-surface-3: var(--hound-surface-3); /* selected rows */
+  --rh-band: var(--hound-band); /* the two tinted bands */
+  --rh-stage: var(--hound-stage);
+  --rh-line: var(--hound-line); /* borders */
+  --rh-line-soft: var(--hound-line-soft); /* dividers, band hairlines */
+  --rh-line-strong: var(--hound-line-strong); /* emphasised borders, secondary buttons, tracks */
+  --rh-fg: var(--hound-fg); /* headings */
+  --rh-muted: var(--hound-muted); /* body text */
+  --rh-dim: var(--hound-dim); /* captions and labels; never inside the translucent header */
+  --rh-accent: var(--hound-mint); /* fills, rings, progress: the one thing to do or that changed */
+  --rh-accent-strong: var(--hound-mint-strong); /* hover on accent */
+  --rh-accent-ink: var(--hound-mint-ink); /* text on accent */
+  --rh-accent-text: var(--hound-mint); /* accent used as text (links) */
+  --rh-focus: var(--hound-mint); /* focus rings */
+  --rh-pass: var(--hound-mint);
+  --rh-fail: var(--hound-red);
+  --rh-warn: var(--hound-amber);
+
+  --rh-paper: var(--paper);
+  --rh-paper-ink: var(--paper-ink);
+  --rh-paper-muted: var(--paper-muted);
+  --rh-paper-line: var(--paper-line);
+  --rh-paper-fail: var(--paper-fail);
+  --rh-paper-action: var(--paper-action);
+}
+
+/* ---- 3. Tailwind colour utilities --------------------------------------------------------------------------------- */
+@theme inline {
+  --color-bg: var(--rh-bg);
+  --color-bg-deep: var(--rh-bg-deep);
+  --color-surface: var(--rh-surface);
+  --color-surface-2: var(--rh-surface-2);
+  --color-surface-3: var(--rh-surface-3);
+  --color-band: var(--rh-band);
+  --color-stage: var(--rh-stage);
+  --color-line: var(--rh-line);
+  --color-line-soft: var(--rh-line-soft);
+  --color-line-strong: var(--rh-line-strong);
+  --color-fg: var(--rh-fg);
+  --color-muted: var(--rh-muted);
+  --color-dim: var(--rh-dim);
+  --color-accent: var(--rh-accent);
+  --color-accent-strong: var(--rh-accent-strong);
+  --color-accent-ink: var(--rh-accent-ink);
+  --color-accent-text: var(--rh-accent-text);
+  --color-pass: var(--rh-pass);
+  --color-fail: var(--rh-fail);
+  --color-warn: var(--rh-warn);
+  --color-paper: var(--rh-paper);
+  --color-paper-ink: var(--rh-paper-ink);
+  --color-paper-muted: var(--rh-paper-muted);
+  --color-paper-line: var(--rh-paper-line);
+  --color-paper-fail: var(--rh-paper-fail);
+  --color-paper-action: var(--rh-paper-action);
+}
+
+/* ---- Layout (§2.1) ------------------------------------------------------------------------------------------------ */
+@theme {
+  /* 360: the header's wordmark shows. sm, lg and xl are Tailwind's own, restated because the design names them. */
+  --breakpoint-xs: 22.5rem;
+  --breakpoint-sm: 40rem;
+  --breakpoint-lg: 64rem;
+  --breakpoint-xl: 80rem;
+
+  /* max-w-page: the 1280 px column (1136 px of content at 1440, inside the 72 px gutters). */
+  --container-page: 80rem;
+  /* A band's heading block, the closing block, body text and docs prose. */
+  --container-heading: 48rem;
+  --container-close: 40rem;
+  --container-measure: 66ch;
+  --container-prose: 70ch;
+
+  /* The 4 px step Tailwind's spacing utilities multiply: p-1 is 4 px … p-20 is 80 px. The scale (the --space-* list
+     below) uses only 1, 2, 3, 4, 6, 8, 10, 12, 16 and 20 of it. */
+  --spacing: 0.25rem;
+  /* Targets: h-target (44 px) for buttons and icon buttons, min-h-target-row (36 px) for rows in lists and the
+     footer. WCAG 2.5.8 asks for 24. */
+  --spacing-target: 2.75rem;
+  --spacing-target-row: 2.25rem;
+
+  /* rounded-chip (chips, inputs, tags), rounded-control (buttons, code), rounded-card (cards, windows), rounded-pill. */
+  --radius-chip: 0.5rem;
+  --radius-control: 0.75rem;
+  --radius-card: 1rem;
+  --radius-pill: 999px;
+}
+
+:root {
+  /* The spacing scale, 8 px base: 4, 8, 12, 16, 24, 32, 40, 48, 64, 80 px and nothing else. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+
+  /* The page column's side gutter: 16 px, 24 px from 640, 72 px from 1024. */
+  --gutter: var(--space-4);
+  /* 12 columns from 1024 px (a single column below), 24 px apart, 32 px from 1280. */
+  --grid-columns: 12;
+  --grid-gap: var(--space-6);
+  /* The band shell: padding-block 40 px (phones), 48 (sm), 80 (lg); the body sits 24 / 32 / 48 px below the heading. */
+  --band-pad: var(--space-10);
+  --band-gap: var(--space-6);
+  /* The band index "02 ── 07": the rule between the two numbers. */
+  --band-index-rule: 2.5rem;
+
+  /* One anchor offset, applied once as scroll-padding-top (globals.css): the sticky header plus 16 px (5 rem). On docs
+     pages below 1024 px the sticky 48 px docs bar sits under the header too (8 rem); the docs shell marks its bar
+     data-docs-bar. From 1024 px the sidebar and an inline "On this page" replace the bar (§3.5), so the offset is the
+     header's again. (§2.1 writes "8.5 rem below 1280 px"; §3.5's 48 px bar, shown below 1024 px, makes 64 + 48 + 16 =
+     128 px, which is what this sets.) At max-height 30rem both bars are static and the offset is 16 px (below). The
+     header is exactly --header-height tall, its border included. */
+  --header-height: 4rem;
+  --docs-bar-height: 3rem;
+  --anchor-offset: calc(var(--header-height) + 1rem);
+
+  /* Type steps that change with the viewport (the @theme inline block below reads them). */
+  --rh-text-display-xl: 2.625rem;
+  --rh-text-display-l: 2.125rem;
+  --rh-text-display-m: 1.875rem;
+  --rh-text-title: 1.125rem;
+  --rh-text-lead: 1.0625rem;
+  --rh-text-body: 0.9375rem;
+}
+
+@media (width >= 40rem) {
+  :root {
+    --gutter: var(--space-6);
+    --band-pad: var(--space-12);
+    --band-gap: var(--space-8);
+
+    --rh-text-display-xl: 3.75rem;
+    --rh-text-display-l: 3rem;
+    --rh-text-display-m: 2.5rem;
+    --rh-text-title: 1.25rem;
+    --rh-text-lead: 1.125rem;
+    --rh-text-body: 1rem;
+  }
+}
+
+@media (width >= 64rem) {
+  :root {
+    --gutter: 4.5rem;
+    --band-pad: var(--space-20);
+    --band-gap: var(--space-12);
+  }
+}
+
+@media (width >= 80rem) {
+  :root {
+    --grid-gap: var(--space-8);
+    --rh-text-display-xl: 4.125rem;
+  }
+}
+
+@media (width < 64rem) {
+  :root:has([data-docs-bar]) {
+    --anchor-offset: calc(var(--header-height) + var(--docs-bar-height) + 1rem);
+  }
+}
+
+/* At max-height 30rem (320×256, 400% zoom) the header and the docs bar are position: static (§3.2, §3.5), the query
+   they use too, so nothing covers the top: the offset is the 16 px of breathing room alone. It comes after the docs-bar
+   rule and :root:has([data-docs-bar]) is as specific, (0,2,0), so it wins on docs pages as well. */
+@media (max-height: 30rem) {
+  :root,
+  :root:has([data-docs-bar]) {
+    --anchor-offset: 1rem;
+  }
+}
+
+/* ---- Type (§2.2) -------------------------------------------------------------------------------------------------- */
+/*
+ * Eight steps: Display XL (home and 404 h1), Display L (inner h1, the closing h2), Display M (h2), Title (h3, card
+ * titles), Lead (subheads, intros, docs prose), Body (cards, steps, lists), Small (captions, the proof strip, links,
+ * the footer) and Mono (labels as text-mono, code as text-code). The display steps set the size, leading, tracking and
+ * weight; add font-display for the face. Tags (22 px chips) use text-tag. A page computing more than 9 sizes in <main>
+ * fails the lab.
+ */
+@theme inline {
+  --text-display-xl: var(--rh-text-display-xl);
+  --text-display-xl--line-height: 0.98;
+  --text-display-xl--letter-spacing: -0.035em;
+  --text-display-xl--font-weight: 800;
+
+  --text-display-l: var(--rh-text-display-l);
+  --text-display-l--line-height: 1.02;
+  --text-display-l--letter-spacing: -0.03em;
+  --text-display-l--font-weight: 800;
+
+  --text-display-m: var(--rh-text-display-m);
+  --text-display-m--line-height: 1.08;
+  --text-display-m--letter-spacing: -0.02em;
+  --text-display-m--font-weight: 700;
+
+  /* Geist 600; pipeline steps and card questions add font-display font-bold (Bricolage 700). */
+  --text-title: var(--rh-text-title);
+  --text-title--line-height: 1.3;
+  --text-title--font-weight: 600;
+
+  --text-lead: var(--rh-text-lead);
+  --text-lead--line-height: 1.6;
+  --text-lead--font-weight: 400;
+
+  --text-body: var(--rh-text-body);
+  --text-body--line-height: 1.6;
+  --text-body--font-weight: 400;
+}
+
+@theme {
+  --text-small: 0.875rem;
+  --text-small--line-height: 1.5;
+
+  /* Mono labels: 12 px, tracked 0.14em; uppercase only for labels of at most 3 words (docs/brand.md). */
+  --text-mono: 0.75rem;
+  --text-mono--line-height: 1.5;
+  --text-mono--letter-spacing: 0.14em;
+  --text-mono--font-weight: 500;
+
+  /* Code and commands: 13 px. */
+  --text-code: 0.8125rem;
+  --text-code--line-height: 1.6;
+  --text-code--font-weight: 500;
+
+  /* Tags ("Preview", "Signed in", "Added in 0.6.0"): 11 px mono in a 22 px chip (§2.5). */
+  --text-tag: 0.6875rem;
+
+  /* next/font sets the three variables on <html> (app/layout.tsx). */
+  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+}
+
+/* ---- Motion (§4.2) ------------------------------------------------------------------------------------------------ */
+/* Static: always emitted, so src/motion/tokens.ts can read them with getComputedStyle even where no utility uses them.
+   Tailwind makes them duration-micro … duration-long and ease-enter … ease-stamp. Progress bars and pipeline
+   connectors are linear. */
+@theme static {
+  --transition-duration-micro: 120ms; /* press, hover colour, tick */
+  --transition-duration-short: 180ms; /* copy state, stamp, menu, dialog */
+  --transition-duration-medium: 280ms; /* rises, rail moves */
+  --transition-duration-long: 450ms; /* crossfades, trace fade */
+  --ease-enter: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-exit: cubic-bezier(0.3, 0, 0.8, 0.15);
+  --ease-move: cubic-bezier(0.2, 0, 0, 1);
+  --ease-stamp: cubic-bezier(0.34, 1.56, 0.64, 1); /* the EVIDENCE stamp and the 404 nose only */
+}
+
+:root {
+  --motion-rise-sm: 8px;
+  --motion-rise-md: 16px;
+  --motion-nudge: 2px;
+  --motion-stagger: 40ms;
+  --motion-scan: 600ms;
+  --motion-draw: 900ms;
+  --motion-trace: 800ms;
+  /* The hero's held parts show at 3 s if the motion island never arrives (globals.css, §4.4). */
+  --motion-hold: 3s;
+  /* The 2 px accent ring on a card reached by a link (:target, §3.4) fades out once (globals.css; CSS only). */
+  --motion-ring: 600ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-rise-sm: 0px;
+    --motion-rise-md: 0px;
+    --motion-nudge: 0px;
+    --motion-stagger: 0ms;
+    --motion-scan: 0ms;
+    --motion-draw: 0ms;
+    --motion-trace: 0ms;
+    --motion-ring: 0ms;
+  }
+}

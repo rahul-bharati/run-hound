@@ -1,0 +1,38 @@
+Most problems come from the address Run Hound is given, or from how its container reaches your app. Find the message you see below: each one says what it means and what to do about it.
+
+## host.docker.internal not working \{#host-docker-internal\}
+
+In a container, Run Hound reaches your machine as `host.docker.internal`. When a page at that address doesn't load:
+
+- **Check the app answers on your machine.** Open `http://localhost:<port>/<page>` in your browser first.
+- **Let the dev server listen on all interfaces**, and allow the host name: Vite's `allowedHosts`, Next.js's `allowedDevOrigins`, Django's `ALLOWED_HOSTS`. [Test your app](/docs/your-app/#dev-server) has each setting.
+- **On Linux**, the command needs `--add-host host.docker.internal:host-gateway`, as the quick start's has. Or use the host network and `localhost`.
+- **On Podman**, `host.containers.internal` works too.
+- **An API on another port** at `localhost` fails from the container. Use the host network on Linux, or run from source.
+
+## Messages and what they mean \{#messages\}
+
+- **"Nothing is answering at http://localhost:`<port>`"**: your app isn't running on that port, or Run Hound is in a container and needs `host.docker.internal`.
+- **"No form found on …"**: the page answered with an error, such as a 404 or a dev server's "Blocked request". There is nothing to test. Open the address in your browser and check. A page that simply has no form gets the page-wide checks instead.
+- **"Refusing to test …"**: the host isn't local or private. Use `localhost`, or list your own internal host names in `RUNHOUND_ALLOWED_HOSTS`.
+- **`EADDRINUSE`, or "… is already in use"**: the port is taken. Pick another with `--port`, `PORT` or `RUNHOUND_HOST_PORT`.
+- **"manifest unknown", or "denied", pulling the image**: the images are public, so no login is needed. "manifest unknown" is a typo in the image name or tag, or a machine that isn't amd64 or arm64. "denied" is an old GitHub login on this machine: run `docker logout ghcr.io` and pull again.
+- **"A parameter cannot be found that matches parameter name 'fsSLO'"**: in Windows PowerShell, `curl` is another command. Type `curl.exe` instead.
+- **`EACCES` … `mkdir '/repo/app/runs/…'`**: the container can't write to your reports folder. Create it first; on Podman, avoid `--user`.
+- **A service shows "unhealthy" in the lab's status**: it stopped answering. `docker compose -f run-hound.compose.yml logs <service>` says why. "health: starting" is normal for the first seconds.
+- **"--headed: There is no display…"**: a container has no display. Run without `--headed`, or run from source on a machine with a display.
+- **"No sign-in form … was found"**: the test account's sign-in page doesn't show a form with a password field. Check its address in your browser.
+- **"Signed in as Account A, but … still shows the sign-in page"**: the sign-in didn't hold. Check the account with **Test sign-in**. Use the same host name for the sign-in page and the page you test. A browser keeps the cookies of `localhost` and `127.0.0.1` apart.
+- **"Nothing was tested: …"**: every approved scenario errored or was skipped, often because the app stopped answering after the plan. The report says why for each one, and the command line exits 2.
+
+## Sending feedback \{#feedback\}
+
+Open an issue with the **Feedback** form on [GitHub](https://github.com/rahul-bharati/run-hound/issues/new/choose). Please include:
+
+1. **The version**: `run-hound --version`, **Settings** in the web UI, or `runHoundVersion` in `report.json`.
+2. **How you ran it**: your OS, Docker or from source, the web UI or the command line, signed in or not.
+3. **What you tested**: the framework, the dev server and what the form does. Not the address, if it's private.
+4. **The report**: `report.md`, or one `runs/<runId>` folder zipped, never the whole runs folder, which holds your settings. **Look through the screenshots first**: they show whatever your page showed.
+5. **What was wrong**: a false positive and why, a missed bug and how to see it by hand, or what confused you. For a crash, give its command and exit code.
+
+A clean run on a well-built app is useful feedback too: tell us it worked, and on what.

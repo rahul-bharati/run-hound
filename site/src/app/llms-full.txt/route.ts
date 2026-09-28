@@ -1,5 +1,6 @@
 import { isShipped } from "@/components/checks/check-card";
-import { aiFlowCheck, categories, notVisible, previewGroups, releaseAdded, stageMeaning, type Stage } from "@/components/checks/data";
+import { aiFlowCheck, categories, previewGroups, releaseAdded, stageMeaning, type Stage } from "@/content/checks/data";
+import { cantSeeChecklist as notVisible, principles } from "@/content/claims";
 import {
   aiBuiltPage,
   coverage,
@@ -9,9 +10,11 @@ import {
   nextConfig,
   problems,
   viteConfig,
-} from "@/components/ai-built/data";
-import { capabilities, comparePage, notYet, researchUrl, tools, type Mark } from "@/components/compare/data";
-import { answerText, faqGroups, faqPage } from "@/components/faq/data";
+} from "@/content/ai-built";
+import { capabilities, comparePage, notYet, researchUrl, tools, type Mark } from "@/content/compare";
+import { answerText, faqGroups, faqPage } from "@/content/faq";
+import { docHeadings, docMarkdown, docSource } from "@/lib/docs-text";
+import { docsSidebar, href } from "@/lib/nav";
 import { site } from "@/lib/site";
 import { absoluteUrl } from "@/lib/structured-data";
 import { builtInTotal, intro, linkSection, linkSections, textResponse } from "../llms.txt/llms";
@@ -23,26 +26,29 @@ export const dynamic = "force-static";
 /**
  * /llms-full.txt: the content of the site's key pages as one plain-text (Markdown) file, so a language model can read
  * Run Hound in one request. Where a page renders from data, this file uses the same data, so the two can't drift: the
- * checks, the catalog and "what a browser can't see" (components/checks/data.ts), the AI-built apps page
- * (components/ai-built/data.ts), the FAQ (components/faq/data.ts) and the comparison (components/compare/data.ts). The
- * rest follows the pages' text and the repository's guides (README.md, docs/*.md).
+ * checks, the catalog and "what a browser can't see" (content/checks/data.ts), the AI-built apps page
+ * (content/ai-built.ts), the FAQ (content/faq.ts) and the comparison (content/compare.ts). The docs pages are their
+ * own MDX (src/content/docs/<slug>.mdx, read by lib/docs-text.ts), in the docs sidebar's order. The rest follows the
+ * pages' text and the repository's guides (README.md, docs/*.md).
  */
 
 const fence = "```";
 const bullets = (items: string[]) => items.map((item) => `- ${item}`).join("\n");
 const section = (title: string, ...parts: string[]) => [`## ${title}`, "", parts.join("\n\n")].join("\n");
 
-function getStarted(): string {
-  return section(
-    "Get started",
-    "The main way needs only Docker or Podman and no clone: pull the image and run it. The image has Run Hound's web UI, its command line and Chromium. In any folder:",
-    `${fence}sh\n${site.runCommands}\n${fence}`,
-    "Then open http://localhost:4000 and enter a page of an app on your machine as http://host.docker.internal:<port>/<page>. In a container, localhost is the container itself, so your dev server must listen on all interfaces (vite --host) and accept that host name (Vite server.allowedHosts, Next.js allowedDevOrigins). On Linux, --network host is another way: localhost is then your machine. Podman works the same (podman pull, podman run). Reports land in ./runs.",
-    "To try it on the demo apps first, one compose file starts Run Hound with Kennel (a deliberately broken booking app, and its clean mode), Fernway (a project-planning app built the way AI builders build them, clean and with planted bugs) and five well-built sample apps. The first start downloads about 0.5 GB:",
-    `${fence}sh\n${site.labCommand}\n${fence}`,
-    "Then open http://localhost:4000 and enter http://kennel:3000/book.",
-    "From source (to contribute, or to watch the browser in a window): Node.js 22.12 or newer (24 recommended), pnpm, git and Chromium, on Linux or macOS (on Windows, use WSL2). The image runs on Linux, macOS and Windows.",
-  );
+/**
+ * The docs pages, in the sidebar's order: each one's h1 as a section, its address, then its MDX as Markdown (the
+ * commands from content/commands.ts, headings one level down).
+ */
+function docsPages(): string[] {
+  return docsSidebar()
+    .flatMap((group) => group.links)
+    .map((link) => {
+      const slug = link.href.split("/")[2];
+      const mdx = docSource(slug);
+      if (docHeadings(mdx).length === 0) throw new Error(`llms-full.txt: ${link.href} has no sections`);
+      return section(link.label, `From ${absoluteUrl(link.href)}.`, docMarkdown(mdx, { absolute: absoluteUrl, depthShift: 1 }));
+    });
 }
 
 function howItWorks(): string {
@@ -57,12 +63,11 @@ function howItWorks(): string {
     ].join("\n"),
     coverage,
     "Design principles:",
-    bullets([
-      "AI plans and explains; real checks decide. Pass or fail comes from Playwright assertions, axe-core and captured traffic in a real browser, never from a model. Findings that rely on judgement, or on production values a dev server doesn't send, are marked advisory.",
-      "No evidence, no finding. Every reported defect has an annotated screenshot, a GIF or the request and response, plus a replayable spec. Each false positive is treated as a bug in Run Hound.",
-      "Built on Playwright and axe-core. Run Hound adds exploration, approval, triage and plain-language reporting on top.",
-      "Only owned targets, safe by default. Run Hound tests localhost and private addresses only, plus host names you list yourself; public sites are refused. The browser is pinned to the approved address, destructive scenarios are opt-in, and reports redact secret-looking text.",
-    ]),
+    bullets(
+      principles.map((p) =>
+        [p.title, p.text, p.link ? `${p.link.label}: ${absoluteUrl(href(p.link.to))}` : ""].filter(Boolean).join(" "),
+      ),
+    ),
     "What you get from every run:",
     bullets([
       "An HTML and Markdown report: run time, a table per group and findings by severity, each saying what it means, why it matters and what to ask your AI to fix, with its evidence inline.",
@@ -76,7 +81,7 @@ type PreviewCheck = (typeof previewGroups)[number]["checks"][number];
 
 /**
  * The release that added a check, named by its number (a stage is named only as a stage; releaseAdded in
- * components/checks/data.ts): the V0 checks came in 0.1.0, the V1 checks in 0.2.0 and the V2 preview's in 0.4.0,
+ * content/checks/data.ts): the V0 checks came in 0.1.0, the V1 checks in 0.2.0 and the V2 preview's in 0.4.0,
  * except csrf in 0.5.0 and write-access and paywall-trust in 0.6.0.
  */
 const addedIn = (c: PreviewCheck) => {
@@ -168,58 +173,6 @@ function aiBuiltApps(): string {
     `${fence}sh\n${hostNetworkCommand}\n${fence}`,
     `When the set-up isn't right:\n${bullets(problems.map((problem) => `"${problem.see}": ${problem.means}`))}`,
     `Limits:\n${bullets([...aiBuiltLimits])}`,
-  );
-}
-
-function signedIn(): string {
-  return section(
-    `Signed-in runs and access checks (${site.preview})`,
-    "Pages behind a sign-in can be tested signed in, as one of two test accounts you own on your app, A and B. Run Hound signs in with a fresh session at the start of each plan and run, and every check then runs signed in. Six V2 checks join the plan:",
-    bullets([
-      "access-control (0.4.0): signed in as A, Run Hound finds A's data on the page. Can account B read it? Can a visitor who isn't signed in? It replays only the read requests (GET) that returned A's data.",
-      "mass-assignment (0.4.0, unticked by default): does the server store role, isAdmin, plan, credits, verified and similar fields that the form never sends? It changes account A, then restores it, and says what it couldn't restore.",
-      "deep-links (0.4.0): do the app's own pages load when opened directly (a reload, a shared link)? At most 10 links, never one that signs out, deletes or accepts an invitation.",
-      "csrf (0.5.0, unticked by default): can a page on another site make A's browser change A's data? It writes only the test record it created in the same scenario, and puts it back. It needs the app on localhost or 127.0.0.1; on any other host name it is inconclusive, never a pass.",
-      "write-access (0.6.0, unticked by default): can account B, or a visitor who isn't signed in, change or delete A's records? It sends only the update and delete requests the app itself sent for the test record it created in the same scenario, re-reads the record as A, and puts it back.",
-      "paywall-trust (0.6.0, unticked by default): can A get a paid plan without paying? It opens the app's own success, upgraded and thank-you pages as A, with every request to a known payment provider blocked, and re-reads A's plan after each; a paid plan, more credits or more features is a finding. The only check that may change A's plan, which it puts back through the app's own cancel or downgrade control.",
-    ]),
-    "Passwords, session cookies, tokens and usernames never appear in reports, evidence, specs, logs or AI prompts. Sign-in needs the app's own form with a username (or email) and a password: on one page, or (since 0.6.0) the email first and the password next, on the sign-in page's own site. Verification codes, captchas and sign-in with Google or GitHub aren't supported yet. The session must carry over to a new browser: cookies, localStorage, IndexedDB (Supabase and Firebase keep their sessions there) and, since 0.6.0, sessionStorage work; a session the app throws away when a page loads doesn't.",
-  );
-}
-
-function optionalAi(): string {
-  return section(
-    "Optional AI, with your own model",
-    "AI is off until you turn it on. A model reviews the plan (recommends and ranks each scenario with a one-line reason), suggests up to 5 extra flows (built only from the fields and buttons Run Hound found, checked by deterministic assertions, unticked by default, findings advisory) and explains findings in plain words. It never decides pass or fail, and if it fails or times out you get the built-in plan with a warning.",
-    "Bring your own model: Ollama, LM Studio, llama.cpp, vLLM, any OpenAI-compatible endpoint, or Amazon Bedrock. Small local models work (tested with a 9B model on Ollama). Only redacted page structure is sent (the page title and path, field labels and types, option labels, button names, the scenario list; a local model also gets the full address with its query, redacted; for explanations, the finding text and its evidence facts), never typed values, cookies, response bodies or screenshots. A remote endpoint is refused until you consent for that host. Run Hound itself operates no AI service.",
-  );
-}
-
-function safety(): string {
-  return section(
-    "Safety",
-    bullets([
-      "The target must be localhost, a private address, or listed in RUNHOUND_ALLOWED_HOSTS (which skips the address check with no ownership check, so list only hosts you own). Ownership verification for other hosts is planned for the V4 stage (live staging).",
-      "The browser is pinned to the address the safety gate approved and is stopped if a page navigates off it.",
-      "No destructive actions (real payments, deleting data) unless you explicitly opt in (--allow-destructive).",
-      "Reports redact any secrets they find; keys are never used or tested.",
-      "The web UI and its API answer only to loopback names and addresses (localhost, 127.0.0.1, ::1) unless you add others, send a strict Content-Security-Policy and refuse to be framed.",
-    ]),
-  );
-}
-
-function limitations(): string {
-  return section(
-    "Known limitations",
-    bullets([
-      "One page at a time: up to 5 forms are tested and up to 20 controls outside them clicked; links are opened only to check they load. A page behind a login needs a test account.",
-      "Sign-in works with the app's own form and a password, on one page or the email first and the password next: not with Google or another provider, magic links, one-time codes, captchas, a password page on another site, or a session the app throws away when a page loads. csrf needs the app on localhost or 127.0.0.1; elsewhere it is inconclusive.",
-      "Dev servers don't send production headers: header, cookie and CORS findings on a dev server are advisory. For confirmed results, test a production build served on your machine.",
-      "Unusual apps may still produce false findings: it has been tried on classic HTML forms, fetch-based single-page apps, login forms, forms whose API is on another origin and an app built the way AI builders build them (Fernway), but not on your stack.",
-      "Docker has no visible browser window (--headed needs the install from source on a machine with a display); the web UI's live view works.",
-      "Windows is only supported through WSL2 or Docker.",
-      "AI output quality depends on the model; findings from AI-suggested flows are advisory: check them by hand.",
-    ]),
   );
 }
 
@@ -315,15 +268,11 @@ function llmsFullTxt(): string {
   return [
     intro(),
     `This file is the content of the site's key pages in one place. The index with links: ${absoluteUrl("/llms.txt")}. Every page: ${absoluteUrl("/sitemap.xml")}`,
-    getStarted(),
+    ...docsPages(),
     howItWorks(),
     builtInChecks(),
     cantSee(),
     aiBuiltApps(),
-    signedIn(),
-    optionalAi(),
-    safety(),
-    limitations(),
     catalog(),
     faq(),
     compare(),
