@@ -20,9 +20,10 @@
  *   hidden Billing tab (any element with role tab, unselected, named for billing, plans, subscriptions, payments or
  *   membership) is chosen only when it isn't a link to another page and doesn't submit a form, with every navigation to
  *   the app held while it is clicked, and so is a write (a fetch or XHR other than GET, HEAD or OPTIONS, or a beacon) it
- *   sends to a checkout, subscription or billing portal start (`POST /api/billing/portal-session`): a tab whose script
- *   heads for a billing portal never gets there, and the notes name what the tab tried, a payment provider or another
- *   site it headed for included. The plan is re-read after it, like after a page load. Once the page under test has
+ *   sends to a checkout, subscription or billing portal start (`POST /api/billing/portal-session`), for as long as its
+ *   page stays on screen (see the round 2 note below): a tab whose script heads for a billing portal never gets there,
+ *   and the notes name what the tab tried, a payment provider or another site it headed for included. The plan is
+ *   re-read after it, like after a page load. Once the page under test has
  *   loaded and until the scenario ends, on every page of Account A's context, the page's own navigations to a checkout,
  *   subscription or billing portal start of the app (its own origin, or its API on another local origin: ofTheApp),
  *   other than to a page Run Hound opens itself, are held (holdingNavigation, holdScenario): the app's server never
@@ -41,8 +42,10 @@
  *   and nothing is clicked to undo a change Run Hound can't see. No route that answered as itself (every one a 404, a
  *   not-found view, a sign-in page, another page of the app, the page under test again or the same page as another
  *   conventional path, or a load that failed) → skipped.
- * - Restore through the app's own cancel/downgrade control (the only check that clicks one, and only to undo its own
- *   change, so only when a plan field changed) on the page under test or its billing and settings pages that loaded,
+ * - Restore through the app's own cancel/downgrade control (only to undo its own change, so only when a plan field
+ *   changed; `page-controls` and `dead-control`, the buttons outside and inside a form, may also click a plan button
+ *   whose name doesn't look destructive, such as "Switch to Free", and with destructive scenarios allowed a "Cancel
+ *   subscription": a known limit of those checks, 0.6.0 closeout) on the page under test or its billing and settings pages that loaded,
  *   choosing a hidden Billing tab when needed (never on the page whose Billing tab made the change) and following the
  *   app's own confirmation when needed (never a retention offer, a checkout step, or a control or confirmation that
  *   opens a billing portal or checkout, or a path of the app that names the payment provider, such as
@@ -103,6 +106,34 @@
  *   Otherwise the probing ends inconclusive with nothing clicked or put back. List entries of entitlements or features
  *   are matched by a title, label, display name or type too, never by position, and a timestamp moving is never a
  *   gain (lib/entitlement.ts).
+ * - 0.6.0 closeout: before the next page is opened or the next Billing tab chosen, the last route that loaded as a page
+ *   (or tab chosen) gets QUIET_MIN_MS after its re-read with nothing opened, then the plan is read once more
+ *   (quietBeforeNext), so a change that lands late (a queued job's) is put down to that route, never to the next one,
+ *   even one that answers. A change that lands later than that is still put down to a later route, or, after the last
+ *   route's quiet re-read, not seen (a known limit).
+ * - 0.6.0 closeout, review round 1: the quiet wait and read after a Billing tab run while chooseTab's hold is still on
+ *   (every navigation to the app, and every write to a checkout, subscription or billing portal start, held and named
+ *   as the tab's), so a portal write a tab's script sends late (a timer, a slow GET first) is held during those waits
+ *   too; so do the final quiet read and repeatGain's pause when the page on screen is a tab's (holdingTab; the next
+ *   page's load is covered by round 2's leaving of the tab's page, below). The page
+ *   under test's own load is the first route: nothing is opened until QUIET_MIN_MS after the first read of the plan,
+ *   which is then read again, and a change seen then is the page's own (a queued job it started, or a value that moves
+ *   by itself): skipped, inconclusive, never credited to a later route, nothing put back. A run that stopped for time
+ *   with routes left unopened is inconclusive (naming them, "check Account A"), never a pass. The exported spec reads
+ *   the plan until SETTLE_MS (how long the change took to show, plus QUIET_MIN_MS) have passed and fails on any change.
+ * - 0.6.0 closeout, review round 2: a page stays alive until the next one commits, so a Billing tab's script could still
+ *   send its write (a timer, a write after a slow GET) while the next page's server answers, with nothing held. Before
+ *   Run Hound loads another page (the next route, a route opened again, the restore's pages) or ends, a page on which
+ *   Billing tabs were chosen is left for about:blank under the tabs' hold (leaveTabPage), a beacon its pagehide sends
+ *   included; its timers and pending continuations die with it. Until then, the scenario's own hold also stops that
+ *   page's writes to a checkout, subscription or billing portal start (tabShown), so none gets through between two
+ *   steps' holds either. What is stopped while two or more tabs were chosen on the page names them all ("After Run
+ *   Hound chose the "Billing" and "Plans" tabs on /app, the page sent a request to …"), since an earlier tab's timer
+ *   may fire while a later one is chosen. A change read after a route that didn't load as a page names the routes
+ *   that didn't load opened between it and the route it is put down to (never "opened next" when one came between).
+ *   Known limit: on the restore's pages, the Billing tabs it chooses to find the plan's control are left the same way
+ *   before the next page, but between their hold and the control's click (and after it) only the click's own hold and
+ *   the scenario's hold of navigations apply, for the few milliseconds in between.
  * - Not in 0.6.0: the client-sent price/plan replay and the paid-feature API probe (known limits).
  */
 import type { Browser, BrowserContext, Dialog, Page, Request, Route as PwRoute } from "playwright";
@@ -178,6 +209,13 @@ const BASELINE_GAP_MS = 1_100;
  */
 const QUIET_MIN_MS = 5_000;
 const QUIET_MAX_MS = 30_000;
+/**
+ * The exported spec reads the plan for at most this long after the route loaded (review round 1): a grant that took
+ * longer to show than that, less QUIET_MIN_MS, is still named, but its spec may pass.
+ */
+const SPEC_SETTLE_MAX_MS = 60_000;
+/** How long the exported spec reads the plan after the route loaded, for a change that took `ms` to show: that plus QUIET_MIN_MS, in whole seconds. */
+const settleFor = (ms: number) => Math.min(SPEC_SETTLE_MAX_MS, Math.ceil((Math.max(0, ms) + QUIET_MIN_MS) / 1000) * 1000);
 /**
  * Opening a route again for a gain of raised numbers, and the pause after it, start only while more than half the
  * restore's reserve is left (see repeatGain): a grant it confirms still has time to be put back.
@@ -638,9 +676,9 @@ interface Hold {
   sent: Set<string>;
   /**
    * Only on the scenario's own hold (holdScenario), which is on from the start to the end: it records only what no
-   * step's hold names (a timer that fires between two steps), and is told of each.
+   * step's hold names (a timer that fires between two steps), and is told of each (`write`: a request the page sent).
    */
-  onOwn?: (url: string) => void;
+  onOwn?: (url: string, write: boolean) => void;
 }
 
 /**
@@ -664,7 +702,7 @@ const sendsWrite = (resourceType: string, method: string) => {
 function record(hold: Hold, url: string, write: boolean): void {
   hold.stopped.push(url);
   if (write) hold.sent.add(url);
-  hold.onOwn?.(url);
+  hold.onOwn?.(url, write);
 }
 
 /**
@@ -860,6 +898,41 @@ interface Route {
 function didFor(route: Route): string {
   return route.source === "tab" ? `choosing the ${q(route.tab ?? "billing")} tab on ${pathOf(route.url)}` : `opening ${route.path}`;
 }
+/**
+ * A route a late change is put down to, as a note names it, when it was read after a later route that didn't load as a
+ * page: "/app/upgraded, the last page before it that did", or, for a tab (review round 1), "choosing the "Billing" tab
+ * on /app, the last thing Run Hound did before it".
+ */
+function putDownTo(route: Route): string {
+  return route.source === "tab" ? `${didFor(route)}, the last thing Run Hound did before it` : `${route.path}, the last page before it that did`;
+}
+
+/**
+ * The note for a grant read late (Grant.lateMs), or after a route that didn't load as a page (Grant.seenAfter), which
+ * says what it is put down to; "" for neither. When routes that didn't load either were opened between the credited
+ * route and `seenAfter` (Grant.between), it names them, and never says `seenAfter` was opened next or that the credited
+ * route was the last thing Run Hound did before it (0.6.0 closeout, review round 2).
+ */
+function lateChangeNote(g: Pick<Grant, "route" | "seenAfter" | "between" | "lateMs">): string {
+  const LATE = "(a change that lands late, such as a queued job's)";
+  const seen = g.seenAfter ? `${g.seenAfter.route.path}${g.seenAfter.res ? ` (${outcomeText(g.seenAfter.res)})` : ""}` : "";
+  const quiet = g.lateMs !== undefined ? `Run Hound had opened nothing for ${Math.round(g.lateMs / 1000)} s after ` : "";
+  if (g.seenAfter && g.between && g.between.length > 0) {
+    const since = g.route.source === "tab" ? didFor(g.route) : g.route.path;
+    const list = g.between.map((v) => `${v.route.path}${v.res ? `, ${outcomeText(v.res)}` : ""}`).join("; ");
+    const to = g.route.source === "tab" ? "that tab" : putDownTo(g.route);
+    return `The change was read only after ${quiet}${seen}, which didn't load as a page, nor did what Run Hound opened between ${since} and it (${list}), so it is put down to ${to} ${LATE}.`;
+  }
+  if (g.seenAfter) {
+    return g.lateMs !== undefined
+      ? `The change was read only after ${quiet}${seen}, which didn't load as a page, so it is put down to ${putDownTo(g.route)} ${LATE}.`
+      : `The change was read only after ${seen}, opened next, which didn't load as a page, so it is put down to ${putDownTo(g.route)} ${LATE}.`;
+  }
+  if (g.lateMs === undefined) return "";
+  return g.route.source === "tab"
+    ? `The change was read only after ${quiet}${didFor(g.route)}, so it is put down to that tab, the last thing Run Hound did ${LATE}.`
+    : `The change was read only after ${quiet}${g.route.path}, so it is put down to ${g.route.path}, the last page it opened ${LATE}.`;
+}
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 /** `["a", "b", "c"]` as "a, b and c". */
 const listed = (items: string[]) => (items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
@@ -899,11 +972,18 @@ function isBillingPage(link: Link): boolean {
  * load, so a change a tab makes is never blamed on the next route); when it answers false, no further tab is chosen.
  * `held` is told of each tab whose click tried to take the browser to another page of the app or sent a write to a
  * start (which chooseTab stopped), or headed for a payment provider or another site (which the block stopped:
- * `providers`), with what it did ("sent the browser to /billing/portal, which Run Hound stopped").
+ * `providers`), with what it did ("sent the browser to /billing/portal, which Run Hound stopped"): while `chose` runs
+ * too, since the hold is still on (the quiet read after the tab, review round 1). `before` runs before each tab is chosen
+ * (the quiet read after the last route that loaded, 0.6.0 closeout); when it answers false, no tab is chosen.
  */
 async function scanLinks(
   page: Page,
-  o: { chose?: (tab: string) => Promise<boolean>; held?: (tab: string, what: string) => void; providers?: ProviderLog } = {},
+  o: {
+    chose?: (tab: string) => Promise<boolean>;
+    before?: () => Promise<boolean>;
+    held?: (tab: string, what: string) => void;
+    providers?: ProviderLog;
+  } = {},
 ): Promise<Link[]> {
   const read = async () => {
     const links = await page.evaluate(SCAN_LINKS).catch(() => []);
@@ -911,6 +991,7 @@ async function scanLinks(
   };
   const links = await read();
   for (const tab of (await billingTabs(page)).slice(0, 2)) {
+    if (o.before && !(await o.before())) break;
     const go = { on: true };
     const navBefore = o.providers?.blockedNav.length ?? 0;
     const offBefore = o.providers?.offApp.length ?? 0;
@@ -919,18 +1000,77 @@ async function scanLinks(
       links.push(...(await read()));
       if (clicked && o.chose) go.on = await o.chose(tab.name);
     });
-    const first = chosen.stopped[0];
-    if (first !== undefined) {
-      o.held?.(tab.name, `${chosen.sent.has(first) ? "sent a request to" : "sent the browser to"} ${placeOf(first, here)}, which Run Hound stopped`);
-    }
-    const hosts = [...new Set(o.providers?.blockedNav.slice(navBefore) ?? [])].filter(Boolean);
-    if (hosts.length > 0) o.held?.(tab.name, `headed for ${hosts.join(", ")} (payment provider), which was blocked`);
-    const away = [...new Set(o.providers?.offApp.slice(offBefore).map((x) => x.host) ?? [])].filter(Boolean);
-    if (away.length > 0) o.held?.(tab.name, `headed for ${away.join(", ")} (another site), which Run Hound stopped`);
+    for (const what of tabTried(chosen, here, o.providers, navBefore, offBefore)) o.held?.(tab.name, what);
     if (!go.on) break;
   }
   return links;
 }
+
+/**
+ * What a tab's page tried while a hold of chooseTab's kind was on (`held`: what it stopped, the writes among it in
+ * `sent`), and where it headed that the payment-provider block stopped since `navBefore` and `offBefore`: "sent a
+ * request to /api/billing/portal-session, which Run Hound stopped", "headed for billing.stripe.com (payment provider),
+ * which was blocked".
+ */
+function tabTried(held: { stopped: readonly string[]; sent: Set<string> }, here: string, providers: ProviderLog | undefined, navBefore: number, offBefore: number): string[] {
+  const tried: string[] = [];
+  const first = held.stopped[0];
+  if (first !== undefined) tried.push(`${held.sent.has(first) ? "sent a request to" : "sent the browser to"} ${placeOf(first, here)}, which Run Hound stopped`);
+  const hosts = [...new Set(providers?.blockedNav.slice(navBefore) ?? [])].filter(Boolean);
+  if (hosts.length > 0) tried.push(`headed for ${hosts.join(", ")} (payment provider), which was blocked`);
+  const away = [...new Set(providers?.offApp.slice(offBefore).map((x) => x.host) ?? [])].filter(Boolean);
+  if (away.length > 0) tried.push(`headed for ${away.join(", ")} (another site), which Run Hound stopped`);
+  return tried;
+}
+
+/** A tab's name as a note gives it: at most 40 characters. */
+const tabName = (tab: string) => (tab.length > 40 ? `${tab.slice(0, 40)}…` : tab);
+
+/**
+ * A note for what a hold stopped while the Billing tabs `tabs`, chosen on the page at `url`, were on screen (`what`: see
+ * tabTried). With two or more chosen on the same page, any of their scripts may have sent it (a timer the first one
+ * set may fire while the second is chosen: 0.6.0 closeout, review round 2), so every one is named.
+ */
+function tabNote(url: string, tabs: readonly string[], what: string): string {
+  const names = [...new Set(tabs.map(tabName))].map(q);
+  return names.length <= 1
+    ? `Choosing the ${names[0] ?? q("Billing")} tab on ${pathOf(url)} ${what} (a tab is chosen only to read what it shows).`
+    : `After Run Hound chose the ${listed(names)} tabs on ${pathOf(url)}, the page ${what} (a tab is chosen only to read what it shows).`;
+}
+
+/**
+ * How long a tab's page left for about:blank stays held (leaveTabPage): its pagehide and unload handlers (a beacon) may
+ * run only after the blank page has committed.
+ */
+const LEAVE_GRACE_MS = 500;
+
+/**
+ * Leaves `page`, on which the Billing tabs `tabs` were chosen (at `url`) and whose scripts may still be running (a timer,
+ * a write sent after a slow GET), for about:blank, under the hold chooseTab puts on (0.6.0 closeout, review round 2):
+ * every navigation to the app, and every write to a checkout, subscription or billing portal start (a beacon its
+ * pagehide sends included), is held until LEAVE_GRACE_MS after the blank page commits. The page's timers and pending
+ * continuations die with it, so nothing it would send later can reach the app while the next page loads (a page stays
+ * alive until the next one commits: the whole time the server takes to answer). Answers the notes for what was held.
+ */
+async function leaveTabPage(page: Page, url: string, tabs: readonly string[], providers: ProviderLog): Promise<string[]> {
+  if (page.isClosed()) return [];
+  const here = page.url();
+  const navBefore = providers.blockedNav.length;
+  const offBefore = providers.offApp.length;
+  const hold = await holdingNavigation(
+    page.context(),
+    (to) => ofTheApp(to, here),
+    async () => {
+      await page.goto("about:blank", { waitUntil: "commit", timeout: 10_000 }).catch(() => undefined);
+      await sleep(LEAVE_GRACE_MS);
+    },
+    startsFrom(here),
+  );
+  return tabTried(hold, here, providers, navBefore, offBefore).map((what) => tabNote(url, tabs, what));
+}
+
+/** A page as a step names it: none once it is closed or left for about:blank (leaveTabPage). */
+const stepPage = (page: Page): Page | undefined => (page.isClosed() || page.url() === "about:blank" ? undefined : page);
 
 // ---------- Blocking payment providers ----------
 
@@ -1642,7 +1782,7 @@ async function sameElement(page: Page, a: Marked, b: Marked): Promise<boolean> {
  * there is none, the first refused one is returned so the restore can name it. `tabs` false: no tab is chosen (the
  * page whose tab made the change).
  */
-async function findPlanControl(page: Page, tabs = true, seen: { ambiguous?: string[] } = {}): Promise<Marked | null> {
+async function findPlanControl(page: Page, tabs = true, seen: { ambiguous?: string[]; chose?: string[] } = {}): Promise<Marked | null> {
   let refused: Marked | null = null;
   const ambiguous = (controls: Marked[]) => {
     seen.ambiguous = [...new Set([...(seen.ambiguous ?? []), ...controls.map((m) => m.name)])];
@@ -1701,7 +1841,7 @@ async function findPlanControl(page: Page, tabs = true, seen: { ambiguous?: stri
   const behindTabs: { control: Marked; tab: Marked }[] = [];
   for (const tab of billing) {
     const behind: { control: Marked | null; known: boolean } = { control: null, known: false };
-    await chooseTab(page, tab, 3000, async () => {
+    const chosen = await chooseTab(page, tab, 3000, async () => {
       await sleep(200);
       behind.control = await look();
       if (!behind.control || surelyThePlan(behind.control)) return;
@@ -1709,6 +1849,7 @@ async function findPlanControl(page: Page, tabs = true, seen: { ambiguous?: stri
         if (await sameElement(page, other, behind.control)) behind.known = true;
       }
     });
+    if (chosen.clicked) seen.chose = [...(seen.chose ?? []), tab.name];
     if (surelyThePlan(behind.control)) return behind.control;
     if (behind.control && !behind.known) behindTabs.push({ control: behind.control, tab });
   }
@@ -1719,7 +1860,7 @@ async function findPlanControl(page: Page, tabs = true, seen: { ambiguous?: stri
   if (!(await locatorOf(page, only).isVisible().catch(() => false))) {
     // A Billing tab chosen since hid it: show it again (a click that still can't reach it fails, and is named).
     const back = only === now ? home : behindTabs.filter((b) => b.control === only).map((b) => b.tab);
-    for (const tab of back) await chooseTab(page, tab, 3000);
+    for (const tab of back) if ((await chooseTab(page, tab, 3000)).clicked) seen.chose = [...(seen.chose ?? []), tab.name];
   }
   return only;
 }
@@ -1832,10 +1973,20 @@ interface Grant {
    */
   seenAfter?: Visit;
   /**
+   * With `seenAfter`: the routes opened after `route` and before it, none of which loaded as a page either (review
+   * round 2); the note names them, and never says `seenAfter` was opened next.
+   */
+  between?: Visit[];
+  /**
    * Set when the change was read only by the quiet re-read after the last route (0.6.0 review, round 2): how long
    * nothing had been opened then, in ms.
    */
   lateMs?: number;
+  /**
+   * How long the exported spec reads the plan after the route loaded before it passes (settleFor: the time from opening
+   * the credited route to the read that showed the change, plus QUIET_MIN_MS; review round 1).
+   */
+  settleMs: number;
   /** The GET whose answer showed the gain (the finding, the evidence, the spec and the restore read it). */
   snap: EntitlementSnapshot;
   /** Other GETs of the plan that changed too. */
@@ -1902,6 +2053,7 @@ interface Unconfirmed {
   /** The route the gain is put down to (as Grant.route, with how it answered). */
   credit: Visit;
   seenAfter?: Visit;
+  between?: Visit[];
   lateMs?: number;
   snap: EntitlementSnapshot;
   others: OtherRead[];
@@ -1991,15 +2143,30 @@ export const check: Check = {
       const ownLoads = new Set<string>([pageKey(ctx.targetUrl)]);
       const toTheApp = startsFrom(ctx.targetUrl);
       /**
+       * The Billing tabs chosen on the page on screen, and where (0.6.0 closeout, review round 2): their scripts may
+       * still be running until Run Hound leaves that page (leaveTab, before it loads another). Null otherwise.
+       */
+      let tabShown: { url: string; tabs: string[] } | null = null;
+      /**
        * The scenario's own hold (holdScenario), on every page of Account A's context from the first page to the end: a
        * navigation to a checkout or billing portal start of the app that no step's hold names (a timer that fires
-       * between two steps) is stopped too, and named as the page's that Run Hound had open.
+       * between two steps) is stopped too, and named as the page's that Run Hound had open. While a Billing tab's page
+       * is on screen (tabShown), so is a write to such a start, and what it stops is named as the tabs' (review round
+       * 2): nothing a tab's script sends between two steps' holds gets through.
        */
       const scenarioHold: Hold = {
         stop: (to) => !ownLoads.has(pageKey(to)) && toTheApp(to),
+        writes: (to) => tabShown !== null && startsFrom(tabShown.url)(to),
         stopped: [],
         sent: new Set(),
-        onOwn: (url) => held.push(`${providers.current ?? ownPath} sent the browser to ${placeOf(url, ctx.targetUrl)} (${stepNoun(url)}), which Run Hound stopped.`),
+        onOwn: (url, write) => {
+          const shown = tabShown;
+          held.push(
+            shown !== null
+              ? tabNote(shown.url, shown.tabs, `${write ? "sent a request to" : "sent the browser to"} ${placeOf(url, shown.url)}, which Run Hound stopped`)
+              : `${providers.current ?? ownPath} sent the browser to ${placeOf(url, ctx.targetUrl)} (${stepNoun(url)}), which Run Hound stopped.`,
+          );
+        },
       };
       /** A skip before any probe: the page under test's own provider requests are still listed. */
       const skipEarly = (text: string) => skip(hide([text, ...new Set(held), providerNote(providers)].filter(Boolean).join(" ")));
@@ -2046,6 +2213,8 @@ export const check: Check = {
         if (values) first.push({ ...f, values });
       }
       if (first.length === 0) return cannotReread();
+      /** When the first read of the plan ended: the page under test's own quiet window runs from here (step 2b). */
+      const firstReadAt = Date.now();
       const paidNow = first.find((f) => isPaid(f.values));
       if (paidNow) return skipEarly(paidNote(paidNow, paidNow.values));
       await sleep(BASELINE_GAP_MS);
@@ -2073,6 +2242,41 @@ export const check: Check = {
       const changesAt = (s: EntitlementSnapshot, fields: string[], after: Record<string, unknown>) =>
         fields.map((f) => `${fieldOf(s, f)} (${shown(s.values[f])} → ${shown(after[f])})`);
       const readWhat = snaps.map((s) => `${Object.keys(s.values).join(", ")} from ${endpointOfSnap(s)}`).join("; ");
+
+      // 2b. The page under test's own load is the first route (0.6.0 closeout, review round 1): a change it started that
+      // lands late (a queued job's) would otherwise be put down to the first route opened after it. Nothing is opened
+      // until QUIET_MIN_MS have passed since the first read of the plan, which is then read again. A change then is the
+      // page's own, or one that moves by itself: the run ends inconclusive before anything is opened, and nothing is put
+      // back, since Run Hound made no change.
+      const ownQuietMs = Math.max(0, firstReadAt + QUIET_MIN_MS - Date.now());
+      if (ownQuietMs > 0) {
+        ctx.step(`Waiting ${Math.round(ownQuietMs / 1000)} s with nothing opened after the page loaded, then reading ${who}'s plan again`, session.page.isClosed() ? undefined : session.page);
+        await sleep(ownQuietMs);
+      }
+      const ownReadAt = Date.now();
+      const ownLate: { snap: EntitlementSnapshot; changed: string[]; gained: string[]; now: Record<string, unknown> }[] = [];
+      for (const s of snaps) {
+        const now = await rereadEntitlement(ctx, s);
+        if (now === null) return cannotReread();
+        const changed = changedEntitlement(s.values, now);
+        if (changed.length > 0) ownLate.push({ snap: s, changed, gained: gainedEntitlement(s.values, now), now });
+      }
+      if (ownLate.length > 0) {
+        const changes = ownLate.flatMap((r) => changesAt(r.snap, r.changed, r.now));
+        const gained = ownLate.flatMap((r) => r.gained.map((f) => fieldOf(r.snap, f)));
+        const planGained = ownLate.some((r) => r.gained.some((f) => PLAN_FIELD.test(lastPart(f))));
+        return skipEarly(
+          [
+            `Inconclusive: Run Hound read ${who}'s plan again (${endpoint}) ${Math.round((Date.now() - firstReadAt) / 1000)} s after the page loaded, having opened nothing, and ${changes.join(", ")} changed on ${changes.length === 1 ? "its" : "their"} own: a change the page's own load started that lands late (a queued job's), or a value that moves by itself. Run Hound can't tell a change a success page makes from that, so it opened no success page, and it put nothing back, since it made no change.`,
+            gained.length > 0 ? `${who} may keep the ${listed(gained)} it gained: check ${who}.` : "",
+            planGained ? "When this page is itself a success or upgrade page, run the check on the billing or settings page that links to it instead." : "",
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
+      }
+      stillAt = ownReadAt;
+
       /** What the page under test shows (a route that shows the same is the app's catch-all, not a success page). */
       const ownPrint = session.page.isClosed() ? null : await fingerprintOf(session.page);
 
@@ -2080,6 +2284,8 @@ export const check: Check = {
       const livePage = async (): Promise<Page> => {
         if (!session.page.isClosed() && !sessionClosed) return session.page;
         session = await openAsSelf(ctx, providers, undefined, workers);
+        // The old page went with its context: no tab's script of it is left running.
+        tabShown = null;
         await holdScenario(session.context, scenarioHold);
         sessionClosed = false;
         watchClose(session);
@@ -2092,6 +2298,17 @@ export const check: Check = {
       /** The last route the plan was re-read after (any outcome), and when that re-read ended: the quiet re-read follows it. */
       let lastRead: Visit | null = null;
       let lastReadAt = 0;
+      /**
+       * When the re-read after `lastRan` ended, and the route that loaded as a page whose quiet window (QUIET_MIN_MS
+       * after that re-read) a read has already covered (quietBeforeNext).
+       */
+      let lastRanReadAt = 0;
+      let quietCovered: Visit | null = null;
+      /**
+       * The routes re-read since `lastRan` that didn't load as a page, in order (review round 2): a change read after
+       * one of them is put down to `lastRan`, and the note names those opened in between.
+       */
+      let sinceRan: Visit[] = [];
       /** Billing and settings pages opened only to read their links. */
       const readPages: string[] = [];
       /** How each of those answered, by URL (the restore opens again only those that loaded as a page of the app). */
@@ -2109,6 +2326,8 @@ export const check: Check = {
       const confirmBy = started + TIME_LIMIT_MS - CONFIRM_RESERVE_MS;
       let lostAfter: Route | null = null;
       let outOfTime = false;
+      /** The routes visit opened (a run that stopped for time names the others: review round 1). */
+      const tried = new Set<Route>();
       /** Pages opened as Account A after the snapshot (candidates and billing or settings pages alike). */
       let visited = 0;
       /**
@@ -2154,6 +2373,8 @@ export const check: Check = {
           }
           reads.push({ snap, now, changed: changedEntitlement(snap.values, now), gained: gainedEntitlement(snap.values, now) });
         }
+        /** When the read that showed a change (if any) ended. */
+        const seenAt = Date.now();
         if (!late) {
           lastRead = { route, ...(res ? { res } : {}) };
           lastReadAt = Date.now();
@@ -2163,7 +2384,13 @@ export const check: Check = {
         // read by the quiet re-read after the last route.
         const ran = !late && (res === undefined || RAN.has(res.outcome));
         const credit: Visit | null = ran ? { route, ...(res ? { res } : {}) } : lastRan;
-        if (ran) lastRan = { route, ...(res ? { res } : {}) };
+        if (ran) {
+          lastRan = { route, ...(res ? { res } : {}) };
+          lastRanReadAt = lastReadAt;
+          sinceRan = [];
+        } else if (!late) {
+          sinceRan.push({ route, ...(res ? { res } : {}) });
+        }
         const moved = reads.filter((r) => r.changed.length > 0);
         if (moved.length === 0) {
           stillAt = readAt;
@@ -2197,6 +2424,8 @@ export const check: Check = {
         }
         const { snap, now, changed, gained } = gaining;
         const seenAfter: Visit | undefined = credit.route === route ? undefined : { route, ...(res ? { res } : {}) };
+        /** The routes opened after the credited one and before `seenAfter` (the last of sinceRan), none of which loaded. */
+        const between = seenAfter ? sinceRan.slice(0, -1) : [];
         // Numbers that went up alone (credits, a raised limit; no plan field moved): a balance that refills on a timer
         // looks the same from one read, whatever its period. The route is opened again once the probing is over
         // (repeatGain), and the gain counts only when that adds more (0.6.0 review, round 3).
@@ -2204,6 +2433,7 @@ export const check: Check = {
           unconfirmed = {
             credit,
             ...(seenAfter ? { seenAfter } : {}),
+            ...(between.length > 0 ? { between } : {}),
             ...(late ? { lateMs } : {}),
             snap,
             others: others(gaining),
@@ -2212,7 +2442,7 @@ export const check: Check = {
             after: now,
             stillAt,
             openedAt: openedAt.get(credit.route) ?? stillAt,
-            seenAt: Date.now(),
+            seenAt,
           };
           return false;
         }
@@ -2241,35 +2471,107 @@ export const check: Check = {
         grant = {
           route: credit.route,
           ...(seenAfter ? { seenAfter } : {}),
+          ...(between.length > 0 ? { between } : {}),
           ...(late ? { lateMs } : {}),
           snap,
           others: others(gaining),
           changed,
           gained,
           after: now,
+          settleMs: settleFor(seenAt - (openedAt.get(credit.route) ?? readAt)),
           evidence: await grantEvidence(ctx, shownPage, credit.route, snap, now, gained, hide),
         };
         return false;
       };
 
       /**
-       * Called by scanLinks after it chose a billing tab on `page` (at `url`): re-reads, as after a page load, so a
-       * change the tab made is named as the tab's, never the next route's. False once the probing is over.
+       * Before the next page is opened (0.6.0 closeout): the last route that loaded as a page (`lastRan`) gets
+       * QUIET_MIN_MS after its re-read with nothing opened, then the plan is read once more (readAfter's quiet re-read),
+       * so a change that lands late (a queued job's) is put down to it, never to the page opened next, even one that
+       * answers. Once per such route, and only while no read has covered that span yet (a route after it that didn't load
+       * as a page, re-read QUIET_MIN_MS or more after it, has). False when that read ended the probing. With `held`, the
+       * caller already holds what the page on screen sends (afterTab, inside chooseTab's hold); otherwise the wait and
+       * the read run under holdingTab while a Billing tab's page is on screen.
        */
-      const tabName = (tab: string) => (tab.length > 40 ? `${tab.slice(0, 40)}…` : tab);
+      const quietBeforeNext = async (o: { held?: boolean } = {}): Promise<boolean> => {
+        const ran = lastRan as Visit | null;
+        const last = lastRead as Visit | null;
+        if (ran === null || last === null || quietCovered === ran || done()) return true;
+        quietCovered = ran;
+        if (lastReadAt - lastRanReadAt >= QUIET_MIN_MS) return true;
+        const page = session.page;
+        const quiet = async () => {
+          const quietMs = Math.max(0, lastRanReadAt + QUIET_MIN_MS - Date.now());
+          if (quietMs > 0) {
+            ctx.step(`Waiting ${Math.round(quietMs / 1000)} s with nothing opened after ${didFor(ran.route)}, then reading ${who}'s plan again`, page.isClosed() ? undefined : page);
+            await sleep(quietMs);
+          }
+          return readAfter(last.route, page, last.res, Date.now() - lastReadAt);
+        };
+        return o.held ? quiet() : holdingTab(quiet);
+      };
+
+      /**
+       * Runs `act` (a quiet wait and its read) under the hold chooseTab puts on while it clicks a tab, while a Billing
+       * tab's page is on screen (tabShown; 0.6.0 closeout, review round 1): the tab's script may still be running (a
+       * timer, a write it sends after a slow GET), so every navigation to the app and every write to a checkout,
+       * subscription or billing portal start is held, and the notes name what the tabs tried. After a page load, `act`
+       * runs as it is: what the page sends is its own (its navigations to a start stay held by the scenario's own hold).
+       */
+      const holdingTab = async <T>(act: () => Promise<T>): Promise<T> => {
+        const shown = tabShown;
+        const page = session.page;
+        if (shown === null || page.isClosed() || sessionClosed) return act();
+        const here = page.url();
+        const navBefore = providers.blockedNav.length;
+        const offBefore = providers.offApp.length;
+        const hold = await holdingNavigation(page.context(), (to) => ofTheApp(to, here), () => act(), startsFrom(here));
+        for (const what of tabTried(hold, here, providers, navBefore, offBefore)) held.push(tabNote(shown.url, shown.tabs, what));
+        return hold.value;
+      };
+
+      /**
+       * Leaves the page on screen when Billing tabs were chosen on it (tabShown), under their hold (leaveTabPage), before
+       * Run Hound loads another page or ends (0.6.0 closeout, review round 2): the page stays alive until the next one
+       * commits, so a tab's late write (a timer, a write after a slow GET) would otherwise reach the app while the next
+       * page's server answers. What was held is named as the tabs'.
+       */
+      const leaveTab = async (): Promise<void> => {
+        const shown = tabShown;
+        if (shown === null) return;
+        if (!session.page.isClosed() && !sessionClosed) held.push(...(await leaveTabPage(session.page, shown.url, shown.tabs, providers)));
+        tabShown = null;
+      };
+      /** The tabs chosen on the page at `url` so far, with `tab` (a note names them all: tabNote). */
+      const tabsAt = (url: string, tab: string): string[] =>
+        tabShown !== null && pageKey(tabShown.url) === pageKey(url) ? [...tabShown.tabs, tabName(tab)] : [tabName(tab)];
+
+      /**
+       * Called by scanLinks after it chose a billing tab on `page` (at `url`), while chooseTab's hold is still on:
+       * re-reads, as after a page load, so a change the tab made is named as the tab's, never the next route's; then,
+       * still under that hold (review round 1), the tab's quiet wait and read (quietBeforeNext), so what the tab's script
+       * sends late is held and named as the tab's. The page is then a tab's until Run Hound leaves it (tabShown,
+       * leaveTab: review round 2). False once the probing is over.
+       */
       const afterTab =
         (url: string, page: Page) =>
         async (tab: string): Promise<boolean> => {
           visited += 1;
           const name = tabName(tab);
+          tabShown = { url, tabs: tabsAt(url, name) };
           const route: Route = { url, path: `${pathOf(url)} (${name} tab)`, source: "tab", tab: name };
           openedAt.set(route, Date.now());
-          return (await readAfter(route, page)) && !done();
+          return (await readAfter(route, page)) && !done() && (await quietBeforeNext({ held: true })) && !done();
         };
-      /** How scanLinks reads a page at `url` in `page`: a re-read after each tab, and a note for a tab whose click was held. */
+      /**
+       * How scanLinks reads a page at `url` in `page`: the quiet read after the last route that loaded before each tab
+       * (quietBeforeNext), a re-read and a quiet read after each tab, and a note for a tab whose page tried something
+       * held, naming every tab chosen on the page so far (review round 2: an earlier tab's timer may fire meanwhile).
+       */
       const scanning = (url: string, page: Page) => ({
+        before: async () => (await quietBeforeNext()) && !done(),
         chose: afterTab(url, page),
-        held: (tab: string, what: string) => held.push(`Choosing the ${q(tabName(tab))} tab on ${pathOf(url)} ${what} (a tab is chosen only to read what it shows).`),
+        held: (tab: string, what: string) => void held.push(tabNote(url, tabsAt(url, tab), what)),
         providers,
       });
 
@@ -2277,15 +2579,24 @@ export const check: Check = {
        * Opens a route as Account A with the page's own navigations to a checkout or billing portal start on this site
        * held (startsFrom), re-reads the entitlement, and records a grant or a lost re-read; then, when the probing goes
        * on, runs `then` (reading a billing or settings page's links) while the hold is still on. Null when there was no
-       * time left to open it (nothing was opened).
+       * time left to open it, or the quiet read before it (quietBeforeNext) ended the probing (nothing was opened).
        */
       const visit = async (route: Route, then?: (page: Page, res: Opened) => Promise<void>): Promise<Opened | null> => {
         if (Date.now() >= probeDeadline) {
           outOfTime = true;
           return null;
         }
+        // A change that lands late from the last page that loaded is read before this one opens (quietBeforeNext).
+        if (!(await quietBeforeNext()) || done()) return null;
+        if (Date.now() >= probeDeadline) {
+          outOfTime = true;
+          return null;
+        }
+        tried.add(route);
+        // A Billing tab's page on screen is left under the tab's hold first (review round 2).
+        await leaveTab();
         const page = await livePage();
-        ctx.step(`Opening ${route.path} as ${who}`, page);
+        ctx.step(`Opening ${route.path} as ${who}`, stepPage(page));
         visited += 1;
         providers.current = route.path;
         ownLoads.add(pageKey(route.url));
@@ -2332,8 +2643,10 @@ export const check: Check = {
           unrepeated = { pending: p, why: "time" };
           return;
         }
+        // A Billing tab's page on screen is left under the tab's hold first (review round 2).
+        await leaveTab();
         const page = await livePage();
-        ctx.step(`${capital(didFor(route))} again as ${who}, to see whether it adds more`, page);
+        ctx.step(`${capital(didFor(route))} again as ${who}, to see whether it adds more`, stepPage(page));
         providers.current = route.path;
         ownLoads.add(pageKey(route.url));
         const reopenedAt = Date.now();
@@ -2360,7 +2673,9 @@ export const check: Check = {
           const tab = (await billingTabs(page)).find((t) => tabName(t.name) === route.tab);
           if (!tab) return "no-tab";
           const chosen = await chooseTab(page, tab, 0, async (clicked) => {
-            if (clicked) await read();
+            if (!clicked) return;
+            tabShown = { url: route.url, tabs: [tabName(tab.name)] };
+            await read();
           });
           return chosen.clicked ? null : "no-tab";
         });
@@ -2383,9 +2698,12 @@ export const check: Check = {
           unrepeated = { pending: p, why: "time", again };
           return;
         }
-        ctx.step(`Reading ${who}'s plan again after ${Math.round(quietMs / 1000)} s with nothing opened`, page.isClosed() ? undefined : page);
-        await sleep(quietMs);
-        const later = await rereadEntitlement(ctx, p.snap);
+        // A tab's page is still on screen, with its script perhaps still running: held as while it was chosen (holdingTab).
+        const later = await holdingTab(async () => {
+          ctx.step(`Reading ${who}'s plan again after ${Math.round(quietMs / 1000)} s with nothing opened`, page.isClosed() ? undefined : page);
+          await sleep(quietMs);
+          return rereadEntitlement(ctx, p.snap);
+        });
         if (later === null) {
           lostAfter = route;
           return;
@@ -2398,6 +2716,7 @@ export const check: Check = {
         grant = {
           route,
           ...(p.seenAfter ? { seenAfter: p.seenAfter } : {}),
+          ...(p.between ? { between: p.between } : {}),
           ...(p.lateMs !== undefined ? { lateMs: p.lateMs } : {}),
           snap: p.snap,
           others: p.others,
@@ -2405,6 +2724,7 @@ export const check: Check = {
           gained: p.gained,
           after: p.after,
           repeat: { after: again, quietMs },
+          settleMs: settleFor(p.seenAt - p.openedAt),
           evidence: await grantEvidence(ctx, page.isClosed() ? null : page, route, p.snap, p.after, p.gained, hide),
         };
       };
@@ -2448,7 +2768,8 @@ export const check: Check = {
           });
         }
         const origin = originOf(ctx.targetUrl)!;
-        if (!done()) for (const path of CONVENTIONAL_PATHS) addCandidate(new URL(path, origin).href, "conventional");
+        // Also when the probing stopped for time, so the notes name the conventional paths it didn't open.
+        if (!done() || outOfTime) for (const path of CONVENTIONAL_PATHS) addCandidate(new URL(path, origin).href, "conventional");
 
         // 4. Open each candidate as Account A and re-read after each. The first change ends the probing.
         for (const route of candidates) {
@@ -2461,17 +2782,23 @@ export const check: Check = {
         // pass while Account A is on the paid plan. The pause runs until QUIET_MIN_MS have passed since that re-read.
         const last = lastRead as Visit | null;
         if (last !== null && grant === null && drift === null && moving === null && unconfirmed === null && lostAfter === null) {
-          const quietMs = Math.max(0, QUIET_MIN_MS - (Date.now() - lastReadAt));
-          if (quietMs > 0) {
-            ctx.step(`Waiting ${Math.round(quietMs / 1000)} s with nothing opened, then reading ${who}'s plan once more`, session.page.isClosed() ? undefined : session.page);
-            await sleep(quietMs);
-          }
-          await readAfter(last.route, session.page, last.res, Date.now() - lastReadAt);
+          // After a tab, its page is still on screen: held as while it was chosen (holdingTab, review round 1).
+          await holdingTab(async () => {
+            const quietMs = Math.max(0, QUIET_MIN_MS - (Date.now() - lastReadAt));
+            if (quietMs > 0) {
+              ctx.step(`Waiting ${Math.round(quietMs / 1000)} s with nothing opened, then reading ${who}'s plan once more`, session.page.isClosed() ? undefined : session.page);
+              await sleep(quietMs);
+            }
+            await readAfter(last.route, session.page, last.res, Date.now() - lastReadAt);
+          });
         }
 
         // 4c. A gain of raised numbers alone: open its route again (repeatGain, 0.6.0 review, round 3).
         const pending = unconfirmed as Unconfirmed | null;
         if (pending !== null) await repeatGain(pending);
+        // The probing is over (a grant's evidence is taken): a Billing tab's page still on screen is left under the tab's
+        // hold, before the restore loads a page and before the scenario ends (review round 2).
+        await leaveTab();
 
         const g = grant as Grant | null;
         const d = drift as Drift | null;
@@ -2502,9 +2829,13 @@ export const check: Check = {
         ]
           .filter(Boolean)
           .join(" ");
+        // The routes left unopened when the probing stopped for time (review round 1): the run is then never a pass.
+        const unopened = outOfTime ? [...linkedPages, ...candidates].filter((r) => !tried.has(r)).map((r) => r.path) : [];
+        const shownLeft = unopened.slice(0, 6);
+        const leftList = unopened.length > shownLeft.length ? `${shownLeft.join(", ")} and ${unopened.length - shownLeft.length} more` : listed(shownLeft);
         const timeNote =
           outOfTime && !g && !d && !m && !lost
-            ? `Run Hound stopped after ${visited} ${visited === 1 ? "page" : "pages"} to leave time to put ${who}'s plan back had one changed it; the remaining routes weren't opened.`
+            ? `Run Hound stopped after ${visited} ${visited === 1 ? "page" : "pages"} to leave time to put ${who}'s plan back had one changed it${unopened.length > 0 ? `, and didn't open ${leftList}` : "; the remaining routes weren't opened"}.`
             : "";
 
         if (lost) {
@@ -2612,10 +2943,11 @@ export const check: Check = {
             changed: d.changed,
             gained: d.gained,
             after: d.after,
+            settleMs: 0,
             evidence: [],
           });
           const lateNote = d.late
-            ? `The change was read only after Run Hound had opened nothing for ${Math.round(d.late.ms / 1000)} s after ${d.late.after.route.path}.`
+            ? `The change was read only after Run Hound had opened nothing for ${Math.round(d.late.ms / 1000)} s after ${d.late.after.route.source === "tab" ? didFor(d.late.after.route) : d.late.after.route.path}.`
             : "";
           return skip(
             hide(
@@ -2667,16 +2999,21 @@ export const check: Check = {
               ),
             );
           }
+          // A run that stopped for time with routes left unopened is never a pass (review round 1): one of them may be
+          // the success page that grants, and a slow app is where that happens.
+          const inconclusive = sessionOnly || outOfTime;
+          const lead = `${answered.length === 1 ? "one success or upgrade page" : `${answered.length} success or upgrade pages`} opened as ${who} (${answered.map((o) => o.route.path).join(", ")}), and ${who}'s plan (${readWhat}) read the same after each${outOfTime ? ", but Run Hound ran out of time before it opened every route" : ""}.`;
           const notes = [
-            `${sessionOnly ? "Inconclusive: " : ""}${answered.length === 1 ? `${sessionOnly ? "o" : "O"}ne success or upgrade page` : `${answered.length} success or upgrade pages`} opened as ${who} (${answered.map((o) => o.route.path).join(", ")}), and ${who}'s plan (${readWhat}) read the same after each.`,
+            inconclusive ? `Inconclusive: ${lead}` : capital(lead),
             sessionNote,
             stopNote,
-            triedNote,
             timeNote,
+            outOfTime ? `Run Hound can't say that none of the routes it didn't open gives ${who} a paid plan: check ${who}, or run the check on a faster copy of the app.` : "",
+            triedNote,
             claimNote,
             providerNote(providers),
           ];
-          if (sessionOnly) return skip(hide(notes.filter(Boolean).join(" ")));
+          if (inconclusive) return skip(hide(notes.filter(Boolean).join(" ")));
           return result(ID, scenario, started, [], hide(notes.filter(Boolean).join(" ")));
         }
 
@@ -2689,13 +3026,7 @@ export const check: Check = {
           g.repeat
             ? `${capital(didFor(g.route))} again added more (${g.gained.map((f) => `${fieldOf(g.snap, f)} ${shown(g.after[f])} → ${shown(g.repeat!.after[f])}`).join(", ")}), and nothing changed in the ${Math.round(g.repeat.quietMs / 1000)} s after with nothing opened, so the gain comes from the page, not from a value that goes up on its own.`
             : "",
-          g.lateMs !== undefined
-            ? g.seenAfter
-              ? `The change was read only after Run Hound had opened nothing for ${Math.round(g.lateMs / 1000)} s after ${g.seenAfter.route.path}${g.seenAfter.res ? ` (${outcomeText(g.seenAfter.res)})` : ""}, which didn't load as a page, so it is put down to ${g.route.path}, the last page before it that did (a change that lands late, such as a queued job's).`
-              : `The change was read only after Run Hound had opened nothing for ${Math.round(g.lateMs / 1000)} s after ${g.route.path}, so it is put down to ${g.route.path}, the last page it opened (a change that lands late, such as a queued job's).`
-            : g.seenAfter
-              ? `The change was read only after ${g.seenAfter.route.path}${g.seenAfter.res ? ` (${outcomeText(g.seenAfter.res)})` : ""}, opened next, which didn't load as a page, so it is put down to ${g.route.path}, the last page before it that did (a change that lands late, such as a queued job's).`
-              : "",
+          lateChangeNote(g),
           ...restoreNotes,
           triedNote,
           ...heldNow,
@@ -2703,6 +3034,8 @@ export const check: Check = {
         ];
         return result(ID, scenario, started, [finding], hide(notes.filter(Boolean).join(" ")));
       } catch (error) {
+        // A Billing tab's page still on screen goes too, under the tab's hold (review round 2).
+        await leaveTab().catch(() => undefined);
         // A page may already have changed Account A's plan: say so with the error.
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(hide([message.replace(/\.?$/, "."), visited > 0 ? INTERRUPTED_NOTE : "", providerNote(providers)].filter(Boolean).join(" ")));
@@ -2766,6 +3099,13 @@ function cancelUndoes(changed: string[], snapshot: Record<string, unknown>): boo
   return !hasPlanField && changed.some((f) => PLAN_FEATURES.test(lastPart(f)));
 }
 
+/** A page on which the restore chose Billing tabs looking for the plan's control (findPlanControl), at `url`. */
+interface TabsChosen {
+  page: Page;
+  url: string;
+  tabs: string[];
+}
+
 /**
  * Puts Account A's entitlement back after a grant, through the app's own cancel or downgrade control: on the page under
  * test, then on its billing and settings pages. Only when a cancel or downgrade can undo what changed (cancelUndoes);
@@ -2773,8 +3113,10 @@ function cancelUndoes(changed: string[], snapshot: Record<string, unknown>): boo
  * it. A page that fails (a control covered by an overlay, a page that doesn't load) is named and the next page is
  * tried; a control that goes to a billing portal, a checkout or another site is never clicked (refusal), and a click
  * that heads for one anyway is held and counts as failed (clickPlanControl). No page is opened once less than
- * RESTORE_STEP_MS is left before `deadline`, and nothing is clicked once less than RESTORE_CLICK_MS is. Returns the
- * notes, which name whatever is still changed after a final re-read ("… check Account A").
+ * RESTORE_STEP_MS is left before `deadline`, and nothing is clicked once less than RESTORE_CLICK_MS is. A page on which
+ * Billing tabs were chosen is left under their hold (leaveTabPage) before the next page loads and at the end (0.6.0
+ * closeout, review round 2), so a tab's late write never reaches the app. Returns the notes, which name whatever is
+ * still changed after a final re-read ("… check Account A"), and what a tab's page sent that was held.
  */
 async function restore(
   ctx: CheckContext,
@@ -2786,6 +3128,31 @@ async function restore(
   who: string,
   endpoint: string,
   deadline: number,
+): Promise<string[]> {
+  const chosen: { on: TabsChosen | null } = { on: null };
+  const leave = async (notes: string[]) => {
+    const on = chosen.on;
+    chosen.on = null;
+    if (on) notes.push(...(await leaveTabPage(on.page, on.url, on.tabs, providers).catch(() => [])));
+  };
+  const notes = await restoreOnPages(ctx, livePage, snap, grant, pages, providers, who, endpoint, deadline, chosen, leave);
+  await leave(notes);
+  return notes;
+}
+
+/** restore's search and clicks, page by page (`chosen`: the page whose Billing tabs it chose; `leave` leaves it). */
+async function restoreOnPages(
+  ctx: CheckContext,
+  livePage: () => Promise<Page>,
+  snap: EntitlementSnapshot,
+  grant: Grant,
+  pages: string[],
+  providers: ProviderLog,
+  who: string,
+  endpoint: string,
+  deadline: number,
+  chosen: { on: TabsChosen | null },
+  leave: (notes: string[]) => Promise<void>,
 ): Promise<string[]> {
   const notes: string[] = [];
   const stillChanged = (now: Record<string, unknown>) =>
@@ -2816,12 +3183,14 @@ async function restore(
       }
       const path = pathOf(url);
       let control: Marked | null = null;
-      /** Candidates on this page that can't be told apart (findPlanControl): none was clicked. */
-      const seen: { ambiguous?: string[] } = {};
+      /** Candidates on this page that can't be told apart (findPlanControl): none was clicked; and the tabs it chose. */
+      const seen: { ambiguous?: string[]; chose?: string[] } = {};
       try {
+        // The last page's Billing tabs may still have scripts running: left under their hold first.
+        await leave(notes);
         const page = await livePage();
         providers.current = path;
-        ctx.step(`Looking for the app's own cancel or downgrade control on ${path}`, page);
+        ctx.step(`Looking for the app's own cancel or downgrade control on ${path}`, stepPage(page));
         // Loaded like a probed route: the page's own navigations to a checkout or billing portal start are held.
         const found = await holdingNavigation(page.context(), startsFrom(url), async () => {
           await page.goto(url, { waitUntil: "load", timeout: 30_000 }).catch(() => undefined);
@@ -2829,6 +3198,7 @@ async function restore(
           // Choosing a tab again on the page whose tab made the change would make it again.
           return findPlanControl(page, !(grant.route.source === "tab" && pageKey(url) === pageKey(grant.route.url)), seen);
         });
+        if (seen.chose && seen.chose.length > 0) chosen.on = { page, url: page.url(), tabs: seen.chose };
         if (found.stopped.length > 0) {
           notes.push(`${path} sent the browser to ${placeOf(found.stopped[0]!, url)} (${stepNoun(found.stopped[0]!)}), which Run Hound stopped, so it clicked nothing there.`);
           continue;
@@ -2994,6 +3364,7 @@ function grantFinding(
           path: snap.path,
           fields: grant.gained,
           slot: ctx.accounts?.self?.id === "b" ? "B" : "A",
+          settleMs: grant.settleMs,
           ...(grant.route.source === "tab" ? { tab: grant.route.tab ?? "Billing" } : {}),
         }),
       ),
@@ -3006,9 +3377,20 @@ function grantFinding(
  * variables, reads its plan, opens the success route (with every payment provider blocked as the check blocks them: a
  * request to one, a new window's first load, and through the DevTools protocol the hop of a server redirect to one and,
  * once signed in, any page load off the target, so it runs in Chromium only; with `tab`, then chooses that tab on it),
- * reads it again and expects no change. No value Run Hound read, no session value and no credential is written into it.
+ * then reads it again until `settleMs` have passed (review round 1: a change that lands late, a queued job's, shows only
+ * a while after the network went idle) and fails on the first change. No value Run Hound read, no session value and no
+ * credential is written into it.
  */
-function replaySpec(o: { target: string; route: string; entitlement: string; path: string; fields: string[]; slot: "A" | "B"; tab?: string }): string {
+function replaySpec(o: {
+  target: string;
+  route: string;
+  entitlement: string;
+  path: string;
+  fields: string[];
+  slot: "A" | "B";
+  tab?: string;
+  settleMs: number;
+}): string {
   const rel = (url: string) => (isSameOrigin(url, o.target) ? pageKey(url) : url);
   const who = `Account ${o.slot}`;
   const env = (name: string) => `RUNHOUND_ACCOUNT_${o.slot}_${name}`;
@@ -3028,6 +3410,9 @@ function replaySpec(o: { target: string; route: string; entitlement: string; pat
     `const ENTITLEMENT = ${q(rel(o.entitlement))}; // ${who}'s plan, read as ${who}`,
     `const PATH: string = ${q(o.path)}; // where ${who}'s object sits in that answer ("" = the whole answer)`,
     `const FIELDS = ${q(o.fields)} as string[];`,
+    `// How long the plan is read after ROUTE loads${o.tab === undefined ? "" : " and TAB is chosen"}: Run Hound saw the change about ${Math.max(0, Math.round((o.settleMs - QUIET_MIN_MS) / 1000))} s after it ${o.tab === undefined ? "opened ROUTE" : "chose TAB"}`,
+    `// (a change can land late, such as a queued job's), and this adds ${QUIET_MIN_MS / 1000} s.`,
+    `const SETTLE_MS = ${String(o.settleMs).replace(/\B(?=(\d{3})+(?!\d))/g, "_")};`,
     `const PAYMENT_PROVIDER = new RegExp(${q(`^https?://([^/]+\\.)?(${providers})(:\\d+)?/`)}, "i");`,
     ``,
     `// Signs in through the app's own sign-in page; the password comes from the environment, never from this file.`,
@@ -3086,6 +3471,7 @@ function replaySpec(o: { target: string; route: string; entitlement: string; pat
     ``,
     `test(${q(`opening a success page doesn't give ${who} a paid plan`)}, async ({ page, browserName }) => {`,
     `  test.skip(browserName !== "chromium", "The payment-provider block needs Chromium's DevTools protocol.");`,
+    `  test.setTimeout(60_000 + SETTLE_MS);`,
     `  await blockPaymentProviders(page);`,
     `  await signIn(page);`,
     `  guardOffSite = true;`,
@@ -3093,7 +3479,13 @@ function replaySpec(o: { target: string; route: string; entitlement: string; pat
     `  await page.goto(new URL(ROUTE, TARGET).href);`,
     `  await page.waitForLoadState("networkidle");`,
     ...(o.tab === undefined ? [] : [`  await page.getByRole("tab", { name: TAB }).click();`, `  await page.waitForLoadState("networkidle");`]),
-    `  const after = await entitlement(page);`,
+    `  // Read the plan until SETTLE_MS have passed; the first change ends the wait and fails the test.`,
+    `  const settleBy = Date.now() + SETTLE_MS;`,
+    `  let after = await entitlement(page);`,
+    `  while (Date.now() < settleBy && JSON.stringify(after) === JSON.stringify(before)) {`,
+    `    await new Promise((resolve) => setTimeout(resolve, 500));`,
+    `    after = await entitlement(page);`,
+    `  }`,
     `  expect(after, ${q(`${who}'s plan changed just by opening `)} + ROUTE).toEqual(before);`,
     `});`,
     ``,

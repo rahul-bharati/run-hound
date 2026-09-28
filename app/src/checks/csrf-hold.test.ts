@@ -7,8 +7,9 @@
  *     and judged too, so Account A's own profile is never written to;
  *   - a form whose save is stopped and whose page then sends the same values another way that reaches the app: the
  *     note says so and asks to check Account A, never "nothing was changed";
- *   - a GraphQL edit form (reads and writes are POST /graphql) that renames a task Account A already had: nothing is
- *     forged at it, and when its save reached the app the note says so and asks to check Account A.
+ *   - a GraphQL edit form (reads and writes are POST /graphql) that renames a task Account A already had: the hold
+ *     learns the task's id from the page's POST query and stops the mutation before it reaches the app (close-out
+ *     round 1), and nothing is forged at it.
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -253,19 +254,16 @@ load();
 }
 
 describe("csrf: a GraphQL edit form that renames a task Account A already had", () => {
-  it("forges nothing at it, and never leaves it changed without saying the save reached the app and to check Account A", async () => {
+  it("stops the mutation before it reaches the app (the hold learns t1 from the page's POST query), and forges nothing", async () => {
     const server = await graphqlApp();
     const result = await runAt(server, "/app");
     expect(result.findings).toEqual([]);
     expect(result.status, result.notes).toBe("skipped");
     expect(fromOtherSite(server)).toEqual([]);
-    if (server.tasks[0]!.title !== "Groceries") {
-      // The mutation reached the app and changed Account A's own task: the note must say so.
-      expect(result.notes).not.toMatch(/nothing was changed/);
-      expect(result.notes).toMatch(/POST \/graphql[\s\S]*reached the app/);
-      expect(result.notes).toMatch(/check Account A/);
-    } else {
-      expect(result.notes).toMatch(/changes a record Account A already had/);
-    }
+    // Account A's own task is never written to (close-out round 1: this was open, the mutation reached the app).
+    expect(server.tasks[0]!.title).toBe("Groceries");
+    expect(server.requests.filter((r) => r.method === "POST" && /"query":"\s*mutation/.test(r.body))).toEqual([]);
+    expect(result.notes).toMatch(/changes a record Account A already had/);
+    expect(result.notes).toMatch(/stopped the form's save \(POST \/graphql\) before it reached the app, so nothing was changed/);
   }, 60_000);
 });

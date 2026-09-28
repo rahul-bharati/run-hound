@@ -230,6 +230,45 @@ function accountLabel(account: AccountRef): string {
   return oneLine(account.label) || (account.id === "b" ? "Account B" : "Account A");
 }
 
+/** An other-account scenario id, on any form and under any collision suffix (runner.ts needsOtherAccount). */
+const OTHER_ACCOUNT_SCENARIO = /(?:^|:)other-account(?:@form-\d+)?(?:#\d+)?$/;
+
+/**
+ * What the run used the other account for (0.6.0 close-out), from the other-account scenarios that ran (a result that
+ * isn't "skipped": a skipped one sent nothing as the other account), else, when none ran, from the approved ones:
+ * "read" for access-control's other-account scenario, "change" for write-access's, "read or change" for both; "read"
+ * when neither is named (a report written before 0.6.0). The web UI's report view says the same (ui/client.ts).
+ */
+export function otherAccountUse(report: Report): string {
+  const checkOf = new Map((report.plan?.scenarios ?? []).map((s) => [s.id, s.checkId]));
+  const ran = new Set(
+    (report.results ?? [])
+      .filter((r) => r.status !== "skipped" && OTHER_ACCOUNT_SCENARIO.test(r.scenarioId))
+      .map((r) => r.checkId ?? checkOf.get(r.scenarioId)),
+  );
+  const approved = new Set(report.approved ?? []);
+  const used =
+    ran.size > 0
+      ? ran
+      : new Set((report.plan?.scenarios ?? []).filter((s) => approved.has(s.id) && OTHER_ACCOUNT_SCENARIO.test(s.id)).map((s) => s.checkId));
+  const reads = used.has("access-control");
+  const changes = used.has("write-access");
+  return reads && changes ? "read or change" : changes ? "change" : "read";
+}
+
+/**
+ * The terminal's line after a signed-in run (cli.ts): "Signed in as Account A; Account B was used to check that it
+ * can't change Account A's data." (otherAccountUse), or "Signed in as Account A." when no other account was used. Null
+ * for a signed-out run. Not redacted here: the caller redacts it.
+ */
+export function signedInSentence(report: Report): string | null {
+  const { signedInAs, other } = reportAccounts(report);
+  if (!signedInAs) return null;
+  const self = accountLabel(signedInAs);
+  if (!other) return `Signed in as ${self}.`;
+  return `Signed in as ${self}; ${accountLabel(other)} was used to check that it can't ${otherAccountUse(report)} ${self}'s data.`;
+}
+
 /**
  * The report header's account lines, e.g. "Signed in as **Account A**" and "Other account: **Account B** (…)", in
  * Markdown; nothing for a signed-out run.
@@ -238,7 +277,7 @@ function accountsMarkdown(report: Report): string[] {
   const { signedInAs, other } = reportAccounts(report);
   if (!signedInAs) return [];
   const lines = [`- Signed in as **${accountLabel(signedInAs)}**`];
-  if (other) lines.push(`- Other account: **${accountLabel(other)}** (used to check that it can't read ${accountLabel(signedInAs)}'s data)`);
+  if (other) lines.push(`- Other account: **${accountLabel(other)}** (used to check that it can't ${otherAccountUse(report)} ${accountLabel(signedInAs)}'s data)`);
   return lines;
 }
 
@@ -247,7 +286,9 @@ function accountsHtml(report: Report): string {
   const { signedInAs, other } = reportAccounts(report);
   if (!signedInAs) return "";
   const self = esc(accountLabel(signedInAs));
-  const also = other ? `<span class="muted"> · other account <strong>${esc(accountLabel(other))}</strong>, used to check that it can't read ${self}'s data</span>` : "";
+  const also = other
+    ? `<span class="muted"> · other account <strong>${esc(accountLabel(other))}</strong>, used to check that it can't ${otherAccountUse(report)} ${self}'s data</span>`
+    : "";
   return `<p class="account">Signed in as <strong>${self}</strong>${also}</p>\n`;
 }
 

@@ -20,6 +20,22 @@
  * own words say sign in); a name field is a sign-up signal only beside another identifier field; a code step needs a
  * sign-in code word (SIGN_IN_CODE_WORDS) and is also read at the sign-in address once the password field is gone; a
  * captcha widget alone is a challenge only in a form that moves on or under a heading that says so.
+ *
+ * Close-out: a code step named only by the page's heading or title needs a field that looks like a code's itself
+ * (showsCodeStep); an HttpOnly cookie of the app's own site is a cookie session whatever its name, also when it was
+ * set before the password and the submit kept it, and a load balancer's or bot manager's cookie never is
+ * (sessionInStorage, NOT_SESSION_COOKIE).
+ *
+ * Close-out review, round 1: Cloudflare's __cflb and ASP.NET's antiforgery cookies are never the session
+ * (NOT_SESSION_COOKIE); a code step's field is read through camel case and aria-labelledby, type=number or a digits-only
+ * pattern looks like a code's, and a field that can't hold a code (type=email, or own words that say email, phone,
+ * mobile, name or API) is never one (showsCodeStep).
+ *
+ * Close-out review, round 2: own words that say email, phone or mobile beside verify or verification, or on a numeric
+ * field, can hold a code unless they say name, send, resend, address or number; a numeric field with no code word and
+ * no code size needs a heading or title that names a code step outright, and a code word only a camel-case split finds
+ * needs a field that looks like a code's (showsCodeStep). Heroku's session-affinity cookie and AWS WAF's token are never
+ * the session (NOT_SESSION_COOKIE).
  */
 import { domainToUnicode } from "node:url";
 import type { Browser, BrowserContext, ElementHandle, Page, Request, Route } from "playwright";
@@ -490,10 +506,17 @@ function isCredentialName(name: string): boolean {
 /**
  * Cookies that never hold the session (0.6.0 review, round 2): a CSRF token (XSRF-TOKEN, csrftoken, _csrf), and the
  * analytics, advertising and bot-check cookies a sign-in may set too (_ga, _gid, _fbp, ajs_*, _hj*, __stripe_*,
- * __cf_bm, cf_clearance …).
+ * __cf_bm, cf_clearance …). The close-out adds the HttpOnly cookies a load balancer or a bot manager in front of the app
+ * sets (Azure's ARRAffinity, AWS's AWSALB, Google's GCLB, Akamai's ak_bmsc and _abck, Imperva's visid_incap_ and
+ * incap_ses_, F5's BIGipServer and TS01…, Citrix's NSC_, DataDome, PerimeterX's _px…, ingress-nginx's INGRESSCOOKIE).
+ * The close-out review (round 1) adds Cloudflare's load balancer and waiting room cookies (__cflb, __cfwaitingroom) and
+ * ASP.NET's antiforgery cookies (ASP.NET Core's ".AspNetCore.Antiforgery.<id>", HttpOnly by default, and ASP.NET MVC's
+ * "__RequestVerificationToken[_<app path>]", whose name says token). Round 2 of that review adds Heroku's router cookie
+ * (heroku-session-affinity, HttpOnly, a name that says session) and AWS WAF's challenge token (aws-waf-token, not
+ * HttpOnly, a name that says token).
  */
 const NOT_SESSION_COOKIE =
-  /csrf|xsrf|^_ga($|_)|^_gid$|^_gat|^_gcl_|^_fb[pc]$|^ajs_|^_hj|^__stripe_|^__cf_bm$|^cf_clearance$|^_cfuvid$|^__cfruid$|^mp_|^amp_|^_clck$|^_clsk$|^intercom-|^__hs|^hubspotutk$|^_uet[sv]id$|^_pk_|^_dd_s$/i;
+  /csrf|xsrf|antiforgery|^__RequestVerificationToken|^__cflb$|^__cfwaitingroom$|^heroku-session-affinity$|^aws-waf-token$|^_ga($|_)|^_gid$|^_gat|^_gcl_|^_fb[pc]$|^ajs_|^_hj|^__stripe_|^__cf_bm$|^cf_clearance$|^_cfuvid$|^__cfruid$|^mp_|^amp_|^_clck$|^_clsk$|^intercom-|^__hs|^hubspotutk$|^_uet[sv]id$|^_pk_|^_dd_s$|^ARRAffinity|^AWSALB|^AWSELB$|^GCI?LB$|^ak_bmsc$|^bm_(sv|sz|mi|so|s)$|^_abck$|^visid_incap_|^incap_ses_|^nlbi_|^BIGipServer|^TS01[0-9a-f]*$|^NSC_|^datadome$|^_px|^INGRESSCOOKIE$|^ROUTEID$/i;
 
 /** A browser context's cookies, as context.cookies() returns them. */
 type CookieJar = SessionState["cookies"];
@@ -512,23 +535,39 @@ function sessionCookieSet(before: CookieJar, after: CookieJar): boolean {
 }
 
 /**
- * Whether the session lives in the sessionStorage signIn read (0.6.0 review, rounds 1 and 2): the app sent one of its
- * values (a token-like whole value, or a token-like string of the JSON it holds) in a credential header after the
- * password was typed (`credentials`: those headers' values). Else, not when the session is in a cookie: the submit set
- * or changed one, whatever its name (sessionCookieSet: `cookiesBefore` is the jar before the password was typed), or a
- * session-named cookie (SESSION_NAME) holds a token-like value (a PHPSESSID set with the sign-in page and kept by the
- * submit); a CSRF, analytics or bot-check cookie is never the session. Not when localStorage or IndexedDB holds a
- * token either. Otherwise it can live nowhere else: yes.
+ * A host name's site, near enough to tell the app's own cookies from another site's without a public-suffix list: its
+ * last two labels ("app.example.com" and "api.example.com" give "example.com"); an IP address, or a name of one label
+ * (localhost), as it is. A leading dot (a cookie's Domain) and IPv6 brackets are dropped.
+ */
+function siteOf(host: string): string {
+  const h = host.toLowerCase().replace(/^\./, "").replace(/^\[|\]$/g, "");
+  if (/^[\d.]+$/.test(h) || h.includes(":") || !h.includes(".")) return h;
+  return h.split(".").slice(-2).join(".");
+}
+
+/**
+ * Whether the session lives in the sessionStorage signIn read (0.6.0 review, rounds 1 and 2; the close-out): the app
+ * sent one of its values (a token-like whole value, or a token-like string of the JSON it holds) in a credential header
+ * after the password was typed (`credentials`: those headers' values). Else, not when the session is in a cookie: the
+ * submit set or changed one, whatever its name (sessionCookieSet: `cookiesBefore` is the jar before the password was
+ * typed); a session-named cookie (SESSION_NAME) holds a token-like value (a PHPSESSID set with the sign-in page and
+ * kept by the submit); or (the close-out) an HttpOnly cookie of the app's own site (siteOf one of `hosts`: the sign-in
+ * page's and the landing page's host names) holds one, whatever its name (express-session under a custom name, set with
+ * the sign-in page and kept by the submit): no page script can set or read an HttpOnly cookie, so it is the server's
+ * state. A CSRF, analytics, bot-check, load balancer or bot manager cookie (NOT_SESSION_COOKIE) is never the session,
+ * and neither is another site's HttpOnly cookie (a reCAPTCHA frame's _GRECAPTCHA). Not when localStorage or IndexedDB
+ * holds a token either. Otherwise it can live nowhere else: yes.
  *
  * Otherwise (a cookie or localStorage session) what the app keeps in sessionStorage is its own business: a query
  * cache, the signed-in user, the current workspace's id. Seeding it into every context would load pages from that copy
  * instead of the app's data reads, which the access checks replay.
  */
-function sessionInStorage(
+export function sessionInStorage(
   state: SessionState,
   kept: NonNullable<SignedIn["sessionStorage"]>,
   credentials: ReadonlySet<string>,
   cookiesBefore: CookieJar,
+  hosts: readonly string[],
 ): boolean {
   if (kept.length === 0) return false;
   const sent = [...credentials];
@@ -538,8 +577,12 @@ function sessionInStorage(
     }
   }
   if (sessionCookieSet(cookiesBefore, state.cookies)) return false;
-  const named = state.cookies.filter((c) => SESSION_NAME.test(c.name) && !NOT_SESSION_COOKIE.test(c.name));
-  return sessionSecrets({ ...state, cookies: named }).length === 0;
+  const sites = new Set(hosts.map(siteOf));
+  const cookieSession = state.cookies.some(
+    (c) => !NOT_SESSION_COOKIE.test(c.name) && looksLikeToken(c.value) && (SESSION_NAME.test(c.name) || (c.httpOnly && sites.has(siteOf(c.domain)))),
+  );
+  if (cookieSession) return false;
+  return sessionSecrets({ ...state, cookies: [] }).length === 0;
 }
 
 /**
@@ -637,20 +680,62 @@ const ENTRY_FIELDS = String.raw`(() => {
 
 /**
  * Words that name a sign-in's code (0.6.0 review, round 3), for showsCodeStep: one-time, OTP, passcode, verification
- * or verify, two-factor, two-step, 2FA, MFA, TOTP, authenticator, a security, sign-in, login or confirmation code, or
- * an "n-digit code". A bare "code" doesn't say which code it is ("Code", "Room code", a code explainer's textarea).
+ * or verify, two-factor, two-step (or 2-step, 2-factor), multi-factor, 2FA, MFA, TOTP, authenticator, a security,
+ * sign-in, login or confirmation code, or an "n-digit code". A bare "code" doesn't say which code it is ("Code", "Room
+ * code", a code explainer's textarea).
  */
-const SIGN_IN_CODE_WORDS = String.raw`/\b(otp|one ?time|passcode|verification|verify|2fa|mfa|totp|two ?factor|two ?step|authenticator|(security|sign ?in|log ?in|login|confirmation) code|\d ?digit code)\b/i`;
+const SIGN_IN_CODE_WORDS = String.raw`/\b(otp|one ?time|passcode|verification|verify|2fa|mfa|totp|(two|2) ?(factor|step)|multi ?factor|authenticator|(security|sign ?in|log ?in|login|confirmation) code|\d ?digit code)\b/i`;
 
 /**
- * Whether the page after the password (0.6.0 review, round 2; round 3) is a code step without
+ * Headings or titles that name a code step outright (close-out review, round 2), for showsCodeStep: the sign-in code
+ * words (SIGN_IN_CODE_WORDS) without a bare verify or verification, which also asks to confirm an email address ("Please
+ * verify your email address"), but with a verification code.
+ */
+const CODE_STEP_HEADING = String.raw`/\b(otp|one ?time|passcode|2fa|mfa|totp|(two|2) ?(factor|step)|multi ?factor|authenticator|(verification|security|sign ?in|log ?in|login|confirmation) code|\d ?digit code)\b/i`;
+
+/**
+ * A field's `pattern` that allows digits only (close-out review, round 1), for showsCodeStep: "[0-9]*", "\d+",
+ * "[0-9]{6}", "\d{4,8}" (anchored or not): the numeric keyboard a code field asks for, as inputmode=numeric does.
+ */
+const DIGITS_ONLY_PATTERN = String.raw`/^\^?(\[0-9\]|\\d)([*+]|\{\d+(,\d*)?\})\$?$/`;
+
+/**
+ * A field's `pattern` that allows 4 to 8 digits and nothing else (close-out review, round 2), for showsCodeStep:
+ * "[0-9]{6}", "\d{6}", "\d{4,8}" (anchored or not): a code's size, as a maxlength of 4 to 8 is.
+ */
+const CODE_SIZED_PATTERN = String.raw`/^\^?(\[0-9\]|\\d)\{[4-8](,[4-8])?\}\$?$/`;
+
+/**
+ * Whether the page after the password (0.6.0 review, round 2; round 3; the close-out) is a code step without
  * autocomplete=one-time-code: its only field to fill in (ENTRY_FIELDS), an input and never a textarea or a list, or a
  * code split over 4 to 8 one-character input boxes, and a sign-in code word (SIGN_IN_CODE_WORDS) in the fields' name,
  * id, placeholder, aria-label, autocomplete or label, or in the page's headings or title ("Code" under "Two-step
  * verification"); never with promo, coupon, gift, referral, invite, zip, postal or another code that isn't a sign-in's
  * in the fields' own words (a landing page's promo-code field, a "Code" textarea or a "Room code" field is still a
- * success). Asked off the sign-in page's address, and at that address once the password field is gone (a single-page
- * app that swaps in its code step).
+ * success). When only the headings or the title say it (the close-out), the field must look like a code's itself: its
+ * own words say code, OTP, PIN, token or digit, or it is code-sized (a maxlength of 4 to 8, a pattern of 4 to 8 digits:
+ * CODE_SIZED_PATTERN; split boxes always are). A heading that asks to verify the email over a "New task" field, a page
+ * titled "Identity verification" whose field finds a customer, or a two-factor set-up page's phone number field is
+ * still a success. Asked off the sign-in page's address, and at that address once the password field is gone (a
+ * single-page app that swaps in its code step).
+ *
+ * Close-out review, round 1: a field's own words are read word by word through camel case ("verificationCode",
+ * "otpCode"), and the text of the elements its aria-labelledby names is its label too. A field that can't hold a
+ * sign-in code is never one, whatever the page or its own words say: type=email, API in its own words (with the other
+ * codes above), or own words that say email, phone, mobile or name and no code word (code, OTP, PIN, passcode, token,
+ * digit, one-time, 2FA, MFA, TOTP, authenticator): an unconfirmed account's "Send the verification email to" field, a
+ * "Paste your API token" field or a maxlength=8 "Team short name" under "Please verify your email address" is a
+ * success, and "Enter the verification code we sent to your email" is still a code step.
+ *
+ * Close-out review, round 2: own words that say email, phone or mobile hold a code when they also say verify or
+ * verification ("Mobile verification", "Phone verification", "Email verification"), or when the field is numeric
+ * (type=number, inputmode=numeric or decimal, a digits-only pattern: DIGITS_ONLY_PATTERN), unless they say name, send,
+ * resend, address or number: an address field ("Send the verification email to", "Verify your mobile number"). A
+ * numeric field with no code word and no code size is a code's only under a heading or title that names a code step
+ * outright (CODE_STEP_HEADING): an unconfirmed account's type=number "Hours worked today" field under "Please verify
+ * your email address" is a success. A sign-in code word that only the camel-case reading finds in a name or id
+ * ("verificationSearch") counts only in a field that looks like a code's (its own words say code, OTP, PIN, token or
+ * digit, it is code-sized, or numeric).
  */
 async function showsCodeStep(page: Page): Promise<boolean> {
   const script = `() => {
@@ -658,13 +743,37 @@ async function showsCodeStep(page: Page): Promise<boolean> {
     if (entry.length === 0 || entry.some((el) => el.tagName !== "INPUT")) return false;
     const split = entry.length >= 4 && entry.length <= 8 && entry.every((el) => el.maxLength === 1);
     if (entry.length !== 1 && !split) return false;
-    const words = (el) => [el.name, el.id, el.getAttribute("placeholder"), el.getAttribute("aria-label"), el.getAttribute("autocomplete"), ...Array.from(el.labels || []).map((l) => l.innerText)]
-      .filter(Boolean).join(" ").replace(/[_\\[\\]\\-.:*]+/g, " ");
+    const labelledBy = (el) => (el.getAttribute("aria-labelledby") || "").split(/\\s+/).filter(Boolean).map((id) => {
+      const target = document.getElementById(id);
+      return target ? target.innerText || target.textContent : "";
+    });
+    const written = (el) => [el.name, el.id, el.getAttribute("placeholder"), el.getAttribute("aria-label"), el.getAttribute("autocomplete"), ...Array.from(el.labels || []).map((l) => l.innerText), ...labelledBy(el)]
+      .filter(Boolean).join(" ");
+    const spaced = (text) => text.replace(/[_\\[\\]\\-.:*]+/g, " ");
+    const words = (el) => spaced(written(el).replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2"));
     const own = entry.map(words).join(" ");
     const headings = Array.from(document.querySelectorAll("h1, h2, h3, legend")).map((h) => h.innerText).join(" ") + " " + document.title;
     const code = ${SIGN_IN_CODE_WORDS};
-    const other = /\\b(promo|promotion(al)?|coupon|discount|voucher|gift|referral|refer|invite|invitation|redeem|zip|postal|post|area|country|source|qr|product|tracking|order|affiliate|campaign)\\b/i;
-    return code.test(own + " " + headings.replace(/[_\\-]+/g, " ")) && !other.test(own);
+    const other = /\\b(promo|promotion(al)?|coupon|discount|voucher|gift|referral|refer|invite|invitation|redeem|zip|postal|post|area|country|source|qr|product|tracking|order|affiliate|campaign|api)\\b/i;
+    if (other.test(own)) return false;
+    const numeric = (el) => el.type === "number" || /^(numeric|decimal)$/i.test(el.getAttribute("inputmode") || "") || ${DIGITS_ONLY_PATTERN}.test(el.getAttribute("pattern") || "");
+    const codeWord = /\\b(codes?|otp|pin|passcode|token|digits?|one ?time|2fa|mfa|totp|authenticator)\\b/i;
+    const cannotHoldCode = (el) => {
+      if (el.type === "email") return true;
+      const text = words(el);
+      if (!/\\b(e ?mail|phone|mobile|name)\\b/i.test(text) || codeWord.test(text)) return false;
+      if (/\\b(name|send|resend|address|number)\\b/i.test(text)) return true;
+      return !/\\b(verification|verify)\\b/i.test(text) && !numeric(el);
+    };
+    if (entry.some(cannotHoldCode)) return false;
+    const saysCode = (el) => /\\b(codes?|otp|pin|token|passcode|digits?)\\b/i.test(words(el));
+    const codeSized = (el) => (el.maxLength >= 4 && el.maxLength <= 8) || ${CODE_SIZED_PATTERN}.test(el.getAttribute("pattern") || "");
+    if (code.test(entry.map((el) => spaced(written(el))).join(" "))) return true;
+    if (code.test(own) && entry.every((el) => saysCode(el) || codeSized(el) || numeric(el))) return true;
+    const heads = headings.replace(/[_\\-]+/g, " ");
+    if (!code.test(heads)) return false;
+    if (split || entry.every((el) => saysCode(el) || codeSized(el))) return true;
+    return entry.every(numeric) && ${CODE_STEP_HEADING}.test(heads);
   }`;
   return Boolean(await page.evaluate(`(${script})()`).catch(() => false));
 }
@@ -2247,7 +2356,8 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
     // Returned (and so seeded into every context of the identity) only when the session lives there (0.6.0 review,
     // round 1: sessionInStorage); else read by localStorage's rules. The ids the app's own addresses carried are left
     // out of the secrets either way.
-    const inStorage = sessionInStorage(state, kept, credentials, cookiesBefore);
+    const hosts = [loginHost, ...(isWebUrl(landedUrl) ? [new URL(landedUrl).hostname] : [])];
+    const inStorage = sessionInStorage(state, kept, credentials, cookiesBefore, hosts);
     // A session that holds the password (0.6.0 review, round 2: a "remember me" hint cookie, a login draft in
     // localStorage) is never handed to the run: every check context would be seeded with it, and the app's pages could
     // carry it to another origin, where no sign-in layer watches any more.

@@ -101,3 +101,71 @@ export function isLocalOrigin(url: string, targetUrl: string): boolean {
   }
   return /^f[cd][0-9a-f]{2}:/.test(host) || /^fe[89ab][0-9a-f]:/.test(host);
 }
+
+/** `text` (GraphQL) with its comments and string literals blanked, so words and braces in them never count. */
+export function graphQlCode(text: string): string {
+  return text.replace(/"""[\s\S]*?"""|"(?:[^"\\\n]|\\.)*"|#[^\n]*/g, (m) => (m.startsWith("#") ? " " : '""'));
+}
+
+const GQL_NAME = "[_A-Za-z][_0-9A-Za-z]*";
+/** Directives, each with its arguments: @include(if: $x). */
+const GQL_DIRECTIVES = `(?:@${GQL_NAME}\\s*(?:\\([^()]*\\)\\s*)?)*`;
+/** A selection set's start: "{" and a field, an alias or a fragment spread. */
+const GQL_SELECTION = `\\{\\s*(?:\\.\\.\\.|${GQL_NAME})`;
+/**
+ * The start of a GraphQL document: a selection set (a query's shorthand), or query or subscription with an optional
+ * name, variables and directives before one, or a fragment definition.
+ */
+const GQL_DOCUMENT = new RegExp(
+  `^\\s*(?:${GQL_SELECTION}|(?:query|subscription)(?![_0-9A-Za-z])\\s*(?:${GQL_NAME}\\s*)?(?:\\([^()]*\\)\\s*)?${GQL_DIRECTIVES}${GQL_SELECTION}|fragment\\s+${GQL_NAME}\\s+on\\s+${GQL_NAME}\\s*${GQL_DIRECTIVES}${GQL_SELECTION})`,
+);
+
+/**
+ * True when `text`, with its comments left out, starts a GraphQL document (GQL_DOCUMENT): "{ tasks { id } }",
+ * "query Tasks($first: Int) { … }", "fragment T on Task { … } query { … }". A saved search's text ("status:open"), a JSON
+ * filter kept as text ('{"status":"open"}') or a word that only starts like a keyword ("queryString") is not one.
+ */
+export function isGraphQlDocument(text: string): boolean {
+  return GQL_DOCUMENT.test(graphQlCode(text));
+}
+
+/** The keys a GraphQL request body's operation may hold (GraphQL over HTTP): nothing else. */
+const GRAPHQL_REQUEST_KEYS = new Set(["query", "variables", "operationName", "extensions"]);
+
+/**
+ * A GraphQL read sent as a POST (Apollo Client's default): a JSON body, or a batch of them, each operation holding only
+ * GraphQL request keys (query, variables, operationName, extensions), with a query that is a GraphQL document
+ * (isGraphQlDocument) and holds no mutation. It reads records, even when its variables carry a test value (a search for
+ * what was just saved). A REST body with a "query" field ({name, query}: a saved search, a saved filter, a default-search
+ * setting) is a write, never a read (0.6.0 close-out round 2). Shared by the test-record count (engine/context.ts
+ * isAcceptedSave) and the existing-record hold (checks/lib/record-state.ts), which learns the ids its answer holds and
+ * sends its body again to re-read.
+ */
+export function isGraphQlRead(postData: string | null | undefined): boolean {
+  if (!postData || !/^\s*[[{]/.test(postData)) return false;
+  let body: unknown;
+  try {
+    body = JSON.parse(postData);
+  } catch {
+    return false;
+  }
+  const operations = Array.isArray(body) ? body : [body];
+  return (
+    operations.length > 0 &&
+    operations.every((op) => {
+      if (!op || typeof op !== "object" || Array.isArray(op)) return false;
+      if (!Object.keys(op).every((k) => GRAPHQL_REQUEST_KEYS.has(k))) return false;
+      const query = (op as { query?: unknown }).query;
+      return typeof query === "string" && isGraphQlDocument(query) && !/\bmutation\b/.test(graphQlCode(query));
+    })
+  );
+}
+
+/**
+ * True for a request header that carries an anti-CSRF token (a name with csrf or xsrf in it: Django's X-CSRFToken,
+ * axios' and Angular's X-XSRF-TOKEN, Rails' X-CSRF-Token). It names no one (the session does), so a check may send
+ * one of an identity's own (engine/context.ts request), and the capture keeps a write's (engine/capture.ts).
+ */
+export function isAntiCsrfHeader(name: string): boolean {
+  return /csrf|xsrf/i.test(name);
+}

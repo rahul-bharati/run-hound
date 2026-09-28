@@ -50,6 +50,20 @@ export function queryParamKind(name: string, value: string, tokens: ReadonlySet<
   return null;
 }
 
+/** A MongoDB ObjectId: 24 hex characters. */
+const OBJECT_ID = /^[0-9a-f]{24}$/i;
+
+/**
+ * True when `name=value` looks like a reference to a record, not a secret: a name that says it is an identifier
+ * (ID_NAME, read on the last part of a nested name such as task[list_id]), or a UUID or an ObjectId value. csrf still
+ * leaves such a random hidden value out of a forged body (it may be a token); this only says that a 403 to that forge
+ * may be the app refusing the missing reference (an authorization check) rather than a CSRF defence.
+ */
+export function looksLikeReference(name: string, value: string): boolean {
+  const leaf = /\[([^\]]*)\]$/.exec(name)?.[1] ?? name;
+  return ID_NAME.test(leaf) || UUID.test(value) || OBJECT_ID.test(value);
+}
+
 /** `url` without the query parameters that carry a token or a credential (queryParamKind); the URL as given when it can't be parsed. */
 export function withoutQueryCredentials(url: string, tokens: ReadonlySet<string>, runKey: string): CleanedUrl {
   let parsed: URL;

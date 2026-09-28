@@ -1,5 +1,5 @@
 import type { Page, Request } from "playwright";
-import { isLocalOrigin, isWrite } from "../core/saves.js";
+import { isAntiCsrfHeader, isLocalOrigin, isWrite } from "../core/saves.js";
 import type { Capture } from "../core/types.js";
 import { secretSpans } from "./redact.js";
 
@@ -37,7 +37,8 @@ function truncate(body: string): string {
  * text/JSON responses, and for writes (POST, PUT, ...) to another origin on this machine or the local network (an
  * API on another port), truncated to 64 KB.
  * Response headers (all of them, set-cookie included) are kept for responses from the page's origin and other local
- * origins. "Same origin" means the origin of the page's latest top-level navigation.
+ * origins, and the anti-CSRF request headers (X-CSRFToken, X-XSRF-TOKEN) of a write to them. "Same origin" means the
+ * origin of the page's latest top-level navigation.
  */
 export function attachCapture(page: Page): Capture {
   const capture: Capture = { requests: [], console: [], pageErrors: [] };
@@ -57,6 +58,16 @@ export function attachCapture(page: Page): Capture {
       failure: null,
       responseBody: null,
     };
+    // A write's anti-CSRF headers (X-CSRFToken, X-XSRF-TOKEN), when it goes to the app (this origin or another on this
+    // machine or network): write-access sends Account B's replay with B's own token in the same header.
+    if (isWrite(entry) && ((pageOrigin !== null && originOf(entry.url) === pageOrigin) || isLocalOrigin(entry.url, page.url()))) {
+      try {
+        const found = Object.entries(request.headers()).filter(([name]) => isAntiCsrfHeader(name));
+        if (found.length > 0) entry.csrfHeaders = Object.fromEntries(found.map(([name, value]) => [name.toLowerCase(), value]));
+      } catch {
+        // No headers to read (the request is already gone): none kept.
+      }
+    }
     entries.set(request, entry);
     capture.requests.push(entry);
   });

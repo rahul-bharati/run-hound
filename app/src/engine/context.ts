@@ -19,7 +19,7 @@ import {
   type IdentityResponse,
   type Recording,
 } from "../core/types.js";
-import { carriesTestValues, isAcceptedStatus, isPagePost, isSaveRequest, originOf } from "../core/saves.js";
+import { carriesTestValues, isAcceptedStatus, isAntiCsrfHeader, isGraphQlRead, isPagePost, isSaveRequest, originOf } from "../core/saves.js";
 import { attachCapture } from "./capture.js";
 import { composeFrame, encodeGif, gifScale, renderCard, resolveHighlights, type FrameHeader } from "./evidence.js";
 import { cleanErrorMessage, explainNavigationError } from "./errors.js";
@@ -96,7 +96,10 @@ export function createCredentialHeaders(): CredentialHeaders {
   return { self: new Map(), other: new Map() };
 }
 
-/** Header names that carry a credential: never passed through from a caller, and harvested from the app's requests. */
+/**
+ * Header names that carry a credential: harvested from the app's requests, and never passed through from a caller
+ * unless it is an anti-CSRF header (core/saves.ts isAntiCsrfHeader), which names no one.
+ */
 export function isCredentialHeader(name: string): boolean {
   const n = name.toLowerCase();
   return n === "cookie" || n === "authorization" || n === "proxy-authorization" || n === "apikey" || n === "x-api-key" || /^x-[\w-]*token$/.test(n);
@@ -373,28 +376,6 @@ export interface RunningCheckContext extends CheckContext {
 }
 
 /**
- * A GraphQL read sent as a POST (Apollo Client's default): a JSON body, or a batch of them, whose "query" holds no
- * mutation. It reads records, even when its variables carry a test value (a search for what was just saved).
- */
-function isGraphQlRead(postData: string | null): boolean {
-  if (!postData || !/^\s*[[{]/.test(postData)) return false;
-  let body: unknown;
-  try {
-    body = JSON.parse(postData);
-  } catch {
-    return false;
-  }
-  const operations = Array.isArray(body) ? body : [body];
-  return (
-    operations.length > 0 &&
-    operations.every((op) => {
-      const query = op && typeof op === "object" ? (op as { query?: unknown }).query : undefined;
-      return typeof query === "string" && !/\bmutation\b/.test(query);
-    })
-  );
-}
-
-/**
  * Whether a response may mean the app created a test record: a save request (core/saves.ts: a non-GET fetch, XHR or
  * form post to the target's origin, or to another origin with the run's test values in its body) that the app
  * answered with a 2xx or 3xx status, and that is a page post, has no body, or carries the run's test values (CHK-5).
@@ -565,7 +546,11 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
       await checkTarget(request.url, { allowedHosts: options.allowedHosts, lookup: options.lookup });
       const origin = originOf(request.url);
       const headers: Record<string, string> = {};
-      for (const [name, value] of Object.entries(request.headers ?? {})) if (!isCredentialHeader(name)) headers[name.toLowerCase()] = value;
+      // A credential header the caller passes is dropped: only the identity's own, as the app sent them, go. An
+      // anti-CSRF header is not one (it names no one; the session does): write-access sends Account B's own token in it.
+      for (const [name, value] of Object.entries(request.headers ?? {})) {
+        if (!isCredentialHeader(name) || isAntiCsrfHeader(name)) headers[name.toLowerCase()] = value;
+      }
       if (as !== "signed-out" && origin) Object.assign(headers, credentialHeaders[as].get(origin) ?? {});
       if (disposed) throw new Error(ENDED);
       const api = await apiContextFor(as, state);

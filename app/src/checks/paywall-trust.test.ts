@@ -1587,7 +1587,9 @@ describe("paywall-trust: a billing tab that heads for a payment provider", () =>
     expect(result.notes).toMatch(/"Billing" tab on \/app sent the browser to \/billing\/portal[^.]*stopped/);
     // The tab that went straight to the provider was blocked, and listed; the notes say the tab did it.
     expect(result.notes).toMatch(/billing\.stripe\.com: blocked \(payment provider\)/);
-    expect(result.notes).toMatch(/"Payments" tab on \/app headed for billing\.stripe\.com \(payment provider\)[^.]*blocked/);
+    // Chosen after Billing on the same page, whose script may still be running: both are named (0.6.0 closeout, review
+    // round 2).
+    expect(result.notes).toMatch(/After Run Hound chose the "Billing" and "Payments" tabs on \/app, the page headed for billing\.stripe\.com \(payment provider\)[^.]*blocked/);
     expectSafe(server, result);
   }, 120_000);
 
@@ -1622,7 +1624,7 @@ describe("paywall-trust: a billing tab that heads for a payment provider", () =>
     expect(result.status).toBe("pass");
     expect(posts(server, "/api/billing/portal-session")).toEqual([]);
     expect(result.notes).toMatch(/"Billing" tab on \/app sent a request to \/api\/billing\/portal-session[^.]*stopped/);
-    expect(result.notes).toMatch(/"Payments" tab on \/app headed for pay\.gateway\.test \(another site\)[^.]*stopped/);
+    expect(result.notes).toMatch(/After Run Hound chose the "Billing" and "Payments" tabs on \/app, the page headed for pay\.gateway\.test \(another site\)[^.]*stopped/);
     expectSafe(server, result);
   }, 120_000);
 

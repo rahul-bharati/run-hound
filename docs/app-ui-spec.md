@@ -89,7 +89,9 @@ A step indicator across the top: **1 Target → 2 Plan → 3 Run → 4 Report**,
     nothing was checked (every scenario skipped);
   - the title "Test run complete" (or "Run stopped" / "Run failed");
   - the summary line "15 scenarios run · 11 passed · 4 with issues · 38 s", counting skipped and errored when present;
-  - "Signed in as <label>" for a signed-in run, and the other account when a scenario used it;
+  - "Signed in as <label>" for a signed-in run, and the other account when a scenario used it, with what it was used
+    to check: that it can't read the account's data (`access-control`), can't change it (`write-access`), or can't
+    read or change it (both), as the HTML and Markdown reports say it;
   - with AI explanations, "Findings explained by <model> (n of m findings). Advisory text only." and the model's
     warnings.
 - **Header buttons:** **Re-run** (accent outline: plans the same target again and starts a run with the same

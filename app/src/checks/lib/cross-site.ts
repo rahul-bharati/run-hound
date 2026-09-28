@@ -9,17 +9,55 @@
  * no IP address space, so Chromium's Private Network Access checks treat it as public and block its request to the
  * loopback target. A page served over real loopback shares the target's "local" address space, so the request goes
  * through. Only requests a cross-site page can send without a CORS preflight are sent (a form post, form-encoded or
- * multipart, or a text/plain body). A JSON body with a real content-type is sent only after the app's own server answered a real preflight (sent
- * by the caller, outside the browser) for the attacker origin with credentials allowed: Run Hound's request
- * interception makes Playwright answer the browser's preflight itself, so the browser's own preflight can't decide.
+ * multipart, or a text/plain body). A JSON body with a real content-type is sent only after the app's own server
+ * answered a real preflight (sent by the caller, outside the browser) for the attacker origin with credentials allowed:
+ * Run Hound's request interception makes Playwright answer the browser's preflight itself, so the browser's own
+ * preflight can't decide. Every forge waits up to FORGE_WAIT_MS for the app's answer (forgeWaitMs: a test may shorten it).
  *
  * The attacker page is always plain http, whatever the target's scheme: http://127.0.0.1 and http://localhost are
  * potentially trustworthy, so a `SameSite=None; Secure` cookie of an https target still rides along.
  */
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { Page } from "playwright";
+import type { Page, Request, Response } from "playwright";
 import type { CheckContext } from "../../core/types.js";
+
+/**
+ * How long a forge waits for the app's answer, whatever its encoding: a form or multipart post into a frame, and the
+ * text/plain and JSON fetches (aborted in the page after it). A slow save that stores the forge and answers within it is
+ * seen; an answer later than it (or none) is "no answer", which never makes a pass.
+ */
+export const FORGE_WAIT_MS = 30_000;
+
+let forgeWait = FORGE_WAIT_MS;
+
+/** How long a forge waits for the app's answer now: FORGE_WAIT_MS, unless a test shortened it (setForgeWaitMs). */
+export function forgeWaitMs(): number {
+  return forgeWait;
+}
+
+/**
+ * For tests only: shortens the forge's wait to `ms` (so an answer later than it, the "late" branch, is seen in seconds),
+ * or, with no argument, puts FORGE_WAIT_MS back. Never called by Run Hound itself.
+ */
+export function setForgeWaitMs(ms?: number): void {
+  forgeWait = ms ?? FORGE_WAIT_MS;
+}
+
+/**
+ * Failures after which the request never reached the app: the browser couldn't connect or refused to send it. Any
+ * other failure (the connection closed or reset with no answer, an abort) may come after the request went out.
+ */
+const NEVER_SENT = /ERR_(?:CONNECTION_REFUSED|CONNECTION_FAILED|NAME_NOT_RESOLVED|NAME_RESOLUTION_FAILED|ADDRESS_INVALID|ADDRESS_UNREACHABLE|INTERNET_DISCONNECTED|BLOCKED_BY_CLIENT|BLOCKED_BY_ADMINISTRATOR|NETWORK_ACCESS_DENIED|UNSAFE_PORT|SSL_|CERT_)/;
+
+/** After an in-page fetch settled, how long its answer may still take to reach Playwright's network events. */
+const SETTLE_MS = 5_000;
+
+/**
+ * How long after the wait an in-page fetch is aborted, so it never hangs the page: later than the wait for the answer,
+ * so a forge with no answer in time is "late", never "failed" by Run Hound's own abort.
+ */
+const ABORT_AFTER_MS = 1_000;
 
 /**
  * How a forged body is encoded on the wire. "form" (form-encoded), "multipart" (a multipart form) and "text" (a
@@ -38,19 +76,39 @@ export interface ForgedRequest {
 
 /** How a forge went: whether the browser sent it, and the status the app answered when it could be read. */
 export interface ForgeOutcome {
-  /** True when the browser sent the request (a form post always is; a preflighted JSON fetch may be blocked first). */
+  /**
+   * False only when Run Hound knows the request never reached the app: it failed the way a request that never went out
+   * does (`failure`: the connection was refused, the host didn't resolve, the browser blocked it). True for an
+   * answered forge, a late one (it went out and was waited on), and one whose connection closed with no answer.
+   */
   sent: boolean;
   /**
    * The status the app answered, as the browser's network layer saw it (a form post into an iframe, or a no-cors
    * text/plain fetch, is opaque to the page but not to the network), or null when no answer arrived.
    */
   status: number | null;
+  /**
+   * Why there is no answer, when status is null: "late" when none arrived within the wait, "failed" when the
+   * request failed (the connection closed with no answer, or it was never sent). The app may still store such a forge.
+   */
+  unanswered?: "late" | "failed";
+  /** The browser's reason for a "failed" forge (net::ERR_EMPTY_RESPONSE, net::ERR_CONNECTION_REFUSED …), when it gave one. */
+  failure?: string;
   /** The Location the app redirected the forge to, for a 3xx answer. */
   location?: string;
   /** Why the browser did not send it (a blocked preflight), when it didn't. */
   blocked?: string;
-  /** The names (never the values) of the cookies the browser attached to it; empty when it sent none. */
+  /**
+   * The names (never the values) of the cookies the browser attached to it; empty when it sent none, and also empty
+   * when Run Hound never saw the app's answer (see cookiesSeen).
+   */
   cookies: string[];
+  /**
+   * True when the request's headers were read with the app's answer, so `cookies` is what the browser attached. False
+   * when no answer arrived in time: Playwright only knows the Cookie header a request really carried once its answer
+   * arrives, so then nothing is known about the cookies, and an empty `cookies` never means "no cookie attached".
+   */
+  cookiesSeen: boolean;
 }
 
 /** A cookie the browser holds for the target: its name and SameSite only, never its value. */
@@ -151,71 +209,118 @@ export async function crossSitePage(ctx: CheckContext, target: string): Promise<
 }
 
 /**
- * Sends one request from the already-open attacker `page` and waits for the app's response, so the write is committed
- * before the caller re-reads. A "form" body goes through a hidden <form> submitted into an off-screen iframe (a
- * cross-site POST with no custom headers, so no preflight, and never a top-level navigation); a "multipart" body the same
- * way with enctype="multipart/form-data". A "text" body goes through a no-cors text/plain fetch (CORS-safelisted, so
- * also no preflight: the classic JSON-sent-as-text vector); the page can't read the answer, but the network layer sees
- * its status, and the cookies the browser attached, as for a form post. A "json" body goes
- * through a fetch with a real JSON content-type; the caller sends it only when the app's own preflight answer allowed
- * the attacker origin with credentials. The verdict is always the re-read; the response is awaited only to order the
- * write before it, and to learn which cookies (by name) the browser attached. Throws when the page can't run the
- * request (it was closed or navigated away).
+ * Sends one request from the already-open attacker `page` and waits for the app's answer (up to forgeWaitMs(), or until
+ * the request fails), so the write is committed before the caller re-reads. A "form" body goes through a hidden <form>
+ * submitted into an off-screen iframe (a cross-site POST with no custom headers, so no preflight, and never a top-level
+ * navigation); a "multipart" body the same way with enctype="multipart/form-data". A "text" body goes through a no-cors
+ * text/plain fetch (CORS-safelisted, so also no preflight: the classic JSON-sent-as-text vector); the page can't read
+ * the answer, but the network layer sees its status, and the cookies the browser attached, as for a form post. A "json"
+ * body goes through a fetch with a real JSON content-type; the caller sends it only when the app's own preflight answer
+ * allowed the attacker origin with credentials. The verdict is always the re-read; the response is awaited to order the
+ * write before it, to learn which cookies (by name) the browser attached, and to tell an answer from none (`unanswered`).
+ * Throws when the page can't run the request (it was closed or navigated away). Exported for its unit test, which
+ * orders the network events itself (cross-site-forge.test.ts).
  */
-async function forgeFrom(page: Page, request: ForgedRequest): Promise<ForgeOutcome> {
+export async function forgeFrom(page: Page, request: ForgedRequest): Promise<ForgeOutcome> {
   const method = request.method.toUpperCase();
-  // The app's answer to the forged request, whatever frame it comes from; timing out means it never arrived.
-  const answered = page
-    .waitForResponse((r) => r.url() === request.url && r.request().method() === method, { timeout: 5_000 })
-    .then(
-      async (r) => {
-        const headers = await r.request().allHeaders().catch(() => ({}) as Record<string, string>);
-        const location = r.status() >= 300 && r.status() < 400 ? r.headers()["location"] : undefined;
-        return { status: r.status(), cookies: cookieNames(headers["cookie"]), ...(location ? { location } : {}) };
-      },
-      () => null,
-    );
-  const outcome = async (extra: Partial<ForgeOutcome> = {}): Promise<ForgeOutcome> => {
-    const answer = await answered;
+  const wait = forgeWaitMs();
+  const isForge = (r: Request) => r.url() === request.url && r.method().toUpperCase() === method;
+  // The request failed (the connection closed with no answer, or the fetch was aborted): no answer is coming, unless
+  // the browser got one and then dropped it (a no-cors answer Chromium's Opaque Response Blocking blocks still arrived).
+  let onFailed: (r: Request) => void = () => undefined;
+  const failed = new Promise<{ failed: Request }>((resolve) => {
+    onFailed = (r) => {
+      if (isForge(r)) resolve({ failed: r });
+    };
+    page.on("requestfailed", onFailed);
+  });
+  // The app's answer to the forged request, whatever frame it comes from; "late" when none arrived in time.
+  const response = page.waitForResponse((r) => isForge(r.request()), { timeout: wait }).then(
+    (r) => ({ response: r }),
+    () => "late" as const,
+  );
+  const read = async (r: Response) => {
+    const headers = await r.request().allHeaders().catch(() => null);
+    const location = r.status() >= 300 && r.status() < 400 ? r.headers()["location"] : undefined;
+    return { status: r.status(), cookies: cookieNames(headers?.["cookie"]), cookiesSeen: headers !== null, ...(location ? { location } : {}) };
+  };
+  const answered = Promise.race([response, failed])
+    .then(async (first) => {
+      if (first === "late") return first;
+      if ("response" in first) return read(first.response);
+      const got = await first.failed.response().catch(() => null);
+      return got ? read(got) : { failed: first.failed.failure()?.errorText ?? "" };
+    })
+    .finally(() => page.off("requestfailed", onFailed));
+  const outcome = async (extra: Partial<ForgeOutcome> = {}, settled = false): Promise<ForgeOutcome> => {
+    // After an in-page fetch settled, its answer (or failure) is already on its way to the network events: wait for
+    // it a little, never the whole wait again.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const answer = settled
+      ? await Promise.race([answered, new Promise<"quiet">((resolve) => (timer = setTimeout(() => resolve("quiet"), Math.min(SETTLE_MS, wait))))]).finally(() =>
+          clearTimeout(timer),
+        )
+      : await answered;
+    // A late forge went out and was waited on. A fetch that settled with no network event after it went out too,
+    // unless the page's fetch threw (`blocked`): then the browser may never have sent it. A failed one went out unless
+    // its failure says it never could.
+    if (answer === "late" || answer === "quiet") {
+      return { sent: answer === "late" || !extra.blocked, status: null, unanswered: "late", cookies: [], cookiesSeen: false, ...extra };
+    }
+    if ("failed" in answer) {
+      return {
+        sent: !NEVER_SENT.test(answer.failed),
+        status: null,
+        unanswered: "failed",
+        ...(answer.failed ? { failure: answer.failed } : {}),
+        cookies: [],
+        cookiesSeen: false,
+        ...extra,
+      };
+    }
     return {
-      sent: answer !== null,
-      status: answer?.status ?? null,
-      cookies: answer?.cookies ?? [],
-      ...(answer?.location ? { location: answer.location } : {}),
+      sent: true,
+      status: answer.status,
+      cookies: answer.cookies,
+      cookiesSeen: answer.cookiesSeen,
+      ...(answer.location ? { location: answer.location } : {}),
       ...extra,
     };
   };
 
   if (request.encoding === "json") {
     const dispatch = await page.evaluate(
-      async ({ url, m, body }) => {
+      async ({ url, m, body, wait }) => {
         try {
-          await fetch(url, { method: m, credentials: "include", headers: { "content-type": "application/json" }, body });
+          await fetch(url, { method: m, credentials: "include", headers: { "content-type": "application/json" }, body, signal: AbortSignal.timeout(wait) });
           return { blocked: undefined as string | undefined };
         } catch (err) {
           // A failed CORS read of the answer also throws; the request itself was sent (the re-read decides).
           return { blocked: err instanceof Error ? err.message : String(err) };
         }
       },
-      { url: request.url, m: method, body: request.body },
+      { url: request.url, m: method, body: request.body, wait: wait + ABORT_AFTER_MS },
     );
-    return outcome(dispatch.blocked ? { blocked: dispatch.blocked } : {});
+    return outcome(dispatch.blocked ? { blocked: dispatch.blocked } : {}, true);
   }
 
   if (request.encoding === "text") {
     await page.evaluate(
-      async ({ url, m, body }) => {
+      async ({ url, m, body, wait }) => {
         // no-cors: a simple request whose answer is opaque to the page, as a real attacker page sends it. The browser's
         // network layer still sees the answer (its status and the cookies attached), which a CORS-mode fetch the app
         // answers without CORS headers never reports.
-        await fetch(url, { method: m, mode: "no-cors", credentials: "include", headers: { "content-type": "text/plain" }, body }).catch(() => undefined);
+        await fetch(url, { method: m, mode: "no-cors", credentials: "include", headers: { "content-type": "text/plain" }, body, signal: AbortSignal.timeout(wait) }).catch(
+          () => undefined,
+        );
       },
-      { url: request.url, m: method, body: request.body },
+      { url: request.url, m: method, body: request.body, wait: wait + ABORT_AFTER_MS },
     );
-    return outcome();
+    return outcome({}, true);
   }
 
-  // A form can only send GET or POST; the save this forges is always a POST (a create), so a form fits.
+  // A form can only send GET or POST; the save this forges is always a POST (a create), so a form fits. The page
+  // can't see the frame's answer; the network events do (up to the wait).
   await page.evaluate(
     ({ url, body, multipart }) => {
       const iframe = document.createElement("iframe");

@@ -389,19 +389,35 @@ sends whatever cookies the browser would send.
 - **What is forged.** Only the save request this form already makes for the run's test record, with a new run-token
   value, sent to the app's own origin or its local API. Only requests a cross-site page can send **without a CORS
   preflight** are sent: form-encoded, multipart or `text/plain` bodies with no custom headers. Nothing is added to them
-  (no token, no credential header).
+  (no token, no credential header), and every anti-CSRF token Run Hound recognises is left out: by name (csrf or xsrf in
+  it, `authenticity_token`, `__RequestVerificationToken`, `_token`, `token`, `nonce`, `_wpnonce`, `form_key`,
+  `form_token`, also nested as `task[_token]`), or by value when Account A's page holds it in a csrf/xsrf `<meta>`, a
+  csrf/xsrf cookie or a hidden input (a token's name, or a random-looking value Run Hound didn't type), read before the
+  submit and again after it (a native form post leaves the page). Known limit: a token the app's scripts keep in
+  memory (fetched from an API) and send in a body field under another name is replayed, so a token-protected save can
+  then be reported as a finding. A body that is a JSON array, a bare JSON value or a multipart body carrying a file is
+  not forged: the scenario is skipped and names the body type, never a pass or a finding (0.6.0 close-out; the
+  exported spec rebuilds a body as an object of named fields).
 - **JSON endpoints.** A save that the app sends as JSON can only be a finding when the same payload is accepted as
-  `text/plain` or form-encoded (the scenario sends it that way), or when CORS reflects the attacker origin with
-  credentials (then it is reported under this check and noted as a `cors` issue). Otherwise the scenario passes with
-  "needs a preflight".
-- **Cookies.** A cookie without a SameSite attribute counts as `Lax` (Chromium's default). Chromium also lets a
-  new `Lax`-by-default cookie through on a cross-site POST during its first 2 minutes. So the scenario runs the forged
-  request only once A's session is more than 2 minutes old, or it records that window and does not count the result.
+  `text/plain` or form-encoded (the scenario sends it that way), or when the app's CORS answer to a real preflight
+  allows the attacker origin with credentials (the save is then also sent as JSON, and a stored forge is reported under
+  this check and noted as a `cors` issue; see "Reading the answer" for a loopback-only allowlist). Otherwise the
+  scenario passes with "needs a preflight".
+- **Cookies.** A cookie without a SameSite attribute counts as `Lax` (Chromium's default). Chromium lets a new
+  `Lax`-by-default cookie through on a cross-site POST during its first 2 minutes only when the POST is a top-level
+  navigation. Every forge is a form posted into a frame of the attacker page, or a fetch, never a top-level navigation,
+  so that window never applies and there is nothing to wait out: a `Lax` cookie stays home whatever the session's age.
+  (Corrected in 0.6.0: this bullet used to say the forge waits out the window or records it; no release ever did,
+  since no forge can open it.)
 - **Verdict.** Re-read the record as A. Finding when the forged value is stored: **high**, confirmed, "A page on
   another site can change Account A's data (no CSRF protection)". The notes explain which defense was missing (no
   token, SameSite=None, no Origin check). When the stored forge carried no cookie at all, the save needs no session:
   the title ends "(the save needs no session)" instead, and the fix says to require Account A's session on the save
-  first, then add a CSRF defence. Then restore. A rejected request, or no change on re-read, is a pass.
+  first, then add a CSRF defence. That is claimed only when Run Hound saw the forge's answer and the request carried
+  no cookie: the browser reports the Cookie header a request carried only with its answer, and the forge waits 5
+  seconds for one. When the app answers a forge after more than 5 seconds, Run Hound can't see which cookies rode on
+  it: a stored forge is still a confirmed finding ("no CSRF protection"), and it says the cookies aren't known (0.6.0
+  close-out). Then restore. A rejected request, or no change on re-read, is a pass.
 - **Reading the answer (0.6.0).** The `text/plain` forge is a `no-cors` fetch, so its status and the cookies it
   carried are seen like a form post's. Every run-token value is forged, at any depth of a JSON body, keeping the length
   of the value the app accepted; a multipart save is forged as a multipart form. A 3xx is an answer (a redirect to a
@@ -409,7 +425,10 @@ sends whatever cookies the browser would send.
   is inconclusive (it refuses the value, not the request); a 2xx with nothing stored passes without naming a defence.
   A new record carrying the run's values after an accepted forge is a stored forge, even when the app rewrote the
   forged value. CORS that allows the attacker page but not `http://run-hound-other-site.invalid` trusts loopback
-  origins only: a stored JSON forge is then an **advisory** finding, never "any site".
+  origins only: a stored JSON forge is then an **advisory** finding, never "any site". Known limit: only that `400`
+  counts as refusing the value. A `409` or `422` counts as a refusal like a `403`, because Rails answers a missing CSRF
+  token with `422` and the capture records no request headers to tell a header-token save apart, so an app that
+  rejects the forged value itself with `422` or `409` passes.
 
 ### `paywall-trust`
 
@@ -488,7 +507,12 @@ Built in this order; each step owns the files named and touches no others.
 refuses, and gets Run Hound ready for live alpha testers. Decisions: [scope](decisions/09-2026.md#2026-09-27-0-6-0-scope),
 [paywall-trust](decisions/09-2026.md#2026-09-27-paywall-trust-changes-and-restores-the-plan),
 [write-access](decisions/09-2026.md#2026-09-27-write-access-observed-requests-only),
-[sign-in](decisions/09-2026.md#2026-09-27-two-step-and-sessionstorage-sign-in).
+[sign-in](decisions/09-2026.md#2026-09-27-two-step-and-sessionstorage-sign-in); from the release review's close-out:
+[csrf](decisions/09-2026.md#2026-09-28-csrf-cookies-unknown-when-the-answer-is-unseen),
+[write-access](decisions/09-2026.md#2026-09-28-write-access-stale-version-refusals-inconclusive),
+[paywall-trust](decisions/09-2026.md#2026-09-28-paywall-trust-quiet-read-before-the-next-page),
+[sessionStorage](decisions/09-2026.md#2026-09-28-sessionstorage-seeded-only-when-the-session-lives-there),
+[code steps](decisions/09-2026.md#2026-09-28-code-step-by-heading-needs-a-code-field).
 
 ### Registration (0.6.0)
 
@@ -520,6 +544,44 @@ check Account A. `write-access` has form scope; `paywall-trust` has page scope.
   record at a URL without its id) is skipped before any write as another identity or from another site, and the record
   is put back as the page read it before the save, through the app's own update for its id; what can't be put back is
   named with the form's save and "check Account A". No note ever says nothing was written when the save went through.
+  GraphQL (0.6.0 close-out round 1): a POST whose body is a GraphQL query (no mutation) is a read, never stopped, and
+  the ids its answer holds count like a GET's; a GraphQL read's path (`/graphql`, which serves every operation) is
+  neither a list nor a record the page read. A mutation that names such an id in its variables or as a literal
+  argument in its query text is stopped. A body is a GraphQL query only when each of its operations holds nothing but
+  `query`, `variables`, `operationName` and `extensions`, and its `query`, comments left out, starts a GraphQL document
+  (a selection set, or `query`, `subscription` or `fragment` before one) that holds no mutation (close-out round 2): a
+  REST save with a `query` field (a saved search's `{name, query}`, a default-search setting's `{query}`) is judged
+  like any other save, and one that edits a record the page read is stopped. The form's GraphQL mutation whose root
+  fields don't all read as a create (a create verb first, or create, add or insert last, no word that says it changes
+  one, and a thing it makes that isn't the one record of its kind an account has: `createTask`, `taskCreate`,
+  `insert_tasks_one`, `addComment` do; `updateProfile`, `saveSettings`, `upsertTask`, `likePost`, `submitProfile`,
+  `sendSettings`, `accountCreate` don't; a persisted query by its operation name) is stopped too, with "Skipped: this
+  form saves through a GraphQL mutation (<fields>) whose name doesn't say it creates a record, …": before any save has
+  gone through, and after one unless it names the record that save created, an id the page hadn't read before the
+  save that the save's answer held (close-out round 2: `updateTask(id: "t9")` for the task `createTask` just made
+  goes; `updateProfile(name: …)` after it is stopped). When no GET reads the
+  saved record back (a GraphQL app), `write-access` is skipped like `csrf`, and the note names the form's save, says it
+  reached the app and says "check Account A".
+- **Versions and locks.** A stamp the app changes on every save (lock_version, version, __v, _rev, etag, updatedAt) goes
+  in each attempt at its value in the re-read just before it. An attempt that left the record unchanged and was
+  answered 409, 412 or 428, or 400, 422 or 5xx while it carried a stamp the re-read doesn't show, is inconclusive,
+  never a pass. A 401, 403 or 404 is judged as before, and a 400, 422 or 5xx still passes when every stamp could be
+  refreshed (0.6.0 close-out) and no anti-CSRF token was left out or kept as A's (below). Known limit: the replay carries the body of the app's own update and, of its headers,
+  only an anti-CSRF token (below), so an update guarded by `If-Match` is refused for the missing header: inconclusive on
+  412 or 428, a pass on another status (such as 422).
+- **Anti-CSRF tokens (0.6.0 close-out round 1).** A token in the body of the app's own update, or in a header it
+  carried (the capture keeps a write's headers whose name has csrf or xsrf in it: `CapturedRequest.csrfHeaders`;
+  Django's `X-CSRFToken`, axios' `X-XSRF-TOKEN`, Rails' `X-CSRF-Token`), goes as the identity's own: read where A's came
+  from (the csrf/xsrf cookie or `<meta>` whose value, as it is or URL-decoded, is A's) on a page opened as B, decoded
+  the same way. When no source on A's page holds the header's value any more (Laravel encrypts its `XSRF-TOKEN` cookie
+  anew on every answer), the header is paired with its usual source by name (close-out round 2): `X-XSRF-TOKEN` with
+  the `XSRF-TOKEN` cookie, URL-decoded; `X-CSRFToken` with the `csrftoken` cookie; `X-CSRF-Token` with
+  `<meta name="csrf-token">`; and B's current value goes. `CheckContext.request` sends an anti-CSRF header the caller
+  passes; every other credential header is still the identity's own. A's token is never sent in a header as someone
+  else: with none of B's own to read (a token the app's scripts keep in memory), and always signed out, the header is
+  left out (a body token that can't be swapped stays A's, as since 0.6.0 round 1), and a 400 (ASP.NET Core's
+  antiforgery), 403, 419 or 422 (Rails' `InvalidAuthenticityToken`) to that attempt is inconclusive, never a pass
+  (close-out round 2 added 400 and 422).
 - Everything else as in `write-access` above: A creates the record, snapshot, each observed update as the scenario's
   identity, DELETE last and only when the app showed one, verdict from a re-read as A, restore, notes.
 
@@ -541,7 +603,11 @@ check Account A. `write-access` has form scope; `paywall-trust` has page scope.
   `/thank-you`, `/thanks`, `/app/billing/success`. A route that answers 404 or redirects to sign-in is skipped. Run
   Hound itself sends no request other than these page loads and the re-reads; whatever the page sends on load is the
   app's own behaviour, and requests to a payment provider are blocked by the guard and listed as "blocked (payment
-  provider)".
+  provider)". A page's own navigation to another page of the app whose path starts a checkout, a subscription or a
+  billing portal session (and doesn't name the result, as `/checkout/success` does) is held, never sent. Known limit: a
+  navigation to a page of the app whose path doesn't name such a start (`/go/manage`) is let through; a redirect from
+  there to a payment provider is blocked, but the app's server may already have created the checkout or billing portal
+  session.
 - **Verdict.** Account A **gained** something after a probe: **critical**, confirmed, "Account A got a paid plan
   without paying", naming the route and the fields gained. A gain is a paid plan the snapshot didn't have (`isPaid`
   after and not before), `isPro`/`pro` turning true, a numeric `credits` value that went up, or `entitlements` or
@@ -556,12 +622,28 @@ check Account A. `write-access` has form scope; `paywall-trust` has page scope.
   route that went on to the page under test): that is the app's own page (a single-page app's catch-all), not a
   success page, so it is never credited with a grant. Page text alone ("Pro", "You're upgraded") with no entitlement
   change is at most **advisory**. The exported spec checks only the fields gained.
+- **Late changes (0.6.0 close-out).** After each route that loads as a page, or Billing tab chosen, and before the next
+  one is opened or chosen, Run Hound waits until 5 s (`QUIET_MIN_MS`) have passed since that route's re-read, with
+  nothing opened, and reads the entitlement once more, so a change that lands late (a queued job's) is put down to the
+  route that caused it, never to the next one, even one that answers. Once per such route, and skipped when a later
+  read already covered that span; it adds up to 5 s per route that loads, inside the scenario's 6-minute limit. Before
+  an ending that saw no change, the entitlement is read once more after the same quiet pause since the last route's
+  re-read. Known limits: a change that lands more than about 5 s after its route is put down to a later route, or, after
+  the last route's quiet read, not seen at all, so the scenario can pass while A is on the paid plan; and when the page
+  under test is itself a success page that grants on load, the grant lands before the snapshot and isn't seen (test the
+  billing or settings page that links to it instead). No finite wait closes either.
+- **A plan read only from a session endpoint.** When every GET that holds A's plan is an auth or session endpoint
+  (NextAuth's `/api/auth/session` with the JWT strategy), its answer may keep the plan A signed in with: a gain it shows
+  is still a grant, and otherwise the scenario ends inconclusive, never a pass, and the notes say "check Account A".
 - **Restore.** When a probe changed the entitlement, go back through the app's own UI: on the page under test, or the
   app's billing or settings page among its links, click a control whose name says it cancels or downgrades the plan
   ("Cancel plan", "Cancel subscription", "Downgrade", "Switch to Free"), follow a confirmation the app asks for, then
-  re-read. This is the only place any check clicks such a control, and only to undo its own scenario's change, as A,
-  with the guard on (a click that heads for a payment provider is blocked, and the restore counts as failed). When the
-  entitlement still differs, the notes say "Account A's plan is still <value>: check Account A".
+  re-read. `paywall-trust` clicks such a control only to undo its own scenario's change (known limit: `page-controls`
+  and `dead-control`, the buttons outside and inside a form, may also click a plan button whose name isn't on the
+  destructive list, such as "Switch to Free", and with `--allow-destructive` a "Cancel subscription"), as A, with the guard on (a click that heads for a payment provider is
+  blocked, and the restore counts as failed). When the entitlement still differs, the notes say "Account A's plan is still <value>: check Account A". Known limit: a cancel
+  or downgrade control that opens a new window is never followed (a new window's first page is never loaded), so the
+  restore counts as failed and the notes say "check Account A".
 - **Not in 0.6.0 (known limits):** the client-sent price/plan replay (it would start a checkout, which on a real app
   reaches the payment provider through the app's server, and no fixture bug proves it) and the paid-feature API probe (a
   free account never sees the paid-only requests to replay).
@@ -578,13 +660,39 @@ their messages, and session values are registered for redaction.
   fails: "The sign-in continued on another site (<host>), so Run Hound won't type the password there."). Then continue
   as a one-step sign-in. A code or captcha after the first step fails with the existing messages.
 - **sessionStorage sessions.** After a successful sign-in, read `sessionStorage` for the sign-in origin and the
-  landing origin; register token-like values as session secrets (a whole value, and every string in the JSON a value
-  holds, whatever its key: `{id: …}`, a storage wrapper's `{value: …, expires}`). Every new browser context for that identity seeds
-  those items before any page script runs (an init script per origin), so a new tab is signed in as the app expects.
-  `CheckContext.request` keeps authenticating with the credential headers harvested from the app's own requests.
+  landing origin. The items are returned (`SignedIn.sessionStorage`) and every new browser context for that identity
+  seeds them before any page script runs (an init script per origin) only when the session lives there: the app sent
+  one of their values in a credential header after the password was typed (Authorization, an API key, a session-named
+  header; never a CSRF header), or the session is nowhere else. It is somewhere else when the submit set or changed a
+  token-like cookie (whatever its name), a session-named cookie (sess, sid, auth, token …) or an HttpOnly cookie of the
+  app's own site holds a token-like value, or localStorage or IndexedDB holds a token; a CSRF, analytics, bot-check,
+  load-balancer or bot-manager cookie (XSRF-TOKEN, _ga, __cf_bm, ARRAffinity, AWSALB …) never counts. The app's own site
+  is the last two labels of the sign-in page's or the landing page's host name (an IP address or a one-label host as it
+  is), since there is no public-suffix list. When it lives there, token-like values are registered as session secrets
+  (a whole value, and every string in the JSON a value holds, whatever its key: `{id: …}`, a storage wrapper's
+  `{value: …, expires}`), except values the app's own requests carried as a path segment or a query value (under a key
+  that doesn't name a session, token or key) and never in a credential header (ids, not secrets). Otherwise nothing is
+  seeded, and sessionStorage values are registered by localStorage's rules (a value under a session-like key, a JWT, a
+  JSON value's token fields). `CheckContext.request` keeps authenticating with the credential headers harvested from
+  the app's own requests. Decision:
+  [sessionStorage is seeded only when the session lives there](decisions/09-2026.md#2026-09-28-sessionstorage-seeded-only-when-the-session-lives-there).
+- **Code steps.** A page after the password is a code step when it has `autocomplete=one-time-code`, or its only field
+  to fill in (or a code split over 4 to 8 one-character boxes) has a sign-in code word (OTP, verification, 2FA,
+  authenticator, "security code" …) in its own name, label or placeholder, never promo, coupon, invite, zip or another
+  code. When only the page's headings or title name a code step, the field must look like a code's itself: code, OTP,
+  PIN, token or digit in its own words, `inputmode` numeric or decimal, a `maxlength` of 4 to 8, or split boxes (0.6.0
+  close-out). At the sign-in page's own address, a visible field whose name or label says code or verify counts, as it
+  has since 0.4.0.
 - **Types.** `SignedIn` gains `sessionStorage?: { origin: string; items: { name: string; value: string }[] }[]`.
 - **Still not supported:** verification codes, captchas, "Sign in with …" providers, a password page on another site,
   and a sessionStorage session the app throws away on load.
+- **Known limits (0.6.0 close-out):** a sessionStorage session that sends nothing with its token while signing in,
+  next to an HttpOnly cookie of the app's own site that isn't a known load-balancer or bot-manager cookie, is taken for
+  a cookie session: its sessionStorage isn't seeded, and the plan fails with "still shows the sign-in page". A
+  verification-code page whose only field says nothing of a code (none of the words above, no `inputmode=numeric`, no
+  `maxlength` of 4 to 8), named a code step only by its heading, isn't recognised: Test sign-in reports success, and the
+  signed-in checks then run on that page. An app that shows its signed-in view at the sign-in page's own address, with
+  a field whose name or label says code or verify ("Room code"), fails sign-in with "asks for a verification code".
 
 ### Fernway (0.6.0)
 

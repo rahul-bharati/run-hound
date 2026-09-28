@@ -4,8 +4,9 @@
  * CheckContext.request (the safety gate applies), and a snapshot only ever holds a record carrying the run token, so
  * a restore never writes to one of Account A's own records.
  */
+import { setTimeout as delay } from "node:timers/promises";
 import type { Page, Request, Route } from "playwright";
-import { carriesTestValues, isLocalOrigin, isSameOrigin, tokenKey } from "../../core/saves.js";
+import { carriesTestValues, graphQlCode, isGraphQlDocument, isGraphQlRead, isLocalOrigin, isSameOrigin, tokenKey } from "../../core/saves.js";
 import type { Capture, CheckContext, DiscoveredForm } from "../../core/types.js";
 import { isDestructiveControl } from "../dead-control.js";
 import { actsWhenLoaded, urlWords } from "./acting-links.js";
@@ -124,16 +125,60 @@ function echoesQuery(json: unknown, asked: string[], testValues: string[]): bool
 const isWrite = (r: CapturedRequest) => !["GET", "HEAD", "OPTIONS"].includes(r.method.toUpperCase());
 
 /**
+ * True when a request body holds one of `testValues`: as it is (JSON, multipart, text), or form-encoded, where a space
+ * is `+` or `%20` (title=Task+rs7e57a1ws). URLSearchParams reads a stray `%` as it is, so a body that isn't valid
+ * percent-encoding is still read.
+ */
+function bodyHolds(body: string | null | undefined, testValues: string[]): boolean {
+  if (!body) return false;
+  if (testValues.some((v) => body.includes(v))) return true;
+  if (!body.includes("=")) return false;
+  const decoded = [...new URLSearchParams(body)].flat();
+  return decoded.some((part) => testValues.some((v) => part.includes(v)));
+}
+
+/**
+ * True when a write's URL query holds one of `testValues`, decoded (POST /api/tasks?title=Task+rs7e57a1ws: a save that
+ * sends its values there and something else, or nothing, as its body).
+ */
+const queryHolds = (r: CapturedRequest, testValues: string[]) => queryValues(r.url).some((q) => testValues.some((v) => q.includes(v)));
+
+/**
+ * True when a write's URL path holds one of `testValues` in a segment, decoded (PUT /api/tags/Task%20rs7e57a1ws: a save
+ * that sends its value there, with no body or a body of other fields, and no query; close-out review, round 2).
+ */
+function pathHolds(r: CapturedRequest, testValues: string[]): boolean {
+  let segments: string[];
+  try {
+    segments = new URL(r.url, "http://x").pathname.split("/").filter(Boolean);
+  } catch {
+    return false;
+  }
+  return segments.some((seg) => {
+    let decoded = seg;
+    try {
+      decoded = decodeURIComponent(seg);
+    } catch {
+      decoded = seg;
+    }
+    return testValues.some((v) => decoded.includes(v));
+  });
+}
+
+/**
  * The record endpoint: a GET the page made after the save whose JSON object holds a test value. A read from the app's
  * API on another local origin has no body in the capture, so those are read again as Account A (at most 10).
  * `arrays` (the write-side checks) also takes a JSON array, such as a bare `GET /api/tasks` list, when a record in it
  * holds a test value; mass-assignment keeps the object-only rule it had.
  *
  * "After the save" in capture order (0.6.0 round 2): the save is `options.save`, else the first write whose body holds
- * a test value; a capture with neither is read whole. A GET made before it (a search-as-you-type hint, a
- * name-availability check that echoes the typed value) is never the record endpoint: the record didn't exist yet. Of
- * the GETs after the save, those after the reload (the first document request after it) come first. An answer whose
- * test value is only an echo of the GET's own query ({query, matches}: echoesQuery) is never taken.
+ * a test value, form-encoded too (bodyHolds: title=Task+rs7e57a1ws), else the first whose URL's query does
+ * (queryHolds: POST /api/tasks?title=…; close-out review, round 1), else the first whose URL's path does (pathHolds:
+ * PUT /api/tags/<name>; close-out review, round 2); a capture with none is read whole. A GET made
+ * before it (a search-as-you-type hint, a name-availability check that echoes the typed value in its query or its path)
+ * is never the record endpoint: the record didn't exist yet. Of the GETs after the save, those after the reload (the
+ * first document request after it) come first. An answer whose test value is only an echo of the GET's own query
+ * ({query, matches}: echoesQuery) is never taken.
  */
 export async function findOwnRecord(
   ctx: CheckContext,
@@ -150,9 +195,12 @@ export async function findOwnRecord(
   };
   const ok = (r: CapturedRequest) => r.method.toUpperCase() === "GET" && typeof r.status === "number" && r.status >= 200 && r.status < 300;
   const requests = capture.requests;
+  const firstWrite = (holds: (r: CapturedRequest) => boolean) => requests.findIndex((r) => isWrite(r) && holds(r));
   const saveAt = options.save
     ? requests.indexOf(options.save)
-    : requests.findIndex((r) => isWrite(r) && !!r.postData && testValues.some((v) => r.postData!.includes(v)));
+    : [(r: CapturedRequest) => bodyHolds(r.postData, testValues), (r: CapturedRequest) => queryHolds(r, testValues), (r: CapturedRequest) => pathHolds(r, testValues)]
+        .map(firstWrite)
+        .find((at) => at >= 0) ?? -1;
   const after = saveAt < 0 ? requests : requests.slice(saveAt + 1);
   const reloadAt = saveAt < 0 ? -1 : after.findIndex((r) => r.resourceType === "document" && r.method.toUpperCase() === "GET");
   const ordered = reloadAt < 0 ? after : [...after.slice(reloadAt + 1), ...after.slice(0, reloadAt + 1)];
@@ -742,6 +790,82 @@ function restoreBody(
 }
 
 /**
+ * The query parameters of `update`'s URL (the app's own update for the test record) that carry the record's own
+ * version or lock (saveStamp: ?lock_version=0, ?task[lock_version]=0, ?meta[version]=0), by name as the URL has them:
+ * those whose value the record showed before the update was sent, in an answer or a read captured from `save` on (the
+ * save's own answer included) up to the update, or in `snap` (close-out review, round 2). A parameter by a stamp's name
+ * whose value the record never showed (?version=2, an API version, on a record whose own version is 5) is something
+ * else: it is never rewritten, and a caller names it as a stamp it couldn't refresh.
+ */
+export function recordQueryStamps(capture: Capture, save: CapturedRequest, update: CapturedRequest, snap: RecordSnapshot, runToken: string): Set<string> {
+  const out = new Set<string>();
+  let parsed: URL;
+  try {
+    parsed = new URL(update.url);
+  } catch {
+    return out;
+  }
+  if (!parsed.search) return out;
+  const from = Math.max(0, capture.requests.indexOf(save));
+  const to = capture.requests.indexOf(update);
+  const seen: JsonObject[] = [snap.record];
+  for (const r of capture.requests.slice(from, to < 0 ? undefined : to)) {
+    if (!r.responseBody) continue;
+    const json = parseJson(r.responseBody);
+    if (json === null) continue;
+    const chains = snap.id ? chainsWithId(json, snap.id.key, snap.id.value) : recordChains(json, snap.testValues);
+    for (const chain of chains) if (chain[0]) seen.push(chain[0]);
+  }
+  const text = (v: unknown) => (typeof v === "string" ? v : v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v));
+  for (const k of new Set(parsed.searchParams.keys())) {
+    const m = NESTED_FORM_KEY.exec(k);
+    const field = m ? m[2]! : k;
+    const value = parsed.searchParams.get(k);
+    if (!saveStamp(field, value, runToken)) continue;
+    const shown = seen.some((record) => {
+      // meta[version]: a stamp of the record's object field meta; task[lock_version] and a flat one: the record's own.
+      const outer = m && plainObject(record[m[1]!]) ? (record[m[1]!] as JsonObject) : record;
+      return Object.prototype.hasOwnProperty.call(outer, field) && text(outer[field]) === value;
+    });
+    if (shown) out.add(k);
+  }
+  return out;
+}
+
+/**
+ * `url` (the app's own update) with each stamp in its query (saveStamp: ?lock_version=1, ?task[lock_version]=1) at its
+ * value in `current`, the record as re-read: the value the captured update carried is stale once the record was saved
+ * again (close-out review, round 1). A stamp the re-read doesn't show is left as the app sent it: a parameter by that
+ * name may be something else (an API version), and the put-back never drops what the app sends in its URL. With `only`
+ * (the parameters recordQueryStamps names as the record's own), every other parameter is left as the app sent it too.
+ */
+function freshQueryStamps(url: string, current: JsonObject, runToken: string, only?: ReadonlySet<string>): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+  if (!parsed.search) return url;
+  const text = (v: unknown) => (typeof v === "string" ? v : v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v));
+  let changed = false;
+  for (const k of [...new Set(parsed.searchParams.keys())]) {
+    const m = NESTED_FORM_KEY.exec(k);
+    const field = m ? m[2]! : k;
+    if (!saveStamp(field, parsed.searchParams.get(k), runToken) || (only && !only.has(k))) continue;
+    // meta[version]: a stamp of the record's object field meta; task[lock_version] and a flat one: the record's own.
+    const outer = m && plainObject(current[m[1]!]) ? (current[m[1]!] as JsonObject) : current;
+    if (!Object.prototype.hasOwnProperty.call(outer, field)) continue;
+    const now = text(outer[field]);
+    if (parsed.searchParams.get(k) !== now) {
+      parsed.searchParams.set(k, now);
+      changed = true;
+    }
+  }
+  return changed ? parsed.href : url;
+}
+
+/**
  * Puts the test record back as it was in `snap`, then re-reads it as Account A and compares. When the record is still
  * there, the changed fields are sent back with `how.save`: the app's own update for this record (a PUT, PATCH or POST
  * to a URL naming the record's id when it has one; never a DELETE, never a request that acts when loaded, never an
@@ -760,12 +884,14 @@ function restoreBody(
  * put-back is a save too, so such a field that differs is named in `notRestored` (changesOnSave tells a caller which of
  * them the app changes again on every save; an id or creation stamp that differs was set by the attempt and is not
  * undone; an object field named for its stamps is not told apart, so a caller reports it as not undone), and when
- * nothing else differs nothing is sent.
+ * nothing else differs nothing is sent. A stamp in the update's URL query goes at its value now when the re-read shows
+ * it, and stays as the app sent it otherwise (freshQueryStamps); with `how.queryStamps` (recordQueryStamps), only the
+ * parameters it names are taken for the record's stamps.
  */
 export async function restoreRecord(
   ctx: CheckContext,
   snap: RecordSnapshot,
-  how: { save: CapturedRequest; create?: CapturedRequest },
+  how: { save: CapturedRequest; create?: CapturedRequest; queryStamps?: ReadonlySet<string> },
   io: RecordIO = requestIO(ctx),
 ): Promise<{ restored: string[]; notRestored: string[] }> {
   const now = await rereadRecord(ctx, snap, io);
@@ -773,8 +899,8 @@ export async function restoreRecord(
     const m = r.method.toUpperCase();
     return m !== "GET" && m !== "DELETE" && !actsWhenLoaded(r.url) && !neverWritten(r.url);
   };
-  const send = (r: CapturedRequest, body: string, kind: "json" | "form") =>
-    io.send({ method: r.method.toUpperCase(), url: r.url, contentType: CONTENT_TYPE[kind], body }).catch(() => null);
+  const send = (r: CapturedRequest, body: string, kind: "json" | "form", url = r.url) =>
+    io.send({ method: r.method.toUpperCase(), url, contentType: CONTENT_TYPE[kind], body }).catch(() => null);
 
   if (now === "gone") {
     const create = how.create ?? how.save;
@@ -804,7 +930,8 @@ export async function restoreRecord(
   const updatesIt = snap.id ? urlNamesId(how.save.url, snap.id.value) : how.save.method.toUpperCase() !== "POST";
   const body = allowed(how.save) && updatesIt && toPut.length > 0 ? restoreBody(how.save, snap.record, current, toPut, serverSet, ctx.runToken) : null;
   if (!body) return { restored: [], notRestored: changed };
-  await send(how.save, body.body, body.kind);
+  // A version the update carries in its URL's query goes at its value now, as one in its body does.
+  await send(how.save, body.body, body.kind, freshQueryStamps(how.save.url, current, ctx.runToken, how.queryStamps));
   const after = await rereadRecord(ctx, snap, io);
   if (after === null || after === "gone") return { restored: [], notRestored: changed };
   const still = new Set(changedFields(snap.record, after[0]!));
@@ -1090,12 +1217,44 @@ function idsIn(node: unknown, read: ReadBeforeSave, names: ReadonlySet<string>, 
   }
 }
 
-function readBeforeSave(answers: { url: string; body: string }[]): ReadBeforeSave {
+/**
+ * A JSON answer the page got before a save: a GET's, or a GraphQL read's sent as a POST (`post`: the query body it
+ * sent, so it can be sent again to re-read).
+ */
+export interface ReadAnswer {
+  url: string;
+  body: string;
+  post?: string | null;
+}
+
+/**
+ * True for a GraphQL read made as a GET (Relay, Apollo's GET queries): its URL carries a `query` that is a GraphQL
+ * document ("{ tasks … }", "query Tasks …": core/saves.ts isGraphQlDocument), or the `extensions` of a persisted query.
+ */
+function graphQlGet(url: string): boolean {
+  let params: URLSearchParams;
+  try {
+    params = new URL(url).searchParams;
+  } catch {
+    return false;
+  }
+  const query = params.get("query") ?? "";
+  if (isGraphQlDocument(query) && !/\bmutation\b/.test(graphQlCode(query))) return true;
+  return /persistedQuery/.test(params.get("extensions") ?? "");
+}
+
+/** True for a GraphQL read: one sent as a POST (it has its query body), or a GET with a GraphQL query in its URL. */
+const isGraphQlAnswer = (a: ReadAnswer) => Boolean(a.post) || graphQlGet(a.url);
+
+function readBeforeSave(answers: ReadAnswer[]): ReadBeforeSave {
   const out: ReadBeforeSave = { ids: new Set(), own: new Map(), lists: new Set(), records: new Set() };
   for (const a of answers) {
     const json = parseJson(a.body);
     if (json === null || typeof json !== "object") continue;
     idsIn(json, out, resourceNames(a.url));
+    // A GraphQL endpoint serves every operation at one path, so its path is neither a list nor a record the page read:
+    // only the ids its answers hold count (0.6.0 close-out round 1).
+    if (isGraphQlAnswer(a)) continue;
     const path = pathKey(a.url);
     if (!path) continue;
     if (answersList(json)) out.lists.add(path);
@@ -1164,11 +1323,14 @@ function multipartNames(body: string): string[] {
  *   depth (pathToValues: {task: {id: "t1", title}}, tRPC's {"0": {"json": {id: "t1", title}}}, Relay's {variables:
  *   {input: {id: "t1", title}}}, JSON:API's {data: {id: "t1", attributes: {title}}}, a bulk [{id: "t1", title}]), as a
  *   form field (id=t1, task_id=t1, task[id]=t1) or a multipart part. A reference to another record beside the typed
- *   values ({project: {id: "p1"}, title}, {projectId: "p1", title}) is not.
+ *   values ({project: {id: "p1"}, title}, {projectId: "p1", title}) is not;
+ * - a GraphQL mutation naming such an id as a literal argument in its query text (updateTask(id: "t1", title: …)).
+ * A GraphQL read (a POST query the page sent, or a GET with ?query=) gives the ids its answer holds, never its path:
+ * /graphql serves every operation (0.6.0 close-out round 1).
  */
 export function changesReadRecord(
   req: { method: string; url: string; postData: string | null },
-  answers: { url: string; body: string }[],
+  answers: ReadAnswer[],
   runToken: string,
 ): boolean {
   const read = readBeforeSave(answers);
@@ -1203,7 +1365,9 @@ export function changesReadRecord(
   const json = parseJson(body);
   if (json !== null && typeof json === "object") {
     if (plainObject(json) && named(json)) return true;
-    return pathToValues(json, tokenKey(runToken)).some(named);
+    if (pathToValues(json, tokenKey(runToken)).some(named)) return true;
+    // A GraphQL mutation may name the record in its query text rather than its variables: updateTask(id: "t1", …).
+    return graphQlLiterals(json).some(([k, v]) => names(k, v));
   }
   if (bodyKind(body) === "form") {
     return [...new URLSearchParams(body)].some(([k, v]) => names(NESTED_FORM_KEY.exec(k)?.[2] ?? k, v));
@@ -1214,12 +1378,213 @@ export function changesReadRecord(
   });
 }
 
+/**
+ * The root fields of every mutation operation in `text` (a GraphQL document), aliases left out ("t: taskCreate" gives
+ * taskCreate), in order; null when it holds no mutation operation. Arguments, directives, fragment spreads and nested
+ * selections are skipped. A mutation with no field it can read gives [].
+ */
+export function mutationFields(text: string): string[] | null {
+  const tokens = graphQlCode(text).match(/[_A-Za-z][_0-9A-Za-z]*|\.\.\.|[^\s,]/g) ?? [];
+  const fields: string[] = [];
+  let mutation = false;
+  let i = 0;
+  while (i < tokens.length) {
+    // A definition at the top: "{" (a query), or a keyword, then its name and variables up to its selection set.
+    let kind = "query";
+    if (tokens[i] !== "{") {
+      kind = tokens[i]!;
+      let parens = 0;
+      while (i < tokens.length && !(tokens[i] === "{" && parens === 0)) {
+        if (tokens[i] === "(") parens += 1;
+        else if (tokens[i] === ")") parens -= 1;
+        i += 1;
+      }
+    }
+    // A mutation whose selection set can't be found still counts as one: it gives no field.
+    if (kind === "mutation") mutation = true;
+    if (i >= tokens.length) break;
+    // tokens[i] is the selection set's "{".
+    let depth = 0;
+    let parens = 0;
+    for (; i < tokens.length; i += 1) {
+      const t = tokens[i]!;
+      if (t === "(") parens += 1;
+      else if (t === ")") parens -= 1;
+      if (parens > 0 || t === ")") continue;
+      if (t === "{") depth += 1;
+      else if (t === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          i += 1;
+          break;
+        }
+      } else if (depth === 1 && kind === "mutation" && /^[_A-Za-z]/.test(t)) {
+        const before = tokens[i - 1];
+        // A directive (@include), a fragment spread (...Name) or its type condition (... on Type): not a field.
+        if (before === "@" || before === "..." || (before === "on" && tokens[i - 2] === "...") || (t === "on" && before === "...")) continue;
+        if (tokens[i + 1] === ":") {
+          // An alias: the field is the name after it.
+          const field = tokens[i + 2];
+          if (field && /^[_A-Za-z]/.test(field)) fields.push(field);
+          i += 2;
+          continue;
+        }
+        fields.push(t);
+      }
+    }
+  }
+  return mutation ? fields : null;
+}
+
+/** The words of a name, lower case: taskCreate, task_create and TaskCreate all give ["task", "create"]. */
+function nameWords(name: string): string[] {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+/**
+ * Verbs that say a mutation makes a new record when they lead its name: createTask, insert_tasks_one, addComment,
+ * newTask, postComment, sendMessage. Some are nouns too (likePost, pinLog), so only the first word counts.
+ */
+const CREATE_WORDS = new Set(["create", "add", "new", "insert", "post", "submit", "send", "upload", "book", "place", "make", "log"]);
+/** The verbs that also say it at the end of the name, Shopify's way (productCreate, taskAdd): never a noun. */
+const CREATE_LAST = new Set(["create", "add", "insert"]);
+/**
+ * Nouns for the one record of its kind an account has (0.6.0 close-out round 2): a create verb before one saves that
+ * record, it makes no new one (submitProfile, sendSettings, postMyPreferences, accountCreate).
+ */
+const SINGLETON_NOUNS = new Set(["profile", "settings", "setting", "preferences", "preference", "prefs", "account", "me", "viewer"]);
+/** Words that say it changes one that is there: updateTask, upsertTask, saveSettings, renameTask, setTheme. */
+const EDIT_WORDS = new Set([
+  "update", "edit", "set", "change", "rename", "save", "upsert", "patch", "replace", "delete", "remove", "toggle", "move", "archive",
+  "mark", "complete", "modify", "assign", "unassign", "reorder", "merge", "restore", "clear", "reset", "destroy", "unset", "put",
+]);
+
+/**
+ * True when a mutation field's (or operation's) name says it makes a new record and nothing else: a create verb first
+ * (CREATE_WORDS) or last (CREATE_LAST), no word that says it changes one (EDIT_WORDS), and a thing it makes that isn't
+ * the one record of its kind an account has (SINGLETON_NOUNS): the last word after a leading verb (submitProfile,
+ * createProfileNote makes a note), the word before a trailing one (accountCreate).
+ */
+function createsRecord(name: string): boolean {
+  const words = nameWords(name);
+  const first = CREATE_WORDS.has(words[0] ?? "");
+  const last = !first && CREATE_LAST.has(words[words.length - 1] ?? "");
+  if (!first && !last) return false;
+  const noun = first ? words[words.length - 1] : words[words.length - 2];
+  return !words.some((w) => EDIT_WORDS.has(w)) && !SINGLETON_NOUNS.has(noun ?? "");
+}
+
+/** The operations of a GraphQL request body (one, or a batch), or null when it isn't one. */
+function graphQlOperations(json: unknown): JsonObject[] | null {
+  const ops = Array.isArray(json) ? json : [json];
+  if (ops.length === 0 || !ops.every(plainObject)) return null;
+  const isOperation = (o: JsonObject) =>
+    typeof o.query === "string" ||
+    (plainObject(o.extensions) && plainObject(o.extensions.persistedQuery)) ||
+    (typeof o.operationName === "string" && plainObject(o.variables));
+  return (ops as JsonObject[]).every(isOperation) ? (ops as JsonObject[]) : null;
+}
+
+/**
+ * For a GraphQL save the hold can't judge by an id (0.6.0 close-out round 1): the names of the mutation's root fields
+ * that don't read as a create (createsRecord), joined with ", ", or null when every one does or the body isn't a GraphQL
+ * mutation. updateProfile(name: …) names no record, yet changes Account A's profile. A persisted query (no query text)
+ * is judged by its operation name; one with none gives "a persisted query". A mutation whose fields can't be read gives
+ * "a mutation".
+ */
+export function unclearGraphQlSave(postData: string | null | undefined): string | null {
+  if (!postData || !/^\s*[[{]/.test(postData)) return null;
+  const ops = graphQlOperations(parseJson(postData));
+  if (!ops) return null;
+  const unclear: string[] = [];
+  for (const op of ops) {
+    if (typeof op.query === "string") {
+      const fields = mutationFields(op.query);
+      if (fields === null) continue;
+      if (fields.length === 0) unclear.push("a mutation");
+      for (const f of fields) if (!createsRecord(f)) unclear.push(f);
+      continue;
+    }
+    const name = typeof op.operationName === "string" ? op.operationName : "";
+    if (!name) unclear.push("a persisted query");
+    else if (!createsRecord(name)) unclear.push(name);
+  }
+  return unclear.length > 0 ? [...new Set(unclear)].join(", ") : null;
+}
+
+/**
+ * The literal arguments (name, value) in the query text of each mutation of a GraphQL request body (`json`, parsed):
+ * updateTask(id: "t1", title: "…") gives ["id", "t1"] and ["title", "…"]. Strings and numbers only.
+ */
+function graphQlLiterals(json: unknown): [string, string | number][] {
+  const ops = graphQlOperations(json);
+  if (!ops) return [];
+  const out: [string, string | number][] = [];
+  for (const op of ops) {
+    if (typeof op.query !== "string" || mutationFields(op.query) === null) continue;
+    const text = op.query.replace(/#[^\n]*/g, " ");
+    for (const m of text.matchAll(/([_A-Za-z][_0-9A-Za-z]*)\s*:\s*("(?:[^"\\\n]|\\.)*"|-?\d+(?:\.\d+)?\b)/g)) {
+      const raw = m[2]!;
+      const value = raw.startsWith('"') ? (parseJson(raw) as string | null) : Number(raw);
+      if (value !== null) out.push([m[1]!, value]);
+    }
+  }
+  return out;
+}
+
+/** Relay's clientMutationId names no record: it only pairs a mutation with its answer. */
+const NOT_A_RECORD_ID = new Set(["clientMutationId"]);
+
+/**
+ * The ids a GraphQL request body names (0.6.0 close-out round 2): under an id-like key (idLikeKey) at any depth of an
+ * operation's variables, or as a literal argument of one of its mutations (graphQlLiterals). Empty when the body isn't a
+ * GraphQL request.
+ */
+function graphQlIds(postData: string | null): string[] {
+  const json = parseJson(postData ?? "");
+  const ops = graphQlOperations(json);
+  if (!ops) return [];
+  const out: string[] = [];
+  const walk = (n: unknown, depth: number) => {
+    if (depth > 12 || !n || typeof n !== "object") return;
+    if (Array.isArray(n)) {
+      for (const item of n) walk(item, depth + 1);
+      return;
+    }
+    for (const [k, v] of Object.entries(n as JsonObject)) {
+      if (idLikeKey(k) && !NOT_A_RECORD_ID.has(k) && idValue(v)) out.push(String(v));
+      else walk(v, depth + 1);
+    }
+  };
+  for (const op of ops) walk(op.variables, 0);
+  for (const [k, v] of graphQlLiterals(json)) if (idLikeKey(k) && !NOT_A_RECORD_ID.has(k)) out.push(String(v));
+  return out;
+}
+
 /** A write the hold stopped before it reached the app. */
 export interface StoppedWrite {
   method: string;
   url: string;
   /** Its body carries the run's test values: it is the form's own save. */
   carriesValues: boolean;
+  /**
+   * Set when it was stopped as a GraphQL mutation whose name doesn't say it creates a record (unclearGraphQlSave), not
+   * for an id or path the page read: the names of those fields, for the note.
+   */
+  graphql?: string;
+}
+
+/**
+ * The reason a write-side check gives when the hold stopped the form's GraphQL save because its mutation (`fields`)
+ * doesn't say it creates a record: nothing tells it from an edit of a record Account A already had.
+ */
+export function unclearGraphQlNote(fields: string): string {
+  return `Skipped: this form saves through a GraphQL mutation (${fields}) whose name doesn't say it creates a record, so Run Hound can't tell it from a change to a record Account A already had, and it only ever writes to a record it created in this run.`;
 }
 
 /**
@@ -1230,8 +1595,8 @@ export interface SaveHold {
   readonly stopped: StoppedWrite[];
   /** The answers the page had read (as Account A) when the form's save was judged, for editsExistingRecord and putBackEdited. */
   before(): string[];
-  /** The same answers with their URLs, for editsExistingRecord. */
-  reads(): { url: string; body: string }[];
+  /** The same answers with their URLs (and a GraphQL read's query body), for editsExistingRecord. */
+  reads(): ReadAnswer[];
   /**
    * The note for a form whose save was stopped (its save changes a record Account A already had), or null to go on. Also
    * null when an earlier write carrying the test values went through and, read again on release(), a record the page
@@ -1259,6 +1624,13 @@ export interface SaveHold {
  * record the save just created (PATCH /api/tasks/t3) names an id the page hadn't read, so it goes; the real save after a
  * pre-save check (POST /api/profile/check, then POST /api/profile the page read as one record), or an edit of a task the
  * page read (PATCH /api/tasks/t1), is stopped.
+ * On a GraphQL app (0.6.0 close-out round 1) the page's reads are often POSTs (Apollo Client's default): a POST whose
+ * body is a GraphQL query (core/saves.ts isGraphQlRead: only GraphQL request keys, a query that is a GraphQL document
+ * with no mutation; a REST body with a "query" field is a write, 0.6.0 close-out round 2) is a read, never judged, and
+ * its answer counts with the GETs'. A GraphQL mutation carrying the test values whose name doesn't say it creates a
+ * record (unclearGraphQlSave: updateProfile, saveSettings, submitProfile) is stopped too, with its own note: it may
+ * change a record Account A already had without naming one. After a save has gone through, such a mutation goes only
+ * when it names the record that save created (an id the page hadn't read before it, held by the save's answer).
  * Requests go on through the context's own routes (the safety gate) with route.fallback. Call release() once the save
  * has been waited for.
  */
@@ -1267,9 +1639,9 @@ export async function holdExistingEdits(ctx: CheckContext, page: Page, capture: 
   /** The writes carrying the test values that went through, in order: the first is the form's save. */
   const went: { method: string; url: string }[] = [];
   let released = false;
-  let answers: { url: string; body: string }[] = [];
+  let answers: ReadAnswer[] = [];
   /** What the page had read when the first write carrying the test values went through (null until then). */
-  let readAtSave: { url: string; body: string }[] | null = null;
+  let readAtSave: ReadAnswer[] | null = null;
   /**
    * Set on release when a write carrying the test values was stopped after another one went through: whether a record
    * the page had read now holds the run token (that earlier write changed it), or null when a re-read failed.
@@ -1278,10 +1650,16 @@ export async function holdExistingEdits(ctx: CheckContext, page: Page, capture: 
   /** Bodies of the app's API reads on another local origin, read again as Account A (at most 10, once each). */
   const rereads = new Map<string, string | null>();
 
-  const readSoFar = async (): Promise<{ url: string; body: string }[]> => {
-    const out: { url: string; body: string }[] = [];
+  const readSoFar = async (): Promise<ReadAnswer[]> => {
+    const out: ReadAnswer[] = [];
     for (const r of [...capture.requests]) {
-      if (r.method.toUpperCase() !== "GET" || typeof r.status !== "number" || r.status < 200 || r.status >= 300) continue;
+      if (typeof r.status !== "number" || r.status < 200 || r.status >= 300) continue;
+      // A GraphQL read sent as a POST (Apollo's default) whose answer the capture kept: its ids count like a GET's.
+      if (r.method.toUpperCase() === "POST" && isGraphQlRead(r.postData)) {
+        if (r.responseBody) out.push({ url: r.url, body: r.responseBody, post: r.postData });
+        continue;
+      }
+      if (r.method.toUpperCase() !== "GET") continue;
       if (r.responseBody) {
         out.push({ url: r.url, body: r.responseBody });
         continue;
@@ -1298,10 +1676,36 @@ export async function holdExistingEdits(ctx: CheckContext, page: Page, capture: 
     return out;
   };
 
+  /**
+   * The ids the answers to the writes carrying the test values that went through hold (the record the form's save
+   * created), from the capture. The capture reads an answer's body a moment after the page gets it, so this waits for
+   * those bodies, at most 2 s.
+   */
+  const answeredIds = async (): Promise<Set<string>> => {
+    const deadline = Date.now() + 2_000;
+    for (;;) {
+      const saves = capture.requests.filter(
+        (r) =>
+          went.some((w) => w.method === r.method.toUpperCase() && w.url === r.url) &&
+          r.failure === null &&
+          typeof r.status === "number" &&
+          r.status >= 200 &&
+          r.status < 300 &&
+          carriesTestValues(r.postData, ctx.runToken),
+      );
+      if (!saves.some((r) => r.responseBody === null) || Date.now() >= deadline) {
+        return readBeforeSave(saves.filter((r) => r.responseBody).map((r) => ({ url: r.url, body: r.responseBody!, post: r.postData }))).ids;
+      }
+      await delay(100);
+    }
+  };
+
   /** Whether a write goes on to the app: judged, and stopped on the safe side when judging itself fails. */
   const decide = async (method: string, url: string, postData: string | null): Promise<"go" | "stop"> => {
     if (released || method === "GET" || method === "HEAD" || method === "OPTIONS") return "go";
     if (!isSameOrigin(url, ctx.targetUrl) && !isLocalOrigin(url, ctx.targetUrl)) return "go";
+    // A GraphQL query sent as a POST reads; it changes nothing (and its answer counts with the page's reads).
+    if (method === "POST" && isGraphQlRead(postData)) return "go";
     const carriesValues = carriesTestValues(postData, ctx.runToken);
     // After the form's save went through, only a write that doesn't carry the test values goes unjudged (the app's
     // own follow-up: a DELETE check, a counter).
@@ -1323,6 +1727,27 @@ export async function holdExistingEdits(ctx: CheckContext, page: Page, capture: 
     }
     if (changes) {
       stopped.push({ method, url, carriesValues });
+      return "stop";
+    }
+    // The form's GraphQL save: a mutation that doesn't say it creates a record may change one of Account A's without
+    // naming it (updateProfile), so it is stopped too. After a save went through (0.6.0 close-out round 2), such a
+    // mutation goes only when it names the record that save created: an id the page hadn't read before the save, which
+    // the save's answer held (the app's own updateTask(id: "t9") for the task createTask just made).
+    let graphql = carriesValues ? unclearGraphQlSave(postData) : null;
+    if (graphql && readAtSave) {
+      try {
+        const before = readBeforeSave(readAtSave).ids;
+        const fresh = graphQlIds(postData).filter((id) => !before.has(id));
+        if (fresh.length > 0) {
+          const answered = await answeredIds();
+          if (fresh.some((id) => answered.has(id))) graphql = null;
+        }
+      } catch {
+        // Judging failed: stopped, on the safe side.
+      }
+    }
+    if (graphql) {
+      stopped.push({ method, url, carriesValues, graphql });
       return "stop";
     }
     if (carriesValues) {
@@ -1350,7 +1775,8 @@ export async function holdExistingEdits(ctx: CheckContext, page: Page, capture: 
       // A write that carries the test values was stopped, or nothing that carries them went through and a write was stopped.
       const save = stopped.find((w) => w.carriesValues) ?? (went.length > 0 ? undefined : stopped[0]);
       if (!save) return null;
-      const stoppedNote = `${EXISTING_RECORD} Run Hound stopped the form's save (${endpointText(save.method, save.url)}) before it reached the app`;
+      const lead = save.graphql ? unclearGraphQlNote(save.graphql) : EXISTING_RECORD;
+      const stoppedNote = `${lead} Run Hound stopped the form's save (${endpointText(save.method, save.url)}) before it reached the app`;
       const earlier = went.map((w) => endpointText(w.method, w.url));
       if (earlier.length === 0) return `${stoppedNote}, so nothing was changed.`;
       // An earlier write with the typed values did reach the app (a check before the save, a save at another URL). When
@@ -1375,34 +1801,39 @@ export async function holdExistingEdits(ctx: CheckContext, page: Page, capture: 
  * one the page read at a path as one record, or an object whose own id it read. So a write that went through before the
  * stopped save (POST /api/today renaming task t1) changed that record. False when none does, null when a re-read failed.
  */
-async function readRecordChanged(ctx: CheckContext, page: Page, reads: { url: string; body: string }[]): Promise<boolean | null> {
+async function readRecordChanged(ctx: CheckContext, page: Page, reads: ReadAnswer[]): Promise<boolean | null> {
   const key = tokenKey(ctx.runToken);
   if (!key) return null;
   const read = readBeforeSave(reads);
-  const again = async (url: string): Promise<string | null> => {
-    const answer = await ctx.request("self", { method: "GET", url }).catch(() => null);
+  // A GET, or a GraphQL read sent again with the query body the page sent (a read, as the page made it).
+  const again = async (url: string, post: string | null): Promise<string | null> => {
+    const answer = await ctx
+      .request("self", post ? { method: "POST", url, headers: { "content-type": "application/json" }, body: post } : { method: "GET", url })
+      .catch(() => null);
     if (answer && answer.status >= 200 && answer.status < 300) return answer.body;
     if (!isSameOrigin(url, page.url())) return null;
     return page
-      .evaluate(async (u) => {
+      .evaluate(async ([u, p]) => {
         try {
-          const r = await fetch(u, { credentials: "include" });
+          const r = await fetch(u, p ? { method: "POST", headers: { "content-type": "application/json" }, body: p, credentials: "include" } : { credentials: "include" });
           return r.ok ? await r.text() : null;
         } catch {
           return null;
         }
-      }, url)
+      }, [url, post] as const)
       .catch(() => null);
   };
   let unknown = false;
-  for (const url of [...new Set(reads.map((r) => r.url))].slice(0, 10)) {
-    const body = await again(url);
+  const distinct = new Map<string, ReadAnswer>();
+  for (const r of reads) distinct.set(`${r.url}\n${r.post ?? ""}`, r);
+  for (const r of [...distinct.values()].slice(0, 10)) {
+    const body = await again(r.url, r.post ?? null);
     if (body === null) {
       unknown = true;
       continue;
     }
     if (!body.toLowerCase().includes(key)) continue;
-    const path = pathKey(url);
+    const path = pathKey(r.url);
     if (path && read.records.has(path)) return true;
     if (ownIdHoldsToken(parseJson(body), read, key)) return true;
   }

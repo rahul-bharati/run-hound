@@ -28,11 +28,21 @@
  *   be confused with the created value or another scenario's marker, where the app's body holds the record (at the
  *   top, or one level down: {"task": {...}}; in a form, under the key the app sent: task[title]); never a field the
  *   app's body doesn't send in a form. DELETE last, only when the app showed one.
+ *   An anti-CSRF token is Account A's too: in the body (withOwnTokens) or in a header the app's own request carried
+ *   (withOwnHeaderTokens: Django's X-CSRFToken, axios' X-XSRF-TOKEN, Rails' X-CSRF-Token; 0.6.0 close-out round 1), it
+ *   goes as the identity's own, read where A's came from (the same cookie or <meta> on a page opened as B), and is
+ *   otherwise left in the body or left out of the headers; a refusal (400, 403, 419, 422: TOKEN_REFUSALS) of such a
+ *   write is inconclusive. A header whose value no source on Account A's page holds any more (Laravel encrypts its
+ *   XSRF-TOKEN cookie anew on every answer) is paired with its usual source by name (close-out round 2).
  *   A credential in the write's URL (?access_token=, ?api_token=, ?auth=: cross-site-query.ts) is Account A's: it
  *   goes as the identity's own value where a page opened as that identity sent the same parameter, else it is left
  *   out; those values are secrets while the scenario runs (steps, notes, cards and specs are redacted). A version or
- *   lock the app's update carried (lock_version, version, __v, _rev, etag, updatedAt) goes at its value in the re-read
- *   just before the attempt: the app's own save made the observed one stale.
+ *   lock the app's update carried (lock_version, version, __v, _rev, etag, updatedAt), in its body or its URL's query
+ *   (?lock_version=0: close-out review, round 1), goes at its value in the re-read just before the attempt: the app's
+ *   own save made the observed one stale. A query parameter by such a name counts only when its value is one the record
+ *   showed before the app's update was sent (record-state recordQueryStamps; close-out review, round 2): ?version=2, an
+ *   API version, on a record whose own version is 5, is left as the app sent it, in the attempt and the put-back, and
+ *   named as a stamp Run Hound couldn't refresh. Notes and findings name each request as it was sent.
  * - Verdict from a re-read as A, never a status code, judged against a re-read taken just before the attempt: changed
  *   or gone → critical, confirmed; otherwise pass, naming the requests tried. After every attempt, restore and re-read;
  *   anything not restored is named, no further write is sent, and the scenario is not a pass while that note stands.
@@ -43,7 +53,19 @@
  *   a field that says it was removed. An attempt that changed anything else of the record (and not what it set) is put
  *   back and makes the scenario inconclusive: not a finding, never a pass. So does a conflict (409, 412, 428) on an
  *   attempt that left the record unchanged, and Account B's refusal (401, 403) of a write whose URL credential it had
- *   none of its own for.
+ *   none of its own for. So does a 400, 422 or 5xx to an attempt that left the record unchanged while it carried a
+ *   version or lock the record as read doesn't show (0.6.0 close-out): Run Hound could only send the app's own value,
+ *   stale by then, and the app may refuse a stale version that way instead of with 409. A 404 to such an attempt may
+ *   be the version check too (UPDATE … WHERE lock_version = $2 matched no row; close-out review, round 1), and so may a
+ *   2xx that left the record unchanged (the same UPDATE answered 200 or 204; close-out review, round 2). Such an attempt
+ *   is compared with the same attempt sent as Account A (compareAsOwner, never a DELETE): the app's own update as
+ *   Account A's page sent it, with the same stamps and a test value of Account A's own in the same field, judged by a
+ *   re-read as Account A and then put back. It passes only when the re-read shows Account A's value (the app takes that
+ *   version from the record's owner, so it refused the sender) or the app answers Account A with a conflict (409, 412,
+ *   428); a 404, a 2xx that left the record unchanged, a 400, 422 or 5xx, or no answer leaves it inconclusive. Known
+ *   limit: when the app applies Account A's copy and its reads show a field it sets on every save (updatedAt), the
+ *   put-back leaves that field changed, which is never a pass (below). An attempt that got no answer (the connection
+ *   dropped, or it timed out) and left the record unchanged is inconclusive too (close-out review, round 1).
  * - Late effects (0.6.0 round 3): an attempt the app accepted (2xx, or no answer) that shows no effect yet is looked at
  *   once more after a quiet wait (LATE_MS) before it is judged, and before the verdict one more look follows when a write
  *   the app accepted wasn't the last one looked at that way. A change that lands late (202 Accepted, a queued job) is a
@@ -78,6 +100,7 @@ import {
   readsBefore,
   readsList,
   recordId,
+  recordQueryStamps,
   recordWrites,
   rereadRecord,
   restoreRecord,
@@ -125,13 +148,14 @@ export function identityOf(scenario: Pick<Scenario, "id">): Who | null {
 }
 
 /**
- * Per scenario: the salt of the values the test record is created with, and the tag its markers carry. A marker is the
- * created value with the tag inserted right after the run token, so it still carries the token but never contains the
- * created value (the tag doesn't start with the salt), and the two scenarios' markers never contain each other.
+ * Per scenario: the salt of the values the test record is created with, the tag its markers carry, and the tag of the
+ * value Account A's own comparison sets (compareAsOwner). A marker is the created value with the tag inserted right
+ * after the run token, so it still carries the token but never contains the created value (no tag starts with the
+ * salt), and no two of a scenario's or the two scenarios' markers contain each other.
  */
-const SALT: Record<Who, { create: string; mark: string }> = {
-  other: { create: "wab", mark: "wxb" },
-  "signed-out": { create: "was", mark: "wxs" },
+const SALT: Record<Who, { create: string; mark: string; compare: string }> = {
+  other: { create: "wab", mark: "wxb", compare: "wyb" },
+  "signed-out": { create: "was", mark: "wxs", compare: "wys" },
 };
 
 /** `value` with `tag` inserted right after the run token (`key`), or appended with the token when it has none. */
@@ -176,10 +200,24 @@ interface Write {
    */
   tokens?: { field: string; swapped: boolean }[];
   /**
+   * The anti-CSRF headers the app's own request carried (Capture csrfHeaders: Django's X-CSRFToken, axios'
+   * X-XSRF-TOKEN, Rails' X-CSRF-Token), each by lower-case name, and whether this identity's own token was put in it
+   * (`swapped`) or it was left out (Account A's is never sent as someone else).
+   */
+  headerTokens?: { name: string; swapped: boolean }[];
+  /** Headers sent besides the content type: this identity's own anti-CSRF tokens (headerTokens). In memory only. */
+  headers?: Record<string, string>;
+  /**
    * The credentials the app's URL carried in its query (?access_token=: credentialParams), each by name, and whether
    * this identity's own value was put in it (`swapped`) or it was left out.
    */
   credentials?: { param: string; swapped: boolean }[];
+  /**
+   * The version or lock stamps (saveStamp) the body or the URL's query carries at the value the app's own update sent,
+   * because the record as re-read doesn't show them (withFreshStamps): with optimistic locking that value is stale, and
+   * a refusal may be a conflict with the record's version rather than a refusal of the sender.
+   */
+  staleStamps?: string[];
   /** The app's own request this write was made from. */
   observed: CapturedRequest;
 }
@@ -441,8 +479,10 @@ function updateFrom(observed: CapturedRequest, snap: RecordSnapshot, key: string
 
 /** Sends `w` as `who`; its status, or null when no answer came. */
 async function send(ctx: CheckContext, who: Identity, w: Write): Promise<number | null> {
+  const withBody = w.body !== null && w.kind !== null;
+  const headers = { ...(withBody ? { "content-type": CONTENT_TYPE[w.kind!] } : {}), ...(w.headers ?? {}) };
   const answer = await ctx
-    .request(who, { method: w.method, url: w.url, ...(w.body !== null && w.kind ? { headers: { "content-type": CONTENT_TYPE[w.kind] }, body: w.body } : {}) })
+    .request(who, { method: w.method, url: w.url, ...(Object.keys(headers).length > 0 ? { headers } : {}), ...(withBody ? { body: w.body! } : {}) })
     .catch(() => null);
   return answer ? answer.status : null;
 }
@@ -569,6 +609,8 @@ const PUT_BACK_NOTHING: PutBack = { notes: [], failed: false, serverOnly: false,
  * `volatile` change on their own, so they are neither restored nor named; a field still changed after the put-back
  * that keeps changing with nothing sent joins them, unless it is `pinned` (a run-token field or one a probe sets: those
  * are always restored and, when they can't be, named). The notes say what was restored and what could not be undone.
+ * `queryStamps`: the parameters of `update`'s URL that carry the record's own version (recordQueryStamps); only those
+ * are sent at their value now.
  */
 async function putBack(
   ctx: CheckContext,
@@ -578,6 +620,7 @@ async function putBack(
   save: CapturedRequest,
   volatile: Set<string>,
   pinned: ReadonlySet<string>,
+  queryStamps?: ReadonlySet<string>,
 ): Promise<PutBack> {
   const now = await rereadRecord(ctx, snap);
   if (now === null) {
@@ -587,7 +630,9 @@ async function putBack(
   if (differs.length === 0) return PUT_BACK_NOTHING;
   // An update of this record puts changed fields back; the create is only ever sent to make a deleted record again.
   const outcome =
-    now === "gone" || update ? await restoreRecord(ctx, snap, { save: update ?? save, create: save }) : { restored: [], notRestored: differs };
+    now === "gone" || update
+      ? await restoreRecord(ctx, snap, { save: update ?? save, create: save, ...(update && queryStamps ? { queryStamps } : {}) })
+      : { restored: [], notRestored: differs };
   // Only what this attempt changed is named: a field that already differed from the snapshot before it isn't its doing.
   const ours = (k: string) => !volatile.has(k) && differs.includes(k);
   const restored = outcome.restored.filter(ours);
@@ -663,7 +708,7 @@ function swapToken(body: string, kind: "json" | "form", from: string, to: string
  * _csrf field) the scenario identity's own token where Run Hound can read one (`theirs`: the tokens a page opened as
  * that identity holds, paired with Account A's, `ours`, by where they came from, or a hidden input of the field's
  * name). A write whose token can't be swapped still carries Account A's: its `tokens` say so, and a refusal of it
- * (403, 419) is then no proof of an ownership check.
+ * (TOKEN_REFUSALS) is then no proof of an ownership check.
  */
 function withOwnTokens(writes: Write[], ours: TokenSource[], theirs: TokenSource[], runKey: string): Write[] {
   const values = new Set(ours.map((t) => t.value));
@@ -680,6 +725,69 @@ function withOwnTokens(writes: Write[], ours: TokenSource[], theirs: TokenSource
       return { field, swapped: true };
     });
     return { ...w, body, tokens };
+  });
+}
+
+const decodeValue = (v: string) => {
+  try {
+    return decodeURIComponent(v);
+  } catch {
+    return v;
+  }
+};
+
+/**
+ * Statuses an app's CSRF check refuses a write with: Django's 403, Laravel's 419, Rails' 422 (InvalidAuthenticityToken)
+ * and ASP.NET Core antiforgery's 400 (close-out round 2). A write that still carried Account A's body token, or went
+ * without the anti-CSRF header the app's own request carried, and was refused with one of them is no proof of an
+ * ownership check.
+ */
+const TOKEN_REFUSALS = new Set([400, 403, 419, 422]);
+
+/**
+ * The usual source of an anti-CSRF header, by the header's name (lower case): axios' and Angular's X-XSRF-TOKEN reads the
+ * XSRF-TOKEN cookie (URL-decoded), Django's X-CSRFToken the csrftoken cookie, Rails' and Laravel's X-CSRF-Token the
+ * <meta name="csrf-token">.
+ */
+const HEADER_SOURCE: Record<string, { kind: TokenSource["kind"]; name: string; decode: boolean }> = {
+  "x-xsrf-token": { kind: "cookie", name: "xsrf-token", decode: true },
+  "x-csrftoken": { kind: "cookie", name: "csrftoken", decode: false },
+  "x-csrf-token": { kind: "meta", name: "csrf-token", decode: false },
+};
+
+/**
+ * Gives each write whose app's own request carried an anti-CSRF header (Capture csrfHeaders: X-CSRFToken, X-XSRF-TOKEN,
+ * X-CSRF-Token) the scenario identity's own token in that header (0.6.0 close-out round 1), read where Account A's came
+ * from: the source in Account A's page (`ours`: the same cookie or <meta>) whose value, as it is or URL-decoded
+ * (Laravel's XSRF-TOKEN cookie, which axios decodes), is the header's, paired by kind and name with the source a page
+ * opened as that identity holds (`theirs`), decoded the same way. When no source on Account A's page holds the value any
+ * more (Laravel encrypts XSRF-TOKEN anew on every answer, so the cookie never equals the value an earlier request
+ * carried), the header is paired with its usual source by name (HEADER_SOURCE; close-out round 2), and the identity's
+ * current value goes. Account A's value is never sent: a header with no token of the identity's own is left out, its
+ * `headerTokens` say so, and a refusal of it (TOKEN_REFUSALS) is then no proof of an ownership check.
+ */
+function withOwnHeaderTokens(writes: Write[], ours: TokenSource[], theirs: TokenSource[]): Write[] {
+  return writes.map((w) => {
+    const sent = Object.entries(w.observed.csrfHeaders ?? {});
+    if (sent.length === 0) return w;
+    const headers: Record<string, string> = {};
+    const headerTokens = sent.map(([name, value]) => {
+      const source = ours.find((t) => t.value === value) ?? ours.find((t) => decodeValue(t.value) === value);
+      let token: string | null = null;
+      if (source) {
+        const decoded = source.value !== value;
+        const mine = theirs.find((t) => t.kind === source.kind && t.name === source.name);
+        token = mine ? (decoded ? decodeValue(mine.value) : mine.value) : null;
+      } else {
+        const usual: { kind: TokenSource["kind"]; name: string; decode: boolean } | undefined = HEADER_SOURCE[name.toLowerCase()];
+        const mine = usual ? theirs.find((t) => t.kind === usual.kind && t.name.toLowerCase() === usual.name) : undefined;
+        if (usual && mine) token = usual.decode ? decodeValue(mine.value) : mine.value;
+      }
+      if (!token || token === value) return { name, swapped: false };
+      headers[name] = token;
+      return { name, swapped: true };
+    });
+    return { ...w, headers, headerTokens };
   });
 }
 
@@ -761,51 +869,105 @@ const formText = (v: unknown) => (typeof v === "string" ? v : v === null || v ==
  * `w` with each stamp the app changes on every save (saveStamp: lock_version, version, __v, _rev, etag, updatedAt) at
  * its value in `pre`, the record re-read as Account A just before the attempt, as record-state's put-back sends them:
  * at the body's top, where the body holds the record one level down ({"task": {...}}; task[lock_version] in a form),
- * and in one of the record's object fields ({meta: {version}}, meta[version]). The app's own update carried the value
- * the record had then, which its own save made stale: with optimistic locking the replay would be a conflict (409)
- * whoever sent it, and read as a refusal. A stamp the re-read doesn't show is left as the app sent it.
+ * and in one of the record's object fields ({meta: {version}}, meta[version]); and in the URL's query
+ * (PATCH /api/tasks/2?lock_version=0, ?task[lock_version]=0: close-out review, round 1). The app's own update carried
+ * the value the record had then, which its own save made stale: with optimistic locking the replay would be a conflict
+ * (409) whoever sent it, and read as a refusal. A stamp the re-read doesn't show is left as the app sent it, and named
+ * in `staleStamps` (a refusal of that write proves nothing about who may change the record). In the URL's query, only
+ * the parameters `queryStamps` names (recordQueryStamps: their value is one the record showed before the app's update
+ * was sent) are the record's stamps; another by a stamp's name (?version=2, an API version) is left as the app sent it
+ * and named in `staleStamps` too (close-out review, round 2).
  */
-function withFreshStamps(w: Write, pre: JsonObject, runToken: string): Write {
-  if (!w.body || !w.kind) return w;
+function withFreshStamps(w: Write, pre: JsonObject, runToken: string, queryStamps: ReadonlySet<string>): Write {
   const isObject = (v: unknown): v is JsonObject => !!v && typeof v === "object" && !Array.isArray(v);
   const has = (o: unknown, k: string): o is JsonObject => isObject(o) && Object.prototype.hasOwnProperty.call(o, k);
-  if (w.kind === "form") {
-    const params = new URLSearchParams(w.body);
+  /**
+   * The stamps of form-style `params` (a form body, or the URL's query) at their value in `pre`, and those it doesn't
+   * show. With `known` (the URL's query), a parameter it doesn't name is left as it is and counted as one not shown.
+   */
+  const freshParams = (params: URLSearchParams, known?: ReadonlySet<string>): { changed: boolean; stale: string[] } => {
     let changed = false;
+    const stale: string[] = [];
     for (const k of new Set(params.keys())) {
       const m = NESTED_FORM_KEY.exec(k);
       const field = m ? m[2]! : k;
       if (!saveStamp(field, params.get(k), runToken)) continue;
+      if (known && !known.has(k)) {
+        stale.push(field);
+        continue;
+      }
       // meta[version]: a stamp of the record's object field meta. task[lock_version] (the model's name, which the record
       // doesn't hold) and a flat lock_version: the record's own.
       const outer = m && isObject(pre[m[1]!]) ? (pre[m[1]!] as JsonObject) : pre;
-      if (!has(outer, field)) continue;
+      if (!has(outer, field)) {
+        stale.push(field);
+        continue;
+      }
       const now = formText(outer[field]);
       if (params.get(k) !== now) {
         params.set(k, now);
         changed = true;
       }
     }
-    return changed ? { ...w, body: params.toString() } : w;
+    return { changed, stale };
+  };
+  // The URL's query first: a version there is as stale as one in the body.
+  let url = w.url;
+  const urlStale: string[] = [];
+  let parsed: URL | null = null;
+  try {
+    parsed = new URL(w.url);
+  } catch {
+    parsed = null;
+  }
+  if (parsed && parsed.search) {
+    const q = freshParams(parsed.searchParams, queryStamps);
+    if (q.changed) url = parsed.href;
+    urlStale.push(...q.stale);
+  }
+  const withStale = (out: Write, stale: Iterable<string>): Write => {
+    const names = [...new Set([...urlStale, ...stale])];
+    const at = url === w.url ? out : { ...out, url };
+    return names.length > 0 ? { ...at, staleStamps: names } : at;
+  };
+  if (!w.body || !w.kind) return withStale(w, []);
+  if (w.kind === "form") {
+    const params = new URLSearchParams(w.body);
+    const { changed, stale } = freshParams(params);
+    return withStale(changed ? { ...w, body: params.toString() } : w, stale);
   }
   const sent = jsonObjectBody(w.body);
-  if (!sent) return w;
-  const fresh = (obj: JsonObject, now: JsonObject | undefined, nested: boolean): JsonObject => {
+  if (!sent) return withStale(w, []);
+  /** The stamps left as the app sent them, by path ("lock_version", "meta.version", "task.lock_version"). */
+  const stale = new Map<string, string>();
+  const fresh = (obj: JsonObject, now: JsonObject | undefined, nested: boolean, path: string): JsonObject => {
     const out: JsonObject = { ...obj };
     for (const [k, v] of Object.entries(obj)) {
       if (saveStamp(k, v, runToken)) {
         if (now && has(now, k)) out[k] = now[k];
+        else stale.set(`${path}${k}`, k);
       } else if (!nested && isObject(v)) {
-        out[k] = fresh(v, now && isObject(now[k]) ? (now[k] as JsonObject) : undefined, true);
+        out[k] = fresh(v, now && isObject(now[k]) ? (now[k] as JsonObject) : undefined, true, `${path}${k}.`);
       }
     }
     return out;
   };
-  let body = fresh(sent, pre, false);
-  if (w.nest && isObject(sent[w.nest])) body = { ...body, [w.nest]: fresh(sent[w.nest] as JsonObject, pre, false) };
+  let body = fresh(sent, pre, false, "");
+  if (w.nest && isObject(sent[w.nest])) {
+    // The body's record one level down is the record itself: its stamps are judged against the record as read.
+    for (const path of [...stale.keys()]) if (path.startsWith(`${w.nest}.`)) stale.delete(path);
+    body = { ...body, [w.nest]: fresh(sent[w.nest] as JsonObject, pre, false, `${w.nest}.`) };
+  }
   const text = JSON.stringify(body);
-  return text === w.body ? w : { ...w, body: text };
+  return withStale(text === w.body ? w : { ...w, body: text }, stale.values());
 }
+
+/**
+ * True for an answer that may be an app's refusal of a stale version when it doesn't answer 409, 412 or 428: a
+ * validation error (400, 422) or an unhandled one (5xx, Rails' StaleObjectError). A refusal of the sender itself (401,
+ * 403, 404) is not one.
+ */
+const mayRefuseStale = (status: number) => status === 400 || status === 422 || (status >= 500 && status < 600);
 
 /** Statuses that answer a write with a conflict with the record's version (optimistic locking, If-Match): 409, 412, 428. */
 const CONFLICT = new Set([409, 412, 428]);
@@ -926,7 +1088,13 @@ export const check: Check = {
       const recordGet = await findOwnRecord(ctx, capture, testValues, { arrays: true, save });
       const snap = recordGet ? await snapshotRecord(ctx, recordGet.url, testValues) : null;
       if (!recordGet || !snap) {
-        return skip("Skipped: Run Hound couldn't read the saved record back as Account A, so it couldn't tell whether a write as someone else changed it.");
+        // The form's save reached the app (the hold let it go): without a read, Run Hound can't tell what it changed, so
+        // the note never lets it pass for "nothing was changed" (as csrf says it; 0.6.0 close-out round 1).
+        const reached =
+          save.status !== null
+            ? ` The form's own save (${endpointOf(save.method, save.url)}) reached the app, and without a read Run Hound can't tell whether it changed a record Account A already had: check Account A.`
+            : "";
+        return skip(`Skipped: Run Hound couldn't read the saved record back as Account A, so it couldn't tell whether a write as someone else changed it.${reached}`);
       }
       // The save went through and turned out to change a record Account A already had (its id was in an answer from
       // before the save, its URL or body named the id, or the record is a single one read at a URL without its id):
@@ -1034,16 +1202,20 @@ export const check: Check = {
         }
         return opened;
       };
+      // So does one in a header the app's own request carried (Django's X-CSRFToken, axios' X-XSRF-TOKEN): B's replay
+      // carries B's own in it, read where A's came from, and never A's.
       const ours = await tokenSources(page, key);
       const oursSet = new Set(ours.map((t) => t.value));
-      if (writes.some((w) => tokenFieldsOf(w.body, w.kind, oursSet, key).length > 0)) {
+      const inBody = writes.some((w) => tokenFieldsOf(w.body, w.kind, oursSet, key).length > 0);
+      const inHeader = writes.some((w) => Object.keys(w.observed.csrfHeaders ?? {}).length > 0);
+      if (inBody || inHeader) {
         let theirs: TokenSource[] = [];
         if (who === "other") {
           ctx.step("Reading Account B's own anti-CSRF token", page);
           const mine = await identityPage();
           if (mine) theirs = await tokenSources(mine.page, key);
         }
-        writes = withOwnTokens(writes, ours, theirs, key);
+        writes = withOwnHeaderTokens(withOwnTokens(writes, ours, theirs, key), ours, theirs);
       }
       // A credential in a write's URL (?access_token=, ?api_token=, ?auth=) is Account A's: sent as it is, the replay
       // would still be Account A's own request. It goes as the identity's own where a page opened as it sent the same
@@ -1092,6 +1264,19 @@ export const check: Check = {
       const unusableNote = reasons.length > 0 ? `Not tried: ${reasons.join("; ")}.` : "";
       // The app's own update with a body, for putting changed fields back (never one with a password or email key).
       const restoreWith = observedUpdates.find((r) => kindOf(r.postData) !== null && !sensitiveBody(r.postData));
+      // The parameters of each of the app's own updates' URLs that carry the record's own version (recordQueryStamps):
+      // a value the record showed before the update was sent. Another by a stamp's name (an API version) is never
+      // rewritten, in an attempt or a put-back.
+      const queryStampsOf = new Map<CapturedRequest, Set<string>>();
+      const stampsOf = (r: CapturedRequest): Set<string> => {
+        let found = queryStampsOf.get(r);
+        if (!found) {
+          found = recordQueryStamps(capture, save, r, snap, ctx.runToken);
+          queryStampsOf.set(r, found);
+        }
+        return found;
+      };
+      const restoreStamps = restoreWith ? stampsOf(restoreWith) : undefined;
 
       const notes: string[] = [];
       /** Adds a put-back's notes, each once: the same leftover after two attempts is said once. */
@@ -1143,15 +1328,119 @@ export const check: Check = {
       const ignoredFields: { write: string; field: string }[] = [];
       /** The read just before the attempt under way: what a put-back is judged against. */
       let lastPre: JsonObject = snap.record;
-      /** Writes refused (403, 419) while they still carried Account A's anti-CSRF token: no proof either way. */
+      /**
+       * Writes refused (TOKEN_REFUSALS: 400, 403, 419, 422) while they still carried Account A's body token or went
+       * without the anti-CSRF header the app's own request carried: no proof either way.
+       */
       const tokenRefusals: string[] = [];
       /** Writes answered with a conflict (409, 412, 428) that left the record unchanged: no proof either way. */
       const conflicts: string[] = [];
+      /**
+       * Writes refused as a stale version may be (400, 422, 5xx: mayRefuseStale; a 404 the same write as Account A didn't
+       * prove was a refusal of the sender, compareAsOwner) that left the record unchanged while they carried a version or
+       * lock the record as read doesn't show (Write.staleStamps): no proof either way.
+       */
+      const staleRefusals: { write: string; fields: string[] }[] = [];
       /**
        * Writes Account B sent without Account A's URL credential and with none of its own, that the app refused (401,
        * 403): the refusal may be the app asking for a credential, not checking who owns the record.
        */
       const credentialRefusals: { write: string; params: string[] }[] = [];
+      /** Writes that got no answer (the connection dropped or timed out) and left the record unchanged: no proof either way. */
+      const noAnswers: string[] = [];
+      /**
+       * Writes the app answered 2xx that left the record unchanged while they carried a version or lock the record as
+       * read doesn't show (Write.staleStamps), and that the same write as Account A didn't prove were refused for who
+       * sent them (compareAsOwner): the app may ignore a stale version that way. No proof either way.
+       */
+      const staleAccepted: { write: string; fields: string[] }[] = [];
+      /** The writes Run Hound sent as Account A to compare an answer with (compareAsOwner), with the app's answer. */
+      const compared: string[] = [];
+      /**
+       * A 404 to an attempt that carried a stamp the record as read doesn't show (Write.staleStamps) may be the app's
+       * version check too: UPDATE … WHERE id = $1 AND lock_version = $2 matched no row, or Prisma's P2025 answered 404
+       * (close-out review, round 1). So may a 2xx that left the record unchanged: the same UPDATE, answered 200 or 204
+       * (round 2). The same attempt is sent as Account A: the app's own update as Account A's page sent it (its
+       * anti-CSRF token, in its body or a header, and its URL credential), with the same stamps and a test value of
+       * Account A's own (SALT compare) in the same field, never a write that changes nothing (an app may answer that
+       * 200 at once, or refuse it with 422, before it looks at the version). Judged by a re-read as Account A: when it
+       * shows Account A's value, the app takes that version from the record's owner, so it refused the sender; so it did
+       * when the app answers Account A with a conflict (409, 412, 428). A 404, a 2xx that left the record unchanged, a
+       * 400, 422 or 5xx, or no answer proves nothing: inconclusive (staleRefusals for a 404, staleAccepted for a 2xx).
+       * A DELETE is never sent as Account A to compare. What the comparison changed is put back, and it counts like any
+       * attempt's put-back. `applied`: the re-read showed Account A's value.
+       */
+      const compareAsOwner = async (w: Write, attempt: Write, status: number): Promise<{ back: PutBack; applied: boolean }> => {
+        const sentAt = endpointOf(w.method, attempt.url);
+        const write = `${sentAt} (${status})`;
+        const fields = attempt.staleStamps ?? [];
+        const stamps = joinFields(fields);
+        const unproven = () => (status === 404 ? staleRefusals : staleAccepted).push({ write, fields });
+        const nothing = { back: PUT_BACK_NOTHING, applied: false };
+        if (w.method === "DELETE") {
+          unproven();
+          notes.push(`Run Hound never sends a delete as Account A to compare, so it can't tell the ${status} to ${WHO[who].words}'s ${sentAt} from the app's answer to a stale version.`);
+          return nothing;
+        }
+        const cmpPre = await rereadRecord(ctx, snap);
+        if (cmpPre === null || cmpPre === "gone") {
+          unproven();
+          notes.push(`Run Hound couldn't read Account A's test record to compare the ${status} to ${WHO[who].words}'s ${sentAt} with the same write sent as Account A.`);
+          return nothing;
+        }
+        // The same write, from Account A's own request: its body with a test value of Account A's own in the field the
+        // attempt set (updateFrom picks the same one), its URL, and its anti-CSRF headers (Account A's own).
+        const n = updates.findIndex((u) => u.observed === w.observed);
+        const tag = `${salt.compare}${n <= 0 ? "" : n + 1}`;
+        const marked = updateFrom(w.observed, snap, key, tag);
+        if (!marked || marked.field !== w.field) {
+          unproven();
+          notes.push(`Run Hound couldn't make the same write as Account A to compare the ${status} to ${WHO[who].words}'s ${sentAt} with.`);
+          return nothing;
+        }
+        const ownHeaders = w.observed.csrfHeaders && Object.keys(w.observed.csrfHeaders).length > 0 ? { headers: { ...w.observed.csrfHeaders } } : {};
+        const own = withFreshStamps({ ...marked, ...ownHeaders }, cmpPre[0]!, ctx.runToken, stampsOf(w.observed));
+        const field = marked.field!;
+        const ownAt = endpointOf(own.method, own.url);
+        ctx.step(`Sending the same ${ownAt} as Account A, with a test value of its own, to compare`, page);
+        const answered = await send(ctx, "self", own);
+        compared.push(`${ownAt} (${answered ?? "no answer"})`);
+        const shows = (read: JsonObject[] | "gone" | null) => {
+          const v = read === null || read === "gone" ? undefined : read[0]![field];
+          return typeof v === "string" && v.toLowerCase().includes(`${key}${tag}`);
+        };
+        let after = await rereadRecord(ctx, snap);
+        // A write the app accepted may be applied a moment later (202 Accepted, a queued job): looked at once more after a
+        // quiet wait before it is judged.
+        if (after !== null && after !== "gone" && acceptedOrUnknown(answered) && !shows(after)) {
+          await delay(LATE_MS);
+          after = await rereadRecord(ctx, snap);
+        }
+        const applied = shows(after);
+        const back = await putBack(ctx, snap, cmpPre[0]!, restoreWith, save, volatile, pinned, restoreStamps);
+        noteOnce(back.notes);
+        const lead = `Run Hound also sent the same ${ownAt} as Account A, with the same ${stamps} and a test value of its own in ${field}, and`;
+        const whom = WHO[who].words;
+        if (applied) {
+          notes.push(`${lead} the app applied it (${answered ?? "no answer"}): it takes that ${stamps} from the record's owner, so its ${status} to ${whom} was about the sender, not the version.`);
+        } else if (answered !== null && CONFLICT.has(answered)) {
+          notes.push(`${lead} the app answered ${answered}, a conflict with the version, not ${status}: its ${status} to ${whom} was about the sender, not the version.`);
+        } else {
+          unproven();
+          const accepted = answered !== null && answered >= 200 && answered < 300;
+          const unseen = after === null ? ", and Run Hound couldn't read the record back" : after === "gone" ? "" : " and left the record unchanged";
+          const why =
+            answered === null
+              ? "no answer came"
+              : answered === status
+                ? `the app answered Account A the same way (${answered})${accepted ? unseen : ""}`
+                : accepted
+                  ? `the app answered ${answered}${unseen}`
+                  : `the app answered ${answered}, which doesn't show how it answers a stale version`;
+          notes.push(`${lead} ${why}, so the ${status} to ${whom} may be the app's answer to a stale version.`);
+        }
+        return { back, applied };
+      };
       try {
         for (const [i, w] of writes.entries()) {
           const rest = writes.slice(i + 1);
@@ -1167,12 +1456,16 @@ export const check: Check = {
           if (i === 0) markVolatile(changedFields(snap.record, pre[0]!));
           lastPre = pre[0]!;
 
-          ctx.step(`Sending ${endpointOf(w.method, w.url)} as ${WHO[who].words}`, page);
+          // A version or lock the app's own update carried is stale by now: the replay carries the record's current one
+          // (in its body, or its URL's query). Every note names the request as it was sent.
+          const attempt = withFreshStamps(w, lastPre, ctx.runToken, stampsOf(w.observed));
+          const at = endpointOf(w.method, attempt.url);
+          ctx.step(`Sending ${at} as ${WHO[who].words}`, page);
           sentAny = true;
-          // A version or lock the app's own update carried is stale by now: the replay carries the record's current one.
-          const status = await send(ctx, who, withFreshStamps(w, lastPre, ctx.runToken));
-          tried.push(`${endpointOf(w.method, w.url)} (${status ?? "no answer"})`);
-          sent.push({ w, status });
+          const sideAt = sideChanges.length;
+          const status = await send(ctx, who, attempt);
+          tried.push(`${at} (${status ?? "no answer"})`);
+          sent.push({ w: attempt, status });
           let now = await rereadRecord(ctx, snap);
           // The app may accept a write and apply it a moment later (202 Accepted, a queued job): an accepted write (or
           // one with no answer) that shows no effect yet is looked at once more after a quiet wait before it is judged.
@@ -1184,15 +1477,15 @@ export const check: Check = {
           }
           lookedAfterLast = lookedLate;
           if (now === null) {
-            const back = await putBack(ctx, snap, lastPre, restoreWith, save, volatile, pinned);
+            const back = await putBack(ctx, snap, lastPre, restoreWith, save, volatile, pinned, restoreStamps);
             noteOnce(back.notes);
-            const unknown = `Inconclusive: the re-read as Account A failed after ${endpointOf(w.method, w.url)} was sent as ${WHO[who].words}, so Run Hound can't tell whether it worked: check Account A.`;
+            const unknown = `Inconclusive: the re-read as Account A failed after ${at} was sent as ${WHO[who].words}, so Run Hound can't tell whether it worked: check Account A.`;
             // An earlier attempt's confirmed finding stands.
             if (findings.length > 0) return result(ID, scenario, started, findings, [changedSummary(who, findings), unknown, ...sideChanges, ...notes].join(" "));
             return skip([unknown, ...sideChanges, ...notes].join(" "));
           }
           let effect = effectOf(w, lastPre, now, volatile);
-          if (effect && lookedLate) notes.push(lateNote(who, w, status));
+          if (effect && lookedLate) notes.push(lateNote(who, attempt, status));
           if (w.method === "DELETE" && effect && !effect.gone && now !== "gone") {
             // A DELETE that left the record there, changed (a soft delete): confirm the change holds while nothing is
             // sent, so a field that changes on its own now and then is never taken for one.
@@ -1217,7 +1510,7 @@ export const check: Check = {
                 const stays = side.filter((k) => !volatile.has(k));
                 if (stays.length > 0) {
                   sideChanges.push(
-                    `${joinFields(stays)} of Account A's test record changed after ${WHO[who].words} sent ${endpointOf(w.method, w.url)}, though ${
+                    `${joinFields(stays)} of Account A's test record changed after ${WHO[who].words} sent ${at}, though ${
                       w.method === "DELETE" ? "the record is still there" : "the value Run Hound set didn't"
                     }.`,
                   );
@@ -1226,23 +1519,49 @@ export const check: Check = {
             }
           }
           const unswapped = (w.tokens ?? []).filter((t) => !t.swapped).map((t) => t.field);
-          if (!effect && (status === 403 || status === 419) && unswapped.length > 0) {
-            tokenRefusals.push(`${endpointOf(w.method, w.url)} (${status}), whose body still carried Account A's anti-CSRF token in ${joinFields(unswapped)}`);
+          const unsent = (w.headerTokens ?? []).filter((t) => !t.swapped).map((t) => t.name);
+          if (!effect && status !== null && TOKEN_REFUSALS.has(status) && (unswapped.length > 0 || unsent.length > 0)) {
+            const why = [
+              ...(unswapped.length > 0 ? [`whose body still carried Account A's anti-CSRF token in ${joinFields(unswapped)}`] : []),
+              ...(unsent.length > 0 ? [`sent without the anti-CSRF header the app's own request carried (${joinFields(unsent)})`] : []),
+            ];
+            tokenRefusals.push(`${at} (${status}), ${why.join(" and ")}`);
           }
-          if (!effect && status !== null && CONFLICT.has(status)) conflicts.push(`${endpointOf(w.method, w.url)} (${status})`);
+          if (!effect && status === null) noAnswers.push(at);
+          if (!effect && status !== null && CONFLICT.has(status)) conflicts.push(`${at} (${status})`);
+          // Refused another way while it carried a version the record as read doesn't show (so Run Hound could only
+          // send the app's own, stale by now): the refusal may be the version check, not a check of who sent it.
+          else if (!effect && status !== null && mayRefuseStale(status) && attempt.staleStamps) {
+            staleRefusals.push({ write: `${at} (${status})`, fields: attempt.staleStamps });
+          }
           // Accepted, and the record unchanged, but the field Run Hound set isn't one the app's own update sends: an app
           // with a strict schema ignores it, so nothing here shows an ownership check. A refusal (401, 403, 404) still can.
           if (!effect && w.addedField && status !== null && status >= 200 && status < 300) {
-            ignoredFields.push({ write: `${endpointOf(w.method, w.url)} (${status})`, field: w.field! });
+            ignoredFields.push({ write: `${at} (${status})`, field: w.field! });
           }
           const dropped = (w.credentials ?? []).filter((c) => !c.swapped).map((c) => c.param);
           if (!effect && who === "other" && (status === 401 || status === 403) && dropped.length > 0) {
-            credentialRefusals.push({ write: `${endpointOf(w.method, w.url)} (${status})`, params: dropped });
+            credentialRefusals.push({ write: `${at} (${status})`, params: dropped });
           }
           // Put the record back first, then write the finding up (rendering its evidence takes a while).
-          const back = await putBack(ctx, snap, lastPre, restoreWith, save, volatile, pinned);
+          let back = await putBack(ctx, snap, lastPre, restoreWith, save, volatile, pinned, restoreStamps);
           noteOnce(back.notes);
-          if (effect) findings.push(await finding(ctx, scenario, who, w, status, findings.length + 1, effect, snap.url, id));
+          if (effect) findings.push(await finding(ctx, scenario, who, attempt, status, findings.length + 1, effect, snap.url, id));
+          // A 404, or a 2xx that left the record unchanged, to a write that carried a version the record as read doesn't
+          // show: compared with the same write as Account A (compareAsOwner). Not when this attempt already can't pass
+          // (it changed something, or wasn't undone).
+          const quiet = status === 404 || (status !== null && status >= 200 && status < 300);
+          if (!effect && quiet && attempt.staleStamps && sideChanges.length === sideAt && !back.failed && !back.recreated) {
+            const cmp = await compareAsOwner(w, attempt, status!);
+            back = cmp.back;
+            // Account A's copy set the same field the app's own update doesn't send, and the app applied it: the field
+            // isn't one a strict schema ignores.
+            if (cmp.applied && w.addedField) {
+              const at2 = `${at} (${status})`;
+              const k = ignoredFields.findIndex((f) => f.write === at2);
+              if (k >= 0) ignoredFields.splice(k, 1);
+            }
+          }
           if (back.failed) {
             if (back.serverOnly) {
               // The record's own values are back; only fields the app sets on every save differ, so the next write
@@ -1272,7 +1591,7 @@ export const check: Check = {
           } else {
             const hit = lateHit(sent, later, lastPre, volatile);
             if (hit) {
-              const back = await putBack(ctx, snap, lastPre, restoreWith, save, volatile, pinned);
+              const back = await putBack(ctx, snap, lastPre, restoreWith, save, volatile, pinned, restoreStamps);
               notes.push(lateNote(who, hit.w, hit.status));
               noteOnce(back.notes);
               findings.push(await finding(ctx, scenario, who, hit.w, hit.status, findings.length + 1, hit.effect, snap.url, id));
@@ -1285,7 +1604,7 @@ export const check: Check = {
         // A write may already have been sent: put the test record back first, then say what may be left.
         const message = error instanceof Error ? error.message : String(error);
         const back = sentAny
-          ? await putBack(ctx, snap, lastPre, restoreWith, save, volatile, pinned).catch(() => PUT_BACK_NOTHING)
+          ? await putBack(ctx, snap, lastPre, restoreWith, save, volatile, pinned, restoreStamps).catch(() => PUT_BACK_NOTHING)
           : PUT_BACK_NOTHING;
         noteOnce(back.notes);
         throw new Error([message.replace(/\.?$/, "."), ...sideChanges, ...notes, INTERRUPTED_NOTE].join(" "));
@@ -1327,7 +1646,9 @@ export const check: Check = {
         // No write changed a value the test watches, but the record was saved while they were sent: never a pass.
         return skip(
           [
-            `Inconclusive: ${joinFields([...serverLeft])} of Account A's test record, which the app sets itself when the record is saved, changed while Run Hound sent ${tried.join(", ")} as ${WHO[who].words}, so it can't call this a pass: check Account A.`,
+            `Inconclusive: ${joinFields([...serverLeft])} of Account A's test record, which the app sets itself when the record is saved, changed while Run Hound sent ${tried.join(", ")} as ${WHO[who].words}${
+              compared.length > 0 ? ` and ${compared.join(", ")} as Account A to compare` : ""
+            }, so it can't call this a pass: check Account A.`,
             ...(unread ? [unread] : []),
             ...notes,
           ].join(" "),
@@ -1338,7 +1659,11 @@ export const check: Check = {
         // what refused it, so nothing here shows an ownership check. Never a pass.
         return skip(
           [
-            `Inconclusive: the app refused ${tokenRefusals.join("; ")}. Run Hound couldn't read a token of ${WHO[who].words}'s own to put there, so the refusal may be the app's CSRF check rather than a check that the record belongs to the sender, and Run Hound can't call this a pass.`,
+            `Inconclusive: the app refused ${tokenRefusals.join("; ")}. ${
+              who === "signed-out"
+                ? "A signed-out visitor has no token of its own to put there"
+                : `Run Hound couldn't match a token of ${WHO[who].words}'s own to the one Account A's request carried`
+            }, so the refusal may be the app's CSRF check rather than a check that the record belongs to the sender, and Run Hound can't call this a pass.`,
             ...(unread ? [unread] : []),
             ...notes,
           ].join(" "),
@@ -1350,6 +1675,42 @@ export const check: Check = {
         return skip(
           [
             `Inconclusive: the app answered ${conflicts.join(", ")}, a conflict with the test record's version (optimistic locking: a version the record as read doesn't show, or an If-Match) rather than a refusal of ${WHO[who].words}, and Account A's test record was unchanged, so Run Hound can't call this a pass.`,
+            ...(unread ? [unread] : []),
+            ...notes,
+          ].join(" "),
+        );
+      }
+      if (staleRefusals.length > 0) {
+        // The same, for an app that refuses a stale version with a validation error or an unhandled one: the write
+        // carried the version the app's own update sent, and the record as read doesn't show the current one.
+        const fields = [...new Set(staleRefusals.flatMap((s) => s.fields))];
+        return skip(
+          [
+            `Inconclusive: the app refused ${staleRefusals.map((s) => s.write).join(", ")}, which carried ${joinFields(fields)} as the app's own update had sent ${fields.length === 1 ? "it" : "them"}. Run Hound couldn't send the current value (the test record as read doesn't show ${fields.length === 1 ? "it" : "them"}, or never showed the value the app sent), so the refusal may be the app's version check (optimistic locking) rather than a refusal of ${WHO[who].words}. Account A's test record was unchanged, so Run Hound can't call this a pass.`,
+            ...(unread ? [unread] : []),
+            ...notes,
+          ].join(" "),
+        );
+      }
+      if (staleAccepted.length > 0) {
+        // The app answered 2xx and changed nothing while the write carried a version Run Hound couldn't refresh: the app
+        // may ignore a stale version that way (an update that matched no row). Never a pass.
+        const fields = [...new Set(staleAccepted.flatMap((s) => s.fields))];
+        const it = fields.length === 1 ? "it" : "them";
+        return skip(
+          [
+            `Inconclusive: the app answered ${staleAccepted.map((s) => s.write).join(", ")} to ${WHO[who].words} and left Account A's test record unchanged, but the write carried ${joinFields(fields)} as the app's own update had sent ${it}. Run Hound couldn't send the current value (the test record as read doesn't show ${it}, or never showed the value the app sent), so the app may have ignored the write for its stale version (an update that matched no row) rather than for who sent it, and Run Hound can't call this a pass.`,
+            ...(unread ? [unread] : []),
+            ...notes,
+          ].join(" "),
+        );
+      }
+      if (noAnswers.length > 0) {
+        // No answer came (the connection dropped, or the request timed out) and the record is unchanged: nothing shows
+        // that the app refused the sender. Never a pass.
+        return skip(
+          [
+            `Inconclusive: no answer came to ${noAnswers.join(", ")} from ${WHO[who].words} (the connection dropped or timed out), and Account A's test record was unchanged, so Run Hound can't call this a pass.`,
             ...(unread ? [unread] : []),
             ...notes,
           ].join(" "),
@@ -1548,6 +1909,12 @@ function replaySpec(o: SpecInput): string {
     `const METHOD = ${q(w.method)};`,
     ...(isDelete ? [] : [`const FIELD = ${q(w.field ?? "title")};`]),
     `const WATCH = ${q(o.watch)} as string[]; // fields that must read the same after the request`,
+    ...(w.headerTokens && w.headerTokens.length > 0
+      ? [
+          `// Your app's own request carried an anti-CSRF header (${w.headerTokens.map((t) => t.name).join(", ")}): add it to the request below,`,
+          `// with ${o.who === "other" ? "Account B's own token, read the way your app's scripts read it" : "a signed-out visitor's token if your app gives one"}, or the app may refuse it for that alone.`,
+        ]
+      : []),
     ``,
     `// Your app's sign-in request (a path on the login page's origin). Run Hound signed in through the login page, so it`,
     `// doesn't know this request: set it, and the body sessionFor sends, before running the test.`,
