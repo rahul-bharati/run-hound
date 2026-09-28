@@ -69,9 +69,14 @@ export default function AiBuiltAppsPage() {
           </>
         }
       >
+        {/* Fetched on intent (a hover, touch or focus), as the header's later hubs are: the header's brand and first
+            hubs already take 9 of the first viewport's 10 prefetch requests (DESIGN.md §5.2), and in view "#set-up"
+            would fetch this page again. */}
         <div className="flex flex-col gap-3 sm:flex-row">
-          <ButtonLink href="#set-up">{aiBuiltIntro.setUp}</ButtonLink>
-          <ButtonLink href={href("demo", "fernway")} variant="secondary">
+          <ButtonLink href="#set-up" prefetch="intent">
+            {aiBuiltIntro.setUp}
+          </ButtonLink>
+          <ButtonLink href={href("demo", "fernway")} variant="secondary" prefetch="intent">
             {aiBuiltIntro.seeFernway}
           </ButtonLink>
         </div>

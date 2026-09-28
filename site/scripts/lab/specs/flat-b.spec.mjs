@@ -191,32 +191,49 @@ describe("/demo/ (§3.12)", () => {
   });
 
   test("every GIF plays once (no looping extension in the bytes served) and has a still for reduced motion", async () => {
+    // A recording (components/demo/recording.tsx) paints its still first and names its GIF on its frame,
+    // data-recording; the GIF's <img> exists only once the frame is in view with motion allowed. So the recordings are
+    // found by that attribute, not by a GIF <img>, and under reduced motion each is scrolled into view: it must keep
+    // its still there, and the page must never request the GIF.
     const { context, page } = await newPage(browser, { reducedMotion: "reduce" });
+    const requests = recordRequests(page);
     await page.goto(`${base}/demo/`, { waitUntil: "load" });
+    const frames = page.locator("main [data-recording]");
+    for (let i = 0; i < (await frames.count()); i += 1) {
+      await frames.nth(i).scrollIntoViewIfNeeded();
+      await sleep(300);
+    }
+    await page.waitForFunction(() => [...document.querySelectorAll("main [data-recording] img")].every((img) => img.complete), null, { timeout: 10_000 });
     const gifs = await page.evaluate(() =>
-      [...document.querySelectorAll("main img")]
-        .filter((img) => /\.gif(\?|$)/.test(img.getAttribute("src") ?? ""))
-        .map((img) => ({
-          src: img.getAttribute("src"),
-          still: img.closest("picture")?.querySelector('source[media="(prefers-reduced-motion: reduce)"]')?.getAttribute("srcset") ?? null,
-          current: img.currentSrc,
-        })),
+      [...document.querySelectorAll("main [data-recording]")].map((frame) => {
+        const imgs = [...frame.querySelectorAll("img")];
+        const still = imgs.find((img) => img.alt.trim() !== "");
+        return {
+          src: frame.getAttribute("data-recording"),
+          still: still?.getAttribute("src") ?? null,
+          current: imgs.map((img) => img.currentSrc),
+        };
+      }),
     );
+    const gifRequests = requests.requests.filter((r) => /\.gif(\?|$)/.test(r.path)).map((r) => r.path);
     const bodies = [];
     for (const gif of gifs) {
       const response = await page.request.get(new URL(gif.src, base).href);
       bodies.push({ src: gif.src, status: response.status(), bytes: Buffer.from(await response.body()).toString("latin1") });
     }
     await context.close();
-    record("demo", "gifs", gifs);
+    record("demo", "gifs", { gifs, gifRequests });
     assert.equal(gifs.length, 2, "the double-submit and silent-failure recordings");
     for (const [i, body] of bodies.entries()) {
+      assert.match(body.src, /\.gif$/, "data-recording names the GIF");
       assert.equal(body.status, 200, body.src);
       assert.ok(body.bytes.startsWith("GIF8"), body.src);
       for (const loop of ["NETSCAPE2.0", "ANIMEXTS1.0"]) assert.ok(!body.bytes.includes(loop), `${body.src} loops (${loop})`);
       assert.ok(gifs[i].still, `${body.src} has no still for reduced motion`);
-      assert.doesNotMatch(gifs[i].current, /\.gif/, `reduced motion shows the still, not ${gifs[i].current}`);
+      assert.doesNotMatch(gifs[i].still, /\.gif/, `${body.src}: the still is not the GIF`);
+      for (const current of gifs[i].current) assert.doesNotMatch(current, /\.gif/, `reduced motion shows the still, not ${current}`);
     }
+    assert.deepEqual(gifRequests, [], "no GIF is requested under reduced motion");
   });
 });
 

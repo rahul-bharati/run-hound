@@ -52,15 +52,22 @@
   animation: site-header-solid 0s steps(1, end) both;
 }
 /* The live bar lays out in the page column (880 px at 1024, 1136 px from 1280) and needs nearly all of it (about
-   1,120 px from 1280 px). A picture of it inside that column would squeeze it, so from 1024 px the picture reaches
-   24 px into the page gutter on each side (72 px wide there), and the bar keeps a 12 px gutter inside the picture
-   (16 px in the phone-width specimen, the phone's). The lab compares each part's width with the live header's. */
+   1,120 px from 1280 px, more in a wider fallback font). A picture of it inside that column would squeeze it, so from
+   1024 px the picture reaches 24 px into the page gutter on each side (72 px wide there), and the bar keeps a 23 px
+   gutter inside the picture (the 24 px less the picture's 1 px border): its content box is the page column, the live
+   bar's own, never wider. With more room than the live bar, the picture would not shrink the parts the live bar
+   shrinks when its font runs wide (a machine without the web fonts in time, where Geist falls back to DejaVu Sans).
+   Below 1024 px the bar keeps a 12 px gutter (16 px in the phone-width specimen, the phone's). The lab compares each
+   part's width with the live header's. */
 .dz-header .site-header-bar {
   padding-inline: var(--space-3);
 }
 @media (width >= 64rem) {
   .dz-stage:not(.dz-stage-phone) {
     margin-inline: calc(-1 * var(--space-6));
+  }
+  .dz-stage:not(.dz-stage-phone) .site-header-bar {
+    padding-inline: calc(var(--space-6) - 1px);
   }
 }
 .dz-header[data-header-specimen="menu"] .site-header-bar,

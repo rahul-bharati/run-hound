@@ -14,6 +14,10 @@ import { motionAllowed } from "@/motion/use-motion-allowed";
  * stays hidden until it has loaded, so it plays once from its first frame and rests on the proof frame, which is the
  * still. Reduced motion, Save-Data and no JavaScript keep the still. The GIF is decorative (alt=""): the still under
  * it carries the alt text.
+ *
+ * The frame names its GIF in the served HTML, `data-recording` (the URL the overlay requests), though no <img> holds it
+ * until it plays: the lab finds the page's recordings by it and checks the bytes served there play once
+ * (scripts/lab/specs/flat-b.spec.mjs).
  */
 export function Recording({
   gif,
@@ -54,7 +58,7 @@ export function Recording({
   }, []);
 
   return (
-    <div ref={frame} className="relative">
+    <div ref={frame} className="relative" data-recording={gif.src}>
       <Image src={still} alt={alt} sizes={sizes} quality={90} placeholder="blur" className="block h-auto w-full" />
       {stage ? (
         <Image
