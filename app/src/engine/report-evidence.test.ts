@@ -8,7 +8,8 @@ import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MARK_DATA_URI } from "../core/brand.js";
-import type { Evidence, Finding, Report } from "../core/types.js";
+import { checkPageUrl } from "../core/links.js";
+import { CHECK_IDS, type Evidence, type Finding, type Report } from "../core/types.js";
 import { NOT_VISIBLE, renderHtml, renderMarkdown, writeReport } from "./report.js";
 
 const FRAME: Evidence = {
@@ -140,8 +141,13 @@ function localRefs(html: string): string[] {
     .map((m) => unescape(m[2] ?? m[3] ?? ""))
     .filter((v) => !v.startsWith("#"))
     // The embedded Run Hound mark (a fixed data URI from core/brand.ts) is not a file reference.
-    .filter((v) => v !== MARK_DATA_URI);
+    .filter((v) => v !== MARK_DATA_URI)
+    // Nor is a finding's link to its check's page on the public site (core/links.ts): exactly that URL, nothing else.
+    .filter((v) => !CHECK_PAGE_URLS.has(v));
 }
+
+/** The public check-page links a report may carry (core/links.ts), one per check id. */
+const CHECK_PAGE_URLS = new Set<string>(CHECK_IDS.map((id) => checkPageUrl(id)));
 
 /** True when the fact appears as <dt>label</dt><dd>value</dd> or as a table row with label and value cells. */
 function hasFactMarkup(html: string, label: string, value: string): boolean {

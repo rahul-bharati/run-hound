@@ -1,78 +1,37 @@
 @import "tailwindcss";
+@import "../styles/tokens.css";
 
-/* Hound palette with Signal type (Bricolage Grotesque, Geist, Geist Mono). Brand rules: docs/brand.md. */
-@theme {
-  /* "Hound" palette: blue-green near-black with a mint accent (see docs/brand.md). */
-  --color-bg: #0a1014;
-  --color-bg-deep: #070b0e;
-  --color-surface: #10171c;
-  --color-surface-2: #141d23;
-  --color-surface-3: #19242b;
-  --color-band: #0c1318;
-  --color-stage: #0e151a;
-  --color-line: #1e2a31;
-  --color-line-soft: #172127;
-  --color-line-strong: #2a3841;
-  --color-fg: #e9efec;
-  --color-muted: #a7b4b0;
-  --color-dim: #82918d;
-  --color-accent: #5ee6a3;
-  --color-accent-strong: #7dedb6;
-  --color-accent-ink: #04150d;
-  --color-pass: #5ee6a3;
-  --color-fail: #ff6b6b;
-  --color-warn: #f5b642;
-
-  /* Light "app under test" colours used inside product mockups. */
-  --color-paper: #f4f4f0;
-  --color-paper-ink: #1b1d21;
-  --color-paper-muted: #4a4e55;
-  --color-paper-line: #c9cac4;
-  --color-paper-fail: #b8392b;
-
-  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
-  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
-}
+/* Hound palette with Signal type (Bricolage Grotesque, Geist, Geist Mono). The numbers are in src/styles/tokens.css
+   (the only copy); brand rules in docs/brand.md. */
 
 @layer base {
   html {
-    color-scheme: dark;
-    background: var(--color-bg);
-    /* In-page anchors land below the sticky header. */
-    scroll-padding-top: 5.5rem;
+    background: var(--rh-bg);
+    /* In-page anchors land below the sticky bars: one offset (tokens.css), applied once, here. No smooth scrolling:
+       Chromium animates focus scrolling too, so a Tab stop could be off screen when focused (brief §5.4). */
+    scroll-padding-top: var(--anchor-offset);
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
   }
 
-  @media (prefers-reduced-motion: no-preference) {
-    html {
-      scroll-behavior: smooth;
-    }
-  }
-
   body {
-    background: var(--color-bg);
-    color: var(--color-fg);
+    background: var(--rh-bg);
+    color: var(--rh-fg);
     font-family: var(--font-sans);
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--rh-focus);
     outline-offset: 3px;
     border-radius: 6px;
   }
 
-  /* Headings and targets reached from a table of contents get the same breathing room as sections. */
-  :target {
-    scroll-margin-top: 5.5rem;
-  }
-
   ::selection {
-    background: var(--color-accent);
-    color: var(--color-accent-ink);
+    background: var(--rh-accent);
+    color: var(--rh-accent-ink);
   }
 
+  /* A safety net under reduced motion (brief §5.4, DESIGN.md §4.5); the motion tokens also collapse (tokens.css). */
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
@@ -95,7 +54,7 @@
 
   /* Long-form text for docs and legal pages. */
   .prose-night {
-    color: var(--color-muted);
+    color: var(--rh-muted);
     font-size: 1.0625rem;
     line-height: 1.75;
   }
@@ -105,31 +64,29 @@
   .prose-night h2 {
     margin-top: 2.4em;
     text-wrap: balance;
-    color: var(--color-fg);
+    color: var(--rh-fg);
     font-family: var(--font-display);
     font-size: 1.75rem;
     font-weight: 700;
     line-height: 1.2;
-    scroll-margin-top: 6rem;
   }
   .prose-night h3 {
     margin-top: 1.8em;
-    color: var(--color-fg);
+    color: var(--rh-fg);
     font-size: 1.125rem;
     font-weight: 600;
-    scroll-margin-top: 6rem;
   }
   .prose-night strong {
-    color: var(--color-fg);
+    color: var(--rh-fg);
     font-weight: 600;
   }
   .prose-night a {
-    color: var(--color-accent);
+    color: var(--rh-accent-text);
     text-decoration: underline;
     text-underline-offset: 3px;
   }
   .prose-night a:hover {
-    color: var(--color-accent-strong);
+    color: var(--rh-accent-strong);
   }
   .prose-night ul,
   .prose-night ol {
@@ -145,21 +102,21 @@
     margin-top: 0.45em;
   }
   .prose-night li::marker {
-    color: var(--color-dim);
+    color: var(--rh-dim);
   }
   .prose-night code {
     font-family: var(--font-mono);
     font-size: 0.9em;
-    color: var(--color-fg);
-    background: var(--color-surface);
-    border: 1px solid var(--color-line);
+    color: var(--rh-fg);
+    background: var(--rh-surface);
+    border: 1px solid var(--rh-line);
     border-radius: 6px;
     padding: 0.1em 0.4em;
   }
   .prose-night pre {
     overflow-x: auto;
-    background: var(--color-surface);
-    border: 1px solid var(--color-line);
+    background: var(--rh-surface);
+    border: 1px solid var(--rh-line);
     border-radius: 12px;
     padding: 1rem 1.25rem;
   }
@@ -181,11 +138,11 @@
   .prose-night td {
     text-align: left;
     padding: 0.7em 0.8em;
-    border-bottom: 1px solid var(--color-line);
+    border-bottom: 1px solid var(--rh-line);
     vertical-align: top;
   }
   .prose-night th {
-    color: var(--color-fg);
+    color: var(--rh-fg);
     font-weight: 600;
   }
 
@@ -199,7 +156,7 @@
   .prose-legal > h2 {
     margin-top: 2.2em;
     padding-top: 1.6em;
-    border-top: 1px solid var(--color-line-soft);
+    border-top: 1px solid var(--rh-line-soft);
     font-size: 1.625rem;
   }
   .prose-legal > h2:first-child {
@@ -209,7 +166,7 @@
   }
   .prose-legal .heading-anchor {
     margin-left: 0.4em;
-    color: var(--color-dim);
+    color: var(--rh-dim);
     text-decoration: none;
     opacity: 0;
     transition: opacity 150ms;
@@ -223,5 +180,1007 @@
     .prose-legal .heading-anchor {
       opacity: 1;
     }
+  }
+}
+
+/* ---- Primitives (src/components/primitives/, DESIGN.md §2.4-§2.5) ------------------------------------------------
+ * Component classes rather than repeated utility strings: the class attributes and the RSC payload that repeats them
+ * are most of a page's HTML weight (§2.9). Each primitive's markup names these; utilities added by a caller win.
+ * [data-demo-state] lets /_design/ show a hover, focus or active state at rest.
+ */
+@layer components {
+  /* Layout (§2.1). */
+  .container-page {
+    width: 100%;
+    max-width: var(--container-page);
+    margin-inline: auto;
+    padding-inline: var(--gutter);
+  }
+  .grid-page {
+    display: grid;
+    gap: var(--grid-gap);
+  }
+  @media (width >= 64rem) {
+    .grid-page {
+      grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
+    }
+  }
+
+  .band {
+    border-top: 1px solid var(--rh-line-soft);
+    padding-block: var(--band-pad);
+  }
+  .band-tinted {
+    background: var(--rh-band);
+  }
+  /* "02 ── 07" above a band's h2, from 640 px: the band's number in accent, a 40 px rule, the total in dim. */
+  .band-index {
+    display: none;
+  }
+  @media (width >= 40rem) {
+    .band-index {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      margin-bottom: var(--space-4);
+      font-family: var(--font-mono);
+      font-size: var(--text-mono);
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      line-height: 1.5;
+      color: var(--rh-dim);
+    }
+  }
+  .band-index-n {
+    color: var(--rh-accent-text);
+  }
+  .band-index-rule {
+    width: var(--band-index-rule);
+    height: 1px;
+    background: var(--rh-line-strong);
+  }
+
+  .section-heading {
+    max-width: var(--container-heading);
+    margin-bottom: var(--band-gap);
+  }
+  .section-title {
+    font-family: var(--font-display);
+    font-size: var(--rh-text-display-m);
+    font-weight: 700;
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    color: var(--rh-fg);
+    text-wrap: balance;
+  }
+  .section-intro {
+    margin-top: var(--space-4);
+    font-size: var(--rh-text-lead);
+    line-height: 1.6;
+    color: var(--rh-muted);
+    text-wrap: pretty;
+  }
+
+  /* Buttons: 48 px (44 in the header), radius 12, colour changes in 120 ms, :active scale 0.97. Body size (15 px on
+     phones, 16 from 640), so a button adds no size of its own to a page's type scale. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    min-height: 3rem;
+    padding-inline: var(--space-6);
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
+    font-size: var(--rh-text-body);
+    font-weight: 600;
+    line-height: 1.25;
+    white-space: nowrap;
+    transition-property: background-color, border-color, color, transform;
+    transition-duration: var(--transition-duration-micro);
+    transition-timing-function: var(--ease-move);
+  }
+  .btn-sm {
+    min-height: var(--spacing-target);
+    padding-inline: var(--space-4);
+  }
+  .btn-primary {
+    background: var(--rh-accent);
+    color: var(--rh-accent-ink);
+  }
+  .btn-primary:is(:hover, [data-demo-state="hover"]) {
+    background: var(--rh-accent-strong);
+  }
+  .btn-secondary {
+    border-color: var(--rh-line-strong);
+    color: var(--rh-fg);
+  }
+  .btn-secondary:is(:hover, [data-demo-state="hover"]) {
+    border-color: var(--rh-muted);
+    background: var(--rh-surface);
+  }
+  .btn:is(:active, [data-demo-state="active"]) {
+    transform: scale(0.97);
+  }
+  .btn > svg {
+    width: 1.25rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+  }
+
+  /* Arrows are drawn after the text, so they add no markup and are never read out; they nudge 2 px on hover and
+     focus (the nudge token is 0 under reduced motion). External links end in ↗. */
+  .has-arrow::after,
+  .has-ext::after {
+    display: inline-block;
+    transition: transform var(--transition-duration-micro) var(--ease-move);
+  }
+  .has-arrow::after {
+    content: "→";
+    content: "→" / "";
+  }
+  .has-ext::after {
+    content: "↗";
+    content: "↗" / "";
+  }
+  .has-arrow:is(:hover, :focus-visible, [data-demo-state="hover"], [data-demo-state="focus"])::after {
+    transform: translateX(var(--motion-nudge));
+  }
+  .has-ext:is(:hover, :focus-visible, [data-demo-state="hover"], [data-demo-state="focus"])::after {
+    transform: translate(var(--motion-nudge), calc(-1 * var(--motion-nudge)));
+  }
+  [data-demo-state="focus"] {
+    outline: 2px solid var(--rh-focus);
+    outline-offset: 3px;
+  }
+
+  /* Links: accent text. A link inside a sentence stays underlined (colour alone can't mark it: axe
+     link-in-text-block) and takes its sentence's size; a standalone arrow link is Small (§2.2: links), underlined on
+     hover and focus. A caller's text-* utility sets another step (utilities win over this layer). */
+  .text-link {
+    color: var(--rh-accent-text);
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
+    text-decoration-color: color-mix(in oklab, var(--rh-accent-text) 45%, transparent);
+    text-underline-offset: 3px;
+    transition: text-decoration-color var(--transition-duration-micro) var(--ease-move);
+  }
+  .text-link:is(:hover, :focus-visible, [data-demo-state="hover"]) {
+    text-decoration-color: currentColor;
+  }
+  .arrow-link {
+    color: var(--rh-accent-text);
+    font-size: var(--text-small);
+    font-weight: 500;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+  .arrow-link:is(:hover, :focus-visible, [data-demo-state="hover"]) {
+    text-decoration-line: underline;
+  }
+  .arrow-link::after,
+  .text-link.has-ext::after {
+    margin-inline-start: var(--space-1);
+  }
+  /* Inside a sentence the ↗ stays on the line of the link's last word: inline, so no line break comes before it (and
+     so it doesn't nudge: an inline box can't be transformed). */
+  .text-link.has-ext::after {
+    display: inline;
+  }
+
+  /* The release pill: 32 px, a line-strong outline, muted sans 13 px (the code step's size, so no size of its own);
+     only its arrow moves. On hover and focus its words turn fg over an accent underline (§4.3); they sit in their own
+     .pill-text span, because a flex container would draw the underline under the arrow too. */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 2rem;
+    padding-inline: var(--space-3);
+    border: 1px solid var(--rh-line-strong);
+    border-radius: var(--radius-pill);
+    font-size: var(--text-code);
+    line-height: 1.25;
+    color: var(--rh-muted);
+    transition: color var(--transition-duration-micro) var(--ease-move);
+  }
+  .pill:is(:hover, :focus-visible, [data-demo-state="hover"]) {
+    color: var(--rh-fg);
+  }
+  .pill:is(:hover, :focus-visible, [data-demo-state="hover"]) .pill-text {
+    text-decoration-line: underline;
+    text-decoration-color: var(--rh-accent);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+
+  /* Tags: 22 px, a line-strong outline, muted mono 11 px ("Preview", "Signed in", "Added in 0.6.0"). */
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    height: 1.375rem;
+    padding-inline: var(--space-2);
+    border: 1px solid var(--rh-line-strong);
+    border-radius: var(--radius-chip);
+    font-family: var(--font-mono);
+    font-size: var(--text-tag);
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    line-height: 1;
+    color: var(--rh-muted);
+    white-space: nowrap;
+  }
+
+  /* Cards (§2.4): surface, 1 px line, radius 16, padding 24 (20 on phones). Hover changes the border colour only, and
+     only where a pointer can hover. */
+  .card {
+    background: var(--rh-surface);
+    border: 1px solid var(--rh-line);
+    border-radius: var(--radius-card);
+    padding: 1.25rem;
+  }
+  @media (width >= 40rem) {
+    .card {
+      padding: var(--space-6);
+    }
+  }
+  .card-hover {
+    transition: border-color var(--transition-duration-micro) var(--ease-move);
+  }
+  .card-hover[data-demo-state="hover"] {
+    border-color: color-mix(in oklab, var(--rh-accent) 45%, transparent);
+  }
+  @media (hover: hover) {
+    .card-hover:hover {
+      border-color: color-mix(in oklab, var(--rh-accent) 45%, transparent);
+    }
+  }
+  /* A card reached by a link (every old /docs/#id sits on a hub card, §3.4) rings once: a 2 px accent ring that fades
+     out in --motion-ring (600 ms), leaving nothing at rest. Under reduced motion the token is 0, so there is no ring. */
+  .card:target {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+    animation: target-ring var(--motion-ring) var(--ease-exit) both;
+  }
+  @keyframes target-ring {
+    from {
+      outline-color: var(--rh-accent);
+    }
+    to {
+      outline-color: transparent;
+    }
+  }
+
+  /* A 40 px surface-2 tile around a 20 px muted icon. */
+  .icon-tile {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: var(--radius-control);
+    background: var(--rh-surface-2);
+    color: var(--rh-muted);
+  }
+
+  /* Ticks: the sprite's one tick (a 1.75 stroke: a small status mark, not a strong accent object). Accent marks a pass
+     or a check; dim marks a bullet. */
+  .tick {
+    flex-shrink: 0;
+    width: 1rem;
+    height: 1rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.75;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .tick-pass {
+    color: var(--rh-pass);
+  }
+  .tick-bullet {
+    color: var(--rh-dim);
+  }
+  .tick-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+  .tick-row > .tick {
+    margin-top: 0.25em;
+  }
+
+  /* The proof strip and the facts line: 14 px items with a dim tick, each a link; a 2 × 2 grid on phones. */
+  .fact-strip {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2) var(--space-4);
+    font-size: var(--text-small);
+    line-height: 1.5;
+  }
+  @media (width >= 40rem) {
+    .fact-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2) var(--space-6);
+    }
+  }
+  .fact {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+  .fact > .tick {
+    margin-top: 0.25rem;
+  }
+  .fact > a {
+    color: var(--rh-muted);
+    text-decoration-line: underline;
+    text-decoration-color: var(--rh-line-strong);
+    text-underline-offset: 3px;
+    transition-property: color, text-decoration-color;
+    transition-duration: var(--transition-duration-micro);
+  }
+  .fact > a:hover {
+    color: var(--rh-fg);
+    text-decoration-color: currentColor;
+  }
+
+  /* Copy buttons (Command, CodeBlock): a 44 px target. A failure is warn (§2.3). */
+  .copy-btn {
+    flex-shrink: 0;
+    min-width: var(--spacing-target);
+    min-height: var(--spacing-target);
+    padding-inline: var(--space-3);
+    border: 1px solid var(--rh-line);
+    border-radius: var(--radius-chip);
+    font-size: var(--text-small);
+    font-weight: 500;
+    color: var(--rh-muted);
+    white-space: nowrap;
+    transition-property: border-color, color;
+    transition-duration: var(--transition-duration-micro);
+    transition-timing-function: var(--ease-move);
+  }
+  .copy-btn:hover {
+    border-color: var(--rh-line-strong);
+    color: var(--rh-fg);
+  }
+  [data-state="failed"] .copy-btn {
+    border-color: color-mix(in oklab, var(--rh-warn) 50%, transparent);
+    color: var(--rh-warn);
+  }
+
+  /* Command: one scrolling line ($, the command, Copy). It scrolls inside itself, never the page; a fade marks the
+     right edge while more is hidden, and sits past the end once the line is scrolled to it. */
+  .command {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+    max-width: 100%;
+  }
+  .command-box {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    padding: var(--space-1);
+    background: var(--rh-bg-deep);
+    border: 1px solid var(--rh-line-strong);
+    border-radius: var(--radius-control);
+  }
+  .command-line {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    overflow-x: auto;
+    padding: var(--space-2) 0 var(--space-2) var(--space-3);
+    border-radius: var(--radius-chip);
+    font-family: var(--font-mono);
+    font-size: var(--text-code);
+    font-weight: 500;
+    line-height: 1.6;
+    white-space: nowrap;
+    color: var(--rh-fg);
+    scrollbar-width: none;
+  }
+  .command-line::-webkit-scrollbar {
+    display: none;
+  }
+  .command-line::after {
+    content: "";
+    position: sticky;
+    right: 0;
+    flex: none;
+    align-self: stretch;
+    width: var(--space-8);
+    margin-block: calc(-1 * var(--space-2));
+    background: linear-gradient(to right, transparent, var(--rh-bg-deep));
+    pointer-events: none;
+  }
+  .command-prompt {
+    color: var(--rh-dim);
+    transition: color var(--transition-duration-micro) var(--ease-move);
+  }
+  .command[data-state="copied"] .command-prompt {
+    color: var(--rh-accent);
+  }
+  .command-hint {
+    font-size: var(--text-small);
+    line-height: 1.5;
+    color: var(--rh-muted);
+  }
+
+  /* CodeBlock: a multi-line terminal block. The "$ " prompts are drawn here, so a selection of the commands (or the
+     reader's own) holds only the commands; output and comments are dim. */
+  .code-block {
+    min-width: 0;
+    background: var(--rh-bg-deep);
+    border: 1px solid var(--rh-line);
+    border-radius: var(--radius-control);
+  }
+  .code-block-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-1);
+    padding-inline-start: var(--space-4);
+    border-bottom: 1px solid var(--rh-line-soft);
+  }
+  .code-block-label {
+    font-family: var(--font-mono);
+    font-size: var(--text-mono);
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    color: var(--rh-dim);
+  }
+  .code-block-pre {
+    overflow-x: auto;
+    padding: var(--space-4);
+    font-family: var(--font-mono);
+    font-size: var(--text-code);
+    font-weight: 500;
+    line-height: 1.6;
+    color: var(--rh-fg);
+  }
+  .code-block-pre:focus-visible {
+    outline-offset: -2px;
+  }
+  .code-cmd::before {
+    content: "$ ";
+    content: "$ " / "";
+    color: var(--rh-dim);
+    transition: color var(--transition-duration-micro) var(--ease-move);
+  }
+  .code-block[data-state="copied"] .code-cmd::before {
+    color: var(--rh-accent);
+  }
+  .code-comment,
+  .code-out {
+    color: var(--rh-dim);
+  }
+
+  /* Breadcrumbs: one line; the middle items give way first (ellipsis), then the current page; Home never does. */
+  .breadcrumbs ol {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    font-size: var(--text-small);
+    line-height: 1.5rem;
+    white-space: nowrap;
+    color: var(--rh-muted);
+  }
+  .breadcrumbs li {
+    display: flex;
+    flex-shrink: 1000;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .breadcrumbs li:first-child {
+    flex-shrink: 0;
+  }
+  .breadcrumbs li:last-child {
+    flex-shrink: 1;
+  }
+  .crumb {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  a.crumb:hover {
+    color: var(--rh-fg);
+  }
+  .crumb[aria-current] {
+    color: var(--rh-fg);
+  }
+  .crumb-sep {
+    flex: none;
+    color: var(--rh-dim);
+  }
+
+  /* Figures: the media, then a caption that never moves. */
+  .figure {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-width: 0;
+  }
+  .figure-caption {
+    font-size: var(--text-small);
+    line-height: 1.5;
+    color: var(--rh-dim);
+  }
+
+  /* Callouts: a rule on the left, line-strong for a note, warn for a warning; muted Body text. */
+  .callout {
+    padding: var(--space-1) 0 var(--space-1) var(--space-4);
+    border-left: 2px solid var(--rh-line-strong);
+    font-size: var(--rh-text-body);
+    line-height: 1.6;
+    color: var(--rh-muted);
+  }
+  .callout[data-tone="warn"] {
+    border-left-color: var(--rh-warn);
+  }
+  .callout-title {
+    margin-bottom: var(--space-1);
+    font-weight: 600;
+    color: var(--rh-fg);
+  }
+
+  /* StepTrail: rings joined by a dotted line, down the page (a row from 640 px when asked). The marked ring is filled:
+     accent for where the reader is, fail for the step that decides a finding. Labels are Body and inherit it from the
+     list, so a caller's text-small on the StepTrail (the docs "On this page") reaches them; notes are Small. Each line
+     runs from its ring's bottom edge (6 px margin + 12 px ring) to the next ring's top edge (--step-gap + 6 px below
+     the step); the rings sit above it, filled with the page colour. */
+  .step-trail {
+    --step-gap: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--step-gap);
+    font-size: var(--rh-text-body);
+  }
+  .step {
+    position: relative;
+    display: grid;
+    grid-template-columns: 0.75rem minmax(0, 1fr);
+    column-gap: var(--space-3);
+    align-items: start;
+  }
+  .step-ring {
+    position: relative;
+    z-index: 1;
+    width: 0.75rem;
+    height: 0.75rem;
+    margin-top: 0.375rem;
+    border: 1.5px solid var(--rh-dim);
+    border-radius: 999px;
+    background: var(--rh-bg);
+  }
+  .step-ring[data-tone="accent"] {
+    border-color: var(--rh-accent);
+    background: var(--rh-accent);
+  }
+  .step-ring[data-tone="fail"] {
+    border-color: var(--rh-fail);
+    background: var(--rh-fail);
+  }
+  .step:not(:last-child)::before {
+    content: "";
+    position: absolute;
+    top: 1.125rem;
+    bottom: calc(-1 * var(--step-gap) - 0.375rem);
+    left: calc(0.375rem - 1px);
+    border-left: 2px dotted var(--rh-line-strong);
+  }
+  .step-label {
+    grid-column: 2;
+    color: var(--rh-fg);
+    line-height: 1.5rem;
+  }
+  a.step-label {
+    color: var(--rh-muted);
+  }
+  a.step-label:hover,
+  a.step-label[aria-current] {
+    color: var(--rh-fg);
+  }
+  .step-note {
+    grid-column: 2;
+    font-size: var(--text-small);
+    line-height: 1.5;
+    color: var(--rh-muted);
+  }
+  @media (width >= 40rem) {
+    .step-trail[data-orientation="row"] {
+      flex-direction: row;
+      gap: 0;
+    }
+    .step-trail[data-orientation="row"] > .step {
+      flex: 1;
+      grid-template-columns: minmax(0, 1fr);
+      row-gap: var(--space-2);
+      padding-inline-end: var(--space-4);
+    }
+    .step-trail[data-orientation="row"] > .step > * {
+      grid-column: 1;
+    }
+    .step-trail[data-orientation="row"] > .step:not(:last-child)::before {
+      top: calc(0.75rem - 1px);
+      right: 0;
+      bottom: auto;
+      left: 0.75rem;
+      border-top: 2px dotted var(--rh-line-strong);
+      border-left: 0;
+    }
+  }
+
+  /* The docs "On this page" marker (StepTrail marker, §3.5, §4.3): one filled accent ring above the column, which the
+     docs shell moves to the current section by setting --marker-y (px from the first ring) on .step-trail-wrap and
+     data-ready once it has; it moves by transform in 180 ms, instantly while focus is inside the list. Until then it is
+     hidden and the server's filled ring shows; after, the marker is the one filled ring. */
+  .step-trail-wrap {
+    position: relative;
+  }
+  .step-marker {
+    position: absolute;
+    top: 0.375rem;
+    left: 0;
+    z-index: 2;
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 999px;
+    background: var(--rh-accent);
+    transform: translateY(var(--marker-y, 0px));
+    transition: transform var(--transition-duration-short) var(--ease-move);
+  }
+  .step-trail-wrap:focus-within .step-marker {
+    transition: none;
+  }
+  .step-trail-wrap:not([data-ready]) .step-marker {
+    visibility: hidden;
+  }
+  .step-trail-wrap[data-ready] .step-ring[data-tone="accent"] {
+    border-color: var(--rh-dim);
+    background: var(--rh-bg);
+  }
+
+  /* FactsList: a dl in a surface panel, mono keys. */
+  .facts-list {
+    padding: var(--space-1) var(--space-4);
+    background: var(--rh-surface);
+    border: 1px solid var(--rh-line);
+    border-radius: var(--radius-card);
+  }
+  .facts-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-1) var(--space-4);
+    padding-block: var(--space-3);
+  }
+  .facts-row + .facts-row {
+    border-top: 1px solid var(--rh-line-soft);
+  }
+  .facts-list dt {
+    font-family: var(--font-mono);
+    font-size: var(--text-mono);
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    color: var(--rh-muted);
+  }
+  .facts-list dd {
+    font-size: var(--text-small);
+    color: var(--rh-fg);
+  }
+
+  /* PrevNext: two cards. */
+  .prev-next {
+    display: grid;
+    gap: var(--space-4);
+  }
+  @media (width >= 40rem) {
+    .prev-next {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .prev-next-link[data-dir="next"] {
+      grid-column: 2;
+      text-align: right;
+    }
+  }
+  .prev-next-link {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .prev-next-dir {
+    font-family: var(--font-mono);
+    font-size: var(--text-mono);
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    color: var(--rh-muted);
+  }
+  /* The page's name: a card title (Title). */
+  .prev-next-label {
+    font-size: var(--rh-text-title);
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--rh-fg);
+  }
+
+  .report-line {
+    font-size: var(--text-small);
+    line-height: 1.5;
+    color: var(--rh-muted);
+  }
+
+  /* Windows (§2.4): the hero run and the evidence frame. bg-deep, a line-strong frame, radius 16, a 28 px title bar
+     with three dots and a mono address pill (a 12 px mono label, so the window adds no size to the type scale). */
+  .win {
+    overflow: hidden;
+    background: var(--rh-bg-deep);
+    border: 1px solid var(--rh-line-strong);
+    border-radius: var(--radius-card);
+  }
+  .win-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: 1.75rem;
+    padding-inline: var(--space-3);
+    border-bottom: 1px solid var(--rh-line-strong);
+  }
+  .win-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    background: var(--rh-line-strong);
+  }
+  .win-address {
+    margin-inline: auto;
+    padding-inline: var(--space-2);
+    border-radius: var(--radius-pill);
+    background: var(--rh-surface);
+    font-family: var(--font-mono);
+    font-size: var(--text-mono);
+    line-height: 1.25rem;
+    color: var(--rh-muted);
+  }
+  .win-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  /* Header and footer links (§3.2, §3.3). The current hub: fg with a 2 px accent underline. */
+  .nav-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--spacing-target);
+    font-size: 0.9375rem;
+    color: var(--rh-muted);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 0.5rem;
+    transition: color var(--transition-duration-micro) var(--ease-move);
+  }
+  .nav-link:hover {
+    color: var(--rh-fg);
+  }
+  .nav-link[aria-current="page"] {
+    color: var(--rh-fg);
+    text-decoration-line: underline;
+    text-decoration-color: var(--rh-accent);
+  }
+  .footer-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--spacing-target-row);
+    font-size: var(--text-small);
+    color: var(--rh-muted);
+    transition: color var(--transition-duration-micro) var(--ease-move);
+  }
+  .footer-link:hover {
+    color: var(--rh-fg);
+  }
+
+  /* Prose for the docs (MDX) and legal pages, on the type scale (§2.2): Lead text in a 70 ch measure, h2 Display M,
+     h3 Title, inline code the code step, tables Body, so prose adds no size of its own. (The legacy .prose-night and
+     .prose-legal, 28 and 26 px h2s, stay until their pages move to this.) Links without a class of their own are
+     underlined accent text, like TextLink. */
+  .prose-doc {
+    max-width: var(--container-prose);
+    font-size: var(--rh-text-lead);
+    line-height: 1.6;
+    color: var(--rh-muted);
+  }
+  .prose-doc > * + * {
+    margin-top: var(--space-4);
+  }
+  .prose-doc > :first-child {
+    margin-top: 0;
+  }
+  .prose-doc h2 {
+    margin-top: var(--space-12);
+    font-family: var(--font-display);
+    font-size: var(--rh-text-display-m);
+    font-weight: 700;
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    color: var(--rh-fg);
+    text-wrap: balance;
+  }
+  .prose-doc h3 {
+    margin-top: var(--space-8);
+    font-size: var(--rh-text-title);
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--rh-fg);
+  }
+  .prose-doc strong {
+    font-weight: 600;
+    color: var(--rh-fg);
+  }
+  .prose-doc a:not([class]) {
+    color: var(--rh-accent-text);
+    text-decoration-line: underline;
+    text-decoration-thickness: 1px;
+    text-decoration-color: color-mix(in oklab, var(--rh-accent-text) 45%, transparent);
+    text-underline-offset: 3px;
+    transition: text-decoration-color var(--transition-duration-micro) var(--ease-move);
+  }
+  .prose-doc a:not([class]):hover {
+    text-decoration-color: currentColor;
+  }
+  .prose-doc :is(ul, ol) {
+    padding-inline-start: var(--space-6);
+  }
+  .prose-doc ul {
+    list-style: disc;
+  }
+  .prose-doc ol {
+    list-style: decimal;
+  }
+  .prose-doc li + li {
+    margin-top: var(--space-2);
+  }
+  .prose-doc li::marker {
+    color: var(--rh-dim);
+  }
+  .prose-doc :not(pre) > code {
+    padding: 0.1em 0.4em;
+    border: 1px solid var(--rh-line);
+    border-radius: var(--radius-chip);
+    background: var(--rh-surface);
+    font-family: var(--font-mono);
+    font-size: var(--text-code);
+    color: var(--rh-fg);
+    overflow-wrap: anywhere;
+  }
+  .prose-doc table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--rh-text-body);
+  }
+  .prose-doc :is(th, td) {
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--rh-line);
+    text-align: left;
+    vertical-align: top;
+  }
+  .prose-doc th {
+    font-weight: 600;
+    color: var(--rh-fg);
+  }
+
+  /* The page's SVG sprite (components/sprite.tsx): in the page, never shown. */
+  .sprite {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+  }
+
+  /* The line hound (§2.6): 8 uniform round-capped strokes in fg, the brow in accent. Its head group turns on the 404. */
+  .line-hound {
+    display: block;
+    overflow: visible;
+    color: var(--rh-fg);
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .line-hound-brow {
+    stroke: var(--rh-accent);
+  }
+  .line-hound-head {
+    transform-box: view-box;
+    transform-origin: 35% 85%;
+  }
+}
+
+/* ---- Motion rest states (DESIGN.md §4.4, §4.5) ----------------------------------------------------------------------
+ * The server renders every figure finished. The hero run and the 404 hold only their decorative late parts, only when
+ * scripting is on and motion is allowed, and a 0 s animation shows them at --motion-hold (3 s) if the motion island
+ * never arrives; the island sets data-ready on the root and takes over. Unlayered, so no utility can undo them.
+ */
+@media (scripting: enabled) and (prefers-reduced-motion: no-preference) {
+  [data-motion]:not([data-ready]) [data-beat="late"] {
+    opacity: 0;
+    animation: motion-fallback 0s var(--motion-hold) forwards;
+  }
+}
+@keyframes motion-fallback {
+  to {
+    opacity: 1;
+  }
+}
+
+/* Decorative parts that rest invisible (the hero's scan line and press ring, the check cards' traces, the evidence
+   trio's accent outline) do so by this class, never by an inline style (§4.1 rule 8). */
+.rest-hidden {
+  opacity: 0;
+}
+
+/* Print (§2.8): every figure finished, no chrome, and each link's address after its text. The site header and footer
+   are hidden as direct children of <body> (app/layout.tsx keeps them there). A part that rests invisible stays out of
+   the printout: visibility, not opacity, so the finished-state rule above can't bring back a scan line or a ring. */
+@media print {
+  [data-motion] *, [data-beat] {
+    opacity: 1 !important;
+    transform: none !important;
+    stroke-dasharray: none !important;
+  }
+  .rest-hidden {
+    visibility: hidden !important;
+  }
+  body > header, body > footer, [data-search-trigger] {
+    display: none !important;
+  }
+  main a[href]:not([href^="#"])::after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+  }
+}
+
+/* Forced colours (§2.8): strokes and progress in system colours; the current step or item underlined, not only
+   coloured. The hooks the figures use: data-progress on a progress bar's fill, data-lit on a lit pipeline node, and
+   win-pane on each pane of the run window. */
+@media (forced-colors: active) {
+  [data-motion] svg *, .line-hound, .line-hound-brow, .tick {
+    stroke: CanvasText;
+  }
+  [data-progress] {
+    background: Highlight;
+    forced-color-adjust: none;
+  }
+  [aria-current="step"], [aria-current="location"], [aria-current="page"], [data-lit] {
+    text-decoration-line: underline;
+  }
+  .step-ring[data-tone], .step-marker {
+    background: CanvasText;
+    border-color: CanvasText;
+  }
+  .step-marker {
+    forced-color-adjust: none;
+  }
+  /* Forced colours paint every outline in a system colour, transparent too, so the :target ring can't fade: the card
+     shows its finished state, no ring, as under reduced motion. */
+  .card:target {
+    animation: none;
+    outline-style: none;
+  }
+  .win, .win-pane {
+    border: 1px solid CanvasText;
   }
 }

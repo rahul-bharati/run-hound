@@ -1,6 +1,6 @@
 // The release this site describes. It must equal app/package.json: the release workflow (release-images.yml,
 // check-version) fails when they differ.
-const version = "0.5.0";
+const version = "0.6.0";
 // Download links (curl) are pinned to the release tag, so the compose file always names the images of this release.
 const tag = `v${version}`;
 const raw = (path: string) => `https://raw.githubusercontent.com/rahul-bharati/run-hound/${tag}/${path}`;
@@ -8,13 +8,11 @@ const github = "https://github.com/rahul-bharati/run-hound";
 const composeFileUrl = raw("run-hound.compose.yml");
 // Run Hound's image without a tag, i.e. `latest`: the main pull-and-run commands use it, so they never go stale.
 const imageName = "ghcr.io/rahul-bharati/run-hound";
-// The main way to run it (README.md "Quick start", docs/install.md): the web UI on http://localhost:4000, reports in ./runs, apps on
-// your machine reached as http://host.docker.internal:<port>. The image sets RUNHOUND_ALLOWED_HOSTS
-// (host.docker.internal,host.containers.internal) and RUNHOUND_CONFIG_DIR (/repo/app/runs/.config) itself, and its
-// entrypoint prints the address to open; -e still overrides either. Podman: the same with `podman`.
-const runFlags = `--rm --init -p 127.0.0.1:4000:4000 --add-host host.docker.internal:host-gateway`;
-const runsMount = `-v "$PWD/runs:/repo/app/runs"`;
 
+/**
+ * Facts about Run Hound and this site: the release, dates, addresses, images and contacts, and the few names every page
+ * shares. The words pages say live in src/content/, every shell command in src/content/commands.ts.
+ */
 export const site = {
   name: "Run Hound",
   tagline: "Your AI said it's done. Let's check.",
@@ -25,16 +23,16 @@ export const site = {
   // in 0.1.0, V1 (single page) in 0.2.0 to 0.4.0, V2 is in preview since 0.4.0, V3 is planned, and V4 is planned as
   // 1.0.0, with 0.9.9, right before it, the `npx run-hound` release. The open-source page and docs/roadmap.md list
   // them. `preview` is the stage in preview, named as the web UI and reports name it: test accounts and signed-in
-  // runs, access checks, mass assignment and deep links since 0.4.0 (docs/v2-spec.md), and the CSRF check (csrf)
-  // since 0.5.0.
+  // runs, access checks, mass assignment and deep links since 0.4.0 (docs/v2-spec.md), the CSRF check (csrf) since
+  // 0.5.0, and write-access, paywall-trust and two-step and sessionStorage sign-in since 0.6.0.
   preview: "V2 preview",
   previewName: "Signed-in runs and access checks",
   version,
   tag,
-  // The day `version` was released (its tag), as displayed and machine-readable: "Release 0.5.0 · 26 September 2026"
+  // The day `version` was released (its tag), as displayed and machine-readable: "Release 0.6.0 · 27 September 2026"
   // in the footer, dateModified in the structured data and lastModified in sitemap.xml. Update both with every release.
-  released: "26 September 2026",
-  releasedIso: "2026-09-26",
+  released: "27 September 2026",
+  releasedIso: "2026-09-27",
   // Label for the main call to action, used in the header, heroes and page footers.
   cta: "Try it locally",
   // `||`, not `??`: Docker passes an unset build arg as an empty string. A production build needs the real address
@@ -58,19 +56,13 @@ export const site = {
   fernwayGuide: `${github}/blob/main/fixtures/fernway/README.md`,
   kennelBugs: `${github}/blob/main/fixtures/kennel/bugs.json`,
   fernwayBugs: `${github}/blob/main/fixtures/fernway/bugs.json`,
+  // The commands that pull and run it are in src/content/commands.ts.
   imageName,
-  // Pull and run, on one line (for a copy button) and as a block of three.
-  dockerCommand: `docker pull ${imageName} && mkdir -p runs && docker run ${runFlags} ${runsMount} ${imageName}`,
-  runCommands: `docker pull ${imageName}
-mkdir -p runs                    # reports land in ./runs
-docker run ${runFlags} \\
-  ${runsMount} ${imageName}`,
-  // The test lab, the second way: downloads run-hound.compose.yml and starts Run Hound, Kennel, Fernway and the sample
-  // apps from the published images. Podman: `podman compose -f run-hound.compose.yml up`.
+  // The test lab, the second way: run-hound.compose.yml starts Run Hound, Kennel, Fernway and the sample apps from the
+  // published images (content/commands.ts downloads it).
   composeFileUrl,
   // The documented settings file for the compose file, from the same release.
   envFileUrl: raw(".env.example"),
-  labCommand: `curl -fsSLO ${composeFileUrl} && mkdir -p runs && docker compose -f run-hound.compose.yml up`,
   // Published on GHCR with every release, public (no login needed), for linux/amd64 and arm64: run-hound (web UI,
   // CLI and Chromium's headless shell: about 260 MB to download, 715 MB on disk), and the test apps run-hound-kennel,
   // run-hound-samples and run-hound-fernway. The four download about 0.5 GB together. In a clone,

@@ -680,6 +680,20 @@ describe("New project sheet (clean mode)", () => {
     }
   });
 
+  it("an instant arrow key press selects the next priority (selection follows focus, no key hold needed)", async () => {
+    const { page, close } = await openDashboard(ref.fw);
+    try {
+      const sheet = await openSheet(page);
+      await sheet.getByRole("radio", { name: "Medium" }).focus();
+      // No delay: Radix alone only selects while the key is still held when its deferred focus lands.
+      await page.keyboard.press("ArrowRight");
+      await expect.poll(() => sheet.getByRole("radio", { name: "High" }).getAttribute("aria-checked")).toBe("true");
+      await expect.poll(() => sheet.getByRole("radio", { name: "High" }).evaluate((el) => el === document.activeElement)).toBe(true);
+    } finally {
+      await close();
+    }
+  });
+
   it("every Radix control works from the keyboard; Create project saves, closes, toasts and lists the project (after reload too)", async () => {
     const { page, events, close } = await openDashboard(ref.fw);
     try {

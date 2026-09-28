@@ -1,7 +1,32 @@
 import { Circle } from "lucide-react";
 import { RadioGroup as RadioGroupPrimitive } from "radix-ui";
-import type { ComponentProps } from "react";
+import type { ComponentProps, FocusEvent } from "react";
 import { cn } from "@/lib/utils";
+
+/**
+ * When an arrow key was last pressed. Radix moves focus on arrow keys but selects only while the key is still held
+ * when its deferred focus lands, so an instant press (automation, some switch devices) would move focus without
+ * selecting. Selection follows focus in a WAI-ARIA radio group, so an item focused by an arrow key selects itself.
+ * Tabbing into a group never changes the answer.
+ */
+let lastArrowAt = -Infinity;
+if (typeof document !== "undefined") {
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key.startsWith("Arrow")) lastArrowAt = performance.now();
+    },
+    true,
+  );
+}
+const ARROW_FOCUS_MS = 500;
+
+function selectOnArrowFocus(event: FocusEvent<HTMLButtonElement>) {
+  const item = event.currentTarget;
+  if (performance.now() - lastArrowAt > ARROW_FOCUS_MS) return;
+  if (item.getAttribute("aria-checked") === "true" || item.disabled) return;
+  item.click();
+}
 
 /**
  * Radix RadioGroup (role="radiogroup"; arrow keys move between items). Name the group with aria-labelledby
@@ -12,10 +37,14 @@ export function RadioGroup({ className, ...props }: ComponentProps<typeof RadioG
 }
 
 /** One option: a 24x24 target (<button role="radio">) with a 20px circle inside. */
-export function RadioGroupItem({ className, ...props }: ComponentProps<typeof RadioGroupPrimitive.Item>) {
+export function RadioGroupItem({ className, onFocus, ...props }: ComponentProps<typeof RadioGroupPrimitive.Item>) {
   return (
     <RadioGroupPrimitive.Item
       data-slot="radio-group-item"
+      onFocus={(event) => {
+        onFocus?.(event);
+        if (!event.defaultPrevented) selectOnArrowFocus(event);
+      }}
       className={cn(
         "peer group/radio grid size-6 shrink-0 cursor-pointer place-items-center rounded-full",
         "outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",

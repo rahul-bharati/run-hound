@@ -1,4 +1,4 @@
-# Run Hound (0.5.0) plus the apps it is tested against, all local, built from this clone. See TESTING.md.
+# Run Hound (0.6.0) plus the apps it is tested against, all local, built from this clone. See TESTING.md.
 #
 #   cp .env.example .env        # optional: every setting has a default; edit ports and options there
 #   mkdir -p runs               # reports land in ./runs; create it first so the files belong to you
@@ -11,7 +11,7 @@
 #   http://kennel-clean:3000/book      Kennel in clean mode: every check should pass
 #   http://fernway:4110/               Fernway, a Lovable-style SaaS app, clean (also /signup /login /onboarding
 #                                      /app /app/settings /app/help): any confirmed finding is a false positive
-#   http://fernway-bugs:4110/          Fernway with its planted bugs (FERNWAY_BUGS, default: all, W01-W10 and V01-V05)
+#   http://fernway-bugs:4110/          Fernway with its planted bugs (FERNWAY_BUGS, default: all, W01-W10 and V01-V09)
 #   http://classic-post:4101/signup    sample: server-rendered form, no JavaScript
 #   http://spa-fetch:4102/             sample: vanilla-JS contact form, same-origin JSON API
 #   http://login:4103/                 sample: sign-in form (401 on wrong credentials)
@@ -25,7 +25,7 @@
 # must listen on all interfaces and accept that host name (TESTING.md has the settings for Vite and Next.js).
 # On Linux, `docker run --network host` (TESTING.md) is simpler: it tests http://localhost:<port> directly.
 #
-# The images built here get the published names and tags (ghcr.io/rahul-bharati/run-hound:0.5.0 and so on), because
+# The images built here get the published names and tags (ghcr.io/rahul-bharati/run-hound:0.6.0 and so on), because
 # the service definitions must stay identical to run-hound.compose.yml's (app/test/compose-files.test.ts checks that).
 # So after a local build, run-hound.compose.yml uses your build too until you run
 # `docker compose -f run-hound.compose.yml pull`, and never run `docker compose push` with this file.
@@ -34,7 +34,7 @@ x-sample: &sample
   build:
     context: .
     dockerfile: fixtures/samples/Dockerfile
-  image: ghcr.io/rahul-bharati/run-hound-samples:0.5.0
+  image: ghcr.io/rahul-bharati/run-hound-samples:0.6.0
   init: true
   # Healthy while the app answers on its PORT (any status below 500). The images have no curl, so Node's fetch probes.
   healthcheck: &app-healthcheck
@@ -49,7 +49,7 @@ services:
     build:
       context: .
       dockerfile: app/Dockerfile
-    image: ghcr.io/rahul-bharati/run-hound:0.5.0
+    image: ghcr.io/rahul-bharati/run-hound:0.6.0
     init: true
     environment:
       # Named hosts the safety gate accepts besides localhost and private addresses: the test apps and the names
@@ -130,7 +130,7 @@ services:
     build:
       context: .
       dockerfile: fixtures/kennel/Dockerfile
-    image: ghcr.io/rahul-bharati/run-hound-kennel:0.5.0
+    image: ghcr.io/rahul-bharati/run-hound-kennel:0.6.0
     init: true
     healthcheck: *app-healthcheck
     environment:
@@ -152,11 +152,13 @@ services:
     build:
       context: .
       dockerfile: fixtures/fernway/Dockerfile
-    image: ghcr.io/rahul-bharati/run-hound-fernway:0.5.0
+    image: ghcr.io/rahul-bharati/run-hound-fernway:0.6.0
     init: true
     healthcheck: *app-healthcheck
     environment:
       FERNWAY_BUGS: none
+      FERNWAY_LOGIN: ${FERNWAY_LOGIN:-one-step} # one-step | two-step (email, Continue, then the password)
+      FERNWAY_SESSION: ${FERNWAY_SESSION:-cookie} # cookie | session-storage (a bearer token in sessionStorage)
     ports:
       - "127.0.0.1:${FERNWAY_HOST_PORT:-4110}:4110"
 
@@ -164,6 +166,8 @@ services:
     <<: *fernway # same image as fernway, with its planted bugs
     environment:
       FERNWAY_BUGS: ${FERNWAY_BUGS:-all}
+      FERNWAY_LOGIN: ${FERNWAY_LOGIN:-one-step}
+      FERNWAY_SESSION: ${FERNWAY_SESSION:-cookie}
     ports:
       - "127.0.0.1:${FERNWAY_BUGS_HOST_PORT:-4111}:4110"
 

@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join, posix } from "node:path";
 import { BRAND, FONT_MONO, FONT_SANS, MARK_DATA_URI } from "../core/brand.js";
 import { formatDuration } from "../core/format.js";
+import { checkPageUrl } from "../core/links.js";
 import { flowStepWords } from "../ai/describe.js";
 import {
   AI_CHECK_IDS,
@@ -179,11 +180,11 @@ function notApproved(report: Report): { id: string; checkId: string; title: stri
     });
 }
 
-/** Checks that plan scenarios only on a signed-in run (docs/v2-spec.md "Checks" and "Checks (0.5.0)"). */
-const SIGNED_IN_CHECK_IDS: readonly CheckId[] = ["access-control", "mass-assignment", "csrf"];
+/** Checks that plan scenarios only on a signed-in run (docs/v2-spec.md "Checks", "Checks (0.5.0)" and "0.6.0"). */
+const SIGNED_IN_CHECK_IDS: readonly CheckId[] = ["access-control", "mass-assignment", "csrf", "write-access", "paywall-trust"];
 
-/** The V2 check added in 0.5.0 (csrf); every other V2 check shipped in 0.4.0. */
-const V2_050_CHECK_IDS: readonly CheckId[] = ["csrf"];
+/** The 0.x minor release that added each V2 check after 0.4.0; every other V2 check shipped in 0.4.0. */
+const V2_ADDED_IN_MINOR: Partial<Record<CheckId, number>> = { csrf: 5, "write-access": 6, "paywall-trust": 6 };
 
 /**
  * The minor version of Run Hound 0.x that wrote `report` (a pre-release counts as its release), or Infinity when the
@@ -196,10 +197,10 @@ function reportMinor(report: Report): number {
   return major > 0 ? Infinity : minor;
 }
 
-/** True when the Run Hound that wrote `report` had check `id`: the 0.4.0 V2 checks from 0.4, the 0.5.0 ones from 0.5. */
+/** True when the Run Hound that wrote `report` had check `id`: the 0.4.0 V2 checks from 0.4, later ones from their minor. */
 function hadCheck(report: Report, id: CheckId): boolean {
   if (!V2_CHECK_IDS.includes(id)) return true;
-  return reportMinor(report) >= (V2_050_CHECK_IDS.includes(id) ? 5 : 4);
+  return reportMinor(report) >= (V2_ADDED_IN_MINOR[id] ?? 4);
 }
 
 /**
@@ -230,6 +231,58 @@ function accountLabel(account: AccountRef): string {
   return oneLine(account.label) || (account.id === "b" ? "Account B" : "Account A");
 }
 
+/** An other-account scenario id, on any form and under any collision suffix (runner.ts needsOtherAccount). */
+const OTHER_ACCOUNT_SCENARIO = /(?:^|:)other-account(?:@form-\d+)?(?:#\d+)?$/;
+
+/** The step write-access records when it sends the app's DELETE as the scenario's identity (write-access.ts). */
+const SENT_DELETE = /^Sending DELETE\b.* as /;
+
+/**
+ * What the run used the other account for (0.6.0 close-out), from the other-account scenarios that ran (a result that
+ * isn't "skipped": a skipped one sent nothing as the other account), else, when none ran, from the approved ones:
+ * "read" for access-control's other-account scenario, "change" for write-access's, "read or change" for both; "read"
+ * when neither is named (a report written before 0.6.0). A write-access other-account scenario that ran and sent the
+ * app's DELETE as the other account (its step "Sending DELETE <url> as Account B", write-access.ts) makes it "change or
+ * delete" ("read, change or delete" with access-control's). The web UI's report view says the same (ui/client.ts).
+ */
+export function otherAccountUse(report: Report): string {
+  const checkOf = new Map((report.plan?.scenarios ?? []).map((s) => [s.id, s.checkId]));
+  const ran = new Set(
+    (report.results ?? [])
+      .filter((r) => r.status !== "skipped" && OTHER_ACCOUNT_SCENARIO.test(r.scenarioId))
+      .map((r) => r.checkId ?? checkOf.get(r.scenarioId)),
+  );
+  const approved = new Set(report.approved ?? []);
+  const used =
+    ran.size > 0
+      ? ran
+      : new Set((report.plan?.scenarios ?? []).filter((s) => approved.has(s.id) && OTHER_ACCOUNT_SCENARIO.test(s.id)).map((s) => s.checkId));
+  const reads = used.has("access-control");
+  const changes = used.has("write-access");
+  const deletes = (report.results ?? []).some(
+    (r) =>
+      r.status !== "skipped" &&
+      OTHER_ACCOUNT_SCENARIO.test(r.scenarioId) &&
+      (r.checkId ?? checkOf.get(r.scenarioId)) === "write-access" &&
+      (r.steps ?? []).some((st) => SENT_DELETE.test(st.label)),
+  );
+  const change = deletes ? "change or delete" : "change";
+  return reads && changes ? (deletes ? "read, change or delete" : "read or change") : changes ? change : "read";
+}
+
+/**
+ * The terminal's line after a signed-in run (cli.ts): "Signed in as Account A; Account B was used to check that it
+ * can't change Account A's data." (otherAccountUse), or "Signed in as Account A." when no other account was used. Null
+ * for a signed-out run. Not redacted here: the caller redacts it.
+ */
+export function signedInSentence(report: Report): string | null {
+  const { signedInAs, other } = reportAccounts(report);
+  if (!signedInAs) return null;
+  const self = accountLabel(signedInAs);
+  if (!other) return `Signed in as ${self}.`;
+  return `Signed in as ${self}; ${accountLabel(other)} was used to check that it can't ${otherAccountUse(report)} ${self}'s data.`;
+}
+
 /**
  * The report header's account lines, e.g. "Signed in as **Account A**" and "Other account: **Account B** (…)", in
  * Markdown; nothing for a signed-out run.
@@ -238,7 +291,7 @@ function accountsMarkdown(report: Report): string[] {
   const { signedInAs, other } = reportAccounts(report);
   if (!signedInAs) return [];
   const lines = [`- Signed in as **${accountLabel(signedInAs)}**`];
-  if (other) lines.push(`- Other account: **${accountLabel(other)}** (used to check that it can't read ${accountLabel(signedInAs)}'s data)`);
+  if (other) lines.push(`- Other account: **${accountLabel(other)}** (used to check that it can't ${otherAccountUse(report)} ${accountLabel(signedInAs)}'s data)`);
   return lines;
 }
 
@@ -247,7 +300,9 @@ function accountsHtml(report: Report): string {
   const { signedInAs, other } = reportAccounts(report);
   if (!signedInAs) return "";
   const self = esc(accountLabel(signedInAs));
-  const also = other ? `<span class="muted"> · other account <strong>${esc(accountLabel(other))}</strong>, used to check that it can't read ${self}'s data</span>` : "";
+  const also = other
+    ? `<span class="muted"> · other account <strong>${esc(accountLabel(other))}</strong>, used to check that it can't ${otherAccountUse(report)} ${self}'s data</span>`
+    : "";
   return `<p class="account">Signed in as <strong>${self}</strong>${also}</p>\n`;
 }
 
@@ -378,7 +433,10 @@ function scenarioCount(n: number): string {
   return `${n} ${n === 1 ? "scenario" : "scenarios"}`;
 }
 
-/** Markdown report: summary counts, findings by severity (meaning / impact / fix / evidence), passed checks, not-visible list. */
+/**
+ * Markdown report: summary counts, findings by severity (meaning / impact / fix / the check's page / evidence), passed
+ * checks, not-visible list.
+ */
 export function renderMarkdown(report: Report): string {
   const s = report.summary;
   const finished = finishedIn(report);
@@ -426,6 +484,8 @@ export function renderMarkdown(report: Report): string {
       if (places.length === 1) lines.push(`- Where: ${oneLine(places[0]!)}`);
       else if (places.length > 1) lines.push(`- Where (${places.length} places):`, ...places.map((p) => `  - ${oneLine(p)}`));
       lines.push(`- What it means: ${f.meaning}`, `- Impact: ${f.impact}`, `- Fix: ${f.fix}`);
+      const page = checkPage(f);
+      if (page) lines.push(`- About this check: ${page}`);
       if (f.ai) {
         lines.push(`- AI explanation (advisory, from ${oneLine(f.ai.model)}): ${oneLine(f.ai.summary)}`, `  - Ask your AI: ${oneLine(f.ai.askYourAi)}`);
       }
@@ -558,8 +618,28 @@ function findingHtml(f: Finding): string {
 <p class="meta">${findingGroupLabel(f) ? `${esc(findingGroupLabel(f)!)} · ` : ""}${f.scope ? `${esc(f.scope)} · ` : ""}${esc(f.checkId)} · <span class="sev">${esc(f.severity)}</span> · ${esc(f.confidence)}${places.length === 1 ? ` · ${esc(places[0]!)}` : ""}</p>
 ${places.length > 1 ? `<p class="where">Where (${places.length} places):</p><ul class="where">${places.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}
 <dl><dt>What it means</dt><dd>${esc(f.meaning)}</dd><dt>Impact</dt><dd>${esc(f.impact)}</dd><dt>Fix</dt><dd>${esc(f.fix)}</dd></dl>
+${checkLinkHtml(f)}
 ${aiExplanationHtml(f)}${spec}${figures}${details}
 </article>`;
+}
+
+/**
+ * The finding's check page on Run Hound's site (core/links.ts), built from the check id alone, so it carries no run data.
+ * Undefined for an id outside CHECK_IDS, which gets no link, as in the web UI (where a hand-edited report.json can carry
+ * one; the runner, this module's only caller, never passes one).
+ */
+function checkPage(f: Finding): string | undefined {
+  return CHECK_IDS.includes(f.checkId) ? checkPageUrl(f.checkId) : undefined;
+}
+
+/**
+ * "About the <id> check", opened in a new tab; rel="noreferrer" keeps the report's address out of the request. "" when
+ * the check has no page (checkPage).
+ */
+function checkLinkHtml(f: Finding): string {
+  const page = checkPage(f);
+  if (!page) return "";
+  return `<p class="check-link"><a href="${esc(page)}" target="_blank" rel="noopener noreferrer">About the ${esc(f.checkId)} check</a></p>`;
 }
 
 /** A finding's AI explanation, labelled advisory, after the built-in texts; "" when it has none. */
@@ -674,6 +754,7 @@ a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outli
 .finding dl { margin:.5rem 0 0; }
 .finding dt { font:600 .7rem/1.4 var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--dim); }
 dd { margin: 0 0 .5rem; overflow-wrap:anywhere; }
+p.check-link { margin:0 0 .5rem; font-size:.92rem; }
 pre, code { font-family: var(--mono); }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg-deep); border:1px solid var(--line); padding: .6rem; border-radius: 8px; font-size: .85rem; }
 summary { cursor:pointer; color:var(--accent); }

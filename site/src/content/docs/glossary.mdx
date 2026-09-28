@@ -1,0 +1,77 @@
+The words that are Run Hound's own, as its web UI, its reports and these docs use them. Each one is defined in a sentence or two, most with a link to the page that says more.
+
+## Runs and plans \{#runs\}
+
+### Check \{#check\}
+
+One kind of test, named by a stable id such as `double-submit`. Every built-in check has its own page under [the checks](/checks/). A check runs as one or more scenarios.
+
+### Plan \{#plan\}
+
+The list of scenarios Run Hound drafts from what it finds on your page. Nothing runs until you approve it. Scenarios that change existing data on purpose, and flows suggested by AI, start unticked. See the [quick start](/docs/quick-start/#approve-and-run).
+
+### Scenario \{#scenario\}
+
+One test in the plan: a check applied to a form, a control or the whole page. Double-clicking the submit button is one. Each has an id, which `--plan-only` prints and `--approve` takes. See [the flags of run](/docs/cli/#run-flags).
+
+### Golden path \{#golden-path\}
+
+What a real user does: fill in the form with valid values and send it. `console-network-errors` walks it and fails on any console error or failed request.
+
+### Danger path \{#danger-path\}
+
+What breaks things: a double click, a server error, invalid input sent past the browser's own checks. `double-submit`, `silent-failure` and `client-only-validation` walk danger paths.
+
+### Test record \{#test-record\}
+
+A record your app saves when a run sends a form successfully. A full run sends about 7 or 8 save requests a form. The values are obviously fake, and Run Hound never deletes them. See [test records](/docs/safety/#test-records).
+
+### Allowed hosts \{#allowed-hosts\}
+
+Host names listed in `RUNHOUND_ALLOWED_HOSTS`, which Run Hound may test besides `localhost` and private addresses. The image lists `host.docker.internal` and `host.containers.internal`. Nothing checks who owns a listed name. See [local targets only](/docs/safety/#local-only).
+
+## Findings and evidence \{#findings\}
+
+### Confirmed \{#confirmed\}
+
+A finding a real check decided: a request sent twice, an axe rule violation, a value missing after a reload. Only confirmed findings fail a run on the command line, with [exit code 1](/docs/cli/#exit-codes).
+
+### Advisory \{#advisory\}
+
+A finding that relies on judgement, such as a header result from a dev server. Findings from flows AI suggested are advisory too. Worth a look, but it never fails a run. See [confirmed and advisory](/docs/report/#confirmed-advisory).
+
+### Evidence frame \{#evidence-frame\}
+
+A screenshot Run Hound annotates. A header gives the page address, the time, the check and the step. Each element is boxed and labelled, with a caption and a panel of measured facts. See [findings](/docs/report/#findings). Secrets in its header, caption and facts are redacted, but the screenshot itself isn't.
+
+### Request card \{#request-card\}
+
+The request, response or script line that proves a finding. It is drawn as an image with the same header as a frame. The [double-submit](/checks/double-submit/) card, for one, shows two POST requests to `/api/bookings` from one double click, both answered 201.
+
+### Run folder \{#run-folder\}
+
+The folder one run leaves on your machine, `runs/<runId>/`. It holds the report as HTML, Markdown and JSON, the evidence, and a Playwright test for each finding. See [the run folder](/docs/report/#run-folder).
+
+## Signed-in runs \{#signed-in\}
+
+### Account A and B \{#account-a-and-b\}
+
+The two test accounts you own on your app. Run Hound signs in as A to test. B, and a visitor who isn't signed in, then try to read or change A's data. See [set up two test accounts](/docs/signed-in-runs/#set-up).
+
+### Write-side check \{#write-side-check\}
+
+A signed-in check that changes account A's data on purpose, then puts it back: `csrf`, `write-access` and `paywall-trust`. Each stays unticked until you tick it, and decides from a re-read as A. See [the write checks](/docs/signed-in-runs/#write-checks).
+
+## The test lab \{#test-lab\}
+
+### Kennel \{#kennel\}
+
+A pet-sitting booking page with planted bugs: one "Book a sitter" form with 9 fields. The test lab runs it twice, `kennel` with every bug on and `kennel-clean` without. See [the test lab](/docs/test-lab/#kennel).
+
+### Fernway \{#fernway\}
+
+A small SaaS app built the way AI app builders build apps, with a real sign-in and two accounts. The test lab runs it as `fernway`, which is clean, and `fernway-bugs`. See [Fernway](/docs/test-lab/#fernway).
+
+### Clean mode \{#clean-mode\}
+
+A test app run with no planted bug switched on, such as `KENNEL_BUGS=none`. It is well built on purpose. Every confirmed finding it gets is a false positive, or a real defect in the test app. See [the test lab](/docs/test-lab/#kennel).

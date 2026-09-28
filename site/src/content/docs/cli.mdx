@@ -1,0 +1,38 @@
+The command line runs the same checks as the web UI, so it fits in scripts and CI. `run` plans and runs one page. Its exit code is 0 with no confirmed finding, 1 with at least one, and 2 on an error.
+
+## Commands \{#commands\}
+
+In a container, each command follows the image name. From source, run them in `app/` as `pnpm exec tsx src/cli.ts <command>`.
+
+- `serve [--port 4000] [--host 127.0.0.1] [--runs-dir <dir>]`: the web UI and its API.
+- `run <url> [options]`: plan and run the checks on one page of your app, such as `http://localhost:5173/signup`.
+- `accounts status`, `accounts test [a|b]`, `accounts set a|b` and `accounts clear a|b`: the two test accounts of [signed-in runs](/docs/signed-in-runs/#command-line).
+- `ai status` and `ai test`: the [AI settings](/docs/ai/#command-line) in effect, and one small call to check the model answers.
+- `help` lists everything, and `--version` prints the release.
+
+## The flags of run \{#run-flags\}
+
+- `--approve all|default|<id,id>`: which scenarios to run. The default is the recommended ones.
+- `--plan-only`: print the plan and each scenario's id, then stop.
+- `--allow-destructive`: also run scenarios that may change or delete data.
+- `--headed`: open a visible browser window, from source on a machine with a display.
+- `--runs-dir <dir>`: where run folders go (default `./runs`).
+- `--json`: print the report, or the plan, as JSON on stdout. Progress and errors go to stderr.
+- `--as a|b`: sign in as test account A or B first, and run every check signed in.
+- `--ai` or `--no-ai`, with `--ai-provider`, `--ai-model`, `--ai-base-url` and `--ai-allow-remote`: the model for this run.
+
+## Exit codes \{#exit-codes\}
+
+- **0:** no confirmed findings. Advisory findings are reported but don't fail the run.
+- **1:** at least one confirmed finding.
+- **2:** an error. The target was refused or unreachable, or answered with an error page such as a 404. Or an option was wrong. `--ai` couldn't use the model, or `--as` named an account that isn't set up or can't sign in. A run in which nothing was tested also exits 2.
+
+`--plan-only` exits 0 without running anything.
+
+## In CI \{#ci\}
+
+The image runs one page and exits with the code above, so a confirmed finding fails the job. Start your app in the job, then:
+
+<Shell block="ciRun" label="One run, as a CI step" />
+
+`--approve all` approves every planned scenario; one that may change or delete data still runs only with `--allow-destructive`. Reports land in `./runs`: keep the folder as the job's artifact. For a machine-readable result, add `--json` and read the report from stdout.

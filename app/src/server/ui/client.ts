@@ -1,7 +1,17 @@
+import { checkPageUrl } from "../../core/links.js";
+import { CHECK_IDS } from "../../core/types.js";
+
+/**
+ * Each check's page on Run Hound's site, by check id (core/links.ts), as JSON: the client script's CHECK_PAGES object
+ * literal. "<" is escaped so the text can never close the inline <script>.
+ */
+const CHECK_PAGES_JSON = JSON.stringify(Object.fromEntries(CHECK_IDS.map((id) => [id, checkPageUrl(id)]))).replace(/</g, "\\u003c");
+
 /**
  * The UI's client script (inline in renderUi's document). Plain browser JavaScript kept as a string: it builds DOM with
  * textContent only (report text is never parsed as HTML; innerHTML is used for the static icon SVGs alone), routes by
- * URL hash and talks to the JSON API. Written without template literals so it can live in this String.raw block.
+ * URL hash and talks to the JSON API. Written without template literals so it can live in this String.raw block; its one
+ * interpolation is CHECK_PAGES_JSON, computed above from core/links.ts.
  */
 export const CLIENT = String.raw`
 (() => {
@@ -20,6 +30,8 @@ export const CLIENT = String.raw`
   const STATUS_TEXT = { pass: "Passed", fail: "Failed", error: "Errored", skipped: "Skipped", running: "Running", queued: "Queued" };
   const SEVERITY_TEXT = { critical: "Critical", high: "High", medium: "Medium", low: "Low" };
   const STOPPED_NOTE = "Stopped by you";
+  // Each check's page on Run Hound's site, by check id (core/links.ts).
+  const CHECK_PAGES = ${CHECK_PAGES_JSON};
 
   // ---------- small helpers ----------
 
@@ -850,11 +862,16 @@ export const CLIENT = String.raw`
       h("p", { class: "muted acct-intro", text: "Two accounts on your app, so Run Hound can test pages behind a sign-in: choose one under New Run → Sign in as. Run Hound signs in with them in its own browser and never shows a saved password again." }),
       h("p", { class: "acct-note" },
         h("b", { text: "Access checks: " }),
-        "signed in as Account A, Run Hound checks that Account B, and a visitor who isn't signed in, can't read Account A's data. The CSRF check (unticked by default) also checks that a page on another site can't change it: it changes Account A's own test data and puts it back. Use accounts you own, made for testing: never a real customer's. Runs create test records in Account A."),
+        "signed in as Account A, Run Hound checks that Account B, and a visitor who isn't signed in, can't read Account A's data. ",
+        h("b", { text: "Write-side checks" }),
+        " (unticked by default): ", h("code", { class: "mono", text: "write-access" }),
+        " checks that they can't change or delete it either, ", h("code", { class: "mono", text: "csrf" }),
+        " that a page on another site can't change it, and ", h("code", { class: "mono", text: "paywall-trust" }),
+        " that Account A can't get a paid plan without paying. They change Account A's data (only test records Run Hound creates in it, or its plan) and put it back. Use accounts you own, made for testing: never a real customer's. Runs create test records in Account A."),
       h("div", { class: "acct-grid" }, slots),
       h("div", { class: "option acct-isolated" }, isolated,
         h("label", { for: "acct-isolated" }, "A and B must not see each other's data",
-          h("span", { class: "desc", text: "Tick when they are different users, not teammates in one workspace. Run Hound only checks that Account B can't read Account A's data when this is ticked." })),
+          h("span", { class: "desc", text: "Tick when they are different users, not teammates in one workspace. Run Hound only checks that Account B can't read or change Account A's data when this is ticked." })),
         lockedIsolated ? h("span", { class: "locked", text: "Set by environment" }) : null),
       isolatedMsg,
       st.file ? h("p", { class: "note" }, "Saved to ", h("code", { class: "mono", text: st.file }), ", readable only by you.") : null);
@@ -1877,6 +1894,31 @@ export const CLIENT = String.raw`
     return h("div", { id: "report", class: "report" }, head, grid, reportExtras(report));
   }
 
+  /**
+   * What the run used the other account for (0.6.0 close-out), as the HTML and Markdown reports say it (report.ts
+   * otherAccountUse): from the other-account scenarios that ran (a result that isn't "skipped"), else the approved
+   * ones; "read" for access-control's other-account scenario, "change" for write-access's, "read or change" for both,
+   * "read" when neither is named (a report written before 0.6.0); "change or delete" ("read, change or delete") when a
+   * write-access other-account scenario that ran sent the app's DELETE as the other account ("Sending DELETE <url> as").
+   */
+  function otherAccountUse(report) {
+    const other = /(?:^|:)other-account(?:@form-\d+)?(?:#\d+)?$/;
+    const scenarios = (report.plan && report.plan.scenarios) || [];
+    const checkOf = new Map(scenarios.map((s) => [s.id, s.checkId]));
+    const ran = new Set((report.results || [])
+      .filter((r) => r.status !== "skipped" && other.test(r.scenarioId))
+      .map((r) => r.checkId || checkOf.get(r.scenarioId)));
+    const approved = new Set(report.approved || []);
+    const used = ran.size > 0 ? ran : new Set(scenarios.filter((s) => approved.has(s.id) && other.test(s.id)).map((s) => s.checkId));
+    const reads = used.has("access-control");
+    const changes = used.has("write-access");
+    const deletes = (report.results || []).some((r) => r.status !== "skipped" && other.test(r.scenarioId)
+      && (r.checkId || checkOf.get(r.scenarioId)) === "write-access"
+      && (r.steps || []).some((st) => /^Sending DELETE\b.* as /.test(String((st && st.label) || ""))));
+    const change = deletes ? "change or delete" : "change";
+    return reads && changes ? (deletes ? "read, change or delete" : "read or change") : changes ? change : "read";
+  }
+
   /** "Signed in as Account A · other account Account B, …" under the report's summary; null for a signed-out run. */
   function reportAccountLine(report) {
     const { self, other } = reportAccountsOf(report);
@@ -1884,7 +1926,7 @@ export const CLIENT = String.raw`
     return h("p", { class: "report-account" },
       h("span", { class: "dot", "aria-hidden": "true" }),
       h("span", {}, "Signed in as ", h("b", { text: accountName(self) }),
-        other ? h("span", { class: "muted" }, " · other account ", h("b", { text: accountName(other) }), ", used to check that it can't read " + accountName(self) + "'s data") : null));
+        other ? h("span", { class: "muted" }, " · other account ", h("b", { text: accountName(other) }), ", used to check that it can't " + otherAccountUse(report) + " " + accountName(self) + "'s data") : null));
   }
 
   function tagList(items) {
@@ -1946,7 +1988,7 @@ export const CLIENT = String.raw`
       parts.push(h("div", { class: "two" }, repro, keyFacts(f, r, steps, report)));
 
       if (f) {
-        parts.push(h("section", { class: "panel", "aria-labelledby": "why-h" }, h("h3", { id: "why-h" }, icon("shield"), "Why it matters"), h("p", { text: f.impact })));
+        parts.push(h("section", { class: "panel", "aria-labelledby": "why-h" }, h("h3", { id: "why-h" }, icon("shield"), "Why it matters"), h("p", { text: f.impact }), checkLink(f.checkId)));
         parts.push(h("section", { class: "panel", "aria-labelledby": "ask-h" },
           h("h3", { id: "ask-h" }, icon("sparkle"), h("span", { class: "grow", text: "What to ask your AI" }), copyButton("Copy", () => f.fix)),
           h("p", { class: "fg", text: f.fix })));
@@ -1956,6 +1998,17 @@ export const CLIENT = String.raw`
       fill(detail, ...parts);
     };
     draw();
+  }
+
+  /**
+   * "About the <id> check" under Why it matters: the check's page on Run Hound's site, in a new tab with no opener and
+   * no referrer (the link carries nothing from the run). Null for an id this version doesn't know (a hand-edited report).
+   */
+  function checkLink(checkId) {
+    if (!Object.prototype.hasOwnProperty.call(CHECK_PAGES, checkId)) return null;
+    return h("p", { class: "check-link" },
+      h("a", { href: CHECK_PAGES[checkId], target: "_blank", rel: "noopener noreferrer" },
+        icon("external"), "About the " + checkId + " check", h("span", { class: "visually-hidden", text: " (opens in a new tab)" })));
   }
 
   /** A model's explanation of a finding (0.3.0), after the built-in "What to ask your AI". Advisory only. */

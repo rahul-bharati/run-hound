@@ -368,6 +368,20 @@ describe("request(as, …): credential headers are the ones the app sent, never 
     expect(header(sent, "x-auth-token")).toBeUndefined();
   });
 
+  it("passes an anti-CSRF header the caller sends (it names no one: the session does), never another credential header", async () => {
+    // write-access (0.6.0 close-out) sends Account B's replay with B's own anti-CSRF token in the header the app's own
+    // update carried (Django's X-CSRFToken, axios' X-XSRF-TOKEN, Rails' X-CSRF-Token).
+    const ctx = await makeContext(`${headerApp.url}/quiet`, { sessions: { self: headerState("tok-self-4f2a", "cookie-self-91c3"), other: headerState("tok-other-7b1d", "cookie-other-2e8f") } });
+    for (const name of ["x-csrftoken", "X-XSRF-TOKEN", "x-csrf-token"]) {
+      await ctx.request("other", { method: "GET", url: `${headerApp.url}/api/echo`, headers: { [name]: "bcsrf3Zr8Wn1Pk6Qy52", "x-auth-token": "tok-self-4f2a", authorization: "Custom tok-self-4f2a" } });
+      const sent = lastRequest(headerApp.requests, "/api/echo");
+      expect(header(sent, name.toLowerCase())).toBe("bcsrf3Zr8Wn1Pk6Qy52");
+      expect(header(sent, "x-auth-token")).toBeUndefined();
+      expect(header(sent, "authorization")).toBeUndefined();
+      expect(header(sent, "cookie")).toContain("sess=cookie-other-2e8f");
+    }
+  });
+
   it("never turns stored values into headers the app didn't send", async () => {
     const ctx = await makeContext(`${headerApp.url}/quiet`, { sessions: { self: headerState("tok-self-4f2a", "cookie-self-91c3") } });
     const { page } = await ctx.openPage();

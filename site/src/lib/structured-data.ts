@@ -1,4 +1,7 @@
-import { socialImage } from "@/lib/metadata";
+import { builtInChecks } from "@/content/checks/data";
+import { route, routes, type RouteEntry, type RouteId } from "@/content/routes";
+import { pageTitle, socialImage } from "@/lib/metadata";
+import { breadcrumbTrail, lastModified } from "@/lib/nav";
 import { site } from "@/lib/site";
 
 /**
@@ -8,6 +11,10 @@ import { site } from "@/lib/site";
  * - home: graph(websiteNode(), maintainerNode(), softwareNode({ screenshots }), webPageNode({ path: "/", … }))
  * - an inner page: graph(webPageNode({ path, name, description }), breadcrumbNode([{ name: "Home", path: "/" },
  *   { name: "Docs", path }]), …), plus the page's own nodes (techArticleNode, itemListNode, faqNode, sourceCodeNode).
+ *
+ * A page registered in content/routes.ts gets its own nodes from the registry instead: routeGraph(id, …extra) builds
+ * its WebPage, BreadcrumbList and TechArticle (with the maintainer as author) from the route's schema, so a page adds
+ * only what is its own (the FAQ's questions, the checks' ItemList, the home page's site, maintainer and app).
  *
  * The site, its maintainer and the app are defined on the home page under fixed ids (`ids`); other pages refer to them
  * by id instead of repeating them. The one exception is the maintainer, a small node that /docs/ and /how-it-works/
@@ -122,7 +129,7 @@ export function softwareNode({ screenshots = [] }: { screenshots?: readonly Scre
     // The day this version was released (its tag).
     dateModified: site.releasedIso,
     releaseNotes: site.changelog,
-    installUrl: absoluteUrl("/docs/#quick-start"),
+    installUrl: absoluteUrl(installPath()),
     license: site.licenseUrl,
     isAccessibleForFree: true,
     offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
@@ -136,7 +143,7 @@ export function softwareNode({ screenshots = [] }: { screenshots?: readonly Scre
       "Finds up to 5 forms on one page of an app on your machine, forms behind up to 3 dialog or sheet buttons and up to 40 controls outside the forms, including Radix and shadcn/ui, Headless UI, cmdk and MUI widgets",
       "Plans golden-path and danger-path scenarios that you approve before anything runs",
       "Accessibility, feature and security checks in a real browser, with Playwright, axe-core and captured traffic",
-      `Signed-in runs with two test accounts: access-control, mass-assignment and CSRF checks, plus deep-link checks signed in or not (${site.preview})`,
+      `Signed-in runs with two test accounts, two-step and sessionStorage sign-in included: access-control, mass-assignment, deep-links, and the write-side csrf, write-access and paywall-trust checks (${site.preview})`,
       "Evidence for every finding: annotated screenshots, GIFs or request and response cards",
       "A generated Playwright test for every finding, and reports in HTML, Markdown and JSON",
       "A local web UI and a CLI for CI (exit code 0, 1 or 2)",
@@ -325,4 +332,67 @@ export function graph(...nodes: JsonLdNode[]): { "@context": "https://schema.org
     }
   }
   return { "@context": "https://schema.org", "@graph": merged };
+}
+
+/** A registered route's id and path: what the derivations below need to know about pages that may not exist yet. */
+type Registered = { readonly id: string; readonly path: string };
+
+/**
+ * Where the quick start is: /docs/quick-start/ once that page is registered (content/routes/docs.ts), today's
+ * /docs/#quick-start section before. The home page's installUrl follows it by itself.
+ */
+export function installPath(registry: readonly Registered[] = routes): string {
+  return registry.find((r) => r.id === "docs-quick-start")?.path ?? "/docs/#quick-start";
+}
+
+/**
+ * The built-in checks on /checks/, in page order, as its ItemList: each check's own page once it is registered
+ * (content/routes/checks.ts), its card on the hub before. No descriptions: the block ships twice (the script and the
+ * RSC payload).
+ */
+export function checksItemListNode(registry: readonly Registered[] = routes): JsonLdNode {
+  const pageOf = (id: string) => registry.find((r) => r.id === `check-${id}`)?.path;
+  return itemListNode({
+    path: route("checks").path,
+    name: `Built-in checks in ${site.name} ${site.version}`,
+    items: builtInChecks.map((c) => ({ name: `${c.name} (${c.id})`, url: pageOf(c.id) ?? `/checks/#${c.id}` })),
+  });
+}
+
+/**
+ * A registered page's own nodes, from its route (content/routes.ts): the page node (its type, its title as the browser
+ * shows it, dateModified when the page shows its date), its BreadcrumbList (every page but the home page), and a
+ * TechArticle when the route's schema has one, dated like the page, with the maintainer in full as its author (search
+ * engines don't follow an @id to another page).
+ */
+export function routeNodes(id: RouteId): JsonLdNode[] {
+  const r: RouteEntry = route(id);
+  const nodes: JsonLdNode[] = [
+    webPageNode({
+      path: r.path,
+      name: pageTitle(r),
+      description: r.description,
+      type: r.schema.type,
+      ...(r.schema.dated ? { dateModified: lastModified(r) } : {}),
+    }),
+  ];
+  if (r.path !== "/") nodes.push(breadcrumbNode(breadcrumbTrail(id)));
+  if (r.schema.article) {
+    nodes.push(
+      techArticleNode({
+        path: r.path,
+        headline: r.schema.article.headline,
+        description: r.description,
+        dateModified: lastModified(r),
+        dependencies: r.schema.article.dependencies,
+      }),
+      maintainerNode(),
+    );
+  }
+  return nodes;
+}
+
+/** A registered page's structured data: its own nodes (routeNodes) and what only the page knows, in one graph. */
+export function routeGraph(id: RouteId, ...extra: JsonLdNode[]) {
+  return graph(...routeNodes(id), ...extra);
 }

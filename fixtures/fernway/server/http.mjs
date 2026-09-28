@@ -18,6 +18,8 @@
  * @property {URLSearchParams} query
  * @property {Record<string, unknown>} body  Parsed JSON object for POST/PUT/PATCH/DELETE ({} when empty); {} for GET.
  * @property {Record<string, string>} cookies
+ * @property {string | null} bearer  The token of an "Authorization: Bearer <token>" header, or null. It is the session
+ *   only in FERNWAY_SESSION=session-storage mode (ctx.sessionOf).
  * @property {string | null} idempotencyKey  The Idempotency-Key header (trimmed), or null.
  */
 

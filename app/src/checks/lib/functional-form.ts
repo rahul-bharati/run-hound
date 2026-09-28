@@ -726,6 +726,30 @@ export async function settle(page: Page, timeoutMs = 5000): Promise<void> {
 }
 
 /**
+ * Waits until the page has sent nothing new and every request it sent has an answer (or failed) for `quietMs`, at most
+ * `timeoutMs`; an event stream never counts as in flight. settle() can't do this once the page has loaded: Playwright's
+ * "networkidle" fires once per load and stays fired, so a later waitForLoadState("networkidle") returns at once, while
+ * the page may still be about to send what follows its save (an update or delete once the create has answered).
+ */
+export async function waitForQuiet(capture: Capture, quietMs = 500, timeoutMs = 5_000): Promise<void> {
+  const end = Date.now() + timeoutMs;
+  let seen = -1;
+  let quietSince = Date.now();
+  for (;;) {
+    const now = Date.now();
+    const busy = capture.requests.some((r) => r.status === null && r.failure === null && r.resourceType !== "eventsource");
+    if (busy || capture.requests.length !== seen) {
+      seen = capture.requests.length;
+      quietSince = now;
+    } else if (now - quietSince >= quietMs) {
+      return;
+    }
+    if (now >= end) return;
+    await sleep(50);
+  }
+}
+
+/**
  * How long after a submit click a create request may take to show up. The click resolves before the page's
  * fetch() reaches the capture (the request event arrives asynchronously), and later still on a busy machine.
  */

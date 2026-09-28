@@ -1,6 +1,5 @@
-import Link from "next/link";
-import { LegalDoc, LegalHeading, type LegalTocItem, MailLink } from "@/components/legal/legal";
-import { legalPages } from "@/components/legal/pages";
+import { LegalDoc, LegalHeading, LegalLink, type LegalTocItem, MailLink } from "@/components/legal/legal";
+import { legalPages } from "@/content/legal";
 import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
@@ -30,7 +29,7 @@ export default function AcceptableUsePage() {
       toc={toc}
     >
       <p>
-        This policy is part of our <Link href="/terms">Terms of use</Link>. {site.name} is a public open-source preview
+        This policy is part of our <LegalLink to="terms">Terms of use</LegalLink>. {site.name} is a public open-source preview
         ({site.version}); the safeguards below describe how it is designed to work, and the ones marked planned arrive
         with later versions.
       </p>
@@ -103,7 +102,7 @@ export default function AcceptableUsePage() {
       <p>
         If you believe someone is using {site.name} against a system without permission, email{" "}
         <MailLink address={site.contactEmail} /> with what you observed and when. For a vulnerability in {site.name}{" "}
-        itself, see our <Link href="/security">Security policy</Link>.
+        itself, see our <LegalLink to="security">Security policy</LegalLink>.
       </p>
 
       <LegalHeading id="changes">Changes</LegalHeading>

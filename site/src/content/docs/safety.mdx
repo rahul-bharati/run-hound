@@ -1,0 +1,32 @@
+Run Hound tests only apps on your own machine or private network. Scenarios that change existing data on purpose stay off until you tick them. Signed in, some scenarios ticked by default can change account A. It hides secrets in everything it writes, but leaves test records in your app.
+
+## Local targets only \{#local-only\}
+
+- Run Hound tests `localhost`, loopback, private network addresses and the host names listed in `RUNHOUND_ALLOWED_HOSTS`. Public sites are refused, and so is `0.0.0.0`.
+- `RUNHOUND_ALLOWED_HOSTS` skips the address check with **no ownership check**. List only host names you own.
+- The browser is pinned to the address the safety check approved, and is stopped if the page navigates somewhere else.
+- A test account's sign-in page must pass the same check as a target.
+- The web UI answers only to loopback names and addresses, the host of `RUNHOUND_PUBLIC_URL` and the address given to `serve --host`. Add others with `RUNHOUND_SERVER_HOSTS`. Don't expose it to your network: anyone who can reach it can start runs.
+
+## What it may change \{#what-it-changes\}
+
+- Scenarios that could change or delete existing data, such as clicking a "Delete" button, are off by default. Pass `--allow-destructive` or tick the option in the web UI to turn them on.
+- A signed-in run never signs out and never submits a form that sets a password, even then.
+- `mass-assignment`, `csrf`, `write-access` and `paywall-trust` change account A's data on purpose, so they are unticked until you tick them. `mass-assignment` changes one of A's records. `csrf` and `write-access` change only the test record they just created, never one A already had. `paywall-trust` may change A's plan and nothing else.
+- They put back what they changed and say in the report what they couldn't. A stop or the time limit can end a scenario before its put-back: the report then asks you to check account A.
+- Signed in, some scenarios ticked by default can change account A too, and nothing puts it back. On a form that shows A's own email, such as a profile form, `axe-states` and `pii-leak` save a test address over it. Untick them there.
+- `deep-links` opens the app's own success pages, so a page that grants a plan when it loads moves A to it. `page-controls` and `dead-control` click a plan button such as "Switch to Free". Use a test account whose plan you can reset.
+
+## Secrets and screenshots \{#secrets\}
+
+- Test accounts' passwords, sessions and usernames are hidden in everything a run writes. See [Signed-in runs](/docs/signed-in-runs/#secrets).
+- Reports redact text that looks like a secret, but screenshots can't be redacted. A page that shows a secret shows it in the screenshots too.
+- With AI on, only what [Optional AI](/docs/ai/#what-is-sent) lists goes to the model you set up. A remote endpoint needs your consent first.
+
+## Test records it creates \{#test-records\}
+
+A full run sends each form successfully several times, about 7 or 8 save requests a form. Each one can create a record in your app. The values are obviously fake: emails at `example.test` and a run token in the text. The report says how many save requests your app accepted, and on a signed-in run which account they belong to.
+
+**Run Hound never deletes them. Point it at a development database you can throw away.**
+
+See also the [acceptable use policy](/acceptable-use/) and the [security and disclosure policy](/security/).

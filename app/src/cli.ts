@@ -32,7 +32,7 @@ import { parseArgs } from "node:util";
 import { serve } from "@hono/node-server";
 import { redactSecrets } from "./engine/redact.js";
 import { formatDuration } from "./core/format.js";
-import { findingCounts, finishedIn, testDataSentence } from "./engine/report.js";
+import { findingCounts, finishedIn, signedInSentence, testDataSentence } from "./engine/report.js";
 import { canShowBrowser, discoverAndPlan, NO_DISPLAY_MESSAGE, NothingToRunError, planWarnings, RUN_HOUND_VERSION, runPlan } from "./engine/runner.js";
 import { planSummary } from "./engine/plan.js";
 import { exitQuietlyOnClosedPipe } from "./engine/stdio.js";
@@ -320,11 +320,9 @@ async function runCommand(args: string[]): Promise<number> {
   } else {
     const s = report.summary;
     write(`${finishedIn(report) ?? "Finished"}.\n`);
-    const signedInAs = report.accounts?.signedInAs;
-    if (signedInAs) {
-      const other = report.accounts?.other ? `; ${report.accounts.other.label} was used for the access checks` : "";
-      write(`${redactSecrets(`Signed in as ${signedInAs.label}${other}`)}.\n`);
-    }
+    // "Signed in as A; B was used to check that it can't change A's data." (what B was used for, as the reports say it).
+    const signedIn = signedInSentence(report);
+    if (signedIn) write(`${redactSecrets(signedIn)}\n`);
     for (const g of report.groups) {
       write(
         `  ${g.label}: ${g.passed} passed, ${g.failed} failed, ${g.errored} errored, ${g.skipped} skipped; ${count(g.findings, "finding")}; ${formatDuration(g.durationMs)}\n`,

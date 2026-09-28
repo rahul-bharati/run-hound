@@ -12,6 +12,7 @@ import {
   type AccountRef,
   type Check,
   type CheckGroup,
+  type CheckId,
   type CheckResult,
   type DiscoveredForm,
   type DiscoveredPage,
@@ -20,11 +21,17 @@ import {
   type Report,
   type Scenario,
 } from "../core/types.js";
-import { accountLabel, samePage, signIn, SignInError, type SessionState } from "./auth.js";
-import { BROWSER_LOCALE, createCheckContext, createCredentialHeaders, type CredentialHeaders } from "./context.js";
+import { accountLabel, firstStepForm, samePage, signIn, SignInError, type SessionState } from "./auth.js";
+import {
+  BROWSER_LOCALE,
+  createCheckContext,
+  createCredentialHeaders,
+  seedSessionStorage,
+  type CredentialHeaders,
+  type SessionStorageItems,
+} from "./context.js";
 import { discoverPage, holdSocketWrites } from "./discover.js";
 import {
-  cleanErrorMessage,
   containerLocalhostHint,
   explainNavigationError,
   explainNoForm,
@@ -34,7 +41,7 @@ import {
   TargetNotAllowedError,
   TargetUnreachableError,
 } from "./errors.js";
-import { guardContext, guardSummary, rememberCredentials } from "./guard.js";
+import { guardContext, guardSummary, rememberCredentials, type NavigationGuard } from "./guard.js";
 import { changesCredentials, credentialFormNote, NEVER_SUBMITS } from "../checks/lib/functional-form.js";
 import { buildPlan, formOfScenario } from "./plan.js";
 import { redactAccountSecrets, redactDeep, redactSecrets, registerAccountUsernames, registerSecretLiterals } from "./redact.js";
@@ -48,8 +55,9 @@ import { suggestScenarios } from "../ai/suggest.js";
 export interface RunOptions {
   /**
    * Stops the run when aborted: the scenario in progress is abandoned (its browser context closed, status "skipped",
-   * notes "Stopped by you"), remaining approved scenarios are "skipped" with the same note, and the report is still
-   * written with stopped: true. runPlan resolves normally; it does not throw on abort.
+   * notes starting "Stopped by you", then where its page went if it left the target and what to check if the check
+   * may have changed something), remaining approved scenarios are "skipped" with "Stopped by you", and the report is
+   * still written with stopped: true. runPlan resolves normally; it does not throw on abort.
    */
   signal?: AbortSignal;
   /** Defaults to the registered V0 checks. */
@@ -409,8 +417,13 @@ const SHOWS_SIGN_IN_FORM = String.raw`(() => {
 /**
  * True when a page opened with the account's session landed on the sign-in page anyway: its URL is the account's
  * sign-in page (unless that is the page asked for), it was sent to a sign-in-looking path that shows a password
- * field, or it shows a sign-in form in place (an app that renders the form at the page's own address when the session
- * didn't reach it).
+ * field or (0.6.0) the first step of a two-step sign-in (an identifier field and "Continue", as auth.ts firstStepForm
+ * finds it), or it shows a sign-in form in place (an app that renders the form at the page's own address when the
+ * session didn't reach it).
+ *
+ * A sessionStorage session (0.6.0) reaches the page through the context's seeded sessionStorage
+ * (seedSessionStorage), so it passes here like a cookie session; one the app throws away on load lands on the sign-in
+ * page and fails.
  */
 async function landedOnSignIn(page: import("playwright").Page, target: string, account: TestAccount): Promise<boolean> {
   const now = page.url();
@@ -422,8 +435,28 @@ async function landedOnSignIn(page: import("playwright").Page, target: string, a
   } catch {
     return false;
   }
-  if (!samePage(now, target) && /log-?in|sign-?in|auth/i.test(path) && (await page.locator("input[type=password]:visible").count().catch(() => 0)) > 0) return true;
+  if (!samePage(now, target) && /log-?in|sign-?in|auth/i.test(path)) {
+    if ((await page.locator("input[type=password]:visible").count().catch(() => 0)) > 0) return true;
+    if (await showsFirstStep(page)) return true;
+  }
   return Boolean(await page.evaluate(SHOWS_SIGN_IN_FORM).catch(() => false));
+}
+
+/**
+ * True when the page shows the first step of a two-step sign-in (0.6.0): a form that asks only for the account's
+ * identifier, with a "Continue"/"Next" or sign-in control, and says sign in (auth.ts firstStepForm, the same rules the
+ * sign-in itself uses). Only asked of a sign-in-looking address the page was sent to, never of the page asked for: an
+ * "Enter your email, Continue" form on the app's own pages is not a sign-in page. The sign-in words must come from the
+ * page itself (its form, title, the text before the form or its own address), never from the account's sign-in page
+ * address: that one always says "login", so an "/authors/new" page with one Email field and "Add" would pass.
+ */
+async function showsFirstStep(page: import("playwright").Page): Promise<boolean> {
+  try {
+    const { forms } = await discoverPage(page);
+    return (await firstStepForm(page, forms, page.url())) !== null;
+  } catch {
+    return false;
+  }
 }
 
 async function discoverSignedInOrOut(
@@ -441,15 +474,19 @@ async function discoverSignedInOrOut(
   let closed = false;
   try {
     let session: SessionState | undefined;
+    let sessionItems: SessionStorageItems | undefined;
     if (signing) {
       const signed = await signIn(browser, signing.account, safety);
       secrets.add(signed.secrets);
       session = signed.state;
+      sessionItems = signed.sessionStorage;
       engineStep(options, "Opening the page to find its forms and controls", url);
     }
     const env: PlanEnv = { signedIn: Boolean(signing), otherAccount: Boolean(signing?.other) };
     // serviceWorkers: a service worker's own requests bypass context.route (discovery's write block, the guard).
     const context = await browser.newContext({ locale: BROWSER_LOCALE, serviceWorkers: "block", ...(session ? { storageState: session } : {}) });
+    // 0.6.0: a session the app keeps in sessionStorage is put back before any page script runs, as in openPage.
+    await seedSessionStorage(context, sessionItems);
     const guard = await guardContext(context, safety);
     const page = await context.newPage();
     // Discovery clicks to read a widget's options and to find forms in dialogs, with writes blocked: its sockets must
@@ -612,11 +649,86 @@ function noOtherAccountNote(signing: Signing | null): string {
   if (!signing.config.isolated) {
     return `Skipped: the test accounts are not marked as unable to see each other's data (Settings → Test accounts), so ${label} was not used.`;
   }
-  return `Skipped: ${label} isn't set up (Settings → Test accounts), so no other account could try to read ${accountLabel(signing.account)}'s data.`;
+  return `Skipped: ${label} isn't set up (Settings → Test accounts), so no other account could try to read or change ${accountLabel(signing.account)}'s data.`;
 }
 
 /** Notes of every scenario a stopped run did not finish (RunOptions.signal). */
 export const STOPPED_NOTE = "Stopped by you";
+
+/**
+ * What a check's next browser call throws once the navigation guard closed its context on an escape, at the start of
+ * the message the check threw: Playwright's "<object.method>: " and the guard's close reason (guard.ts: "Run Hound
+ * stopped: the page went to <url>"), or its own "Target page, context or browser has been closed" when no reason
+ * reached it. The guard summary already says where the page went. Only at the start: a note that quotes it inside a
+ * sentence ("… failed (locator.click: Run Hound stopped: …).", paywall-trust) is kept as the check wrote it.
+ */
+const CLOSED_BY_GUARD = /^(?:[a-z]\w*\.[a-z]\w*: )?(?:Run Hound stopped: the page went to \S+?|Target page, context or browser has been closed)\.?(?=\s|$)/;
+
+// eslint-disable-next-line no-control-regex
+const ANSI = /\u001b\[[0-9;]*m/g;
+
+/**
+ * Playwright's call log at the end of a failed call's message (client connection.ts formatCallLog): "\nCall log:\n",
+ * then its entries joined with "\n", then "\n". An entry can itself span lines, its later lines unindented: Playwright
+ * logs a filled value raw (`fill("first line\nsecond line")`, a password too) and indents only an entry's first line
+ * (compressCallLog). So the log runs to the last newline before the check's own text, or before the next "Call log:"
+ * when a check quoted two failed calls, never to the first unindented line. The checks never put a newline in the text
+ * they add after it (they quote only first lines of other errors). The full stop a write-side check adds to the message
+ * before its own notes is matched too, when there is one. Each line is looked at a bounded number of times: linear.
+ */
+const CALL_LOG = /\n[ \t]*Call log:\n(?:[^\n]*\n)*?(?=[^\n]*$|[^\n]*\n[ \t]*Call log:\n)(\.(?=\s|$))?/g;
+
+/**
+ * A message a check threw as one line of notes: no ANSI codes and no call log, whitespace collapsed. Unlike
+ * cleanErrorMessage it keeps what comes after the call log: write-access, csrf and paywall-trust throw the caught
+ * Playwright message followed by their restore, interrupted and provider notes ("… could not be undone: check
+ * Account A", docs/v2-spec.md "Safety contract"), which must never be lost. The full stop a check added after the call
+ * log is dropped when Playwright's own message already ended a sentence ("Timeout 300ms exceeded.", "detached?").
+ */
+function thrownNote(message: string): string {
+  const plain = message.replace(ANSI, "");
+  const cut = plain.replace(CALL_LOG, (_log: string, stop: string | undefined, at: number) => (stop && !/[.?!]$/.test(plain.slice(0, at)) ? stop : ""));
+  return cut.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * The checks that change Account A's data (docs/v2-spec.md "0.5.0: write-side checks" and "0.6.0"), each with an
+ * interruptedNote: their notes can say what they could not put back, so an escape never drops them (escapedNotes).
+ */
+const CHANGES_ACCOUNT_A: ReadonlySet<CheckId> = new Set<CheckId>(["mass-assignment", "csrf", "write-access", "paywall-trust"]);
+
+/**
+ * Notes of a scenario whose page left the allowed targets (it ends "error" with no findings): the guard summary first,
+ * as the reason for the error. A check that changes Account A (CHANGES_ACCOUNT_A) keeps its own notes or error message
+ * after it, never dropped: a restore note ("… could not be undone: check Account A", docs/v2-spec.md "Safety contract")
+ * or paywall-trust's "blocked (payment provider)" must reach the report whatever else went wrong. Its thrown message is
+ * cleaned as any (thrownNote) and loses the closed-context message it starts with (CLOSED_BY_GUARD); its returned notes
+ * stay as it wrote them. Secrets are redacted as in any error note. Any other check's notes are the guard summary
+ * alone, as in 0.5.0: what it noticed after its page left was not the target, and its next browser call's error
+ * ("page.reload: Target page, context or browser has been closed") only repeats that the page left.
+ */
+function escapedNotes(guard: NavigationGuard, check: Check, own: string | undefined, thrown: boolean): string {
+  if (!CHANGES_ACCOUNT_A.has(check.id)) return guardSummary(guard)!;
+  const kept = thrown ? thrownNote(own ?? "").replace(CLOSED_BY_GUARD, "").trim() : (own ?? "").trim();
+  return [guardSummary(guard), redactSecrets(kept)].filter(Boolean).join(" ");
+}
+
+/**
+ * Notes of a scenario abandoned at its time limit: where its page went first, when it left the target, as after any
+ * escape. A stop is different: its notes always start "Stopped by you" (STOPPED_NOTE, see stoppedNotes).
+ */
+function abandonedNotes(guard: NavigationGuard, note: string): string {
+  return [guard.escaped.length > 0 ? guardSummary(guard) : null, note].filter(Boolean).join(" ");
+}
+
+/**
+ * Notes of the scenario a stop abandoned: "Stopped by you" first, always (the app counts a scenario as stopped by that
+ * prefix: client.ts, app.ts, and RunOptions.signal says so), then where its page went when it left the target, then
+ * what the check says to check (`interrupted`).
+ */
+function stoppedNotes(guard: NavigationGuard, interrupted: (note: string) => string): string {
+  return interrupted(guard.escaped.length > 0 ? `${STOPPED_NOTE}. ${guardSummary(guard)}` : STOPPED_NOTE);
+}
 
 function skipped(scenario: Scenario, notes: string): CheckResult {
   return { checkId: scenario.checkId, scenarioId: scenario.id, status: "skipped", findings: [], durationMs: 0, notes };
@@ -690,11 +802,11 @@ export async function runPlan(plan: Plan, options: RunOptions = {}): Promise<{ r
 }
 
 /**
- * True for a scenario that needs the other account signed in (docs/v2-spec.md "access-control"): the
- * other-account scenario of access-control, on any form.
+ * True for a scenario that needs the other account signed in (docs/v2-spec.md "access-control" and "write-access"):
+ * the other-account scenario of access-control or write-access (0.6.0), on any form.
  */
 export function needsOtherAccount(scenario: Scenario): boolean {
-  return scenario.checkId === "access-control" && /(?:^|:)other-account(?:@form-\d+)?(?:#\d+)?$/.test(scenario.id);
+  return (scenario.checkId === "access-control" || scenario.checkId === "write-access") && /(?:^|:)other-account(?:@form-\d+)?(?:#\d+)?$/.test(scenario.id);
 }
 
 /**
@@ -706,7 +818,13 @@ async function preHarvest(
   browser: Browser,
   plan: Plan,
   identity: "self" | "other",
-  shared: { sessions: { self?: SessionState; other?: SessionState }; credentialHeaders: CredentialHeaders; artifactsDir: string; safety: SafetyOptions },
+  shared: {
+    sessions: { self?: SessionState; other?: SessionState };
+    sessionStorage: { self?: SessionStorageItems; other?: SessionStorageItems };
+    credentialHeaders: CredentialHeaders;
+    artifactsDir: string;
+    safety: SafetyOptions;
+  },
   account: TestAccount,
 ): Promise<void> {
   const ctx = createCheckContext({
@@ -719,6 +837,7 @@ async function preHarvest(
     allowedHosts: shared.safety.allowedHosts,
     lookup: shared.safety.lookup,
     sessions: shared.sessions,
+    sessionStorage: shared.sessionStorage,
     credentialHeaders: shared.credentialHeaders,
   });
   try {
@@ -757,6 +876,8 @@ async function runPlanWith(plan: Plan, options: RunOptions, secrets: SecretRegis
   const selfRef = signing ? refOf(signing.account) : null;
   const wantsOther = toRun.some(needsOtherAccount);
   const sessions: { self?: SessionState; other?: SessionState } = {};
+  // 0.6.0: what each identity's sign-in kept in sessionStorage, seeded into every context opened as that identity.
+  const sessionItems: { self?: SessionStorageItems; other?: SessionStorageItems } = {};
   const credentialHeaders = createCredentialHeaders();
   const markers = signing ? [signing.account.username] : [];
 
@@ -816,14 +937,16 @@ async function runPlanWith(plan: Plan, options: RunOptions, secrets: SecretRegis
           const self = await signIn(browser, signing.account, safety);
           secrets.add(self.secrets);
           sessions.self = self.state;
+          if (self.sessionStorage) sessionItems.self = self.sessionStorage;
           if (wantsOther && signing.other) {
             engineStep(options, `Signing in as ${accountLabel(signing.other)}`, signing.other.loginUrl);
             const other = await signIn(browser, signing.other, safety);
             secrets.add(other.secrets);
             sessions.other = other.state;
+            if (other.sessionStorage) sessionItems.other = other.sessionStorage;
           }
           engineStep(options, "Opening the page signed in, to see how the app sends its session", plan.target);
-          const shared = { sessions, credentialHeaders, artifactsDir, safety };
+          const shared = { sessions, sessionStorage: sessionItems, credentialHeaders, artifactsDir, safety };
           await preHarvest(browser, plan, "self", shared, signing.account);
           if (sessions.other && signing.other) await preHarvest(browser, plan, "other", shared, signing.other);
         } catch (err) {
@@ -893,6 +1016,8 @@ async function runPlanWith(plan: Plan, options: RunOptions, secrets: SecretRegis
       fileCounter,
       // 0.4.0: the run's sessions; a signed-out run has none, so every page opens signed out as before.
       sessions,
+      // 0.6.0: and what each sign-in kept in sessionStorage.
+      sessionStorage: sessionItems,
       accounts: { self: selfRef, other: sessions.other && signing?.other ? refOf(signing.other) : null },
       markers,
       credentialHeaders,
@@ -931,17 +1056,21 @@ async function runPlanWith(plan: Plan, options: RunOptions, secrets: SecretRegis
       if (outcome === "stopped" || outcome === "timed-out") abandoned = running;
       // A check abandoned mid-run had no chance to undo what it changed: its interruptedNote says what to check.
       const interrupted = (note: string) => (check.interruptedNote ? `${note.replace(/\.?$/, ".")} ${check.interruptedNote}` : note);
+      // A page that left the target before a stop is named after "Stopped by you", which stays first (the app matches on
+      // it); before the time limit, it is named first, as after any escape.
       if (outcome === "stopped") {
         wasStopped = true;
-        return withSteps({ ...skipped(scenario, interrupted(STOPPED_NOTE)), durationMs: Date.now() - started });
+        return withSteps({ ...skipped(scenario, stoppedNotes(ctx, interrupted)), durationMs: Date.now() - started });
       }
       if (outcome === "timed-out") {
-        return withSteps({ ...base, status: "error", findings: [], durationMs: Date.now() - started, notes: interrupted(scenarioTimeoutNote(limitMs)) });
+        const notes = abandonedNotes(ctx, interrupted(scenarioTimeoutNote(limitMs)));
+        return withSteps({ ...base, status: "error", findings: [], durationMs: Date.now() - started, notes });
       }
       const result = outcome;
-      // A scenario that left the allowed targets never produces findings: whatever it saw was not the target.
+      // A scenario that left the allowed targets never produces findings: whatever it saw was not the target. A check
+      // that changes Account A keeps its own notes (a restore note must never be lost), after the guard summary.
       if (ctx.escaped.length > 0) {
-        return withSteps({ ...base, status: "error", findings: [], durationMs: Date.now() - started, notes: guardSummary(ctx)! });
+        return withSteps({ ...base, status: "error", findings: [], durationMs: Date.now() - started, notes: escapedNotes(ctx, check, result.notes, false) });
       }
       const notes = [result.notes, ctx.blocked.length > 0 ? guardSummary(ctx) : null].filter(Boolean).join(" ");
       // Each finding says which form (or the whole page) it is about.
@@ -949,7 +1078,9 @@ async function runPlanWith(plan: Plan, options: RunOptions, secrets: SecretRegis
       return withSteps({ ...result, ...base, findings, ...(notes ? { notes } : {}) });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const notes = ctx.escaped.length > 0 ? guardSummary(ctx)! : redactSecrets(cleanErrorMessage(message));
+      // A write-side check throws with its restore notes in the message, after Playwright's call log: they stay, after
+      // an escape too (escapedNotes).
+      const notes = ctx.escaped.length > 0 ? escapedNotes(ctx, check, message, true) : redactSecrets(thrownNote(message));
       return withSteps({ ...base, status: "error", findings: [], durationMs: Date.now() - started, notes });
     } finally {
       clearTimeout(timer);

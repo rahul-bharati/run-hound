@@ -10,39 +10,41 @@
 // limit. Any answer but 200 fails the build. The server writes each result to .next/standalone/.next/cache/images (its
 // distDir is ./.next, relative to server.js), keyed by URL, width, quality and format, and ships with the image.
 //
+// The build folder is .next, or NEXT_DIST_DIR's (scripts/lib/build-output.mjs), as for every build script.
+//
 // Node built-ins only.
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { availableParallelism } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, relative } from "node:path";
+import {
+  distName,
+  htmlFilesSync,
+  siteDir,
+  standaloneDir as standalone,
+  standaloneAppDir as pagesDir,
+} from "./lib/build-output.mjs";
 
-const standalone = fileURLToPath(new URL("../.next/standalone/", import.meta.url));
-const pagesDir = join(standalone, ".next", "server", "app");
-const cacheDir = join(standalone, ".next", "cache", "images");
+const cacheDir = join(standalone, distName, "cache", "images");
+const shown = (path) => relative(siteDir, path);
 
 function fail(message) {
   console.error(`warm-images: ${message}`);
   process.exit(1);
 }
 
-for (const path of ["server.js", ".next/static", "public"]) {
+for (const path of ["server.js", join(distName, "static"), "public"]) {
   if (!existsSync(join(standalone, path))) {
-    fail(`.next/standalone/${path} is missing: run pnpm build, then copy .next/static and public/ into it.`);
+    fail(`${shown(join(standalone, path))} is missing: run pnpm build, then copy ${distName}/static and public/ into it.`);
   }
 }
 
 // The formats the server encodes (next.config.ts images.formats), as the build recorded them, so a format dropped
 // from the config isn't requested (the server would answer with another one, and this script would fail).
-const { config } = JSON.parse(await readFile(join(standalone, ".next", "required-server-files.json"), "utf8"));
+const { config } = JSON.parse(await readFile(join(standalone, distName, "required-server-files.json"), "utf8"));
 const formats = config.images.formats;
-
-async function htmlFiles(dir) {
-  const entries = await readdir(dir, { withFileTypes: true, recursive: true });
-  return entries.filter((e) => e.isFile() && e.name.endsWith(".html")).map((e) => join(e.parentPath, e.name));
-}
 
 // Every /_next/image URL in src, srcset, imagesrcset and href attributes, as the browser would request it.
 async function imageUrls(files) {
@@ -86,7 +88,7 @@ async function waitUntilReady(origin, child) {
   throw new Error(`server.js did not answer on ${origin} within 30 s`);
 }
 
-const files = await htmlFiles(pagesDir);
+const files = [...htmlFilesSync(pagesDir)];
 const urls = await imageUrls(files);
 if (urls.length === 0) fail(`no /_next/image URLs in ${files.length} prerendered pages; nothing to warm`);
 
@@ -169,5 +171,5 @@ const megabytes = (bytes / 1024 / 1024).toFixed(1);
 console.log(
   `warm-images: ${urls.length} image URLs from ${files.length} pages, ${jobs.length} requests (${formats.join(", ")}, ` +
     `${concurrency} at a time) in ${seconds} s: ${outcome.MISS} encoded, ${outcome.HIT + outcome.STALE} already ` +
-    `cached, ${megabytes} MB. ${entries} entries in .next/standalone/.next/cache/images.`,
+    `cached, ${megabytes} MB. ${entries} entries in ${shown(cacheDir)}.`,
 );

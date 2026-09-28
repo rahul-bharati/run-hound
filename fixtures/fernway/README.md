@@ -22,8 +22,10 @@ client-side routing, animations and dark mode.
   Fernway or a Run Hound false positive.** Triage every one, and never change Fernway just to hide a Run Hound mistake.
 - **Bug mode** (`FERNWAY_BUGS`) plants the bugs AI-built apps typically ship with, one per id. Each one is caught by
   one Run Hound check (tables below): W01-W10 by the V0/V1 checks, V01-V09 by the V2 checks run signed in (access
-  control, mass assignment and deep links in 0.4.0; CSRF in 0.5.0). V06, V07 and V09 wait for the planned write
-  access and paywall trust checks.
+  control, mass assignment and deep links in 0.4.0; CSRF in 0.5.0; write access and paywall trust in 0.6.0).
+- **Sign-in and session modes** (`FERNWAY_LOGIN`, `FERNWAY_SESSION`) switch the sign-in page to a two-step form and the
+  session to a token in `sessionStorage`, the two sign-in shapes Run Hound supports from 0.6.0. They combine with clean
+  mode and with any bugs (below).
 
 [CONTRACT.md](CONTRACT.md) is the full contract: routes, labels, texts, the API, response headers and every bug. The
 names in it are load-bearing: Fernway's tests and Run Hound's acceptance suite rely on them.
@@ -62,8 +64,21 @@ menu. [CONTRACT.md](CONTRACT.md) "Accounts" has the details (`GET /api/me`, the 
 
 **Upgrading** is a local test checkout with no payment provider: Settings → Billing → **Upgrade to Pro** opens a
 "Test checkout" dialog, **Pay $12.00** records the payment on the server (nothing is charged), and `/app/upgraded`
-then asks the server to confirm it. **Switch back to Free** undoes it. Opening `/app/upgraded` by hand grants nothing
-(CONTRACT.md "Billing").
+then asks the server to confirm it. On Pro, the Billing tab's **Cancel plan** puts the account back on Free straight
+away (it is also what Run Hound's `paywall-trust` clicks to undo a plan its probe granted). Opening `/app/upgraded` by
+hand grants nothing (CONTRACT.md "Billing"). The plan is the `plan` field of the profile that `/app/settings` loads
+(`GET /api/users/<id>/profile`), which is what `paywall-trust` reads before and after.
+
+### Sign-in and session modes
+
+| Setting | Values | What changes |
+|---|---|---|
+| `FERNWAY_LOGIN` | `one-step` (default), `two-step` | `two-step`: `/login` shows only **Email** and **Continue**; Continue shows the **Password** (with Remember me and **Sign in**) on the same page, for any email, without asking the server (so it never reveals which emails have accounts). No password field is in the page before that. |
+| `FERNWAY_SESSION` | `cookie` (default), `session-storage` | `session-storage`: signing in (or up) answers a `token` and sets no cookie; the SPA keeps it in `sessionStorage` (`fernway_session`) and sends `Authorization: Bearer <token>`. The server takes only that header (a cookie is ignored) and never sets a cookie, so a reload stays signed in and a new tab starts signed out. |
+
+Both work in clean mode and with `FERNWAY_BUGS`, and together. With `session-storage` there is no cookie for W09 or
+V08's cookie to change, so `cookie-flags` and `csrf` have nothing to catch there; every other bug behaves the same.
+Details: [CONTRACT.md](CONTRACT.md) "Sign-in and session modes".
 
 ## Start it
 
@@ -74,22 +89,25 @@ pnpm install
 pnpm --filter fernway build                           # vite build -> fixtures/fernway/dist
 PORT=4110 pnpm --filter fernway start                 # clean mode: http://localhost:4110/
 FERNWAY_BUGS=all PORT=4111 pnpm --filter fernway start   # every planted bug
+FERNWAY_LOGIN=two-step FERNWAY_SESSION=session-storage PORT=4112 pnpm --filter fernway start   # the 0.6.0 sign-in shapes
 ```
 
 The server (`server/index.mjs`) uses Node built-ins only. It reads `PORT` (default `4110`), `HOST` (default: all
-interfaces) and `FERNWAY_BUGS`, and prints `fernway listening` once it accepts connections.
+interfaces), `FERNWAY_BUGS`, `FERNWAY_LOGIN` and `FERNWAY_SESSION` (an unknown value stops it with an error naming the
+known ones), and prints `fernway listening` with the bugs and modes once it accepts connections.
 
 With Docker or Podman, from the repository root:
 
 ```sh
-docker build -f fixtures/fernway/Dockerfile -t ghcr.io/rahul-bharati/run-hound-fernway:0.5.0 .
-docker run --rm -p 127.0.0.1:4110:4110 ghcr.io/rahul-bharati/run-hound-fernway:0.5.0                       # clean
-docker run --rm -p 127.0.0.1:4111:4110 -e FERNWAY_BUGS=all ghcr.io/rahul-bharati/run-hound-fernway:0.5.0   # bugs
+docker build -f fixtures/fernway/Dockerfile -t ghcr.io/rahul-bharati/run-hound-fernway:0.6.0 .
+docker run --rm -p 127.0.0.1:4110:4110 ghcr.io/rahul-bharati/run-hound-fernway:0.6.0                       # clean
+docker run --rm -p 127.0.0.1:4111:4110 -e FERNWAY_BUGS=all ghcr.io/rahul-bharati/run-hound-fernway:0.6.0   # bugs
 ```
 
 Both compose files at the repository root start it next to Run Hound as two services: `fernway` (clean,
 `http://fernway:4110/`, published on `127.0.0.1:${FERNWAY_HOST_PORT:-4110}`) and `fernway-bugs` (`FERNWAY_BUGS`,
-default `all`, `http://fernway-bugs:4110/`, published on `127.0.0.1:${FERNWAY_BUGS_HOST_PORT:-4111}`).
+default `all`, `http://fernway-bugs:4110/`, published on `127.0.0.1:${FERNWAY_BUGS_HOST_PORT:-4111}`). Both pass
+`FERNWAY_LOGIN` and `FERNWAY_SESSION` through from `.env` (defaults `one-step` and `cookie`).
 
 Fernway is a local test target only: do not expose it to the internet.
 
@@ -110,6 +128,10 @@ printf %s 'staple-lemon-orbit' | pnpm exec tsx src/cli.ts accounts set b --login
 pnpm exec tsx src/cli.ts run http://localhost:4110/app --as a --approve all --runs-dir /tmp/rh-runs
 ```
 
+The same accounts sign in with `FERNWAY_LOGIN=two-step` or `FERNWAY_SESSION=session-storage` (Run Hound 0.6.0 and
+later); nothing in the account setup changes. The write-side checks (`write-access`, `csrf`, `paywall-trust`) are
+unticked by default: they change Alex's data (a test task, or the plan) and put it back.
+
 ## Planted bugs
 
 `FERNWAY_BUGS` is `none` (default), `all` (W01-W10 and V01-V09), or a comma list such as `W01,V02` (case-insensitive;
@@ -129,9 +151,8 @@ build serves every mode. [bugs.json](bugs.json) is the ground truth.
 | W09 | every page | `fernway_session` set without HttpOnly | `cookie-flags` |
 | W10 | `/login` | Sign-in errors are shown in red text only (no `role="alert"`, not linked to the fields) | `error-announcement` |
 
-The V2 bugs, caught with Run Hound signed in as Alex (A) with Sam as B. V06, V07 and V09 are groundwork for
-`write-access` and `paywall-trust`, which are still planned (0.5.0 ships only `csrf`); the acceptance suite skips them
-until their checks are built.
+The V2 bugs, caught with Run Hound signed in as Alex (A) with Sam as B (in the default modes; see "Sign-in and session
+modes" for `session-storage`).
 
 | Id | Page | Bug | Caught by |
 |---|---|---|---|
@@ -140,15 +161,15 @@ until their checks are built.
 | V03 | `/app`, `/app/settings` | The workspace APIs answer without a session (only the SPA redirects) | `access-control:signed-out` |
 | V04 | `/app/settings` | `PUT /api/users/:id/profile` stores any key it is sent, including `role` and `plan` | `mass-assignment` |
 | V05 | `/app` | Opening `/app/help` (linked from the sidebar) directly answers `404` (no SPA fallback for that path) | `deep-links` |
-| V06 | `/app` | `PATCH /api/tasks/:id` updates another user's task | `write-access:other-account` (planned) |
-| V07 | `/app` | Writes to `/api/tasks/:id` work without a session | `write-access:signed-out` (planned) |
+| V06 | `/app` | `PATCH /api/tasks/:id` updates another user's task | `write-access:other-account` |
+| V07 | `/app` | Writes to `/api/tasks/:id` work without a session | `write-access:signed-out` |
 | V08 | `/app` | Session cookie set `SameSite=None; Secure`, and the task save accepts a form-encoded body with no CSRF token or Origin check | `csrf` |
-| V09 | `/app/settings` | `/app/upgraded` sets `plan: "pro"` on load (the server trusts the success page; no payment needed) | `paywall-trust` (planned) |
+| V09 | `/app/settings` | `/app/upgraded` sets `plan: "pro"` on load (the server trusts the success page; no payment needed) | `paywall-trust` |
 
 A bug id never changes the clean-mode behaviour of anything else. V05 breaks only `/app/help`, a page with no form, so
 with `all` every other page still loads directly: plan `/app/settings` signed in as Alex to see W04, V01, V03, V04 and
 V09 there, and `/app` for W03, W05, V02, V03, V05, V06, V07 and V08 (the sidebar's Help link). With `all`, anything
-that opens `/app/upgraded` (V09) moves Alex to Pro until "Switch back to Free" or `POST /api/__reset`, and V08's
+that opens `/app/upgraded` (V09) moves Alex to Pro until "Cancel plan" or `POST /api/__reset`, and V08's
 cookie is `SameSite=None; Secure` only on `localhost`/`127.0.0.1` (a browser drops a Secure cookie over plain http on
 a name like `fernway-bugs`, so there it stays `SameSite=Lax`). The acceptance suite turns on one bug at a time.
 
@@ -159,10 +180,14 @@ pnpm --filter fernway test          # builds dist/ once, then the API, every pag
 pnpm --filter fernway typecheck
 ```
 
-`FERNWAY_SKIP_BUILD=1` reuses an existing `dist/`. The acceptance suite runs Run Hound itself against Fernway: every
-route in clean mode (zero confirmed findings, every form discovered; `/app`, `/app/settings` and `/app/help` signed in
-as Alex with Sam as the other account, every scenario approved including mass assignment and the 0.5.0 `csrf`
-check), each bug on its page, and a check that no run folder holds either password.
+`FERNWAY_SKIP_BUILD=1` reuses an existing `dist/`. `test/modes.test.ts` covers the two-step sign-in and the
+sessionStorage session (and the session-dependent bugs in that mode); `test/write-side.test.ts` does by hand what
+`write-access`, `csrf` and `paywall-trust` do (replay the app's own task update as Sam or signed out, forge a save from
+another site, open the success page and cancel the plan again), re-reading as Alex each time. The acceptance suite runs
+Run Hound itself against Fernway: every route in clean mode (zero confirmed findings, every form discovered; `/app`,
+`/app/settings` and `/app/help` signed in as Alex with Sam as the other account, every scenario approved including
+mass assignment and the write-side checks), each bug on its page, and a check that no run folder holds either
+password.
 
 ```sh
 cd tests/acceptance

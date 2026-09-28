@@ -1,0 +1,65 @@
+Run Hound tests a page of an app running on your machine. Start the app with a throwaway database, then enter the page's address in the web UI. In a container, that address uses `host.docker.internal` instead of `localhost`.
+
+## Before you start \{#before-you-start\}
+
+1. Start your app the way you normally develop it, with a **database you can throw away**: a run creates test records.
+2. Find the exact address of the page to test, for example `http://localhost:5173/signup`. Use `localhost`, not `0.0.0.0`.
+3. Make your dev server accept the container's host name (below), then run Run Hound on the page.
+4. Check each finding against your app: look at its evidence, then try it by hand.
+
+A page behind a login needs a test account: see [Signed-in runs](/docs/signed-in-runs/).
+
+## macOS and Windows: Docker Desktop \{#macos-windows\}
+
+Inside the container, `localhost` is the container itself. Docker Desktop defines `host.docker.internal` as your machine, so a page at `http://localhost:5173/signup` is `http://host.docker.internal:5173/signup` to Run Hound.
+
+Enter that address in the web UI at `http://localhost:4000`, started as in the [quick start](/docs/quick-start/#start). Or run it once from the command line:
+
+<Shell block="hostRun" label="One run from the command line" />
+
+It prints `Report: /repo/app/runs/<runId>/report.html`. On your machine, that's `./runs/<runId>/report.html`. In Windows PowerShell, write the command on one line:
+
+<Shell block="windowsHostRun" label="One run, Windows PowerShell" />
+
+In the test lab, the same run goes through its compose file:
+
+<Shell block="labRun" label="One run from the test lab" />
+
+## Linux \{#linux\}
+
+The quick start's command adds `host.docker.internal` on Linux with `--add-host`, so everything above works the same.
+
+Or let the container share your machine's network. Then `localhost` means your machine, and nothing in your app needs to change:
+
+<Shell block="hostNetworkRun" label="Linux, host network: one run" />
+
+<Shell block="hostNetworkUi" label="Linux, host network: the web UI" />
+
+## Podman \{#podman\}
+
+Podman runs the same commands with `podman` in place of `docker`. It defines `host.containers.internal` for your machine, and `host.docker.internal` works as well. On Linux, the host network works as it does with Docker.
+
+## Let your dev server accept the host name \{#dev-server\}
+
+A dev server that answers only `localhost` refuses the container's requests. Two settings fix it:
+
+1. **Listen on all interfaces.** Vite: `vite --host`. Next.js: `next dev` already does. Express and Fastify: `listen(port, "0.0.0.0")`. Django: `runserver 0.0.0.0:8000`. Rails: `rails s -b 0.0.0.0`.
+2. **Allow the host name.** Vite: `server: { allowedHosts: ["host.docker.internal"] }`, or it answers "Blocked request" and Run Hound reports "No form found". Next.js: `allowedDevOrigins: ["host.docker.internal"]`, or the page never becomes interactive. Django: `ALLOWED_HOSTS`. Rails: `config.hosts << "host.docker.internal"`.
+
+This set-up has three limits:
+
+- A frontend that calls its API at `http://localhost:<apiPort>` calls the container instead, and fails. Use the host network on Linux, or run from source.
+- `client-only-validation` is skipped for a target that isn't `localhost`.
+- A container has no display, so there is no visible browser window. The live view works.
+
+## From source \{#from-source\}
+
+From source, Run Hound runs on your machine, so it sees your app exactly as your browser does. In your clone, `pnpm serve --port 4310` starts the web UI on `http://localhost:4310`: enter your page's `localhost` address. Or use the command line:
+
+```sh label="Command line, from source"
+$ cd app
+$ pnpm exec tsx src/cli.ts run http://localhost:5173/signup --plan-only
+$ pnpm exec tsx src/cli.ts run http://localhost:5173/signup --approve all
+```
+
+The first command prints the plan with each scenario's id; the second runs every scenario. [CLI and CI](/docs/cli/) lists every flag.

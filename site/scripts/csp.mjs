@@ -20,11 +20,12 @@
  */
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { appDir, htmlFiles, siteDir as site, standaloneAppDir } from "./lib/build-output.mjs";
 
-const site = join(import.meta.dirname, "..");
-const outputs = [".next/server/app", ".next/standalone/.next/server/app"];
+// The build's pages and the standalone server's copy of them: in .next, or in the NEXT_DIST_DIR build folder.
+const outputs = [relative(site, appDir), relative(site, standaloneAppDir)];
 
 /** The page's policy, with its own inline scripts allowed by hash. */
 function policy(hashes) {
@@ -55,14 +56,6 @@ function inlineScriptHashes(html) {
     if (!hashes.includes(hash)) hashes.push(hash);
   }
   return hashes;
-}
-
-async function* htmlFiles(dir) {
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) yield* htmlFiles(path);
-    else if (entry.name.endsWith(".html")) yield path;
-  }
 }
 
 let failed = false;

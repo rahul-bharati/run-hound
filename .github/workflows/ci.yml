@@ -289,3 +289,60 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: "1"
         run: pnpm build
+
+  # The site's Playwright lab (DESIGN.md §5.1 rule 6, §5.2): builds the site, serves the standalone build as the Docker
+  # image does, and runs every spec of site/scripts/lab/specs/ (the baseline and the external links only when named),
+  # the release gate included. Required for a release (release-images.yml calls this workflow); on a pull request it
+  # reports without blocking the merge. The screenshots and each spec's JSON are kept as an artefact.
+  site-lab:
+    name: Marketing site (lab)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: site/package.json
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: site/pnpm-lock.yaml
+
+      - name: Install the site's dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The release gate also runs Run Hound's own focus-visible and reflow-320 checks on the built site, from ../app.
+      - name: Install Run Hound's dependencies
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+
+      # Chromium for every spec; Firefox and WebKit for the cross-browser smoke set (cross-browser.spec.mjs).
+      - name: Install the browsers
+        run: pnpm exec playwright install --with-deps chromium firefox webkit
+
+      - name: Build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: pnpm build
+
+      - name: Lab
+        env:
+          # The cross-browser smoke set fails, rather than skips, a browser that can't start.
+          LAB_ALL_BROWSERS: "1"
+        run: pnpm lab
+
+      - name: Keep the lab's output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-lab
+          path: site/.lab-out/
+          if-no-files-found: warn
+          retention-days: 14

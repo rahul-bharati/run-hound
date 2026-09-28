@@ -1,0 +1,1068 @@
+{
+ "measuredAt": "2026-09-28T00:26:33.380Z",
+ "build": ".next-G1",
+ "pages": {
+  "404": {
+   "390": {
+    "words": 33,
+    "screens": 2.44,
+    "pageHeight": 2057,
+    "footerHeight": 1412,
+    "headings": {
+     "h1": 1,
+     "h2": 0,
+     "h3": 0
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 4,
+    "monoShare": 0.091,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/404-390.png"
+   },
+   "1440": {
+    "words": 33,
+    "screens": 1.13,
+    "pageHeight": 1018,
+    "footerHeight": 422,
+    "headings": {
+     "h1": 1,
+     "h2": 0,
+     "h3": 0
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 4,
+    "monoShare": 0.091,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/404-1440.png"
+   },
+   "reflow320x720": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "reflow320x256": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "axe1280": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "axe390": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "vitals-desktop": {
+    "lcpMs": 564,
+    "lcpMinMs": 564,
+    "lcpMaxMs": 564,
+    "lcpElement": "h1: Dead link. We checked.",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "vitals-phone": {
+    "lcpMs": 576,
+    "lcpMinMs": 576,
+    "lcpMaxMs": 580,
+    "lcpElement": "h1: Dead link. We checked.",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "prefetchFirstViewport": {
+    "count": 13,
+    "bytes": 119876
+   }
+  },
+  "home": {
+   "390": {
+    "words": 3410,
+    "screens": 34.77,
+    "pageHeight": 29342,
+    "footerHeight": 1412,
+    "headings": {
+     "h1": 1,
+     "h2": 13,
+     "h3": 43
+    },
+    "tablists": 4,
+    "overflowX": 0,
+    "distinctFontSizes": 16,
+    "monoShare": 0.109,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/home-390.png"
+   },
+   "1440": {
+    "words": 3410,
+    "screens": 21.61,
+    "pageHeight": 19446,
+    "footerHeight": 422,
+    "headings": {
+     "h1": 1,
+     "h2": 13,
+     "h3": 43
+    },
+    "tablists": 4,
+    "overflowX": 0,
+    "distinctFontSizes": 17,
+    "monoShare": 0.109,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/home-1440.png"
+   },
+   "reflow320x720": {
+    "overflowX": 12,
+    "headerPosition": "sticky"
+   },
+   "reflow320x256": {
+    "overflowX": 12,
+    "headerPosition": "sticky"
+   },
+   "axe1280": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "axe390": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "vitals-desktop": {
+    "lcpMs": 864,
+    "lcpMinMs": 856,
+    "lcpMaxMs": 872,
+    "lcpElement": "img: /_next/image/?url=%2F_next%2Fstatic%2Fmedia%2Fho",
+    "clsMax": 0.0001,
+    "runs": 3
+   },
+   "vitals-phone": {
+    "lcpMs": 812,
+    "lcpMinMs": 812,
+    "lcpMaxMs": 816,
+    "lcpElement": "p: Run Hound is an open-source, AI-assisted UI test",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "prefetchFirstViewport": {
+    "count": 7,
+    "bytes": 67035
+   },
+   "rafAtRest": {
+    "stopPoints": 21,
+    "maxPer3s": 0,
+    "counts": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "restState": {
+    "atOpacityZero": 0,
+    "infiniteAnimations": 0,
+    "gsapLoaded": false
+   },
+   "accent1440": {
+    "strongObjects": 26,
+    "maxPerWindow": 4
+   },
+   "contrast1440": {
+    "incompleteNodes": 44,
+    "failing": []
+   },
+   "keyboard": {
+    "tabStops": 67,
+    "withoutRing": 0,
+    "fullyObscured": 1,
+    "first": "Skip to content"
+   },
+   "accent390": {
+    "strongObjects": 26,
+    "maxPerWindow": 3
+   },
+   "contrast390": {
+    "incompleteNodes": 37,
+    "failing": []
+   }
+  },
+  "how-it-works": {
+   "390": {
+    "words": 1333,
+    "screens": 14.01,
+    "pageHeight": 11828,
+    "footerHeight": 1412,
+    "headings": {
+     "h1": 1,
+     "h2": 5,
+     "h3": 15
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 10,
+    "monoShare": 0.104,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/how-it-works-390.png"
+   },
+   "1440": {
+    "words": 1333,
+    "screens": 8.39,
+    "pageHeight": 7547,
+    "footerHeight": 422,
+    "headings": {
+     "h1": 1,
+     "h2": 5,
+     "h3": 15
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 11,
+    "monoShare": 0.104,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/how-it-works-1440.png"
+   },
+   "reflow320x720": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "reflow320x256": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "axe1280": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "axe390": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "vitals-desktop": {
+    "lcpMs": 748,
+    "lcpMinMs": 748,
+    "lcpMaxMs": 748,
+    "lcpElement": "img: /_next/image/?url=%2F_next%2Fstatic%2Fmedia%2Fho",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "vitals-phone": {
+    "lcpMs": 708,
+    "lcpMinMs": 696,
+    "lcpMaxMs": 712,
+    "lcpElement": "p: Run Hound finds the forms and controls on your p",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "prefetchFirstViewport": {
+    "count": 7,
+    "bytes": 89780
+   }
+  },
+  "demo": {
+   "390": {
+    "words": 1291,
+    "screens": 14.94,
+    "pageHeight": 12612,
+    "footerHeight": 1412,
+    "headings": {
+     "h1": 1,
+     "h2": 8,
+     "h3": 4
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 10,
+    "monoShare": 0.121,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/demo-390.png"
+   },
+   "1440": {
+    "words": 1291,
+    "screens": 9.9,
+    "pageHeight": 8908,
+    "footerHeight": 422,
+    "headings": {
+     "h1": 1,
+     "h2": 8,
+     "h3": 4
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 10,
+    "monoShare": 0.121,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/demo-1440.png"
+   },
+   "reflow320x720": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "reflow320x256": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "axe1280": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "axe390": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "vitals-desktop": {
+    "lcpMs": 752,
+    "lcpMinMs": 748,
+    "lcpMaxMs": 760,
+    "lcpElement": "img: /_next/image/?url=%2F_next%2Fstatic%2Fmedia%2Fho",
+    "clsMax": 0.0009,
+    "runs": 3
+   },
+   "vitals-phone": {
+    "lcpMs": 712,
+    "lcpMinMs": 712,
+    "lcpMaxMs": 724,
+    "lcpElement": "p: Everything on this page was captured from a real",
+    "clsMax": 0.0011,
+    "runs": 3
+   },
+   "prefetchFirstViewport": {
+    "count": 9,
+    "bytes": 99689
+   }
+  },
+  "ai-built-apps": {
+   "390": {
+    "words": 1548,
+    "screens": 14.05,
+    "pageHeight": 11854,
+    "footerHeight": 1412,
+    "headings": {
+     "h1": 1,
+     "h2": 5,
+     "h3": 12
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 12,
+    "monoShare": 0.123,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/ai-built-apps-390.png"
+   },
+   "1440": {
+    "words": 1548,
+    "screens": 8.41,
+    "pageHeight": 7568,
+    "footerHeight": 422,
+    "headings": {
+     "h1": 1,
+     "h2": 5,
+     "h3": 12
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 12,
+    "monoShare": 0.123,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/ai-built-apps-1440.png"
+   },
+   "reflow320x720": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "reflow320x256": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "axe1280": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "axe390": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "vitals-desktop": {
+    "lcpMs": 752,
+    "lcpMinMs": 748,
+    "lcpMaxMs": 752,
+    "lcpElement": "img: /_next/image/?url=%2F_next%2Fstatic%2Fmedia%2Fho",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "vitals-phone": {
+    "lcpMs": 712,
+    "lcpMinMs": 712,
+    "lcpMaxMs": 840,
+    "lcpElement": "p: Apps from AI builders mix plain fields with cust",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "prefetchFirstViewport": {
+    "count": 13,
+    "bytes": 121268
+   }
+  },
+  "open-source": {
+   "390": {
+    "words": 1199,
+    "screens": 11.32,
+    "pageHeight": 9557,
+    "footerHeight": 1412,
+    "headings": {
+     "h1": 1,
+     "h2": 6,
+     "h3": 11
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 8,
+    "monoShare": 0.022,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/open-source-390.png"
+   },
+   "1440": {
+    "words": 1199,
+    "screens": 6.72,
+    "pageHeight": 6052,
+    "footerHeight": 422,
+    "headings": {
+     "h1": 1,
+     "h2": 6,
+     "h3": 11
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 9,
+    "monoShare": 0.022,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/open-source-1440.png"
+   },
+   "reflow320x720": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "reflow320x256": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "axe1280": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "axe390": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "vitals-desktop": {
+    "lcpMs": 748,
+    "lcpMinMs": 748,
+    "lcpMaxMs": 752,
+    "lcpElement": "img: /_next/image/?url=%2F_next%2Fstatic%2Fmedia%2Fho",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "vitals-phone": {
+    "lcpMs": 696,
+    "lcpMinMs": 696,
+    "lcpMaxMs": 712,
+    "lcpElement": "h1: Open source, every check included.",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "prefetchFirstViewport": {
+    "count": 9,
+    "bytes": 99689
+   }
+  },
+  "faq": {
+   "390": {
+    "words": 1489,
+    "screens": 13.43,
+    "pageHeight": 11334,
+    "footerHeight": 1412,
+    "headings": {
+     "h1": 1,
+     "h2": 5,
+     "h3": 12
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 9,
+    "monoShare": 0.023,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/faq-390.png"
+   },
+   "1440": {
+    "words": 1489,
+    "screens": 7.24,
+    "pageHeight": 6512,
+    "footerHeight": 422,
+    "headings": {
+     "h1": 1,
+     "h2": 5,
+     "h3": 12
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 9,
+    "monoShare": 0.023,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/faq-1440.png"
+   },
+   "reflow320x720": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "reflow320x256": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "axe1280": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "axe390": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "vitals-desktop": {
+    "lcpMs": 748,
+    "lcpMinMs": 748,
+    "lcpMaxMs": 748,
+    "lcpElement": "img: /_next/image/?url=%2F_next%2Fstatic%2Fmedia%2Fho",
+    "clsMax": 0.0001,
+    "runs": 3
+   },
+   "vitals-phone": {
+    "lcpMs": 712,
+    "lcpMinMs": 696,
+    "lcpMaxMs": 716,
+    "lcpElement": "p: Each answer starts with the short version, then ",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "prefetchFirstViewport": {
+    "count": 9,
+    "bytes": 99689
+   }
+  },
+  "compare": {
+   "390": {
+    "words": 1149,
+    "screens": 10.12,
+    "pageHeight": 8541,
+    "footerHeight": 1412,
+    "headings": {
+     "h1": 1,
+     "h2": 3,
+     "h3": 4
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 9,
+    "monoShare": 0.026,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/compare-390.png"
+   },
+   "1440": {
+    "words": 1141,
+    "screens": 5.8,
+    "pageHeight": 5222,
+    "footerHeight": 422,
+    "headings": {
+     "h1": 1,
+     "h2": 3,
+     "h3": 4
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 10,
+    "monoShare": 0.026,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/compare-1440.png"
+   },
+   "reflow320x720": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "reflow320x256": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "axe1280": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "axe390": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "vitals-desktop": {
+    "lcpMs": 748,
+    "lcpMinMs": 748,
+    "lcpMaxMs": 752,
+    "lcpElement": "img: /_next/image/?url=%2F_next%2Fstatic%2Fmedia%2Fho",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "vitals-phone": {
+    "lcpMs": 712,
+    "lcpMinMs": 700,
+    "lcpMaxMs": 712,
+    "lcpElement": "p: Run Hound builds on Playwright and axe-core rath",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "prefetchFirstViewport": {
+    "count": 9,
+    "bytes": 99689
+   }
+  },
+  "privacy": {
+   "390": {
+    "words": 1661,
+    "screens": 13.33,
+    "pageHeight": 11249,
+    "footerHeight": 1412,
+    "headings": {
+     "h1": 1,
+     "h2": 8,
+     "h3": 5
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 8,
+    "monoShare": 0.008,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/privacy-390.png"
+   },
+   "1440": {
+    "words": 1661,
+    "screens": 7.05,
+    "pageHeight": 6341,
+    "footerHeight": 422,
+    "headings": {
+     "h1": 1,
+     "h2": 8,
+     "h3": 5
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 8,
+    "monoShare": 0.008,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/privacy-1440.png"
+   },
+   "reflow320x720": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "reflow320x256": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "axe1280": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "axe390": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "vitals-desktop": {
+    "lcpMs": 700,
+    "lcpMinMs": 700,
+    "lcpMaxMs": 700,
+    "lcpElement": "p: This policy covers this website, the feedback yo",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "vitals-phone": {
+    "lcpMs": 696,
+    "lcpMinMs": 696,
+    "lcpMaxMs": 712,
+    "lcpElement": "p: This policy covers this website, the feedback yo",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "prefetchFirstViewport": {
+    "count": 9,
+    "bytes": 99689
+   }
+  },
+  "terms": {
+   "390": {
+    "words": 651,
+    "screens": 7.67,
+    "pageHeight": 6473,
+    "footerHeight": 1412,
+    "headings": {
+     "h1": 1,
+     "h2": 10,
+     "h3": 2
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 6,
+    "monoShare": 0.011,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/terms-390.png"
+   },
+   "1440": {
+    "words": 651,
+    "screens": 4.17,
+    "pageHeight": 3751,
+    "footerHeight": 422,
+    "headings": {
+     "h1": 1,
+     "h2": 10,
+     "h3": 2
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 6,
+    "monoShare": 0.011,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/terms-1440.png"
+   },
+   "reflow320x720": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "reflow320x256": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "axe1280": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "axe390": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "vitals-desktop": {
+    "lcpMs": 696,
+    "lcpMinMs": 696,
+    "lcpMaxMs": 700,
+    "lcpElement": "p: Run Hound is available as a public open-source p",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "vitals-phone": {
+    "lcpMs": 712,
+    "lcpMinMs": 696,
+    "lcpMaxMs": 712,
+    "lcpElement": "p: These terms cover your use of this website. The ",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "prefetchFirstViewport": {
+    "count": 9,
+    "bytes": 99689
+   }
+  },
+  "acceptable-use": {
+   "390": {
+    "words": 649,
+    "screens": 7.26,
+    "pageHeight": 6124,
+    "footerHeight": 1412,
+    "headings": {
+     "h1": 1,
+     "h2": 6,
+     "h3": 0
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 7,
+    "monoShare": 0.018,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/acceptable-use-390.png"
+   },
+   "1440": {
+    "words": 649,
+    "screens": 3.6,
+    "pageHeight": 3237,
+    "footerHeight": 422,
+    "headings": {
+     "h1": 1,
+     "h2": 6,
+     "h3": 0
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 7,
+    "monoShare": 0.018,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/acceptable-use-1440.png"
+   },
+   "reflow320x720": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "reflow320x256": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "axe1280": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "axe390": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "vitals-desktop": {
+    "lcpMs": 700,
+    "lcpMinMs": 700,
+    "lcpMaxMs": 700,
+    "lcpElement": "p: Use Run Hound only on apps and sites that you ow",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "vitals-phone": {
+    "lcpMs": 696,
+    "lcpMinMs": 696,
+    "lcpMaxMs": 696,
+    "lcpElement": "p: Run Hound is built to test your own apps. This p",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "prefetchFirstViewport": {
+    "count": 11,
+    "bytes": 105142
+   }
+  },
+  "security": {
+   "390": {
+    "words": 538,
+    "screens": 7.29,
+    "pageHeight": 6150,
+    "footerHeight": 1412,
+    "headings": {
+     "h1": 1,
+     "h2": 6,
+     "h3": 2
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 7,
+    "monoShare": 0.02,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/security-390.png"
+   },
+   "1440": {
+    "words": 538,
+    "screens": 3.98,
+    "pageHeight": 3586,
+    "footerHeight": 422,
+    "headings": {
+     "h1": 1,
+     "h2": 6,
+     "h3": 2
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 7,
+    "monoShare": 0.02,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/security-1440.png"
+   },
+   "reflow320x720": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "reflow320x256": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "axe1280": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "axe390": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "vitals-desktop": {
+    "lcpMs": 700,
+    "lcpMinMs": 700,
+    "lcpMaxMs": 700,
+    "lcpElement": "h1: Security and vulnerability disclosure",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "vitals-phone": {
+    "lcpMs": 696,
+    "lcpMinMs": 696,
+    "lcpMaxMs": 712,
+    "lcpElement": "p: We want to hear about security problems in Run H",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "prefetchFirstViewport": {
+    "count": 9,
+    "bytes": 99689
+   }
+  },
+  "docs": {
+   "390": {
+    "words": 8558,
+    "screens": 61.64,
+    "pageHeight": 52027,
+    "footerHeight": 1412,
+    "headings": {
+     "h1": 1,
+     "h2": 15,
+     "h3": 31
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 13,
+    "monoShare": 0.14,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/docs-390.png"
+   },
+   "1440": {
+    "words": 8558,
+    "screens": 38.71,
+    "pageHeight": 34843,
+    "footerHeight": 422,
+    "headings": {
+     "h1": 1,
+     "h2": 15,
+     "h3": 31
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 13,
+    "monoShare": 0.14,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/docs-1440.png"
+   },
+   "reflow320x720": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "reflow320x256": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "axe1280": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "axe390": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "vitals-desktop": {
+    "lcpMs": 868,
+    "lcpMinMs": 868,
+    "lcpMaxMs": 872,
+    "lcpElement": "img: /_next/image/?url=%2F_next%2Fstatic%2Fmedia%2Fho",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "vitals-phone": {
+    "lcpMs": 828,
+    "lcpMinMs": 816,
+    "lcpMaxMs": 828,
+    "lcpElement": "p: How to run Run Hound on your own machine: start ",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "prefetchFirstViewport": {
+    "count": 7,
+    "bytes": 66657
+   }
+  },
+  "checks": {
+   "390": {
+    "words": 3762,
+    "screens": 37.09,
+    "pageHeight": 31300,
+    "footerHeight": 1412,
+    "headings": {
+     "h1": 1,
+     "h2": 11,
+     "h3": 81
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 10,
+    "monoShare": 0.177,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/checks-390.png"
+   },
+   "1440": {
+    "words": 3762,
+    "screens": 18.1,
+    "pageHeight": 16293,
+    "footerHeight": 422,
+    "headings": {
+     "h1": 1,
+     "h2": 11,
+     "h3": 81
+    },
+    "tablists": 0,
+    "overflowX": 0,
+    "distinctFontSizes": 12,
+    "monoShare": 0.177,
+    "cspViolations": 0,
+    "screenshot": "baseline/screens/checks-1440.png"
+   },
+   "reflow320x720": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "reflow320x256": {
+    "overflowX": 0,
+    "headerPosition": "sticky"
+   },
+   "axe1280": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "axe390": {
+    "version": "4.13.0",
+    "violations": []
+   },
+   "vitals-desktop": {
+    "lcpMs": 804,
+    "lcpMinMs": 804,
+    "lcpMaxMs": 816,
+    "lcpElement": "img: /_next/image/?url=%2F_next%2Fstatic%2Fmedia%2Fho",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "vitals-phone": {
+    "lcpMs": 780,
+    "lcpMinMs": 780,
+    "lcpMaxMs": 796,
+    "lcpElement": "p: What Run Hound checks today, then the full catal",
+    "clsMax": 0,
+    "runs": 3
+   },
+   "prefetchFirstViewport": {
+    "count": 11,
+    "bytes": 109445
+   }
+  }
+ }
+}

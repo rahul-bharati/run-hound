@@ -1,0 +1,60 @@
+Run Hound runs in Docker or Podman on your machine and tests one page of a web app you run locally. Start it with one command, open localhost:4000 and enter your page.
+
+## What you need \{#what-you-need\}
+
+- Docker 24 or newer, Docker Desktop or Podman.
+- About 1 GB of free disk: the image is a 260 MB download, 715 MB on disk.
+- A web app running on your machine. For an app from Lovable, Bolt or v0, export the code and start it with its dev command.
+
+It tests only `localhost` and private addresses. Public sites are refused.
+
+## 1. Start Run Hound \{#start\}
+
+Pull the image, make a folder for reports and start the web UI:
+
+<Shell block="run" label="Docker, from any folder" />
+
+The log's first line is the address to open. The `0.0.0.0` below it is inside the container: your machine listens on `127.0.0.1` only.
+
+<Callout title="Podman">
+Use `podman` in place of `docker`. [Install](/docs/install/#podman) has the commands.
+</Callout>
+
+<Callout title="Windows">
+In PowerShell, each command goes on one line. [Install](/docs/install/#windows) has the exact lines.
+</Callout>
+
+## 2. Open the web UI \{#open\}
+
+Open `http://localhost:4000` in your browser.
+
+## 3. Enter your page \{#enter-your-page\}
+
+Inside the container, `localhost` is the container itself, not your machine. Enter your page as `http://host.docker.internal:<port>/<page>`, for example `http://host.docker.internal:5173/signup`. Docker Desktop defines that name, and the command above adds it on Linux.
+
+Your dev server must accept that name: see [Test your app](/docs/your-app/#dev-server).
+
+## 4. Approve and run \{#approve-and-run\}
+
+Press **Plan checks**. Run Hound finds the page's forms and controls and plans accessibility, feature and security checks. Nothing runs until you press **Start run**.
+
+- Each scenario says what it does and whether it creates test records.
+- Scenarios that could delete or change data start unticked: tick them only on test data.
+- The live view shows the page under test, the current scenario and a log.
+- The report opens when the run ends. Each finding has its evidence, a Playwright test and a link to its check's page.
+
+Reports land in `./runs`. [Reading the report](/docs/report/) explains every part.
+
+## No app handy? Try the test lab \{#test-lab\}
+
+One compose file starts Run Hound and test apps with planted bugs:
+
+<Shell block="lab" label="The test lab, from an empty folder" />
+
+Then open `http://localhost:4000` and enter `http://kennel:3000/book`. [The test lab](/docs/test-lab/) lists every app and what a clean run looks like.
+
+## Next steps \{#next-steps\}
+
+- [Test your app](/docs/your-app/): host names and dev-server settings for your system.
+- [Signed-in runs](/docs/signed-in-runs/): test pages behind a login with two test accounts.
+- [The checks](/checks/): what each check tests, and how to fix what it finds.

@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { request as apiRequest, type APIRequestContext, type Browser, type BrowserContext, type CDPSession, type Page } from "playwright";
-import type { SessionState } from "./auth.js";
+import type { SessionState, SignedIn } from "./auth.js";
 import { openForm } from "./open-form.js";
 import {
   SIMULATED_RESPONSE_HEADER,
@@ -19,7 +19,7 @@ import {
   type IdentityResponse,
   type Recording,
 } from "../core/types.js";
-import { carriesTestValues, isAcceptedStatus, isPagePost, isSaveRequest, originOf } from "../core/saves.js";
+import { carriesTestValues, isAcceptedStatus, isAntiCsrfHeader, isGraphQlRead, isPagePost, isSaveRequest, originOf } from "../core/saves.js";
 import { attachCapture } from "./capture.js";
 import { composeFrame, encodeGif, gifScale, renderCard, resolveHighlights, type FrameHeader } from "./evidence.js";
 import { cleanErrorMessage, explainNavigationError } from "./errors.js";
@@ -63,6 +63,14 @@ export interface ContextOptions extends SafetyOptions {
    * then throw).
    */
   sessions?: { self?: SessionState; other?: SessionState };
+  /**
+   * sessionStorage sessions (0.6.0, docs/v2-spec.md "Sign-in: two-step and sessionStorage"): the items each identity's
+   * sign-in kept in sessionStorage (SignedIn.sessionStorage). Every browser context openPage opens as that identity
+   * seeds them before any page script runs (seedSessionStorage), only when `sessions` has that identity's session too
+   * (a sessionStorage sign-in's state may be empty, but it is there). request() never reads them: it keeps sending the
+   * credential headers the app's own pages sent.
+   */
+  sessionStorage?: { self?: SessionStorageItems; other?: SessionStorageItems };
   /** Labels of those accounts, exposed as CheckContext.accounts. */
   accounts?: { self: AccountRef | null; other: AccountRef | null };
   /** CheckContext.accountMarkers(): strings identifying the run account's data (its username). Never printed. */
@@ -88,10 +96,49 @@ export function createCredentialHeaders(): CredentialHeaders {
   return { self: new Map(), other: new Map() };
 }
 
-/** Header names that carry a credential: never passed through from a caller, and harvested from the app's requests. */
+/**
+ * Header names that carry a credential: harvested from the app's requests, and never passed through from a caller
+ * unless it is an anti-CSRF header (core/saves.ts isAntiCsrfHeader), which names no one.
+ */
 export function isCredentialHeader(name: string): boolean {
   const n = name.toLowerCase();
   return n === "cookie" || n === "authorization" || n === "proxy-authorization" || n === "apikey" || n === "x-api-key" || /^x-[\w-]*token$/.test(n);
+}
+
+/** A signed-in identity's sessionStorage items, per origin (SignedIn.sessionStorage). */
+export type SessionStorageItems = NonNullable<SignedIn["sessionStorage"]>;
+
+/**
+ * Runs in every document of a context before its own scripts (an init script): puts one origin's items into
+ * sessionStorage when the document is on that origin and the tab holds nothing there yet (a new tab, or one that never
+ * was on that origin). So a value the app changed itself is kept on the next load, and an item the app removed (a
+ * token it threw away after a 401) doesn't come back. A plain string, not a function: tsx/esbuild's keepNames would
+ * wrap a function in a `__name` helper that doesn't exist in the browser.
+ */
+const SEED_SESSION_STORAGE = String.raw`(entry) => {
+  try {
+    if (location.origin !== entry.origin) return;
+    const store = window.sessionStorage;
+    if (store.length > 0) return;
+    for (const item of entry.items) store.setItem(item.name, item.value);
+  } catch (e) {
+    // No sessionStorage here (an opaque origin, storage turned off).
+  }
+}`;
+
+/**
+ * Seeds a signed-in identity's sessionStorage items into every page `context` opens (0.6.0): one init script per
+ * origin, run before any page script, only on that origin and only while the tab holds nothing there. For the
+ * runner's own contexts (discovery) too; openPage calls it through ContextOptions.sessionStorage.
+ */
+export async function seedSessionStorage(context: BrowserContext, items: SessionStorageItems | undefined): Promise<void> {
+  for (const entry of items ?? []) {
+    // The bare origin, as location.origin has it in the page ("http://host:port", no path or trailing slash).
+    const origin = originOf(entry.origin);
+    if (!origin || entry.items.length === 0) continue;
+    const data = { origin, items: entry.items.map(({ name, value }) => ({ name, value })) };
+    await context.addInitScript(`(${SEED_SESSION_STORAGE})(${JSON.stringify(data)})`);
+  }
 }
 
 /** How long request() waits for an answer, and the most of its body it keeps (docs/v2-spec.md "Types"). */
@@ -221,6 +268,27 @@ const MASK_SCRIPT = String.raw`(needles) => {
   return masked.length;
 }`;
 
+/**
+ * Runs in the page: the text MASK_SCRIPT would search — every visible text node, field value and placeholder — joined,
+ * so Run Hound (not the page) decides which registered values are actually present. It takes no argument, so no
+ * registered value is ever handed to the page's scripts (0.6.0 review): only the values found in what the page already
+ * shows are passed to MASK_SCRIPT, and a value that isn't on the page (a password, a session token the page never
+ * renders) never reaches a page that has hooked a built-in such as `RegExp`.
+ */
+const HAYSTACK_SCRIPT = String.raw`() => {
+  const out = [];
+  if (document.body) {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) out.push(node.data);
+    for (const el of document.querySelectorAll("input, textarea")) {
+      if (typeof el.value === "string") out.push(el.value);
+      const placeholder = el.getAttribute("placeholder");
+      if (placeholder) out.push(placeholder);
+    }
+  }
+  return out.join("\n");
+}`;
+
 /** Runs in the page: puts back what MASK_SCRIPT changed, unless the page has changed that place since. */
 const UNMASK_SCRIPT = String.raw`() => {
   for (const m of window.__rhMasked || []) {
@@ -238,7 +306,14 @@ const UNMASK_SCRIPT = String.raw`() => {
  */
 async function maskAccountValues(page: Page): Promise<() => Promise<void>> {
   const { secrets, usernames } = registeredLiterals();
-  const needles = [...new Set([...secrets, ...usernames])].filter((n) => n.length >= 3);
+  const registered = [...new Set([...secrets, ...usernames])].filter((n) => n.length >= 3);
+  if (registered.length === 0) return async () => undefined;
+  // Read what the page shows and decide here which registered values are present, rather than handing every value to
+  // the page (0.6.0 review): a value the page never renders (a password, a session token) is never passed to the
+  // page's scripts, so a page that has hooked a built-in can't read it from the mask. The values kept are ones the
+  // page already displays, so masking them exposes nothing new.
+  const haystack = String(await page.evaluate(`(${HAYSTACK_SCRIPT})()`).catch(() => "")).toLowerCase();
+  const needles = registered.filter((n) => haystack.includes(n.toLowerCase()));
   if (needles.length === 0) return async () => undefined;
   const changed = await page.evaluate(`(${MASK_SCRIPT})(${JSON.stringify(needles)})`).catch(() => 0);
   if (!changed) return async () => undefined;
@@ -298,28 +373,6 @@ export interface RunningCheckContext extends CheckContext {
   readonly escaped: string[];
   /** Save requests the app accepted on pages opened through openPage so far (see isAcceptedSave). */
   testRecordsCreated(): number;
-}
-
-/**
- * A GraphQL read sent as a POST (Apollo Client's default): a JSON body, or a batch of them, whose "query" holds no
- * mutation. It reads records, even when its variables carry a test value (a search for what was just saved).
- */
-function isGraphQlRead(postData: string | null): boolean {
-  if (!postData || !/^\s*[[{]/.test(postData)) return false;
-  let body: unknown;
-  try {
-    body = JSON.parse(postData);
-  } catch {
-    return false;
-  }
-  const operations = Array.isArray(body) ? body : [body];
-  return (
-    operations.length > 0 &&
-    operations.every((op) => {
-      const query = op && typeof op === "object" ? (op as { query?: unknown }).query : undefined;
-      return typeof query === "string" && !/\bmutation\b/.test(query);
-    })
-  );
 }
 
 /**
@@ -493,7 +546,11 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
       await checkTarget(request.url, { allowedHosts: options.allowedHosts, lookup: options.lookup });
       const origin = originOf(request.url);
       const headers: Record<string, string> = {};
-      for (const [name, value] of Object.entries(request.headers ?? {})) if (!isCredentialHeader(name)) headers[name.toLowerCase()] = value;
+      // A credential header the caller passes is dropped: only the identity's own, as the app sent them, go. An
+      // anti-CSRF header is not one (it names no one; the session does): write-access sends Account B's own token in it.
+      for (const [name, value] of Object.entries(request.headers ?? {})) {
+        if (!isCredentialHeader(name) || isAntiCsrfHeader(name)) headers[name.toLowerCase()] = value;
+      }
       if (as !== "signed-out" && origin) Object.assign(headers, credentialHeaders[as].get(origin) ?? {});
       if (disposed) throw new Error(ENDED);
       const api = await apiContextFor(as, state);
@@ -544,7 +601,11 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
         throw new Error(ENDED);
       }
       contexts.push(context);
-      if (identity !== "signed-out") harvestCredentialHeaders(context, credentialHeaders, identity);
+      if (identity !== "signed-out") {
+        harvestCredentialHeaders(context, credentialHeaders, identity);
+        // Only for an identity that is signed in: a signed-out run's "self" gets none, whatever was passed.
+        if (state) await seedSessionStorage(context, options.sessionStorage?.[identity]);
+      }
       guards.push(await guardContext(context, { allowedHosts: options.allowedHosts, lookup: options.lookup }));
       const page = await context.newPage();
       const capture = attachCapture(page);

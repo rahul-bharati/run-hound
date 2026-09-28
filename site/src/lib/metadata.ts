@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { route, type RouteId } from "@/content/routes";
 import { site } from "@/lib/site";
 
 /**
@@ -68,4 +69,24 @@ export function pageMetadata({
       images: [socialImage],
     },
   };
+}
+
+/**
+ * A registered page's metadata (content/routes.ts): its title, description and canonical path from the registry, so
+ * the page, its structured data (routeGraph in lib/structured-data.ts), the sitemap and the build guards agree. An
+ * internal route (indexable: false, such as /_design/) is noindex and nofollow, with no canonical or social card: Next.js
+ * merges metadata one field at a time, so openGraph and twitter are null, or the page would inherit the layout's.
+ */
+export function routeMetadata(id: RouteId): Metadata {
+  const { path, title, description, absoluteTitle, indexable } = route(id);
+  if (!indexable) {
+    return {
+      title: absoluteTitle ? { absolute: title } : title,
+      description,
+      robots: { index: false, follow: false },
+      openGraph: null,
+      twitter: null,
+    };
+  }
+  return pageMetadata({ path, title, description, absoluteTitle });
 }

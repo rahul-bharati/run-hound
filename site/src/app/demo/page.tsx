@@ -1,440 +1,171 @@
-import Link from "next/link";
-import { Fragment } from "react";
-import { ArrowIcon, ButtonLink } from "@/components/button-link";
-import { EvidenceFigure } from "@/components/demo/evidence-figure";
-import { CodeBlock } from "@/components/docs/code-block";
-import { evidence } from "@/components/evidence";
 import { JsonLd } from "@/components/json-ld";
-import { Card, Eyebrow, PageHeader, Section } from "@/components/layout";
-import { aiBuiltScreens, v2Screens } from "@/components/screens";
-import { Screenshot } from "@/components/screenshot";
-import { pageMetadata, pageTitle } from "@/lib/metadata";
-import { site } from "@/lib/site";
-import { breadcrumbNode, graph, webPageNode } from "@/lib/structured-data";
+import { DemoFindingBlock, DemoPicture } from "@/components/demo/finding";
+import { fullSizes, wideSizes } from "@/components/demo/evidence-figure";
+import { ProductBand } from "@/components/demo/product-band";
+import { ProductIntro } from "@/components/demo/product-intro";
+import { RichText } from "@/components/demo/rich-text";
+import { Card } from "@/components/primitives/card";
+import { CodeBlock } from "@/components/primitives/code-block";
+import { ArrowLink } from "@/components/primitives/links";
+import { Tag } from "@/components/primitives/tag";
+import { commands } from "@/content/commands";
+import { demoIntro, demoSections, fernwayBand, planted, plantedBand, tryBand, type DemoSection } from "@/content/demo";
+import { routeMetadata } from "@/lib/metadata";
+import { resolveTarget } from "@/lib/nav";
+import { routeGraph } from "@/lib/structured-data";
+import MotionGate from "@/motion/motion-gate-loader";
 
-const page = {
-  path: "/demo/",
-  title: "Demo: real findings, with evidence",
-  description:
-    "Real evidence from Run Hound runs on Kennel, a deliberately broken booking app, and Fernway, a Lovable-style app: double submits, leaked keys and more.",
-};
+export const metadata = routeMetadata("demo");
 
-export const metadata = pageMetadata(page);
-
-const jsonLd = graph(
-  webPageNode({ path: page.path, name: pageTitle(page), description: page.description }),
-  breadcrumbNode([
-    { name: "Home", path: "/" },
-    { name: "Demo", path: page.path },
-  ]),
-);
-
-const linkClass = "text-accent underline underline-offset-4 hover:text-accent-strong";
-
-/** A link to a built-in check's entry on /checks/, named by its id as the report and the frames below name it. */
-function CheckLink({ id }: { id: string }) {
-  return (
-    <Link href={`/checks/#${id}`} className={linkClass}>
-      {id} check
-    </Link>
+/**
+ * A section's findings: one finding's pictures side by side (the double submit), a picture beside its "Why it matters"
+ * (the silent failure), two findings side by side (leaks, the page as a whole), or one picture across the column.
+ * `lead`: the page's first section, whose first finding is above the fold and the page's largest paint (the release
+ * gate's LCP, §5.2), so its pictures are preloaded (components/demo/finding.tsx).
+ */
+function Findings({ section, lead }: { section: DemoSection; lead: boolean }) {
+  const [first] = section.findings;
+  // The section itself carries the id when it is the check's (#silent-failure).
+  const own = (check: string) => check !== section.id;
+  if (section.findings.length > 1) {
+    return (
+      <div className="grid items-start gap-10 lg:grid-cols-2 lg:gap-6 xl:gap-8">
+        {section.findings.map((finding, i) => (
+          <DemoFindingBlock key={finding.check} finding={finding} id={own(finding.check)} lead={lead && i === 0} />
+        ))}
+      </div>
+    );
+  }
+  if (section.aside) {
+    return (
+      <div className="grid items-start gap-8 lg:grid-cols-12 lg:gap-12">
+        <DemoFindingBlock finding={first} id={own(first.check)} className="lg:col-span-7" sizes={wideSizes} lead={lead} />
+        <div className="flex flex-col gap-3 lg:col-span-5">
+          <h3 className="font-display text-title font-bold text-fg">{section.aside.label}</h3>
+          <p className="text-body text-muted">{section.aside.text}</p>
+        </div>
+      </div>
+    );
+  }
+  return first.figures.length > 1 ? (
+    <DemoFindingBlock finding={first} id={own(first.check)} layout="pair" lead={lead} />
+  ) : (
+    <DemoFindingBlock finding={first} id={own(first.check)} sizes={fullSizes} lead={lead} />
   );
 }
 
-// Planted bugs per test app and stage: fixtures/kennel/bugs.json and fixtures/fernway/bugs.json.
-const planted = [
-  {
-    label: "KENNEL · STAGE V0",
-    count: 19,
-    title: "Booking form bugs",
-    body: "Defects in a single form on localhost, the ones the V0 stage was scored against. In clean mode the target is zero confirmed findings.",
-    groups: [
-      { name: "Broken features", count: 5 },
-      { name: "Validation", count: 1 },
-      { name: "Accessibility", count: 9 },
-      { name: "Leaks and secrets", count: 4 },
-    ],
-  },
-  {
-    label: "KENNEL · STAGE V1",
-    count: 5,
-    title: "Whole-page bugs",
-    body: "Defects outside the form and in how the server answers, the ones the V1 stage is scored against. Clean Kennel sends proper headers and cookies, so the target is still zero confirmed findings.",
-    groups: [
-      { name: "Button outside the form", count: 1 },
-      { name: "Security headers", count: 1 },
-      { name: "Cookie flags", count: 1 },
-      { name: "CORS", count: 1 },
-      { name: "Public source maps", count: 1 },
-    ],
-  },
-  {
-    label: "FERNWAY · BUGS W01–W10",
-    count: 10,
-    title: "Bugs AI builders ship",
-    body: "The usual defects, planted in an app built like the ones Lovable, Bolt and v0 generate: custom selects, toasts, dialogs and a dashboard behind a sign-in. Each is caught by one of the checks of the V0 and V1 stages.",
-    groups: [
-      { name: "Accessibility", count: 4 },
-      { name: "Broken features", count: 3 },
-      { name: "Leaks and security", count: 3 },
-    ],
-  },
-  {
-    label: `FERNWAY · BUGS V01–V05 · ${site.preview.toUpperCase()}`,
-    count: 5,
-    title: "Access bugs",
-    body: "Caught by the checks of the V2 preview, with Run Hound signed in as one Fernway account (A) and a second one (B): who can read whose data, extra fields the server stores, and pages that break when opened directly.",
-    groups: [
-      { name: "Another account's data", count: 2 },
-      { name: "Data without signing in", count: 1 },
-      { name: "Mass assignment", count: 1 },
-      { name: "Deep links", count: 1 },
-    ],
-  },
-];
-
-// A planted-bug label, its parts kept whole with their separators, so on a phone it wraps as balanced lines and never
-// splits a part ("V2 PREVIEW") or starts a line with a separator.
-function PlantedLabel({ label }: { label: string }) {
-  const parts = label.split(" · ");
-  return (
-    <Eyebrow className="text-balance">
-      {parts.map((part, i) => (
-        <Fragment key={part}>
-          <span className="whitespace-nowrap">{i < parts.length - 1 ? `${part} ·` : part}</span>
-          {i < parts.length - 1 ? " " : null}
-        </Fragment>
-      ))}
-    </Eyebrow>
-  );
-}
-
-// Two screenshots side by side from lg: half the 1136 px container, full width below.
-const halfShotSizes =
-  "(min-width: 1280px) 552px, (min-width: 1024px) calc(50vw - 88px), (min-width: 640px) calc(100vw - 48px), calc(100vw - 32px)";
-
-const kennelCommands = `# once: git clone, pnpm install, playwright install chromium, pnpm --filter kennel build (see the docs)
-
-# terminal 1: Kennel with every bug on
-KENNEL_BUGS=all PORT=5310 ANALYTICS_PORT=5311 pnpm kennel
-
-# terminal 2: the web UI, then open http://localhost:4310
-pnpm serve --port 4310`;
-
-const dockerCommands = `curl -fsSLO ${site.composeFileUrl}
-mkdir -p runs
-docker compose -f run-hound.compose.yml up   # or: podman compose -f run-hound.compose.yml up
-
-# then open http://localhost:4000 and enter http://kennel:3000/book
-# or Fernway, with its planted bugs: http://fernway-bugs:4110/`;
-
+/**
+ * /demo/ (DESIGN.md §3.12): real findings with their evidence, each linking its check's page, then how to run the same
+ * demo, Fernway, and the planted bugs the test apps are scored against. A recording paints its proof frame's still first
+ * and plays once when it is in view (motion allowed), resting on that frame; the figures below the fold reveal as the
+ * reader reaches them (the media only). Every word is in content/demo.ts.
+ */
 export default function DemoPage() {
   return (
     <>
-      <JsonLd data={jsonLd} />
-      <PageHeader
-        eyebrow="DEMO · REAL OUTPUT"
-        title={
-          <>
-            Proof, <span className="text-accent">not adjectives.</span>
-          </>
-        }
-        lede={
-          <>
-            Everything on this page was captured from a real run of Run Hound against Kennel, our deliberately broken
-            pet-sitting booking app, with all 24 of its bugs for the V0 and V1 stages switched on, and AI off. The keys
-            and email addresses are fake test values.
-          </>
-        }
-      />
+      <JsonLd data={routeGraph("demo")} />
+      <ProductIntro id="demo" title={demoIntro.title} lede={demoIntro.lede} />
 
-      <Section
-        id="features"
-        title="One click, two bookings"
-        intro={
-          <>
-            The <CheckLink id="double-submit" /> double-clicks “Book” and counts the save requests that reach the
-            server. Kennel accepted both, so the report shows the recording and the two requests, 0.2 ms apart, with
-            two different record ids.
-          </>
-        }
-        className="border-t border-line-soft"
-      >
-        <div className="grid items-start gap-5 lg:grid-cols-2">
-          <EvidenceFigure
-            shot={evidence.doubleSubmitRecording}
-            label="DOUBLE-SUBMIT · RECORDING"
-            caption="The recording from the report: form filled, “Book” double-clicked, two identical rows saved."
-          />
-          <EvidenceFigure
-            shot={evidence.doubleSubmitCard}
-            label="DOUBLE-SUBMIT · REQUEST CARD"
-            caption="The data behind it: both POST /api/bookings requests and the server's 201 answers."
-          />
-        </div>
-      </Section>
+      {demoSections.map((section, i) => (
+        <ProductBand key={section.id} id={section.id} title={section.title} intro={<RichText text={section.intro} />} tone={section.tone}>
+          <Findings section={section} lead={i === 0} />
+        </ProductBand>
+      ))}
 
-      <Section
-        id="silent-failure"
-        className="bg-band"
-        title="A save that fails in silence"
-        intro={
-          <>
-            The <CheckLink id="silent-failure" /> answers the save with a simulated 500 (the request never reaches
-            your server) and waits for an error the user can see and a screen reader can hear.
-          </>
-        }
-      >
-        <div className="grid items-center gap-8 lg:grid-cols-[1.4fr_1fr]">
-          <EvidenceFigure
-            shot={evidence.silentFailureRecording}
-            sizes="(min-width: 1280px) 660px, (min-width: 1024px) 58vw, (min-width: 640px) calc(100vw - 48px), calc(100vw - 32px)"
-            label="SILENT-FAILURE · RECORDING"
-            caption="5.1 s after the failed save, the page still shows no error. The facts panel records the injected status and that all 9 values were kept."
-          />
-          <div className="flex flex-col gap-4">
-            <Eyebrow>WHY IT MATTERS</Eyebrow>
-            <p className="text-lg leading-relaxed text-muted">
-              People think they booked when they didn&apos;t, and you never hear about it. The finding says what it
-              means, why it matters and what to ask your AI to fix, next to this evidence.
-            </p>
-          </div>
-        </div>
-      </Section>
-
-      <Section
-        id="accessibility"
-        title="Focus you can't see, measured"
-        intro={
-          <>
-            The <CheckLink id="focus-visible" /> tabs through the page and compares each control focused and at rest.
-            On Kennel, “Pet name” changes 0 of 37,296 pixels around it: no outline, shadow, border or background
-            change.
-          </>
-        }
-      >
-        <EvidenceFigure
-          shot={evidence.noVisibleFocus}
-          sizes="(min-width: 1280px) 1136px, (min-width: 1024px) calc(100vw - 144px), (min-width: 640px) calc(100vw - 48px), calc(100vw - 32px)"
-          label="FOCUS-VISIBLE · ANNOTATED FRAME"
-          caption="An annotated frame: the element boxed, and the measured facts beside it. Keyboard users can't tell where they are."
-        />
-      </Section>
-
-      <Section
-        id="security"
-        className="bg-band"
-        title="Leaks, with the line that proves them"
-        intro={
-          <>
-            Security checks read every script the page loads and watch every request the form triggers: here the{" "}
-            <CheckLink id="bundle-secrets" /> and the <CheckLink id="pii-leak" />.
-          </>
-        }
-      >
-        <div className="grid items-start gap-5 lg:grid-cols-2">
-          <EvidenceFigure
-            shot={evidence.secretKey}
-            label="BUNDLE-SECRETS · SCRIPT CARD"
-            caption="A secret key in the page's JavaScript, with file, line and column. The key is redacted in the report."
-          />
-          <EvidenceFigure
-            shot={evidence.emailLeak}
-            label="PII-LEAK · REQUEST CARD"
-            caption="The customer's email in a third-party analytics URL, in plain text, marked."
-          />
-        </div>
-      </Section>
-
-      <Section
-        id="whole-page"
-        title="The page as a whole"
-        intro={
-          <>
-            Since 0.2.0 (the V1 stage), Run Hound also looks past the form, at how the server answers and who may read
-            it. These checks run once for the whole page: here the <CheckLink id="cors" /> and the{" "}
-            <CheckLink id="security-headers" />.
-          </>
-        }
-      >
-        <div className="grid items-start gap-5 lg:grid-cols-2">
-          <EvidenceFigure
-            shot={evidence.corsNullOrigin}
-            label="CORS · REQUEST CARD"
-            caption="The page's own reads, repeated from a sandboxed frame as any website could: Kennel's API lets two of them be read with the visitor's cookies. The page itself stays unreadable."
-          />
-          <EvidenceFigure
-            shot={evidence.missingHeaders}
-            label="SECURITY-HEADERS · HEADER CARD"
-            caption="The page's response headers, with the session cookie's value hidden, and the three protections it never asks the browser for."
-          />
-        </div>
-      </Section>
-
-      <Section
-        id="try"
-        className="bg-band"
-        title="Run the same demo yourself"
-        intro="Kennel ships with Run Hound. With Docker or Podman it needs no clone: download one compose file and start the test lab, which also starts Fernway and the sample apps; from source it takes two terminals. Then try the clean Kennel: it should give zero confirmed findings."
-      >
-        <div className="grid items-start gap-8 lg:grid-cols-[1.3fr_1fr] lg:gap-12">
-          <div className="flex min-w-0 flex-col gap-5">
-            <CodeBlock label="Docker or Podman">{dockerCommands}</CodeBlock>
-            <CodeBlock label="From source, in a clone">{kennelCommands}</CodeBlock>
-          </div>
-          <div className="flex flex-col gap-4">
-            <p className="leading-relaxed text-muted">
-              With Docker, the clean Kennel is <code className="font-mono text-fg">http://kennel-clean:3000/book</code>
-              ; from source, enter <code className="font-mono text-fg">http://localhost:5310/book</code>, and restart
-              Kennel with <code className="font-mono text-fg">KENNEL_BUGS=none</code> for the clean run. Approve the
-              plan and watch the live view. Both paths are in the docs, step by step:{" "}
-              <Link href="/docs/#quick-start" className={linkClass}>
-                the quick start with Docker or Podman
-              </Link>{" "}
-              and{" "}
-              <Link href="/docs/#install" className={linkClass}>
-                the install from source
-              </Link>
-              .
-            </p>
-            <div className="flex flex-col gap-3 sm:flex-row lg:flex-col xl:flex-row">
-              <ButtonLink href={site.testingGuide}>
-                {site.cta}
-                <ArrowIcon />
-              </ButtonLink>
-              <ButtonLink href="/docs#kennel" variant="secondary">
-                Read the Kennel guide
-              </ButtonLink>
-            </div>
-            <p className="text-sm text-dim">
-              Open source: clone it from{" "}
-              <a href={site.github} className="text-muted underline underline-offset-4 hover:text-accent">
-                GitHub
-              </a>
-              . Want to see what AI adds? Turn it on in Settings → AI (
-              <Link href="/docs#ai" className="text-muted underline underline-offset-4 hover:text-accent">
-                AI setup
-              </Link>
-              ). More questions?{" "}
-              <Link href="/faq/" className="text-muted underline underline-offset-4 hover:text-accent">
-                Answers to common questions
-              </Link>
-              .
-            </p>
-          </div>
-        </div>
-      </Section>
-
-      <Section
-        id="fernway"
-        className="border-t border-line-soft"
-        title="Fernway: an app built the way AI builders build them"
-        intro={
-          <>
-            Kennel is one booking form. Fernway asks a different question: does Run Hound work on the kind of app
-            people generate today? It is a small project-planning app for studios, built with Vite, React 19,
-            Tailwind, Radix and shadcn/ui-style components, sonner toasts and react-hook-form with zod, in light and
-            dark mode. Built your own with Lovable, Bolt or v0? See{" "}
-            <Link href="/ai-built-apps/" className={linkClass}>
-              how to test apps from AI app builders
-            </Link>
-            .
-          </>
-        }
-      >
+      <ProductBand id={tryBand.id} title={tryBand.title} intro={tryBand.intro} tone="band">
         <div className="grid items-start gap-8 lg:grid-cols-2 lg:gap-12">
-          <ul className="flex list-disc flex-col gap-3 pl-5 leading-relaxed text-muted marker:text-dim">
-            <li>
-              <strong className="text-fg">Its pages:</strong> a landing page with a waitlist form and a “Book a demo”
-              dialog, sign-up and sign-in, a three-step onboarding wizard, and a dashboard and settings behind a real
-              sign-in, with two accounts that each have a workspace of their own.
-            </li>
-            <li>
-              <strong className="text-fg">Two modes:</strong> <code className="font-mono text-fg">fernway</code> is
-              built well on purpose, so any confirmed finding on it is a false positive;{" "}
-              <code className="font-mono text-fg">fernway-bugs</code> has 15 planted bugs, each caught by one check.
-            </li>
-            <li>
-              <strong className="text-fg">The access bugs</strong> need a signed-in run: set up Fernway&apos;s two
-              accounts as test accounts A and B (their details are in{" "}
-              <a href={site.fernwayGuide} className="text-accent underline underline-offset-4 hover:text-accent-strong">
-                Fernway&apos;s README
-              </a>
-              ) and plan <code className="font-mono text-fg">/app</code> signed in as account A.
-            </li>
-          </ul>
-          <div className="flex flex-col gap-4 leading-relaxed text-muted">
-            <p>
-              Both start with the quick start above. In the Run Hound UI, enter{" "}
-              <code className="font-mono text-fg">http://fernway-bugs:4110/</code> for the planted bugs, or{" "}
-              <code className="font-mono text-fg">http://fernway:4110/</code> for the clean app. The other pages are{" "}
-              <code className="font-mono text-fg">/signup</code>, <code className="font-mono text-fg">/login</code>,{" "}
-              <code className="font-mono text-fg">/onboarding</code>, <code className="font-mono text-fg">/app</code>,{" "}
-              <code className="font-mono text-fg">/app/settings</code> and{" "}
-              <code className="font-mono text-fg">/app/help</code>. The help page is where one bug (V05) shows: with
-              the bugs on, it answers 404 when opened directly, though its link in the sidebar works.
-            </p>
-            <p>
-              <Link href="/docs#accounts" className="text-accent underline underline-offset-4 hover:text-accent-strong">
-                Signed-in runs, step by step
-              </Link>
+          <div className="flex min-w-0 flex-col gap-4">
+            <CodeBlock label={tryBand.labLabel} commands={commands.blocks.lab.commands} />
+            <p className="text-body text-muted">
+              <RichText text={tryBand.labNext} />
             </p>
           </div>
+          <div className="flex min-w-0 flex-col gap-4">
+            <p className="text-body text-muted">
+              <RichText text={tryBand.sourceText} />
+            </p>
+            {tryBand.sourceBlocks.map((source) => (
+              <CodeBlock key={source.label} label={source.label} comment={source.block.comment} commands={source.block.commands} />
+            ))}
+            <ul className="flex flex-col">
+              {tryBand.links.map((link) => (
+                <li key={link.text}>
+                  <ArrowLink href={resolveTarget(link.to)} prefetch="intent" className="inline-flex min-h-target-row items-center">
+                    {link.text}
+                  </ArrowLink>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
-        <div className="grid items-start gap-8 lg:grid-cols-2">
-          <figure className="flex min-w-0 flex-col gap-3">
-            <Screenshot screen={aiBuiltScreens.fernway} sizes={halfShotSizes} />
-            <figcaption className="text-sm leading-relaxed text-muted">
-              Fernway&apos;s landing page, clean: a waitlist form with a Radix select and a “Book a demo” form in a
-              dialog. Run Hound plans 40 scenarios on it, and on the clean app none of them finds an issue.
-            </figcaption>
-          </figure>
-          <figure className="flex min-w-0 flex-col gap-3">
-            <Screenshot screen={v2Screens.accessControl} sizes={halfShotSizes} />
-            <figcaption className="text-sm leading-relaxed text-muted">
-              V01, caught on <code className="font-mono text-fg">/app/settings</code> with every bug on: signed in as
-              account A, Run Hound replayed A&apos;s profile request as account B and got A&apos;s test record back.
-            </figcaption>
-          </figure>
-        </div>
-      </Section>
+      </ProductBand>
 
-      <Section
-        title="What the test apps plant"
-        className="bg-band"
-        intro="Every bug sits behind its own toggle. Because we know exactly what's broken, we can measure what Run Hound finds, what it misses and what it makes up."
-      >
-        <div className="grid gap-5 md:grid-cols-2">
-          {planted.map((set) => (
-            <Card key={set.label} className="flex flex-col gap-5">
-              <div className="flex items-baseline justify-between gap-4">
-                <PlantedLabel label={set.label} />
-                <p className="font-display text-4xl font-extrabold tracking-tight">
-                  {set.count}
-                  <span className="sr-only"> planted bugs</span>
-                </p>
-              </div>
-              <div className="flex flex-col gap-2">
-                <h3 className="font-display text-xl font-bold">{set.title}</h3>
-                <p className="leading-relaxed text-muted">{set.body}</p>
-              </div>
-              <ul className="flex flex-col divide-y divide-line-soft border-t border-line-soft">
-                {set.groups.map((group) => (
-                  <li key={group.name} className="flex items-center justify-between gap-4 py-2.5">
-                    <span>{group.name}</span>
-                    <span className="font-mono text-sm text-muted">{group.count}</span>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          ))}
+      <ProductBand id={fernwayBand.id} title={fernwayBand.title} intro={<RichText text={fernwayBand.intro} />}>
+        <div className="grid items-start gap-8 lg:grid-cols-2 lg:gap-12">
+          <ul className="flex list-disc flex-col gap-3 pl-5 text-body text-muted marker:text-dim">
+            {fernwayBand.points.map((point) => (
+              <li key={point.lead}>
+                <strong className="font-semibold text-fg">{point.lead}</strong> <RichText text={point.text} />
+              </li>
+            ))}
+          </ul>
+          <div className="flex flex-col gap-4">
+            <p className="text-body text-muted">
+              <RichText text={fernwayBand.enter} />
+            </p>
+            <ul className="flex flex-col">
+              {fernwayBand.links.map((link) => (
+                <li key={link.text}>
+                  <ArrowLink href={resolveTarget(link.to)} prefetch="intent" className="inline-flex min-h-target-row items-center">
+                    {link.text}
+                  </ArrowLink>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
-        <p className="max-w-3xl leading-relaxed text-muted">
-          In clean mode every bug is fixed properly, not removed, so the same flows run and any finding counts as a
-          false positive. Seven more bugs (row-level security, server-side auth, file storage and payments) are planned for a
-          Supabase-backed Kennel. An in-browser replay of a
-          recorded run is planned too, so you can see all this without installing anything.
-        </p>
-      </Section>
+        <div className="mt-10 grid items-start gap-10 lg:grid-cols-2 lg:gap-6 xl:gap-8">
+          <DemoPicture figure={{ picture: { screen: { group: "aiBuiltScreens", key: "fernway" } }, label: fernwayBand.app.label, caption: fernwayBand.app.caption }} />
+          <DemoFindingBlock finding={fernwayBand.finding} />
+        </div>
+      </ProductBand>
+
+      <ProductBand id={plantedBand.id} title={plantedBand.title} intro={plantedBand.intro} tone="band">
+        <ul className="grid gap-4 md:grid-cols-2 lg:gap-6">
+          {planted.map((set) => {
+            const total = set.groups.reduce((n, group) => n + group.ids.length, 0);
+            return (
+              <Card as="li" key={set.label} className="flex flex-col gap-5">
+                <div className="flex items-baseline justify-between gap-4">
+                  <p className="flex flex-wrap items-center gap-2 font-mono text-mono text-dim">
+                    {set.label}
+                    {set.preview ? <Tag>Preview</Tag> : null}
+                  </p>
+                  <p className="font-display text-display-m text-fg">
+                    {total}
+                    <span className="sr-only"> {plantedBand.plantedCount}</span>
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <h3 className="font-display text-title font-bold text-fg">{set.title}</h3>
+                  <p className="text-body text-muted">{set.text}</p>
+                </div>
+                <ul className="flex flex-col divide-y divide-line-soft border-t border-line-soft">
+                  {set.groups.map((group) => (
+                    <li key={group.name} className="flex items-center justify-between gap-4 py-2 text-body text-fg">
+                      <span>{group.name}</span>
+                      <span className="font-mono text-mono text-muted">{group.ids.length}</span>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            );
+          })}
+        </ul>
+        <p className="mt-6 max-w-measure text-body text-muted">{plantedBand.note}</p>
+      </ProductBand>
+
+      <MotionGate islands={["scroll"]} />
     </>
   );
 }

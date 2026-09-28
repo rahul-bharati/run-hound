@@ -12,8 +12,8 @@ body:
     id: version
     attributes:
       label: Run Hound version
-      description: "`docker run --rm ghcr.io/rahul-bharati/run-hound:0.5.0 --version`, `pnpm exec tsx src/cli.ts --version` in `app/` from source, or `runHoundVersion` in report.json."
-      placeholder: run-hound 0.5.0
+      description: "What `--version` prints for the Run Hound you ran. Docker: `docker run --rm ghcr.io/rahul-bharati/run-hound:<tag> --version` with the tag you ran. The test lab's tag is in `run-hound.compose.yml`. An image named without a tag is `latest`. From source: `pnpm exec tsx src/cli.ts --version` in `app/`. The web UI shows it under Settings → This server, and report.json as `runHoundVersion`."
+      placeholder: run-hound 0.x.y
     validations:
       required: true
   - type: input
@@ -32,9 +32,9 @@ body:
         - Starting the web UI or the command line
         - Planning (finding the forms and controls)
         - During a run
-        - "Test accounts or signing in (0.4.0, V2 preview: Settings → Test accounts, accounts set/test, --as)"
-        - "Access checks (0.4.0, V2 preview: access-control, mass-assignment, deep-links)"
-        - "CSRF check (0.5.0, V2 preview)"
+        - "Test accounts or signing in (V2 preview: Settings → Test accounts, accounts set/test, --as, two-step and sessionStorage sign-in)"
+        - "Access checks (V2 preview: access-control, mass-assignment, deep-links)"
+        - "Write-side checks (V2 preview: csrf, write-access, paywall-trust)"
         - "AI (Settings → AI, ai status/test, --ai)"
         - Writing or opening the report
         - Docker or Podman

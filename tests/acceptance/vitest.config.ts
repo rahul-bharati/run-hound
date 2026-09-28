@@ -6,7 +6,9 @@ import { defineConfig } from "vitest/config";
  *
  * Env:
  *   ACCEPTANCE_MODES=clean,F01   run only these Kennel modes (default: all)
- *   ACCEPTANCE_FERNWAY=/app,W03  run only these Fernway routes and bugs (default: all; "clean" = every route, "bugs" = every bug)
+ *   ACCEPTANCE_FERNWAY=/app,W03  run only these Fernway routes and bugs (default: all; "clean" = every route, "bugs" = every bug,
+ *                                "write-side" = the clean write-side runs, "modes" = the sign-in mode runs, or "two-step" /
+ *                                "session-storage" for one)
  *   ACCEPTANCE_CONCURRENCY=2     modes run at the same time (each has its own Kennel or Fernway on free ports)
  *   KENNEL_SKIP_BUILD=1          reuse fixtures/kennel/dist instead of running `vite build`
  *   FERNWAY_SKIP_BUILD=1         reuse fixtures/fernway/dist instead of running `vite build`

@@ -22,7 +22,9 @@ const money = (cents: number, currency: string) => new Intl.NumberFormat("en-US"
  * only the server changes. On Free: "Upgrade to Pro" starts the local test checkout (POST /api/billing/checkout) and
  * shows it in a dialog; "Pay" there (POST /api/billing/checkout/:id/pay, test mode) then opens the success page
  * /app/upgraded?checkout=<id>, which asks the server to confirm the payment. "Already paid? Refresh your plan" opens
- * /app/upgraded without a checkout. On Pro: "Switch back to Free" (POST /api/billing/cancel).
+ * /app/upgraded without a checkout. On Pro: "Cancel plan" (POST /api/billing/cancel) puts the account back on Free
+ * straight away, with no confirmation: it is also what Run Hound's paywall-trust clicks to undo a plan its probe
+ * granted (V09), so it has to work for whoever is on Pro, however they got there.
  */
 export function ProPlanCard() {
   const user = useSessionUser();
@@ -74,15 +76,15 @@ export function ProPlanCard() {
       }
     });
 
-  const switchToFree = () =>
+  const cancelPlan = () =>
     run("free", async () => {
       setError("");
       setStatus("");
       try {
         const { plan } = await apiPost<{ plan: string }>("/api/billing/cancel");
         setData((p) => ({ ...p, plan }));
-        setStatus("You're back on the Free plan.");
-        toast.success("Switched to Free");
+        setStatus("Plan cancelled. You're back on the Free plan.");
+        toast.success("Plan cancelled", { description: "You're back on the Free plan." });
       } catch (err) {
         setError(errorMessage(err));
         toast.error("Plan not changed", { description: errorMessage(err) });
@@ -133,8 +135,8 @@ export function ProPlanCard() {
       </CardContent>
       <CardFooter className="flex-wrap items-center gap-3 border-t pt-6">
         {pro ? (
-          <Button type="button" variant="outline" loading={busy === "free"} onClick={() => void switchToFree()}>
-            Switch back to Free
+          <Button type="button" variant="outline" loading={busy === "free"} onClick={() => void cancelPlan()}>
+            Cancel plan
           </Button>
         ) : (
           <>

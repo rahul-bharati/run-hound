@@ -1,5 +1,5 @@
 import { Bell, CreditCard, UserRound } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "react-router";
 import { AppShell } from "@/components/app/AppShell";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -16,13 +16,33 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number]["value"];
 
+/** The tab a URL fragment names ("#billing"), if any. */
+const tabFor = (hash: string): Tab | undefined => TABS.find((t) => `#${t.value}` === hash)?.value;
+
 /** /app/settings (CONTRACT.md "/app/settings Settings"): Radix Tabs Profile (selected on load), Notifications, Billing. */
 export default function Settings() {
   useDocumentTitle("Settings");
   const user = useSessionUser();
-  const { hash } = useLocation();
-  // "/app/settings#billing" (the sidebar's "View plans") opens that tab; plain /app/settings opens Profile.
-  const [tab, setTab] = useState<Tab>(() => TABS.find((t) => `#${t.value}` === hash)?.value ?? "profile");
+  const { hash, key } = useLocation();
+  // "/app/settings#billing" (the sidebar's "View plans", /app/upgraded's "Back to billing") opens that tab; plain
+  // /app/settings opens Profile.
+  const [tab, setTab] = useState<Tab>(() => tabFor(hash) ?? "profile");
+  // Not only on the first load: every navigation to a tab's fragment selects it while the page is already open. A link
+  // to it is a new location (a new key, even when the hash is already "#billing" and another tab was picked since).
+  useEffect(() => {
+    const next = tabFor(hash);
+    if (next) setTab(next);
+  }, [hash, key]);
+  // A fragment navigation from outside the app (a typed or scripted URL, back and forward) fires popstate even when the
+  // location React Router sees doesn't change (the same hash, and its "default" key again).
+  useEffect(() => {
+    const onPop = () => {
+      const next = tabFor(window.location.hash);
+      if (next) setTab(next);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   return (
     <AppShell>

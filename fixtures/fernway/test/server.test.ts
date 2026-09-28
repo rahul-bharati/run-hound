@@ -247,11 +247,11 @@ describe("clean mode: pages, static files and headers", () => {
     expect(res.headers.get("allow")).toBe("GET, HEAD");
   });
 
-  it("GET /api/__config answers { bugs: [] } in clean mode; POST /api/__reset answers 204", async () => {
+  it("GET /api/__config answers { bugs: [] } and the default modes in clean mode; POST /api/__reset answers 204", async () => {
     const config = await api(ref.fw, "/api/__config");
     expect(config.status).toBe(200);
     expect(config.headers.get("content-type")).toBe("application/json; charset=utf-8");
-    expect(config.body).toEqual({ bugs: [] });
+    expect(config.body).toEqual({ bugs: [], login: "one-step", session: "cookie" });
     expectSecurityHeaders(config.headers);
     const reset = await fetch(`${ref.fw.url}/api/__reset`, { method: "POST" });
     expect(reset.status).toBe(204);
@@ -336,7 +336,7 @@ describe("W06: a Stripe-style live secret key in the page's JavaScript", () => {
   });
 
   it("GET /api/__config lists the enabled ids, sorted", async () => {
-    expect((await api(ref.fw, "/api/__config")).body).toEqual({ bugs: ["W06"] });
+    expect((await api(ref.fw, "/api/__config")).body).toEqual({ bugs: ["W06"], login: "one-step", session: "cookie" });
   });
 });
 
@@ -344,7 +344,7 @@ describe("FERNWAY_BUGS=all", () => {
   const ref = useFernway("all");
 
   it("GET /api/__config lists all nineteen ids, sorted", async () => {
-    expect((await api(ref.fw, "/api/__config")).body).toEqual({ bugs: [...ALL_BUGS].sort() });
+    expect((await api(ref.fw, "/api/__config")).body).toEqual({ bugs: [...ALL_BUGS].sort(), login: "one-step", session: "cookie" });
   });
 });
 
@@ -598,7 +598,7 @@ describe("API pipeline", () => {
     app.ctx.store.sessions.set("sid-gone", "extra-user");
     await post("/api/store/mutate", {});
     expect((await (await fetch(`${base}/api/store`)).json()).projects).toBe(7);
-    expect(app.ctx.sessionUser({ fernway_session: "sid-gone" })?.id).toBe("extra-user");
+    expect(app.ctx.sessionUser({ cookies: { fernway_session: "sid-gone" } })?.id).toBe("extra-user");
     const k1 = await (await post("/api/echo", {}, { "idempotency-key": "after-reset" })).json();
     const reset = await fetch(`${base}/api/__reset`, { method: "POST" });
     expect(reset.status).toBe(204);
@@ -607,8 +607,8 @@ describe("API pipeline", () => {
     const k2 = await (await post("/api/echo", {}, { "idempotency-key": "after-reset" })).json();
     expect(k2.n).toBe(k1.n + 1);
     // A seeded user's session survives the reset; a session of a user the reset removed resolves to nobody.
-    expect(app.ctx.sessionUser({ fernway_session: "sid-kept" })?.email).toBe(ACCOUNTS.sam.email);
-    expect(app.ctx.sessionUser({ fernway_session: "sid-gone" })).toBeNull();
+    expect(app.ctx.sessionUser({ cookies: { fernway_session: "sid-kept" } })?.email).toBe(ACCOUNTS.sam.email);
+    expect(app.ctx.sessionUser({ cookies: { fernway_session: "sid-gone" } })).toBeNull();
   });
 
   it("ctx.sessionCookie and clearSessionCookie follow W09; ctx.sessionUser resolves a session; ctx.workspaceOf finds the workspace", () => {
@@ -618,9 +618,13 @@ describe("API pipeline", () => {
     expect(w09.ctx.sessionCookie("abc")).toBe("fernway_session=abc; Path=/; SameSite=Lax");
     expect(w09.ctx.clearSessionCookie()).toBe("fernway_session=; Path=/; SameSite=Lax; Max-Age=0");
     expect(app.ctx.sessionUser({})).toBeNull();
-    expect(app.ctx.sessionUser({ fernway_session: "no-such-session" })).toBeNull();
+    expect(app.ctx.sessionUser({ cookies: {} })).toBeNull();
+    expect(app.ctx.sessionUser({ cookies: { fernway_session: "no-such-session" } })).toBeNull();
     app.ctx.store.sessions.set("sid-1", "alex-rivera");
-    expect(app.ctx.sessionUser({ fernway_session: "sid-1" })?.email).toBe(DEMO_ACCOUNT.email);
+    expect(app.ctx.sessionUser({ cookies: { fernway_session: "sid-1" } })?.email).toBe(DEMO_ACCOUNT.email);
+    // Cookie mode: the session is the cookie; a bearer token naming the same id is not.
+    expect(app.ctx.sessionOf({ cookies: { fernway_session: "sid-1" }, bearer: "other" })).toBe("sid-1");
+    expect(app.ctx.sessionUser({ cookies: {}, bearer: "sid-1" })).toBeNull();
     expect(app.ctx.workspaceOf("alex-rivera")?.name).toBe("Rivera Studio");
     expect(app.ctx.workspaceOf("sam-okafor")?.name).toBe("Okafor & Co");
     expect(app.ctx.workspaceOf("nobody")).toBeUndefined();

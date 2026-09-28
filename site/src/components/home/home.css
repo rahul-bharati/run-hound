@@ -1,0 +1,1016 @@
+/* The homepage's own styles (DESIGN.md §2, §3.1): the hero, the run window, the pipeline, the evidence trio, the check
+   cards and the bands' grids. Imported by app/page.tsx only; every class starts with "hm-", so the sheet can't touch
+   another page if it stays loaded after a navigation. Colours, radii, type sizes and spacing are tokens
+   (src/styles/tokens.css) or the spacing scale of §2.1; the literal px left are hairlines and the run window's
+   drawing sizes (1-2 px borders and insets, the rail's 11 px dots, its 5 px track offset and 6 px progress bar) and a
+   3 px underline offset, none of them part of the scale. The primitives' classes (globals.css) do the rest. Unlayered, so a rule here wins over a primitive's
+   component class, never over the motion rest states (globals.css holds those unlayered and more specific). */
+
+/* ---- Shared ------------------------------------------------------------------------------------------------------ */
+
+.hm-key {
+  color: var(--rh-accent-text);
+}
+.hm-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-8);
+  margin-top: var(--band-gap);
+}
+/* A tag at the page's 12 px mono label size: the homepage already sets 12 px labels, and a tenth font size would break
+   the type audit's nine (§2.2). */
+.hm-card .tag,
+.hm-grid4 .tag {
+  margin-left: var(--space-2);
+  font-size: var(--text-mono);
+  vertical-align: 0.1em;
+}
+/* Outlines drawn round a box (the trio, each check card): an SVG over it, its rect the box's size less the stroke. */
+.hm-outline {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  fill: none;
+}
+.hm-outline rect {
+  width: calc(100% - 1.5px);
+  height: calc(100% - 1.5px);
+}
+
+/* ---- Hero -------------------------------------------------------------------------------------------------------- */
+
+.hm-hero {
+  padding-block: var(--space-6) var(--band-pad);
+}
+.hm-hero-grid {
+  display: grid;
+  gap: var(--space-8);
+  grid-template-columns: minmax(0, 1fr);
+}
+.hm-hero-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+.hm-pill {
+  max-width: 100%;
+  white-space: nowrap;
+}
+/* One line from 360 px (home.spec.mjs); narrower, the words wrap inside the pill rather than push its arrow past the
+   screen (Run Hound's reflow-320 found 2 px of sideways scroll at 320 px). */
+@media (width < 22.5rem) {
+  .hm-pill {
+    white-space: normal;
+  }
+}
+.hm-h1 {
+  margin-top: var(--space-6);
+  font-family: var(--font-display);
+  font-size: var(--rh-text-display-xl);
+  font-weight: 800;
+  line-height: 0.98;
+  letter-spacing: -0.035em;
+  color: var(--rh-fg);
+  text-wrap: balance;
+}
+.hm-sub {
+  margin-top: var(--space-4);
+  max-width: var(--container-measure);
+  font-size: var(--rh-text-lead);
+  line-height: 1.6;
+  color: var(--rh-muted);
+  text-wrap: pretty;
+}
+.hm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+}
+.hm-command {
+  width: 100%;
+  margin-top: var(--space-6);
+}
+.hm-strip {
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--rh-line-soft);
+}
+@media (width < 40rem) {
+  .hm-hero {
+    padding-top: var(--space-4);
+  }
+  /* The hero's two buttons share one row on phones (the secondary shows "GitHub"). */
+  .hm-hero .hm-actions {
+    flex-wrap: nowrap;
+    width: 100%;
+  }
+  .hm-hero .hm-actions > .btn {
+    flex: 1 1 auto;
+    padding-inline: var(--space-4);
+  }
+  .hm-pill {
+    padding-inline: var(--space-2);
+    gap: var(--space-1);
+  }
+}
+@media (width >= 64rem) {
+  .hm-hero {
+    padding-top: var(--space-12);
+  }
+  /* Text beside the figure (1 : 1.12), the proof strip on its own row below both. */
+  .hm-hero-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.12fr);
+    grid-template-areas: "text figure" "strip strip";
+    column-gap: var(--space-12);
+    row-gap: var(--space-10);
+    align-items: center;
+  }
+  .hm-hero-text {
+    grid-area: text;
+  }
+  .hm-run {
+    grid-area: figure;
+  }
+  .hm-strip {
+    grid-area: strip;
+  }
+  .hm-phrase {
+    white-space: nowrap;
+  }
+}
+
+/* ---- The run window (a picture: aria-hidden; its elements styled by position, §2.9) ------------------------------- */
+
+.hm-run {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-4);
+  min-width: 0;
+}
+.hm-win {
+  grid-column: 1 / -1;
+  font-size: var(--text-mono);
+  line-height: 1.4;
+}
+.hm-win-app {
+  font-family: var(--font-mono);
+  color: var(--rh-muted);
+}
+.hm-win i {
+  font-style: normal;
+}
+.hm-panes {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+}
+
+/* The app under test: Kennel, in the paper palette, with its own orange "Book". */
+.hm-app {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--rh-paper);
+  color: var(--rh-paper-ink);
+}
+.hm-app > b {
+  font-family: var(--font-display);
+  font-size: var(--text-small);
+}
+.hm-app small {
+  font-size: var(--text-tag);
+  color: var(--rh-paper-muted);
+}
+.hm-scan {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: var(--space-10);
+  border-bottom: 1px solid var(--rh-accent);
+  background: linear-gradient(to bottom, transparent, color-mix(in oklab, var(--rh-accent) 25%, transparent));
+  pointer-events: none;
+}
+.hm-field {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.hm-field > span {
+  overflow: hidden;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--rh-paper-line);
+  border-radius: var(--radius-chip);
+  background: var(--rh-paper-field, #fff);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.hm-field > i {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding-inline: var(--space-1);
+  border-radius: var(--space-1);
+  background: var(--rh-bg-deep);
+  font-family: var(--font-mono);
+  font-size: var(--text-tag);
+  line-height: 1.4;
+  color: var(--rh-muted);
+}
+.hm-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+.hm-buttons > span {
+  position: relative;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--rh-paper-line);
+  border-radius: var(--radius-chip);
+  font-weight: 600;
+  color: var(--rh-paper-muted);
+}
+.hm-buttons > span:first-child {
+  border-color: var(--rh-paper-action);
+  background: var(--rh-paper-action);
+  color: var(--rh-paper-field, #fff);
+}
+/* The press ring on "Book": neutral, resting hidden by class. */
+.hm-buttons i {
+  position: absolute;
+  inset: calc(var(--space-1) * -1);
+  border: 2px solid var(--rh-paper-muted);
+  border-radius: var(--radius-control);
+  pointer-events: none;
+}
+.hm-bookings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--rh-paper-line);
+  font-size: var(--text-tag);
+}
+.hm-bookings > span {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--space-1);
+  background: var(--rh-paper-field, #fff);
+}
+.hm-bookings > span small {
+  color: inherit;
+}
+.hm-bookings > span:last-child {
+  color: var(--rh-paper-fail);
+  box-shadow: inset 0 0 0 1px var(--rh-paper-fail);
+}
+
+/* The web UI: the rail, the plan, the progress and the finding. */
+.hm-ui {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  color: var(--rh-muted);
+}
+.hm-ui b {
+  font-weight: 600;
+  color: var(--rh-fg);
+}
+.hm-rail {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: var(--text-tag);
+}
+/* The track, then the accent line (rail-line) over it. */
+.hm-rail > i {
+  position: absolute;
+  inset-inline: var(--space-2);
+  top: 5px;
+  height: 1px;
+  background: var(--rh-line-strong);
+}
+.hm-rail > i + i {
+  background: var(--rh-accent);
+  transform-origin: 0 50%;
+}
+.hm-rail > span {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+.hm-rail > span > i {
+  position: relative;
+  width: 11px;
+  height: 11px;
+  border: 1px solid var(--rh-line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--rh-bg-deep);
+}
+.hm-rail b {
+  position: absolute;
+  inset: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--rh-accent);
+}
+.hm-rail small {
+  font-size: inherit;
+  color: var(--rh-dim);
+}
+.hm-plan {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.hm-plan > li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+/* The rows are real scenario titles (§3.1), so they wrap rather than end in an ellipsis. */
+.hm-plan > li > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.hm-plan > li > .tick {
+  flex: none;
+}
+.hm-plan b {
+  font-weight: inherit;
+  color: inherit;
+}
+.hm-plan .tick {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+/* "+16 more" is one line of text and its two numbers (only one shown), so no flex gap may split "+" from the number. */
+.hm-plan > li:last-child {
+  display: block;
+  padding-left: var(--space-6);
+  color: var(--rh-dim);
+}
+.hm-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-tag);
+  color: var(--rh-dim);
+}
+.hm-progress > span {
+  flex: 1;
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--rh-surface-3);
+}
+.hm-progress i {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--rh-accent);
+  transform-origin: 0 50%;
+}
+.hm-finding {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid color-mix(in oklab, var(--rh-fail) 40%, transparent);
+  border-radius: var(--radius-control);
+  background: var(--rh-surface);
+}
+.hm-finding > p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+}
+.hm-finding > p > i {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklab, var(--rh-fail) 15%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--text-tag);
+  font-weight: 600;
+  color: var(--rh-fail);
+}
+.hm-req {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0 var(--space-2);
+  align-self: stretch;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-chip);
+  background: color-mix(in oklab, var(--rh-fail) 8%, var(--rh-bg-deep));
+  font-family: var(--font-mono);
+  font-size: var(--text-tag);
+}
+.hm-req small {
+  font-size: inherit;
+  color: var(--rh-dim);
+}
+.hm-spec {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--rh-line-strong);
+  border-radius: var(--radius-chip);
+  font-family: var(--font-mono);
+  font-size: var(--text-tag);
+}
+/* The EVIDENCE stamp: a status mark of the product figures (exempt from the accent budget), resting turned -4°. */
+.hm-stamp {
+  padding: 0 var(--space-2);
+  border: 2px solid var(--rh-accent);
+  border-radius: var(--radius-chip);
+  background: color-mix(in oklab, var(--rh-bg-deep) 85%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--rh-accent-text);
+  transform: rotate(-4deg);
+}
+.hm-finding .hm-stamp {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+}
+/* The caption, then the Replay slot beside it (the button comes first in the DOM: a figcaption ends the figure). */
+.hm-caption {
+  grid-row: 3;
+  grid-column: 1;
+  margin-top: var(--space-3);
+  font-size: var(--text-small);
+  line-height: 1.5;
+  color: var(--rh-dim);
+}
+.hm-replay {
+  grid-row: 3;
+  grid-column: 2;
+  align-self: end;
+  min-height: var(--spacing-target);
+  padding-inline: var(--space-2);
+  font-size: var(--text-small);
+  font-weight: 600;
+  color: var(--rh-fg);
+  text-decoration-line: underline;
+  text-decoration-color: var(--rh-line-strong);
+  text-underline-offset: 3px;
+}
+.hm-replay:hover {
+  text-decoration-color: var(--rh-accent);
+}
+.hm-wide {
+  display: none;
+}
+@media (width >= 40rem) {
+  .hm-wide {
+    display: inline;
+  }
+  .hm-phone {
+    display: none;
+  }
+  .hm-win {
+    font-size: var(--text-code);
+  }
+  .hm-app,
+  .hm-ui {
+    padding: var(--space-4);
+    gap: var(--space-3);
+  }
+}
+/* Phones: the plan shows three rows ("+17 more"), the saved rows only their copy, the stamp sits on the finding's top
+   edge (clear of the test chip), and below 400 px the rail keeps its dots, not its labels. */
+@media (width < 40rem) {
+  .hm-plan > li:nth-child(4),
+  .hm-bookings > span small {
+    display: none;
+  }
+  .hm-app {
+    padding-inline: var(--space-2);
+  }
+  .hm-finding .hm-stamp {
+    top: calc(var(--space-3) * -1);
+    bottom: auto;
+  }
+}
+@media (width < 25rem) {
+  .hm-rail small {
+    display: none;
+  }
+}
+
+/* ---- Why --------------------------------------------------------------------------------------------------------- */
+
+.hm-stats {
+  display: grid;
+}
+.hm-stats > li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--space-4);
+  padding-block: var(--space-4);
+  border-top: 1px solid var(--rh-line-soft);
+}
+.hm-stats > li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.hm-stats b {
+  grid-row: span 2;
+  min-width: 4.5ch;
+  font-family: var(--font-display);
+  font-size: var(--rh-text-display-m);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: var(--rh-fg);
+}
+.hm-stats p {
+  font-size: var(--rh-text-body);
+  line-height: 1.6;
+  color: var(--rh-muted);
+}
+/* Mono labels: 12 px, tracked (a source, a group's name). */
+.hm-stats .hm-label,
+.hm-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: var(--rh-dim);
+}
+.hm-label a {
+  color: var(--rh-muted);
+  text-decoration-line: underline;
+  text-decoration-color: var(--rh-line-strong);
+  text-underline-offset: 3px;
+}
+.hm-label a:hover {
+  color: var(--rh-fg);
+  text-decoration-color: var(--rh-accent);
+}
+@media (width >= 64rem) {
+  .hm-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .hm-stats > li {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: 0 var(--space-8);
+    border-top: 0;
+    border-left: 1px solid var(--rh-line-soft);
+  }
+  .hm-stats > li:first-child {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+/* ---- How it works: the pipeline ------------------------------------------------------------------------------------ */
+
+.hm-pipeline {
+  display: grid;
+}
+.hm-pipeline > li {
+  position: relative;
+  padding: 0 0 var(--space-6) var(--space-12);
+}
+.hm-node {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1.5px solid var(--rh-line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--rh-bg);
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  font-weight: 600;
+  color: var(--rh-fg);
+}
+/* The node's accent ring (node-ring). */
+.hm-node > i {
+  position: absolute;
+  inset: -1.5px;
+  border: 1.5px solid var(--rh-accent);
+  border-radius: var(--radius-pill);
+}
+/* The dashed track from this node's centre to the next's, and the accent line on it (connector): a 1.5 px border,
+   scaled from the node (down on phones, across from 1024 px), so it stays below the accent budget's "strong". */
+.hm-track {
+  position: absolute;
+  top: 14px;
+  left: 13.25px;
+  height: 100%;
+  border-left: 1.5px dashed var(--rh-line-strong);
+}
+.hm-track > i {
+  position: absolute;
+  top: 0;
+  left: -1.5px;
+  height: 100%;
+  border-left: 1.5px solid var(--rh-accent);
+  transform-origin: 50% 0;
+}
+.hm-pipeline h3 {
+  font-family: var(--font-display);
+  font-size: var(--rh-text-title);
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--rh-fg);
+}
+.hm-pipeline p {
+  margin-top: var(--space-1);
+  font-size: var(--rh-text-body);
+  line-height: 1.6;
+  color: var(--rh-muted);
+}
+@media (width >= 64rem) {
+  .hm-pipeline {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .hm-pipeline > li {
+    padding: var(--space-12) var(--space-6) 0 0;
+  }
+  .hm-track {
+    top: 13.25px;
+    left: 14px;
+    width: 100%;
+    height: 0;
+    border-left: 0;
+    border-top: 1.5px dashed var(--rh-line-strong);
+  }
+  .hm-track > i {
+    top: -1.5px;
+    left: 0;
+    width: 100%;
+    height: 0;
+    border-left: 0;
+    border-top: 1.5px solid var(--rh-accent);
+    transform-origin: 0 50%;
+  }
+}
+
+/* ---- How it works: the evidence trio ------------------------------------------------------------------------------ */
+
+.hm-proof-title {
+  margin-top: var(--space-10);
+  font-size: var(--rh-text-title);
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--rh-fg);
+}
+.hm-trio {
+  position: relative;
+  display: grid;
+  gap: var(--space-6);
+  margin-top: var(--space-8);
+  padding: var(--space-8) var(--space-4) var(--space-4);
+}
+/* The trio's outlines: line-strong at rest (outline-rest), accent while it draws (outline-accent, hidden at rest). */
+.hm-trio > .hm-outline > rect {
+  stroke: var(--rh-line-strong);
+  stroke-width: 1px;
+}
+.hm-trio > .hm-outline > rect + rect {
+  stroke: var(--rh-accent);
+  stroke-width: 1.5px;
+}
+.hm-trio-stamp {
+  position: absolute;
+  top: calc(var(--space-3) * -1);
+  right: var(--space-6);
+  background: var(--rh-band);
+}
+.hm-proof {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.hm-media {
+  overflow: hidden;
+  border: 1px solid var(--rh-line);
+  border-radius: var(--radius-control);
+  background: var(--rh-bg-deep);
+}
+.hm-crop {
+  background: var(--rh-paper);
+}
+/* The crop is 304 px wide, cut from the run's own 1200 px GIF (the only frame the run has of this moment), so it is
+   drawn at most 2x (38rem), centred on Kennel's paper: about 1.5x at 1024 px, where its text needs to be 11 px, and
+   never the 3x a full-width tablet column would stretch it to. */
+.hm-crop-img {
+  display: block;
+  width: 100%;
+  max-width: 38rem;
+  height: auto;
+  margin-inline: auto;
+}
+.hm-reqs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  color: var(--rh-muted);
+}
+.hm-reqs > b {
+  font-family: var(--font-sans);
+  font-size: var(--text-small);
+  font-weight: 600;
+  color: var(--rh-fg);
+}
+.hm-reqs > p {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-chip);
+  background: color-mix(in oklab, var(--rh-fail) 12%, transparent);
+}
+.hm-reqs > p > b {
+  margin-left: auto;
+  font-weight: 500;
+  color: var(--rh-fg);
+}
+.hm-code > p {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--rh-line);
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  color: var(--rh-dim);
+}
+.hm-code > p > span {
+  color: var(--rh-muted);
+}
+.hm-code pre {
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  line-height: 1.6;
+  color: var(--rh-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (width >= 40rem) {
+  .hm-trio {
+    padding: var(--space-10) var(--space-6) var(--space-6);
+  }
+}
+@media (width >= 64rem) {
+  /* The page left, 6 columns; the requests over the test right, 6 columns. */
+  .hm-trio {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto 1fr;
+    column-gap: var(--grid-gap);
+  }
+  .hm-proof-page {
+    grid-row: span 2;
+  }
+  .hm-code pre {
+    font-size: var(--text-code);
+    white-space: pre;
+  }
+}
+
+/* ---- Checks ------------------------------------------------------------------------------------------------------ */
+
+.hm-cards {
+  display: grid;
+  gap: var(--space-4);
+}
+.hm-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.hm-trace {
+  stroke: var(--rh-dim);
+  stroke-width: 1.5px;
+}
+/* The count (Display M, fg) and the group's name (a mono label). */
+.hm-card > p {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+.hm-card > p > b {
+  font-family: var(--font-display);
+  font-size: var(--rh-text-display-m);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: var(--rh-fg);
+}
+.hm-card .hm-label {
+  text-transform: uppercase;
+}
+.hm-card h3 {
+  font-family: var(--font-display);
+  font-size: var(--rh-text-title);
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--rh-fg);
+}
+.hm-card ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--rh-text-body);
+  line-height: 1.6;
+}
+/* Each example: fg, a line-strong underline that turns accent on hover and focus. */
+.hm-card li a {
+  color: var(--rh-fg);
+  text-decoration-line: underline;
+  text-decoration-color: var(--rh-line-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--transition-duration-micro) var(--ease-move);
+}
+.hm-card li a:is(:hover, :focus-visible) {
+  text-decoration-color: var(--rh-accent);
+}
+.hm-card > .arrow-link {
+  margin-top: auto;
+}
+@media (width >= 64rem) {
+  .hm-cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--grid-gap);
+  }
+}
+
+/* ---- AI-built apps and trust: icon tile beside the text, four columns from 1024 px ------------------------------ */
+
+.hm-grid4 {
+  display: grid;
+  gap: var(--space-4);
+}
+.hm-grid4 > li {
+  display: flex;
+  gap: var(--space-4);
+}
+.hm-grid4 h3 {
+  font-size: var(--rh-text-title);
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--rh-fg);
+}
+.hm-grid4 p {
+  margin-top: var(--space-2);
+  font-size: var(--rh-text-body);
+  line-height: 1.6;
+  color: var(--rh-muted);
+}
+@media (width >= 40rem) {
+  .hm-grid4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-6);
+  }
+}
+@media (width >= 64rem) {
+  .hm-grid4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--grid-gap);
+  }
+  .hm-grid4 > li {
+    flex-direction: column;
+  }
+}
+
+/* ---- Start ------------------------------------------------------------------------------------------------------- */
+
+.hm-start {
+  display: grid;
+  gap: var(--space-8);
+}
+.hm-start-main,
+.hm-start-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-width: 0;
+}
+.hm-ways {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  font-size: var(--rh-text-body);
+  line-height: 1.6;
+  color: var(--rh-muted);
+}
+/* Each way on is led by a link (fg, underlined), then its text, with a command or an address in code. */
+.hm-ways a {
+  font-weight: 600;
+  color: var(--rh-fg);
+  text-decoration-line: underline;
+  text-decoration-color: var(--rh-line-strong);
+  text-underline-offset: 3px;
+}
+.hm-ways a:hover {
+  text-decoration-color: var(--rh-accent);
+}
+.hm-ways code {
+  font-family: var(--font-mono);
+  font-size: var(--text-code);
+  color: var(--rh-fg);
+  overflow-wrap: anywhere;
+}
+.hm-start-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-6);
+}
+@media (width >= 64rem) {
+  .hm-start {
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    column-gap: var(--grid-gap);
+  }
+  .hm-start-links {
+    flex-direction: column;
+  }
+}
+
+/* ---- Close ------------------------------------------------------------------------------------------------------- */
+
+.hm-close {
+  padding-block: var(--band-pad);
+  border-top: 1px solid var(--rh-line-soft);
+}
+.hm-close-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.hm-hound {
+  display: none;
+  margin-bottom: var(--space-6);
+}
+.hm-close-title {
+  max-width: var(--container-close);
+  font-family: var(--font-display);
+  font-size: var(--rh-text-display-l);
+  font-weight: 800;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  color: var(--rh-fg);
+  text-wrap: balance;
+}
+.hm-close-line {
+  margin-top: var(--space-4);
+  max-width: var(--container-close);
+  font-size: var(--rh-text-lead);
+  line-height: 1.6;
+  color: var(--rh-muted);
+}
+/* The tagline's key words on a line of their own. */
+.hm-close-title .hm-key {
+  display: block;
+}
+.hm-close-actions {
+  justify-content: center;
+  margin-top: var(--space-8);
+}
+@media (width >= 40rem) {
+  .hm-hound {
+    display: block;
+  }
+}
+@media (width >= 64rem) {
+  .hm-close {
+    padding-block: var(--space-12);
+  }
+}

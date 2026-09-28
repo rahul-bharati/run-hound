@@ -1,5 +1,9 @@
 node_modules
 .next
+.next-*
+tsconfig.next-*.json
+.lab-out
+public/pagefind
 out
 tsconfig.tsbuildinfo
 next-env.d.ts

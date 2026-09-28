@@ -7,6 +7,10 @@ import Image, { getImageProps, type StaticImageData } from "next/image";
  * images (the optimiser passes them through and warns), so they are served as the hashed original with
  * `unoptimized`. People who prefer reduced motion get `still`, the recording's last frame, through a
  * <picture> source that *is* optimised (AVIF/WebP at the right width).
+ *
+ * A deliberate choice: the GIF loads lazily and plays once as soon as it has loaded, so one below the fold may finish
+ * before the reader reaches it. It still rests on its proof frame (§3.12). Starting it when its reveal starts would be
+ * the scroll runtime's to add (motion/, node M1), not this component's.
  */
 export function EvidenceImage({
   src,

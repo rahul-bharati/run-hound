@@ -1,11 +1,12 @@
 name: Feedback
-description: Tell us how Run Hound 0.5.0 did on your app (a wrong finding, a bug it missed, a crash, or something confusing).
+description: Tell us how Run Hound did on your app (a wrong finding, a bug it missed, a crash, something confusing, or a question).
 title: "[Feedback] "
 body:
   - type: markdown
     attributes:
       value: |
         Thanks for trying Run Hound. The most useful feedback names the finding (or the bug it missed) and attaches the report.
+        Asking a question? Choose "Question" and write "n/a" in any field that doesn't apply.
         **Before attaching anything, look through it:** screenshots show whatever your page showed, and Run Hound can only redact text, not pixels. Attach one run folder (`runs/<runId>`), never the whole `runs/` folder: `runs/.config` holds saved API keys and test-account passwords.
         See [TESTING.md](https://github.com/rahul-bharati/run-hound/blob/main/TESTING.md#sending-feedback) for what to include.
   - type: dropdown
@@ -17,6 +18,8 @@ body:
         - "Missed bug: a real problem Run Hound didn't report"
         - "Crash or error: the run stopped, errored or never finished"
         - "Confusing: a message, report or step I didn't understand"
+        - "Question: something the docs didn't answer"
+        - "Data not put back: a write-side check left account A changed"
         - "It worked: a clean or useful run (tell us about it!)"
         - Something else
     validations:
@@ -28,8 +31,9 @@ body:
       options:
         - "Form checks (a form on the page)"
         - "Page-wide checks (buttons outside forms, headers, cookies, CORS, source maps)"
-        - "Signed-in runs and access checks (0.4.0, V2 preview: access-control, mass-assignment, deep-links)"
-        - "CSRF check (0.5.0, V2 preview)"
+        - "Signed-in runs and access checks (V2 preview: access-control, mass-assignment, deep-links)"
+        - "Signing in (a test account that won't sign in, including two-step and sessionStorage sign-in)"
+        - "Write-side checks (V2 preview: csrf, write-access, paywall-trust)"
         - "AI features (plan review, suggested flows, explanations)"
         - Install, Docker or the test lab
         - The report or the web UI
@@ -40,8 +44,8 @@ body:
     id: version
     attributes:
       label: Run Hound version
-      description: "`docker run --rm ghcr.io/rahul-bharati/run-hound:0.5.0 --version`, `pnpm exec tsx src/cli.ts --version` in `app/` from source, or `runHoundVersion` in report.json."
-      placeholder: run-hound 0.5.0
+      description: "What `--version` prints for the Run Hound you ran. Docker: `docker run --rm ghcr.io/rahul-bharati/run-hound:<tag> --version` with the tag you ran. The test lab's tag is in `run-hound.compose.yml`. An image named without a tag is `latest`. From source: `pnpm exec tsx src/cli.ts --version` in `app/`. The web UI shows it under Settings → This server, and report.json as `runHoundVersion`."
+      placeholder: run-hound 0.x.y
     validations:
       required: true
   - type: input
@@ -61,6 +65,7 @@ body:
         - Docker or Podman test lab, web UI (docker compose up)
         - Docker or Podman, single container (docker run)
         - Docker or Podman, command line (docker compose run / docker run ... run)
+        - "Haven't run it yet (asking a question)"
     validations:
       required: true
   - type: dropdown

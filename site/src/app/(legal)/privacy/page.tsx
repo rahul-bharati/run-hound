@@ -1,6 +1,5 @@
-import Link from "next/link";
-import { LegalDoc, LegalHeading, type LegalTocItem, MailLink, Summary } from "@/components/legal/legal";
-import { legalPages } from "@/components/legal/pages";
+import { LegalDoc, LegalHeading, LegalLink, type LegalTocItem, MailLink, Summary } from "@/components/legal/legal";
+import { legalPages } from "@/content/legal";
 import { pageMetadata } from "@/lib/metadata";
 import { site } from "@/lib/site";
 
@@ -270,7 +269,7 @@ export default function PrivacyPage() {
       <LegalHeading id="changes">Changes to this policy</LegalHeading>
       <p>
         We will update this page when our practices change and revise the &ldquo;Last updated&rdquo; date above. For
-        how {site.name} may and may not be used, see the <Link href="/acceptable-use">Acceptable Use Policy</Link>.
+        how {site.name} may and may not be used, see the <LegalLink to="acceptable-use">Acceptable Use Policy</LegalLink>.
       </p>
 
       <LegalHeading id="contact">Contact</LegalHeading>

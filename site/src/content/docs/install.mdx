@@ -1,0 +1,65 @@
+Run Hound ships as one public Docker image with its web UI, its command line and Chromium. Pull it and run it with Docker or Podman: no clone and no Node.js. To contribute, or to watch the browser in a window, run it from source.
+
+## Requirements \{#requirements\}
+
+<TableRegion label="Requirements">
+<table>
+<caption>What the Docker image and a run from source each need</caption>
+<thead>
+<tr><td></td><th scope="col">Docker or Podman</th><th scope="col">From source</th></tr>
+</thead>
+<tbody>
+<tr><th scope="row">You need</th><td>Docker 24+, Docker Desktop or Podman. For the test lab, also Compose (or podman-compose) and curl</td><td>Node.js 22.12 or newer (24 recommended), pnpm and git</td></tr>
+<tr><th scope="row">Disk</th><td>About 715 MB for the image (260 MB to download); about 1 GB with the test apps</td><td>About 1 GB for the dependencies and Chromium</td></tr>
+<tr><th scope="row">Works on</th><td>Linux, macOS and Windows, on amd64 and arm64</td><td>Linux and macOS; on Windows, use WSL2</td></tr>
+<tr><th scope="row">Your own app</th><td>Enter it as host.docker.internal, with a few dev-server settings</td><td>Enter its localhost address as it is</td></tr>
+<tr><th scope="row">A visible browser window</th><td>No: a container has no display, but the live view works</td><td>Yes, on a machine with a display</td></tr>
+</tbody>
+</table>
+</TableRegion>
+
+You don't need to know Playwright or accessibility rules: the report explains each finding in plain language.
+
+## Docker \{#docker\}
+
+In any folder, pull the image, make a folder for the reports and start the web UI on `http://localhost:4000`:
+
+<Shell block="run" label="Docker, from any folder" />
+
+The web UI is published on `127.0.0.1` only. Reports land in `./runs`, and the AI settings and test accounts you save in the web UI in `./runs/.config`.
+
+The image sets two things itself: `RUNHOUND_ALLOWED_HOSTS=host.docker.internal,host.containers.internal` and `RUNHOUND_CONFIG_DIR=/repo/app/runs/.config`. You can override either with `-e`. To test an app on your machine, see [Test your app](/docs/your-app/).
+
+## Podman \{#podman\}
+
+Podman runs the same image with the same flags:
+
+<Shell block="podmanRun" label="Podman, from any folder" />
+
+Enter your app as `host.docker.internal` or `host.containers.internal`: both work under Podman.
+
+## Windows \{#windows\}
+
+Docker Desktop on Windows runs the same image. In Windows PowerShell, write each command on one line, make the folder with `mkdir runs`, and type `curl.exe` instead of `curl` for downloads:
+
+<Shell block="windowsRun" label="Windows PowerShell" />
+
+To run from source on Windows, use WSL2.
+
+## From source \{#from-source\}
+
+For contributors, and anyone who would rather run it with Node.js than in a container. It needs a clone of the repository:
+
+<Shell block="source" label="From source" />
+
+`pnpm serve` starts the web UI on `http://localhost:4000`. From source, enter your app's `localhost` address as it is, and the `--headed` flag opens a visible browser window.
+
+On Ubuntu or Debian, if Chromium complains about missing libraries, run `pnpm --filter run-hound exec playwright install --with-deps chromium` (it uses sudo). To check it works, `cd app && pnpm exec tsx src/cli.ts --version` prints `run-hound` and the release number.
+
+In the clone, `docker compose up --build` builds and starts the same containers as the [test lab](/docs/test-lab/), from your working tree.
+
+## Update \{#update\}
+
+To update the image, run `docker pull` again, then start it as before. The test lab names the images of one release: to update it, download the compose file of the new release and start it again.
+
+From source, pull the new commits and run `pnpm install` again.

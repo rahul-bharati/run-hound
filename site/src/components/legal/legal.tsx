@@ -1,16 +1,23 @@
 import type { ReactNode } from "react";
-import { DocsToc } from "@/components/docs/toc";
 import { JsonLd } from "@/components/json-ld";
-import { Container, Eyebrow } from "@/components/layout";
-import { legalJsonLd, type LegalPage } from "@/components/legal/pages";
+import { Breadcrumbs } from "@/components/primitives/breadcrumbs";
+import { NavLink } from "@/components/primitives/nav-link";
+import { StepTrail } from "@/components/primitives/step-trail";
+import type { RouteId } from "@/content/routes";
+import { legalJsonLd, type LegalPage } from "@/content/legal";
+import { href } from "@/lib/nav";
 import { site } from "@/lib/site";
+import "./legal.css";
 
 export type LegalTocItem = { id: string; label: string };
 
 /**
- * Long-form layout shared by the legal pages: a title block with the "Last updated" date, a table of contents
- * (inline on phones, sticky beside the text on wide screens) and a reading column capped near 70 characters.
- * `page` (components/legal/pages.ts) gives the h1, which is also the page's title, and the page's structured data.
+ * The legal pages' shell (DESIGN.md §3.15): the breadcrumb from the registry (equal to the page's BreadcrumbList), the
+ * h1 in Display L, an optional lede in Lead, the visible "Last updated" date, then the contents (a static StepTrail of
+ * the sections, beside the text and sticky from 1024 px) and the policy in docs prose on the type scale (.prose-doc).
+ * `page` (content/legal.ts) gives the h1, which is also the page's title, and the structured data. Nothing here moves,
+ * the h1 is all fg (an inner page's h1 is not one of the accent budget's exempt uses, §2.3), and links to other pages
+ * never prefetch (NavLink's policy for legal pages).
  */
 export function LegalDoc({
   page,
@@ -24,35 +31,37 @@ export function LegalDoc({
   children: ReactNode;
 }) {
   return (
-    <Container className="pb-24 pt-12 sm:pt-20">
-      <JsonLd data={legalJsonLd(page)} />
-      <div className="flex flex-col gap-10 lg:gap-14">
-        <header className="flex max-w-[70ch] flex-col gap-5">
-          <Eyebrow>LEGAL</Eyebrow>
-          <h1 className="text-balance font-display text-[2.5rem] font-extrabold leading-[1.02] tracking-[-0.03em] text-fg sm:text-6xl">
-            {page.title}
-          </h1>
-          {lede ? <p className="text-pretty text-lg leading-relaxed text-muted">{lede}</p> : null}
-          <p className="font-mono text-xs tracking-widest text-dim">
-            LAST UPDATED{" "}
-            <time dateTime={site.legalUpdatedIso} className="text-muted">
-              {site.legalUpdated.toUpperCase()}
-            </time>
-          </p>
-        </header>
-
-        <div className="grid gap-10 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-16">
-          <DocsToc items={toc} headingId="legal-toc-heading" label="Contents" />
-          <article className="prose-night prose-legal min-w-0 break-words">{children}</article>
-        </div>
+    <div className="container-page pb-16 pt-8 sm:pt-12 lg:pb-20 lg:pt-16">
+      <Breadcrumbs id={page.id} />
+      <div className="legal-intro">
+        <h1 className="text-balance font-display text-display-l text-fg">{page.title}</h1>
+        {lede ? <p className="text-pretty text-lead text-muted">{lede}</p> : null}
+        <p className="font-mono text-mono text-dim" data-last-updated="">
+          Last updated{" "}
+          <time dateTime={site.legalUpdatedIso} className="text-muted">
+            {site.legalUpdated}
+          </time>
+        </p>
       </div>
-    </Container>
+
+      <div className="legal-grid">
+        <nav aria-labelledby="legal-contents" className="legal-contents">
+          <p id="legal-contents" className="font-mono text-mono text-dim">
+            Contents
+          </p>
+          <StepTrail steps={toc.map((item) => ({ label: item.label, href: `#${item.id}` }))} className="text-small" />
+        </nav>
+        <article className="prose-doc legal-prose min-w-0">{children}</article>
+      </div>
+      {/* Last, so the h1 and the policy arrive before the structured data; search engines read it anywhere. */}
+      <JsonLd data={legalJsonLd(page)} />
+    </div>
   );
 }
 
 /**
- * Section heading with a visible "#" link to itself, so any part of a policy can be linked to. The "#" is drawn by CSS
- * (::after), not written in the link, so the heading's text is only its title: search engines and AI answer engines
+ * Section heading with a "#" link to itself, so any part of a policy can be linked to. The "#" is drawn by CSS
+ * (legal.css), not written in the link, so the heading's text is only its title: search engines and AI answer engines
  * read "Who we are", not "Who we are#". The link's name for screen readers comes from its aria-label.
  */
 export function LegalHeading({
@@ -68,8 +77,17 @@ export function LegalHeading({
   return (
     <Tag id={id}>
       {children}
-      <a href={`#${id}`} className="heading-anchor after:content-['#']" aria-label="Link to this section" />
+      <a href={`#${id}`} className="heading-anchor" aria-label="Link to this section" />
     </Tag>
+  );
+}
+
+/** A link from a policy to another page of the site, by its registry id: prose-styled, and never prefetched. */
+export function LegalLink({ to, hash, children }: { to: RouteId; hash?: string; children: ReactNode }) {
+  return (
+    <NavLink href={href(to, hash)} prefetch="none">
+      {children}
+    </NavLink>
   );
 }
 
@@ -84,14 +102,9 @@ export function MailLink({ address }: { address: string }) {
 /** Short, plain-language summary box shown at the top of a policy. Not a substitute for the full text. */
 export function Summary({ children }: { children: ReactNode }) {
   return (
-    <aside
-      aria-label="Summary"
-      className="rounded-2xl border border-line bg-surface px-5 py-5 text-[15px] leading-relaxed sm:px-6"
-    >
-      <p className="font-mono text-xs tracking-widest text-accent">IN SHORT</p>
-      <div className="mt-3 text-muted [&_li+li]:mt-2 [&_strong]:font-semibold [&_strong]:text-fg [&_ul]:list-disc [&_ul]:pl-5">
-        {children}
-      </div>
+    <aside aria-label="Summary" className="legal-summary">
+      <p className="font-mono text-mono text-dim">In short</p>
+      {children}
     </aside>
   );
 }

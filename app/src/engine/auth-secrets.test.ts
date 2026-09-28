@@ -65,6 +65,20 @@ describe("sessionSecrets", () => {
   it("is empty for an empty session", () => {
     expect(sessionSecrets({ cookies: [], origins: [] })).toEqual([]);
   });
+
+  it("takes an opaque sessionStorage token wrapped in JSON under a neutral key ({id}, {value, expires}), as the whole value is", () => {
+    const tok = "Qm9vbXNoYWthbGFrYTEyMzQ1Njc4OTBhYmNkZWZnaGk";
+    const state: SessionState = { cookies: [], origins: [] };
+    const found = (value: string) => sessionSecrets(state, [{ origin: "http://localhost:1", items: [{ name: "session", value }] }]);
+    for (const value of [tok, JSON.stringify(tok), JSON.stringify({ token: tok }), JSON.stringify({ user: { sid: tok } })]) expect(found(value), value).toContain(tok);
+    // A storage wrapper's shapes: the token under a key that says nothing about it.
+    expect(found(JSON.stringify({ id: tok }))).toContain(tok);
+    expect(found(JSON.stringify({ value: tok, expires: 1 }))).toContain(tok);
+    expect(found(JSON.stringify({ data: { v: [tok] } }))).toContain(tok);
+    // What doesn't look like a token stays out: words, short values, dates, numbers.
+    const plain = found(JSON.stringify({ theme: "dark", step: "onboarding-profile-details", at: "2026-09-27T12:00:00.000Z", n: 12345678901234567890, id: "t1" }));
+    expect(plain).toEqual([]);
+  });
 });
 
 function field(key: string, type: string, extra: Partial<FormField> = {}): FormField {

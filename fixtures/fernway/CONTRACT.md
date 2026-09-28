@@ -15,8 +15,11 @@ animations, dark mode. So:
   hide it). Triage every one.
 - **Bug mode** (`FERNWAY_BUGS`) plants the bugs AI-built apps typically ship with, one per id, each caught by one
   Run Hound check: W01-W10 by V0/V1 checks, V01-V09 by the V2 checks run signed in (`docs/v2-spec.md` "Fernway
-  V2" for V01-V05, "Fernway (0.5.0 planned bugs)" for V06-V09). V06, V07 and V09 are for checks that are still planned
-  (`write-access`, `paywall-trust`). Tables below.
+  V2" for V01-V05, "Fernway (0.5.0 planned bugs)" for V06-V09, caught by `write-access`, `csrf` and `paywall-trust`).
+  Tables below.
+- **Sign-in and session modes** (`FERNWAY_LOGIN`, `FERNWAY_SESSION`; `docs/v2-spec.md` "Fernway (0.6.0)") change how
+  signing in looks (a two-step form) and where the session lives (a bearer token in `sessionStorage`), in clean mode
+  and with any bugs. See "Sign-in and session modes".
 
 Anything named here (texts, labels, attribute values, field keys, routes, ids) is load-bearing: tests and Run Hound
 checks rely on it. `docs/v0-spec.md`, `docs/v1-spec.md` and `docs/v2-spec.md` win on any conflict about Run Hound's
@@ -32,13 +35,19 @@ behaviour.
   - `HOST` (default: all interfaces).
   - `FERNWAY_BUGS`: `none` (default), `all` (W01-W10 and V01-V09), or a comma list such as `W01,V02`
     (case-insensitive, whitespace ignored; an unknown id exits with an error naming the known ids).
-- When listening, the process writes a line containing `fernway listening`. Exits cleanly on `SIGTERM`/`SIGINT`.
+  - `FERNWAY_LOGIN`: `one-step` (default) or `two-step`; `FERNWAY_SESSION`: `cookie` (default) or `session-storage`
+    (case-insensitive, surrounding whitespace ignored, unset or empty means the default; an unknown value exits with an
+    error naming the known ones). See "Sign-in and session modes".
+- When listening, the process writes a line containing `fernway listening`, the active bugs and the modes (`fernway
+  listening on http://localhost:4110/ (bugs: none) (login: one-step, session: cookie)`). Exits cleanly on
+  `SIGTERM`/`SIGINT`.
 - Data lives in memory, seeded on start: two users (see "Accounts"), each with a workspace (Alex's: 6 projects, 8
   team members, 3 tasks, a profile, 4 notification settings; Sam's: 6 projects, 5 members, 3 tasks, a profile, 4
   settings; both on the Free plan; no checkouts). `POST /api/__reset` restores the seed and clears the Idempotency-Key
   cache (`204`); sessions survive it
   (a session of a user signed up after the seed no longer resolves). `GET /api/__config` answers
-  `200 { "bugs": [...] }` (sorted ids, `[]` in clean mode).
+  `200 { "bugs": [...], "login": "one-step" | "two-step", "session": "cookie" | "session-storage" }` (sorted ids, `[]`
+  in clean mode); the SPA reads it before its first render.
 - No request ever leaves the app's origin: fonts (Inter via `@fontsource-variable/inter`), icons and images are
   bundled or served from `public/`. No analytics, no CDN.
 
@@ -73,7 +82,8 @@ notification settings. Nothing in one workspace names the other account. Account
 
 - **Sessions**: signing in (or up) sets a new `fernway_session` cookie (same flags as the visitor cookie, below; a
   new id every time, so a visitor's id is never promoted). The server keeps session id -> user id in memory. A
-  visitor's cookie (the one the first page load sets) signs nobody in.
+  visitor's cookie (the one the first page load sets) signs nobody in. (`FERNWAY_SESSION=session-storage` replaces the
+  cookie with a bearer token: see "Sign-in and session modes".)
 - **`GET /api/me`** answers `200 { id, name, email, workspace }` for the session user (`workspace` is the workspace
   name), else `401 { error: "Sign in to continue" }`. Only the signed-in pages ask it (never a public page, so a
   signed-out visit to a public page makes no failing request). V03 never changes it.
@@ -82,7 +92,8 @@ notification settings. Nothing in one workspace names the other account. Account
   path readable, e.g. `/login?next=/app/settings`; a query or hash in it is escaped, e.g.
   `/login?next=/app/settings%23billing`).
   The server still answers the document with `200` (only the SPA redirects). Signing in there lands on `<path>`.
-- **The session user is shown from `GET /api/me`** (nothing about the session is kept in `localStorage`): the app
+- **The session user is shown from `GET /api/me`** (nothing about the session is kept in `localStorage`; in
+  session-storage mode the token is in `sessionStorage`, nothing else): the app
   shell reads "Signed in as <name> · <workspace>" (e.g. "Signed in as Alex Rivera · Rivera Studio"), the Settings
   and Help headers show the workspace name, the dashboard greets the first name.
 - **Every workspace API** (`/api/projects`, `/api/tasks`, `/api/members`, `/api/users/:id/profile`,
@@ -108,6 +119,43 @@ notification settings. Nothing in one workspace names the other account. Account
   the server (`POST /api/login/demo`), so people can try the app without a password. No page ever shows either
   password (Run Hound's tests grep run folders for them), and neither password nor Alex's email is in the client
   bundle. The passwords are only in `server/seed.mjs`, the tests and these docs.
+
+## Sign-in and session modes (`FERNWAY_LOGIN`, `FERNWAY_SESSION`)
+
+Two settings for the sign-in forms that Run Hound's sign-in supports from 0.6.0 (`docs/v2-spec.md` "Sign-in: two-step
+and sessionStorage"). They change only how signing in looks and where the session lives: the pages, the API, the data,
+clean mode's defences and every bug (with the exceptions named below) behave the same, and both modes combine with each
+other and with `FERNWAY_BUGS`. Code: `server/modes.mjs`, `server/app.mjs` (`ctx.sessionOf`, `ctx.newSession`),
+`src/pages/Login.tsx`, `src/lib/session.ts` and `src/lib/session-token.ts`.
+
+- **`FERNWAY_LOGIN=two-step`**: `/login`'s Sign in form first holds only `Email` and a **`Continue`** submit button;
+  there is no password field anywhere in the page, no "Remember me" and no "Forgot password?" link yet. The form is
+  named "Welcome back" (by the page's heading) in both modes, as real identifier-first pages keep theirs: in step one
+  the sign-in words are only in the document title ("Fernway: Sign in"), the subtitle ("Sign in to plan, track and
+  ship your studio's work.") and the `/login` path, never in the form's name or its button, so a sign-in that needs
+  them there fails here as it would on a real app. Continue checks the email on the client (the same
+  messages as one-step: "Enter your email address.", "Enter an email address like name@studio.com.") and, for **any**
+  well-formed email, shows `Password` (show/hide, `autocomplete="current-password"`), "Forgot password?", `Remember me`
+  and the **`Sign in`** submit button in the same form on the same page (`/login`, no navigation), with the typed email
+  still in its field (editable) and focus on the password. Continue sends no request: the page never reveals which
+  emails have accounts, and the form looks the same afterwards for every email. Signing in is then the one-step
+  `POST /api/login` (a wrong password or an unknown email: the usual `401` alert). "Use the demo account", `?next=`, W10
+  and the redirect of signed-out visitors work as in one-step mode. The server doesn't change.
+- **`FERNWAY_SESSION=session-storage`**: the session is a token instead of a cookie. `POST /api/login`,
+  `/api/login/demo` and `/api/signup` answer their usual body plus **`token`** (43 characters, base64url, a new one
+  every time) and set **no cookie**; the SPA keeps it in `sessionStorage` under the key **`fernway_session`** and sends
+  it on every API call as **`Authorization: Bearer <token>`** (the scheme in any case). The server takes only that
+  header as the session: a `fernway_session` cookie, even one holding a valid token, is ignored. No response ever sets
+  a cookie, not even a first visit's. `POST /api/logout` ends the token (`204`, no `Set-Cookie`) and the SPA forgets
+  it; a token the server no longer knows (`401` from `GET /api/me`) is dropped and the page goes to `/login`. So a
+  reload keeps the session, and a new tab (which starts with an empty `sessionStorage`) is signed out until something
+  puts the token there before the page runs, as Run Hound does for every new browser context. "Remember me" changes
+  nothing in this mode. The Idempotency-Key replay cache is keyed by the token (see "API").
+- **What the session mode changes for the bugs**: W09 (`HttpOnly`) and V08's `SameSite=None; Secure` cookie need a
+  cookie, and session-storage mode sets none, so they plant nothing a check can see (V08's task writes still skip the
+  Origin check and take a form body, but a page on another site can't send the bearer token, so nothing rides along:
+  Run Hound's `csrf` passes on V08 in this mode, as the spec says). Every other bug works the same with the token as
+  with the cookie (V03 and V07 are "no token"; V06 is Sam's token; V01, V02 and V04 read and write as the token's user).
 
 ## Page requirements (clean mode)
 
@@ -174,7 +222,9 @@ Every page:
 
 ### `/login` Sign in
 
-- **Sign in form**: `Email`, `Password` (show/hide), `Remember me` (Radix Checkbox), submit `Sign in`.
+- **Sign in form**: `Email`, `Password` (show/hide), `Remember me` (Radix Checkbox), submit `Sign in`. (With
+  `FERNWAY_LOGIN=two-step`, `Email` and `Continue` first, then the rest on the same page: see "Sign-in and session
+  modes".)
   `POST /api/login` with either account (or one made by sign-up) → `200 { id, name, email }`, sets the session
   cookie (`Max-Age` 30 days with Remember me), a "Welcome back, <first name>!" toast, then navigates to `?next=` (a
   same-origin path only) or `/app`. Wrong credentials → `401 { error: "Email or password is incorrect" }` shown in a
@@ -228,13 +278,20 @@ Every page:
   shown values come from `GET /api/users/<me.id>/profile` (survive a reload); `<me.id>` is `GET /api/me`'s `id`.
 - Notifications tab: 4 Switches loaded from `GET /api/notifications`, each saving on toggle
   (`PATCH /api/notifications`) with a toast.
-- Billing tab (mounted, hidden until chosen, like every panel): first the **account's plan** card (`plan` from
+- Billing tab (mounted, hidden until chosen, like every panel; `/app/settings#billing`, the sidebar's "View plans" and
+  `/app/upgraded`'s "Back to billing" open it directly, also on a settings page that is already open, whichever tab
+  was picked there): first the **account's plan** card (`plan` from
   `GET /api/users/<me.id>/profile`): on Free, "Free plan" with an **"Upgrade to Pro"** button (starts the local test
   checkout, see "Billing"; its name is on Run Hound's never-click list) and a link **"Already paid? Refresh your
-  plan"** to `/app/upgraded` (in the page on load, so Run Hound's planned `paywall-trust` can find the success route); on Pro,
-  "Pro plan" with **"Switch back to Free"** (`POST /api/billing/cancel`). Then the workspace's Studio plan card
+  plan"** to `/app/upgraded` (in the page on load, so Run Hound's `paywall-trust` finds the success route); on Pro,
+  "Pro plan" with **"Cancel plan"** (`POST /api/billing/cancel`, straight away with no confirmation; then a
+  "Plan cancelled. You're back on the Free plan." status and toast). Then the workspace's Studio plan card
   (client-side, as before): "Change plan" (link to `/#pricing`), "Cancel subscription" (opens a Radix AlertDialog;
-  destructive, so Run Hound must not click it by default).
+  destructive, so Run Hound must not click it by default; it never changes the account's plan and sends no request).
+- **The plan Run Hound reads**: loading `/app/settings` makes `GET /api/users/<me.id>/profile` (the Profile tab and the
+  Billing tab's plan card each ask once), whose JSON is the signed-in account's own record with `email`, `role` and
+  `plan`. It is the only `GET` on that page whose body holds a `plan`, and the page reads no list (no members, no
+  tasks), so the entitlement `paywall-trust` snapshots and re-reads is unambiguous.
 
 ### `/app/help` Help & shortcuts
 
@@ -291,13 +348,17 @@ tests); so does renaming a task to `Crash`. A write from another site answers `4
 | `POST /api/billing/confirm` (session) | `checkout` (an id or `null`) | `200 { confirmed, plan }` |
 | `POST /api/billing/cancel` (session) | | `200 { plan: "free" }` |
 
+"+ session" is a new `fernway_session` cookie. With `FERNWAY_SESSION=session-storage` it is a `token` field in the
+answer instead (no cookie), every endpoint takes the session from `Authorization: Bearer <token>` rather than the
+cookie, and `POST /api/logout` ends that token without a `Set-Cookie` (see "Sign-in and session modes").
+
 Save requests that repeat an `Idempotency-Key` with the same body, from the same session, answer the first response
 again (no second record; the replay carries `Idempotent-Replayed: true`), also while the first is still running. The
-same key with a different body is a new request. The replay cache is keyed per session (the `fernway_session` cookie
-and the user it signs in), so a key never replays one caller's answer to another: not to another user, another
-visitor, another session of the same user, or the same cookie after it was signed out (a sign-up's answer carries its
-new session cookie). Requests without any session cookie share one anonymous slot. Server failures (5xx) are not
-cached. `POST /api/login`, `/api/login/demo` and `/api/logout` are never replayed.
+same key with a different body is a new request. The replay cache is keyed per session (the `fernway_session` cookie,
+or the bearer token in session-storage mode, and the user it signs in), so a key never replays one caller's answer to
+another: not to another user, another visitor, another session of the same user, or the same session after it was
+signed out (a sign-up's answer carries its new session). Requests without any session share one anonymous slot. Server
+failures (5xx) are not cached. `POST /api/login`, `/api/login/demo` and `/api/logout` are never replayed.
 
 ## Billing (the plan and the local test checkout)
 
@@ -317,7 +378,9 @@ one locally, so nothing leaves the app and nothing is charged. Code: `server/rou
    paid, and only once (the checkout becomes `"fulfilled"`; confirming it again answers `confirmed: true` and grants
    nothing new, also after a switch back to Free). No checkout, an unknown or unpaid one, or another user's paid one
    answer `{ confirmed: false, plan }` and change nothing.
-4. **"Switch back to Free"** → `POST /api/billing/cancel` → `200 { plan: "free" }`, straight away.
+4. **"Cancel plan"** (Billing tab, on Pro) → `POST /api/billing/cancel` → `200 { plan: "free" }`, straight away (no
+   confirmation). It works for whoever is on Pro, however they got there (a paid checkout, V09 or V04), and is what
+   Run Hound's `paywall-trust` clicks to put Alex back on Free after its probe.
 
 Every billing endpoint needs a signed-in session (`401` without one; V03 does not apply to them).
 
@@ -347,7 +410,8 @@ V08 removes the last two for the task writes and sends the cookie cross-site (se
 - The first page load sets `fernway_session=<uuid>; Path=/; HttpOnly; SameSite=Lax` (a visitor's session: signed
   out). Signing in or up sets a new one with the same flags (plus `Max-Age=2592000` with Remember me);
   `POST /api/logout` answers `fernway_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`. W09 drops `HttpOnly`
-  from all of them; V08 turns `SameSite=Lax` into `SameSite=None; Secure` in all of them (on a loopback host).
+  from all of them; V08 turns `SameSite=Lax` into `SameSite=None; Secure` in all of them (on a loopback host). With
+  `FERNWAY_SESSION=session-storage` no response sets a cookie at all.
 - No CORS headers on the API. Source maps are built hidden and `*.map` answers `404`.
 
 ## Planted bugs (`FERNWAY_BUGS`)
@@ -374,9 +438,10 @@ Bug ids never change clean-mode behaviour of anything else.
 ## V2 planted bugs (`FERNWAY_BUGS`, docs/v2-spec.md "Fernway V2" and "Fernway (0.5.0 planned bugs)")
 
 Caught by the V2 checks with Run Hound signed in as Alex (account A) and Sam as account B (`isolated: true`): V01-V05
-by the 0.4.0 checks, V08 by the 0.5.0 `csrf` check, which writes only to the test record it creates and re-reads it as
-Alex. V06, V07 and V09 are for `write-access` and `paywall-trust`, which are still planned (the same write rules
-apply); the acceptance suite skips them until those checks are built.
+by the 0.4.0 checks, V08 by the 0.5.0 `csrf` check, V06 and V07 by the 0.6.0 `write-access` check (each writes only to
+the test record it creates and re-reads it as Alex), and V09 by the 0.6.0 `paywall-trust` check (it may change Alex's
+plan only, and puts it back with the Billing tab's "Cancel plan"). The table is for the default modes; with
+`FERNWAY_SESSION=session-storage` V08 is not caught (see "Sign-in and session modes").
 
 | Id | Bug | Caught by (page) |
 |---|---|---|
@@ -385,10 +450,10 @@ apply); the acceptance suite skips them until those checks are built.
 | V03 | The workspace APIs answer without a session (only the SPA redirects) | `access-control:signed-out` (`/app`, `/app/settings`) |
 | V04 | `PUT /api/users/:id/profile` stores any key it is sent, including `role` and `plan` | `mass-assignment` (`/app/settings`) |
 | V05 | Opening `/app/help` directly answers `404` (no SPA fallback for that path) | `deep-links` (`/app`) |
-| V06 | `PATCH /api/tasks/:id` updates another user's task | `write-access:other-account` (`/app`, planned) |
-| V07 | Writes to `/api/tasks/:id` work without a session | `write-access:signed-out` (`/app`, planned) |
+| V06 | `PATCH /api/tasks/:id` updates another user's task | `write-access:other-account` (`/app`) |
+| V07 | Writes to `/api/tasks/:id` work without a session | `write-access:signed-out` (`/app`) |
 | V08 | Session cookie set `SameSite=None; Secure` (Chromium accepts Secure on `http://localhost` and `http://127.0.0.1`), and the task save accepts a form-encoded body with no CSRF token or Origin check | `csrf` (`/app`) |
-| V09 | `/app/upgraded` sets `plan: "pro"` on load (a fake local checkout, no provider) | `paywall-trust` (`/app/settings`, planned) |
+| V09 | `/app/upgraded` sets `plan: "pro"` on load (a fake local checkout, no provider) | `paywall-trust` (`/app/settings`) |
 
 Details (each changes only what it names):
 
@@ -408,10 +473,13 @@ Details (each changes only what it names):
 
 - **V06**: `PATCH /api/tasks/:id` from any signed-in user finds the task in whichever workspace holds it and updates it
   (the project is checked against that task's own workspace, so the whole task the client sends is accepted). Reads
-  stay scoped (Sam's `GET /api/tasks` never lists Alex's task), and without a session the write is still `401`.
-- **V07**: `PATCH /api/tasks/:id` without a signed-in session (no cookie, or a visitor's) updates any user's task by id.
-  A signed-in user still only writes their own (`404` for another's), and every other endpoint, reads and
-  `POST /api/tasks` included, still needs a session.
+  stay scoped (Sam's `GET /api/tasks` never lists Alex's task), and without a session the write is still `401`. Run
+  Hound's `write-access` replays the update Quick add itself sent for its new task (`PATCH /api/tasks/<id>` with the
+  whole task) as Sam, re-reads it as Alex, then sends Alex's original values back. The app never sends a `DELETE` for
+  a task (there is no such route), so the check tries none.
+- **V07**: `PATCH /api/tasks/:id` without a signed-in session (no cookie, or a visitor's; no token in session-storage
+  mode) updates any user's task by id. A signed-in user still only writes their own (`404` for another's), and every
+  other endpoint, reads and `POST /api/tasks` included, still needs a session.
 - **V08**: the session cookie (the visitor's, the sign-in's and the sign-out's) is `SameSite=None; Secure` when the
   request's `Host` is a loopback name (`localhost`, `*.localhost`, `127.x.x.x`, `[::1]`); on any other host name it
   stays `SameSite=Lax`, since a browser drops a `Secure` cookie sent over plain http there, which would break sign-in.
@@ -420,11 +488,12 @@ Details (each changes only what it names):
   another site, in Alex's browser, creates a task in Alex's workspace (Run Hound's `csrf` check forges the Quick add
   save that way; `GET /api/tasks` as Alex then holds the forged title). Every other write keeps the Origin check.
 - **V09**: `POST /api/billing/confirm` grants `"pro"` to whoever calls it, with no checkout and no payment: the server
-  trusts the success page, so opening `/app/upgraded` (linked from the Billing tab) as Alex makes Alex Pro. The
-  profile's `plan` shows it (`GET /api/users/<id>/profile`, the entitlement Run Hound re-reads). "Switch back to Free"
-  (`POST /api/billing/cancel`) or `POST /api/__reset` undoes it; the profile `PUT` still never takes `plan` (V04's
-  business). With `FERNWAY_BUGS=all`, any check that opens `/app/upgraded` (deep-links follows the Billing tab's link)
-  moves Alex to Pro.
+  trusts the success page, so opening `/app/upgraded` (linked from the Billing tab, and one of the conventional success
+  paths) as Alex makes Alex Pro. The profile's `plan` shows it (`GET /api/users/<id>/profile`, the entitlement Run Hound
+  re-reads). The Billing tab's "Cancel plan" (`POST /api/billing/cancel`) or `POST /api/__reset` undoes it; the profile
+  `PUT` still never takes `plan` (V04's business). With `FERNWAY_BUGS=all`, any check that opens `/app/upgraded`
+  (deep-links follows the Billing tab's link) moves Alex to Pro, and `paywall-trust` then skips ("Account A already has
+  a paid plan"); the acceptance suite turns on one bug at a time.
 
 Clean mode fixes each properly (ownership checks, session checks, a field allowlist, the SPA fallback, ownership and
 session checks on writes, the Origin check with JSON-only task writes and the `SameSite=Lax` cookie, and a plan granted

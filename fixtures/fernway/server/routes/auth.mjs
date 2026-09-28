@@ -14,10 +14,16 @@
 //   GET  /api/me          -> 200 { id, name, email, workspace } for the session user, else 401 { error: "Sign in to
 //                         continue" }. Always honest: V03 never makes it answer without a session.
 //
-// Data: ctx.store.users, ctx.store.sessions (Map session id -> user id), ctx.store.workspaces; ctx.sessionUser().
-// Cookie flags come from ctx.sessionCookie, given the request's Host (W09 drops HttpOnly; V08 sends it SameSite=None).
+// FERNWAY_SESSION=session-storage (server/modes.mjs): sign-up, sign-in and the demo sign-in answer the same body plus
+// `token` and set no cookie; the session is then "Authorization: Bearer <token>" (a cookie is ignored), and sign-out
+// ends the token without a Set-Cookie. `remember` changes nothing in that mode (sessionStorage lasts as long as the tab).
+// The two-step sign-in (FERNWAY_LOGIN=two-step) is the SPA's alone: it posts the same POST /api/login.
+//
+// Data: ctx.store.users, ctx.store.sessions (Map session id or token -> user id), ctx.store.workspaces;
+// ctx.newSession(), ctx.sessionOf(), ctx.sessionUser(). Cookie flags come from ctx.sessionCookie, given the request's
+// Host (W09 drops HttpOnly; V08 sends it SameSite=None).
 
-import { badRequest, conflict, crashIfNamed, created, noContent, ok, unauthorized, validator } from "../http.mjs";
+import { badRequest, conflict, crashIfNamed, json, noContent, ok, unauthorized, validator } from "../http.mjs";
 import { hashPassword, verifyPassword } from "../passwords.mjs";
 import { ACCOUNTS, emptyWorkspace } from "../seed.mjs";
 
@@ -54,17 +60,16 @@ let dummyHash = "";
  */
 export function register(router, ctx) {
   /**
-   * Starts a new session for the user (a new id every time, so a session id from before signing in is never
-   * promoted) and returns the Set-Cookie header.
-   * @param {string} userId
+   * Signs the user in: a new session (ctx.newSession: a cookie, or a token in session-storage mode) and the answer
+   * that carries it, `{ id, name, email }` (plus `token` in session-storage mode) with the Set-Cookie header, if any.
+   * @param {import("../seed.mjs").User} user
    * @param {boolean} remember
    * @param {import("../http.mjs").ApiRequest} request  Its Host header decides V08's cookie flags.
+   * @param {number} [status]
    */
-  function startSession(userId, remember, request) {
-    const sessionId = ctx.newId();
-    ctx.store.sessions.set(sessionId, userId);
-    const cookie = ctx.sessionCookie(sessionId, request.req?.headers.host);
-    return { "set-cookie": remember ? `${cookie}; Max-Age=${REMEMBER_MAX_AGE}` : cookie };
+  function signedInAnswer(user, remember, request, status = 200) {
+    const { headers, token } = ctx.newSession(user.id, { remember, host: request.req?.headers.host });
+    return json(status, { ...publicUser(user), ...(token ? { token } : {}) }, headers);
   }
 
   /**
@@ -102,7 +107,7 @@ export function register(router, ctx) {
     const user = { id: ctx.newId(), name, email, company, passwordHash: hashPassword(password), createdAt: ctx.now() };
     ctx.store.users.push(user);
     ctx.store.workspaces.set(user.id, emptyWorkspace(user));
-    return created(publicUser(user), startSession(user.id, false, request));
+    return signedInAnswer(user, false, request, 201);
   });
 
   // Signing in creates nothing, so it is not de-duplicated: a replayed answer would hand out an old session.
@@ -123,7 +128,7 @@ export function register(router, ctx) {
         return unauthorized(AUTH_MESSAGES.badCredentials);
       }
       if (!verifyPassword(password, user.passwordHash)) return unauthorized(AUTH_MESSAGES.badCredentials);
-      return ok(publicUser(user), startSession(user.id, remember, request));
+      return signedInAnswer(user, remember, request);
     },
     { idempotency: false },
   );
@@ -134,23 +139,23 @@ export function register(router, ctx) {
     (request) => {
       const user = ctx.store.users.find((u) => u.id === ACCOUNTS.alex.id);
       if (!user) throw new Error("the demo account is missing from the seed");
-      return ok(publicUser(user), startSession(user.id, false, request));
+      return signedInAnswer(user, false, request);
     },
     { idempotency: false },
   );
 
   router.post(
     "/api/logout",
-    ({ cookies, req }) => {
-      const sid = cookies.fernway_session;
+    (request) => {
+      const sid = ctx.sessionOf(request);
       if (sid) ctx.store.sessions.delete(sid);
-      return { ...noContent(), headers: { "set-cookie": ctx.clearSessionCookie(req?.headers.host) } };
+      return { ...noContent(), headers: ctx.endSessionHeaders(request.req?.headers.host) };
     },
     { idempotency: false },
   );
 
-  router.get("/api/me", ({ cookies }) => {
-    const user = ctx.sessionUser(cookies);
+  router.get("/api/me", (request) => {
+    const user = ctx.sessionUser(request);
     if (!user) return unauthorized(AUTH_MESSAGES.signInFirst);
     return ok({ ...publicUser(user), workspace: ctx.workspaceOf(user.id)?.name ?? "" });
   });

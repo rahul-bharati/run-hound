@@ -37,11 +37,18 @@ export const loginSchema = z.object({
 });
 export type LoginValues = z.input<typeof loginSchema>;
 
-/** What POST /api/signup and /api/login answer. */
+/**
+ * Step one of the two-step sign-in (FERNWAY_LOGIN=two-step): only the email is checked (the password field isn't
+ * shown yet); the other values pass through untouched.
+ */
+export const loginEmailStepSchema = z.looseObject({ email: emailField(AUTH_MESSAGES.emailRequired) });
+
+/** What POST /api/signup and /api/login answer (`token` only in FERNWAY_SESSION=session-storage mode). */
 export interface AccountUser {
   id: string;
   name: string;
   email: string;
+  token?: string;
 }
 
 export type Strength = "Weak" | "Fair" | "Strong";

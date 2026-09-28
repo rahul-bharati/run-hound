@@ -60,19 +60,38 @@ export async function freePort(): Promise<number> {
   });
 }
 
+/** FERNWAY_LOGIN and FERNWAY_SESSION (server/modes.mjs; CONTRACT.md "Sign-in and session modes"). */
+export type LoginMode = "one-step" | "two-step";
+export type SessionMode = "cookie" | "session-storage";
+export interface FernwayModes {
+  login?: LoginMode;
+  session?: SessionMode;
+}
+
+/** The sessionStorage key the SPA keeps its token under in session-storage mode (src/lib/session-token.ts). */
+export const SESSION_TOKEN_KEY = "fernway_session";
+
 export interface Fernway {
   /** Origin with no trailing slash, e.g. http://127.0.0.1:53211 */
   url: string;
   port: number;
+  /** The modes it was started with (defaults: one-step, cookie). */
+  modes: Required<FernwayModes>;
   /** Everything the server wrote to stdout/stderr so far. */
   output(): string;
   /** POST /api/__reset (restores the seed and clears the idempotency cache; sessions survive). */
   reset(): Promise<void>;
   /**
    * A `cookie` header value ("fernway_session=<id>") signed in as that account, made once per server and reused
-   * (sessions survive POST /api/__reset). Never sign it out: use signIn() for a session a test may end.
+   * (sessions survive POST /api/__reset). Never sign it out: use signIn() for a session a test may end. Cookie mode
+   * only (session-storage mode sets no cookie: use auth() or signInToken()).
    */
   session(who: AccountName): Promise<string>;
+  /**
+   * The request headers that sign in as that account in this server's session mode, made once per server and reused:
+   * `{ cookie }` in cookie mode, `{ authorization: "Bearer <token>" }` in session-storage mode.
+   */
+  auth(who: AccountName): Promise<Record<string, string>>;
   stop(): Promise<void>;
 }
 
@@ -80,8 +99,12 @@ export interface Fernway {
  * Starts `node server/index.mjs` (expects dist/ from globalSetup) on a free port with the given FERNWAY_BUGS
  * ("none", "all", a comma list, or an array of ids). Resolves once the server prints "fernway listening".
  */
-export async function startFernway(bugs: string | readonly string[] = "none", options: { timeoutMs?: number; env?: Record<string, string> } = {}): Promise<Fernway> {
+export async function startFernway(
+  bugs: string | readonly string[] = "none",
+  options: { timeoutMs?: number; env?: Record<string, string> } & FernwayModes = {},
+): Promise<Fernway> {
   const timeoutMs = options.timeoutMs ?? 20_000;
+  const modes: Required<FernwayModes> = { login: options.login ?? "one-step", session: options.session ?? "cookie" };
   const port = await freePort();
   const child = spawn(process.execPath, ["server/index.mjs"], {
     cwd: FERNWAY_ROOT,
@@ -91,6 +114,8 @@ export async function startFernway(bugs: string | readonly string[] = "none", op
       HOST: "127.0.0.1",
       PORT: String(port),
       FERNWAY_BUGS: typeof bugs === "string" ? bugs : bugs.join(","),
+      FERNWAY_LOGIN: modes.login,
+      FERNWAY_SESSION: modes.session,
       ...options.env,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -126,9 +151,11 @@ export async function startFernway(bugs: string | readonly string[] = "none", op
 
   const url = `http://127.0.0.1:${port}`;
   const sessions = new Map<AccountName, Promise<string>>();
+  const auths = new Map<AccountName, Promise<Record<string, string>>>();
   const fw: Fernway = {
     url,
     port,
+    modes,
     output: () => log,
     async reset() {
       const res = await fetch(`${url}/api/__reset`, { method: "POST" });
@@ -141,6 +168,17 @@ export async function startFernway(bugs: string | readonly string[] = "none", op
         sessions.set(who, cookie);
       }
       return cookie;
+    },
+    auth(who) {
+      let headers = auths.get(who);
+      if (!headers) {
+        headers =
+          modes.session === "session-storage"
+            ? signInToken(fw, who).then((token) => ({ authorization: `Bearer ${token}` }))
+            : fw.session(who).then((cookie) => ({ cookie }));
+        auths.set(who, headers);
+      }
+      return headers;
     },
     async stop() {
       if (child.exitCode !== null || child.signalCode !== null) return;
@@ -168,13 +206,25 @@ export async function signIn(fw: Fernway, who: AccountName): Promise<string> {
 }
 
 /**
- * Vitest lifecycle helper: starts Fernway before the describe block, stops it after, and resets the data before each
- * test. Read `ref.fw` inside tests.
+ * Signs in with POST /api/login on a server in session-storage mode and returns the session token it answers (the
+ * value the SPA keeps in sessionStorage and sends as "Authorization: Bearer <token>").
  */
-export function useFernway(bugs: string | readonly string[] = "none"): { fw: Fernway } {
+export async function signInToken(fw: Fernway, who: AccountName): Promise<string> {
+  const { email, password } = ACCOUNTS[who];
+  const res = await fetch(`${fw.url}/api/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password }) });
+  const body = (await res.json().catch(() => ({}))) as { token?: unknown };
+  if (res.status !== 200 || typeof body.token !== "string") throw new Error(`signing in as ${who} (session-storage) failed: ${res.status}`);
+  return body.token;
+}
+
+/**
+ * Vitest lifecycle helper: starts Fernway (with the given modes) before the describe block, stops it after, and resets
+ * the data before each test. Read `ref.fw` inside tests.
+ */
+export function useFernway(bugs: string | readonly string[] = "none", modes: FernwayModes = {}): { fw: Fernway } {
   const ref = {} as { fw: Fernway };
   beforeAll(async () => {
-    ref.fw = await startFernway(bugs);
+    ref.fw = await startFernway(bugs, modes);
   });
   afterAll(async () => {
     await ref.fw?.stop();
@@ -197,17 +247,18 @@ export interface ApiInit {
   method?: string;
   body?: unknown;
   headers?: Record<string, string>;
-  /** Signed in as this account (its cached session), or "nobody" / absent for no session cookie. */
+  /** Signed in as this account (its cached session), or "nobody" / absent for no session. */
   as?: AccountName | "nobody";
 }
 
 /**
  * Calls the API and parses JSON (body is null for an empty response). `body` is JSON-encoded unless it is a string
- * (sent as is, for malformed-JSON tests). `as` sends that account's session cookie.
+ * (sent as is, for malformed-JSON tests). `as` signs the request in as that account the way the server's session mode
+ * expects: its session cookie, or its bearer token in session-storage mode.
  */
 export async function api<T = any>(fw: Fernway, path: string, init: ApiInit = {}): Promise<JsonResponse<T>> {
   const method = init.method ?? (init.body === undefined ? "GET" : "POST");
-  const cookie: Record<string, string> = init.as && init.as !== "nobody" ? { cookie: await fw.session(init.as) } : {};
+  const cookie: Record<string, string> = init.as && init.as !== "nobody" ? await fw.auth(init.as) : {};
   const res = await fetch(`${fw.url}${path}`, {
     method,
     headers: { ...(init.body !== undefined ? { "content-type": "application/json" } : {}), ...cookie, ...init.headers },
@@ -260,12 +311,37 @@ export interface OpenedPage {
 export interface OpenPageOptions extends Pick<BrowserContextOptions, "colorScheme" | "reducedMotion" | "viewport" | "storageState"> {
   /** Wait for this load state after navigation (default "networkidle"). */
   waitUntil?: "load" | "domcontentloaded" | "networkidle";
-  /** Signed in as this account: a fresh session (POST /api/login) whose cookie the context gets before loading. */
+  /**
+   * Signed in as this account: a fresh session (POST /api/login) whose cookie the context gets before loading, or in
+   * session-storage mode whose token every page of the context finds in sessionStorage.
+   */
   as?: AccountName;
 }
 
-/** Puts a fresh session for `who` into the browser context (the HttpOnly cookie the server would have set). */
+/**
+ * Seeds `token` into sessionStorage for Fernway's origin in every page of the context before any page script runs, as
+ * Run Hound does for a sessionStorage session. Only when the key is absent, so a token the page itself set wins; after
+ * a sign-out the next load seeds the old (now ended) token again, and the SPA drops it when GET /api/me answers 401.
+ */
+export async function seedSessionToken(fw: Fernway, context: BrowserContext, token: string): Promise<void> {
+  await context.addInitScript(
+    ({ origin, key, value }) => {
+      try {
+        if (location.origin === origin && sessionStorage.getItem(key) === null) sessionStorage.setItem(key, value);
+      } catch {
+        // No sessionStorage on this page (about:blank, a sandboxed frame).
+      }
+    },
+    { origin: fw.url, key: SESSION_TOKEN_KEY, value: token },
+  );
+}
+
+/**
+ * Puts a fresh session for `who` into the browser context: the HttpOnly cookie the server would have set, or in
+ * session-storage mode the token in sessionStorage (seedSessionToken).
+ */
 export async function signInContext(fw: Fernway, context: BrowserContext, who: AccountName): Promise<void> {
+  if (fw.modes.session === "session-storage") return seedSessionToken(fw, context, await signInToken(fw, who));
   const value = (await signIn(fw, who)).slice("fernway_session=".length);
   await context.addCookies([{ name: "fernway_session", value, url: fw.url, httpOnly: true, sameSite: "Lax" }]);
 }

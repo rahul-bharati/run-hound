@@ -77,7 +77,8 @@ const SEEDED_AT = "2026-09-01T09:00:00.000Z";
 /**
  * @typedef {object} Store
  * @property {User[]} users
- * @property {Map<string, string>} sessions  session id (fernway_session cookie) -> user id. Survives POST /api/__reset.
+ * @property {Map<string, string>} sessions  session id (the fernway_session cookie) or bearer token
+ *   (FERNWAY_SESSION=session-storage) -> user id. Survives POST /api/__reset.
  * @property {Map<string, Workspace>} workspaces  user id -> that user's workspace
  * @property {{ id: string, email: string, teamSize: string, position: number, createdAt: string }[]} waitlist
  * @property {number} waitlistBase    The first waitlist entry gets position waitlistBase + 1.

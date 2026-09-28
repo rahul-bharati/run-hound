@@ -12,8 +12,9 @@
 //                                       recorded as paid (once; confirming it again answers confirmed: true, and grants
 //                                       nothing new). Anything else answers 200 { confirmed: false, plan } and changes
 //                                       nothing.
-//   POST /api/billing/cancel            {} -> 200 { plan: "free" }. Back to Free straight away (the Billing tab's
-//                                       "Switch back to Free").
+//   POST /api/billing/cancel            {} -> 200 { plan: "free" }. Back to Free straight away, no confirmation (the
+//                                       Billing tab's "Cancel plan", shown on Pro; Run Hound's paywall-trust clicks it
+//                                       to undo a plan its probe granted).
 //
 // Every endpoint needs a signed-in session (401 without one; V03 does not apply here). Another user's checkout id
 // answers 404 (pay) or confirmed: false (confirm).
@@ -45,7 +46,7 @@ export function register(router, ctx) {
    * @returns {import("../http.mjs").Handler}
    */
   const signedIn = (handler) => (request) => {
-    const user = ctx.sessionUser(request.cookies);
+    const user = ctx.sessionUser(request);
     const ws = user ? ctx.workspaceOf(user.id) : undefined;
     if (!user || !ws) return unauthorized(AUTH_MESSAGES.signInFirst);
     return handler({ ...request, user, profile: ws.profile });

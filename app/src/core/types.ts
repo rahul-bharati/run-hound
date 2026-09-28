@@ -52,6 +52,10 @@ export const CHECK_IDS = [
   "deep-links",
   // V2 (0.5.0): csrf, which changes Account A's own test record and restores it (docs/v2-spec.md).
   "csrf",
+  // V2 (0.6.0): write-access (can B, or a signed-out visitor, change A's test record) and paywall-trust (can A get a
+  // paid plan without paying; it may change A's plan and restores it). docs/v2-spec.md "0.6.0".
+  "write-access",
+  "paywall-trust",
 ] as const;
 
 /** Checks added in V1 (single page). Everything else in CHECK_IDS shipped in V0. */
@@ -60,9 +64,10 @@ export const V1_CHECK_IDS: readonly CheckId[] = ["page-controls", "security-head
 export type CheckId = (typeof CHECK_IDS)[number];
 
 /**
- * Checks added in V2: 0.4.0 (the first slice: test accounts, access checks, deep links) and 0.5.0 (csrf). docs/v2-spec.md.
+ * Checks added in V2: 0.4.0 (the first slice: test accounts, access checks, deep links), 0.5.0 (csrf) and 0.6.0
+ * (write-access, paywall-trust). docs/v2-spec.md.
  */
-export const V2_CHECK_IDS: readonly CheckId[] = ["access-control", "mass-assignment", "deep-links", "csrf"];
+export const V2_CHECK_IDS: readonly CheckId[] = ["access-control", "mass-assignment", "deep-links", "csrf", "write-access", "paywall-trust"];
 
 /** The two test-account slots (docs/v2-spec.md "Test accounts"). */
 export type AccountId = "a" | "b";
@@ -91,7 +96,11 @@ export type Identity = "self" | "other" | "signed-out";
 export interface IdentityRequest {
   method?: string;
   url: string;
-  /** Extra headers. Credential headers (cookie, authorization, apikey, x-*-token, x-api-key) are dropped and replaced by the identity's own. */
+  /**
+   * Extra headers. Credential headers (cookie, authorization, apikey, x-*-token, x-api-key) are dropped and replaced by
+   * the identity's own; an anti-CSRF header (csrf or xsrf in its name: X-CSRFToken, X-XSRF-TOKEN) is not a credential
+   * and is sent as given (0.6.0 close-out: write-access puts the identity's own token in it).
+   */
   headers?: Record<string, string>;
   /** Request body, sent as is (JSON callers pass JSON.stringify(...) and a content-type header). */
   body?: string;
@@ -446,6 +455,13 @@ export interface Capture {
     failure: string | null;
     /** Response body for same-origin JSON/text responses (truncated), else null. */
     responseBody: string | null;
+    /**
+     * The anti-CSRF headers (core/saves.ts isAntiCsrfHeader: X-CSRFToken, X-XSRF-TOKEN, X-CSRF-Token) a write to the
+     * page's origin or another local origin carried, by lower-case name (0.6.0 close-out: write-access sends Account
+     * B's own token in the same header). Absent for reads, other origins and writes without one. Token values: held
+     * in memory only, never written anywhere.
+     */
+    csrfHeaders?: Record<string, string>;
     /**
      * Response headers, lower-case names, for responses from the page's origin and other local origins (the app's
      * API on another port); multiple values of one header (set-cookie) joined with "\n". Absent for other responses

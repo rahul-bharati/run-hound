@@ -1,0 +1,64 @@
+Run Hound tests one page at a time, in a real browser, and some apps and set-ups are beyond it for now. Here are this release's limits, and what to do about each.
+
+## One page at a time \{#one-page\}
+
+Up to 5 forms on a page are tested, and up to 20 controls outside them are clicked. Links are opened only to check that they load. Testing a feature across pages is planned for the rest of the V2 stage.
+
+A page behind a login needs a [test account](/docs/signed-in-runs/). Signed out, a page that redirects to a login screen gets the login form tested instead: check **Pages tested** in the report.
+
+## Sign-in \{#sign-in\}
+
+Sign-in works with your app's own form and a password, on one page or email first, then password. It doesn't work with Google or another provider, magic links, one-time codes, captchas or a password page on another site. Nor does a sign-in form that opens a new tab, or a sign-in page that needs a Web Worker.
+
+A session kept in cookies, localStorage, IndexedDB or sessionStorage carries over to the run. A session the app throws away when a page loads doesn't. Run Hound can mistake where a session lives. A sessionStorage session beside an HttpOnly or session-named cookie of your app's own site can fail with "still shows the sign-in page". A cookie session whose cookie is neither can make [`access-control`](/checks/access-control/) skip a real IDOR.
+
+Some code pages are missed, so the checks run on them. A signed-in page with one code-like field, such as "Room code", can fail sign-in with "asks for a verification code".
+
+Signed-out `access-control` replays send no `apikey` header, so a local Supabase's API gateway refuses them before row-level security is asked.
+
+## Write checks \{#write-checks\}
+
+Each write-side check's page lists its limits. In short:
+
+- [`write-access`](/checks/write-access/) replays only the updates and deletes your app sends for the new record while the page is open. Many apps send none, so it is skipped there.
+- [`csrf`](/checks/csrf/) needs your app on `localhost` or `127.0.0.1`; elsewhere it is inconclusive.
+- [`paywall-trust`](/checks/paywall-trust/) tests only success pages that grant a plan when opened.
+- The exported Playwright tests of the signed-in checks sign in with a stand-in: adapt it to your app.
+
+Every edge case is in [TESTING.md](https://github.com/rahul-bharati/run-hound/blob/main/TESTING.md#known-limitations).
+
+## What a signed-in run changes \{#account-a\}
+
+- On a form that shows A's own email, such as a profile form, `axe-states` and `pii-leak` save a test address over it. Nothing puts it back, so untick them there.
+- `deep-links` opens the app's own success pages, so one that grants a plan when it loads moves A to that plan.
+- `page-controls` and `dead-control` click a plan button whose name doesn't look destructive, such as "Switch to Free". Use a test account whose plan you can reset.
+- The write-side checks put back what they change. [Safety](/docs/safety/#what-it-changes) says what each one touches.
+- The live view of a signed-in run isn't masked: it shows the account's name. It stays on your machine.
+
+## Dev servers don't send production headers \{#dev-servers\}
+
+Header, cookie and CORS findings on a dev server are advisory: it doesn't send what your production build will. For confirmed results, test a production build served on your machine.
+
+Development overlays, such as the Next.js dev tools or Vite's error overlay, are part of the page in development. If a finding points at one, tell us.
+
+## Apps from AI builders \{#ai-builders\}
+
+- Multi-step forms are tested on their first step only. If submitting it shows the next step without saving, checks that need a saved record skip with a note.
+- A form that opens from a menu item, a command palette, a second dialog or on hover isn't found. Neither is one behind more than 3 likely buttons.
+- Widgets from other libraries, or custom ones without the usual ARIA roles, may not be recognised as fields.
+- Run Hound can't see inside a canvas, a closed shadow root or a frame from another site. An embedded payment form is one.
+
+[Testing AI-built apps](/ai-built-apps/) says what discovery does handle.
+
+## Unusual apps \{#unusual-apps\}
+
+Unusual apps may still produce false findings. Run Hound has been tried on classic post-and-redirect forms, fetch-based single-page apps, login forms and forms with their API on another origin. It is tested on Fernway, a small SaaS app in the test lab built the way AI app builders build apps. It hasn't been tried on your stack: that's what your [feedback](/docs/troubleshooting/#feedback) is for.
+
+## Docker and Windows \{#docker-windows\}
+
+- A container has no display, so no browser window shows. `--headed` needs a run from source on a machine with one. The web UI's live view works either way.
+- On Windows, Run Hound runs in Docker or in WSL2.
+
+## AI \{#ai\}
+
+AI output is only as good as the model. Small models sometimes suggest flows that are rejected, because they name a button the form doesn't have, or give generic reasons. Findings from AI-suggested flows are advisory: check them by hand.

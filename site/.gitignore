@@ -17,6 +17,16 @@
 /.next/
 /out/
 .next/
+# Builds side by side in other folders (NEXT_DIST_DIR=.next-<name>, next.config.ts), and the tsconfig each one
+# type-checks with (tsconfig.next-<name>.json, written by next.config.ts)
+/.next-*/
+/tsconfig.next-*.json
+
+# The search index, written by scripts/pagefind.mjs in pnpm build
+/public/pagefind/
+
+# The lab's screenshots, traces and scratch output (scripts/lab/)
+/.lab-out/
 
 # production
 /build
@@ -40,3 +50,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# The real-run extracts and their evidence are site content: the repository's .gitignore ignores every runs/ folder
+# (run reports), so take these two back.
+!/src/content/runs/
+!/src/assets/runs/

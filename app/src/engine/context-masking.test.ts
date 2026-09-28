@@ -97,6 +97,29 @@ describe("evidence images while account values are registered", () => {
     expect(values.at(-1)).toBe("ALICE@EXAMPLE.TEST");
   });
 
+  it("never hands a registered value the page does not itself show (a password) to the page's own scripts", async () => {
+    // The token is shown on the page; the password is not. Both are registered as secrets.
+    const PASSWORD = "topsecretpw-h7q2";
+    held.push(registerAccountUsernames([EMAIL]), registerSecretLiterals(["sess-9f8e7d6c5b4a", PASSWORD]));
+    const { page } = await ctx.openPage();
+    // The page pre-hooks the RegExp constructor (which the mask builds from its needles) to capture the password.
+    await page.evaluate(`(() => {
+      window.__captured = [];
+      const rawIndexOf = String.prototype.indexOf;
+      const note = (v) => { try { if (typeof v === "string" && rawIndexOf.call(v, ${JSON.stringify(PASSWORD)}) >= 0) window.__captured.push(v); } catch (e) {} };
+      const RealRegExp = window.RegExp;
+      window.RegExp = function () { for (let i = 0; i < arguments.length; i++) note(arguments[i]); return new RealRegExp(...arguments); };
+    })()`);
+    await page.evaluate("window.__seen = []");
+    await ctx.screenshot(page, "Shot");
+    // The password, which the page never displays, is never passed to a page-world built-in.
+    expect(await page.evaluate("window.__captured")).toEqual([]);
+    // A value the page does display is still masked (so the mask really ran, only without the absent secret).
+    const changes = (await seen(page)) as string[];
+    expect(changes.some((c) => !c.includes("sess-9f8e7d6c5b4a")), JSON.stringify(changes)).toBe(true);
+    expect(await page.locator("#token").textContent()).toBe("Token sess-9f8e7d6c5b4a");
+  });
+
   it("with nothing registered, the page is never touched", async () => {
     const { page } = await ctx.openPage();
     await page.evaluate("window.__seen = []");

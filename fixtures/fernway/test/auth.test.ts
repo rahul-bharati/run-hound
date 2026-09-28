@@ -242,7 +242,9 @@ describe("account API (clean mode)", () => {
     } as never);
     expect(result.status).toBe(201);
     const sid = SESSION_RE.exec(String(result.headers?.["set-cookie"]))?.[1];
-    expect(ctx.sessionUser({ fernway_session: sid! })?.email).toBe(NEW_USER.email);
+    expect(ctx.sessionUser({ cookies: { fernway_session: sid! } })?.email).toBe(NEW_USER.email);
+    // In cookie mode a bearer token is not a session, even one that names a real session id.
+    expect(ctx.sessionUser({ cookies: {}, bearer: sid! })).toBeNull();
 
     // Stored hashed (scrypt), never in plain text.
     const user = store.users.find((u: { email: string }) => u.email === NEW_USER.email)!;

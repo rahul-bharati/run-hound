@@ -60,6 +60,11 @@ describe("isAcceptedSave: reads and events sent as POST (CHK-5)", () => {
     expect(isAcceptedSave(save({ url: "http://localhost:5173/graphql", status: 200, postData: `[${gql("{ me { id } }")},${gql("query { entries { id } }")}]` }), TARGET, TOKEN)).toBe(false);
   });
 
+  it("counts a REST save whose body has a query field (a saved search), which is no GraphQL read (0.6.0 close-out round 2)", () => {
+    expect(isAcceptedSave(save({ url: "http://localhost:5173/api/searches", status: 201, postData: JSON.stringify({ name: `Name ${TOKEN}keep`, query: `Search ${TOKEN}keep` }) }), TARGET, TOKEN)).toBe(true);
+    expect(isAcceptedSave(save({ url: "http://localhost:5173/api/searches", status: 201, postData: JSON.stringify({ query: `search ${TOKEN}keep` }) }), TARGET, TOKEN)).toBe(true);
+  });
+
   it("counts a GraphQL mutation that carries the test values", () => {
     const mutation = gql("mutation Sign($name: String!) { sign(name: $name) { id } }", { name: `Name ${TOKEN}keep` });
     expect(isAcceptedSave(save({ url: "http://localhost:5173/graphql", status: 200, postData: mutation }), TARGET, TOKEN)).toBe(true);

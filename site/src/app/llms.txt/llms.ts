@@ -1,14 +1,15 @@
-import { previewGroups } from "@/components/checks/data";
-import { aiBuiltPage } from "@/components/ai-built/data";
-import { comparePage } from "@/components/compare/data";
-import { faqPage } from "@/components/faq/data";
+import { previewGroups } from "@/content/checks/data";
+import type { LlmsList } from "@/content/routes";
+import { llmsLinks } from "@/lib/nav";
 import { site } from "@/lib/site";
 import { absoluteUrl } from "@/lib/structured-data";
 
 /**
  * What /llms.txt and /llms-full.txt share (llmstxt.org format: an H1, a one-paragraph summary as a blockquote, a few
  * paragraphs of facts, then sections of links with a one-line note each). Every fact comes from site.ts, the checks data
- * and the documents in the repository; URLs follow NEXT_PUBLIC_SITE_URL like the canonical links.
+ * and the documents in the repository; URLs follow NEXT_PUBLIC_SITE_URL like the canonical links. The site's own pages
+ * in each section come from the route registry (content/routes.ts: each route's `llms` list, order and note), so a new
+ * page is listed by registering it; this file adds only the links to GitHub.
  *
  * Nothing here reads files at build or run time: the site builds from site/ alone (the Docker build context), so the
  * repository's documents are linked, not read.
@@ -57,7 +58,9 @@ export function intro(): string {
       `widgets, and forms in dialogs and sheets.`,
     "",
     `V0 to V4 are stages of what Run Hound can test, not versions: V0 (one form) and V1 (one page) have shipped, and ` +
-      `the ${site.preview} adds signed-in runs with two test accounts you own, access checks and a CSRF check. ` +
+      `the ${site.preview} adds signed-in runs with two test accounts you own: access checks, and the write-side checks ` +
+      `csrf, write-access and paywall-trust, which change account A's data and put it back. Sign-in works with the email ` +
+      `first and the password next, and with sessions kept in sessionStorage. ` +
       `${builtInTotal} checks are built in, in three groups: Accessibility, Features and Security. Every check is in ` +
       `the open core; checks are never paywalled.`,
     "",
@@ -67,48 +70,13 @@ export function intro(): string {
 
 type Link = { name: string; url: string; note: string };
 
+/** The site's pages in one section, from the route registry, with absolute URLs. */
+const pageLinks = (list: LlmsList): Link[] =>
+  llmsLinks(list).map(({ name, path, note }) => ({ name, url: absoluteUrl(path), note }));
+
 /** The link sections of /llms.txt, also the last section of /llms-full.txt. "Optional" can be skipped (llmstxt.org). */
 export const linkSections: { title: string; links: Link[] }[] = [
-  {
-    title: "Site",
-    links: [
-      {
-        name: "Docs",
-        url: absoluteUrl("/docs/"),
-        note: "The guide: the Docker or Podman quick start, the demo apps, testing your own app, test accounts and signed-in runs, optional AI, reading the report, every check and the known limitations.",
-      },
-      {
-        name: "How it works",
-        url: absoluteUrl("/how-it-works/"),
-        note: "The five steps (explore, plan, approve, run, report), the design principles, the outputs and what a browser can't see.",
-      },
-      {
-        name: "Checks",
-        url: absoluteUrl("/checks/"),
-        note: `The ${builtInTotal} built-in checks in release ${site.version}, in three groups, and the full catalog of gaps in AI-built apps, with typical severity and roadmap stage.`,
-      },
-      {
-        name: aiBuiltPage.title,
-        url: absoluteUrl(aiBuiltPage.path),
-        note: aiBuiltPage.description,
-      },
-      {
-        name: "FAQ",
-        url: absoluteUrl(faqPage.path),
-        note: faqPage.description,
-      },
-      {
-        name: comparePage.title,
-        url: absoluteUrl(comparePage.path),
-        note: `${comparePage.description} Capabilities only, as of release ${site.version}, with sources.`,
-      },
-      {
-        name: "Demo",
-        url: absoluteUrl("/demo/"),
-        note: "Real evidence from runs on Kennel, a deliberately broken booking app, and Fernway, a Lovable-style app: a double submit, a silent failure, missing focus, leaked keys, access bugs and more.",
-      },
-    ],
-  },
+  { title: "Site", links: pageLinks("Site") },
   {
     title: "Guides in the repository (Markdown)",
     links: [
@@ -125,17 +93,17 @@ export const linkSections: { title: string; links: Link[] }[] = [
       {
         name: "docs/install.md",
         url: repoDoc("docs/install.md"),
-        note: "Docker or Podman, the test lab, installing from source, ports, and testing an app on your machine from a container.",
+        note: "A pointer to the site's Install page: Docker or Podman, the test lab, installing from source, ports, and testing an app on your machine from a container.",
       },
       {
         name: "docs/usage.md",
         url: repoDoc("docs/usage.md"),
-        note: "The web UI, the command line (commands, options, exit codes), reports and evidence.",
+        note: "A pointer to the site's CLI and CI and Report pages: the command line (commands, options, exit codes), the web UI, reports and evidence.",
       },
       {
         name: "docs/signed-in-runs.md",
         url: repoDoc("docs/signed-in-runs.md"),
-        note: "Test accounts, the access checks and the CSRF check, secrets, and what sign-in can't do yet.",
+        note: "A pointer to the site's Signed-in runs page: test accounts, the access checks, the write-side checks (csrf, write-access and paywall-trust) and secrets. TESTING.md has the step-by-step walkthrough and every known limit.",
       },
       {
         name: "docs/ai-built-apps.md",
@@ -145,7 +113,7 @@ export const linkSections: { title: string; links: Link[] }[] = [
       {
         name: "docs/ai.md",
         url: repoDoc("docs/ai.md"),
-        note: "Optional AI: the web UI, the command line, .env, what is sent to the model and which models work.",
+        note: "A pointer to the site's Optional AI page: the web UI, the command line, .env, what is sent to the model and which models work.",
       },
       {
         name: "docs/security.md",
@@ -157,11 +125,7 @@ export const linkSections: { title: string; links: Link[] }[] = [
   {
     title: "Project",
     links: [
-      {
-        name: "Open source",
-        url: absoluteUrl("/open-source/"),
-        note: "MIT licensed, every check included: the roadmap, the test apps it is scored against, and how to contribute.",
-      },
+      ...pageLinks("Project"),
       { name: "GitHub repository", url: site.github, note: "The source code, issues and releases." },
       { name: "CHANGELOG.md", url: repoDoc("CHANGELOG.md"), note: "What changed in each release." },
       {
@@ -189,26 +153,7 @@ export const linkSections: { title: string; links: Link[] }[] = [
         url: repoDoc("docs/overview.md"),
         note: "Problem statement, who it's for, what it hunts for, how it works, output, tech stack and delivery.",
       },
-      {
-        name: "Security",
-        url: absoluteUrl("/security/"),
-        note: "How to report a vulnerability in Run Hound or this website, and what is in scope.",
-      },
-      {
-        name: "Acceptable use",
-        url: absoluteUrl("/acceptable-use/"),
-        note: "Run Hound is for testing apps you own or are authorized to test.",
-      },
-      {
-        name: "Privacy",
-        url: absoluteUrl("/privacy/"),
-        note: "How the website and the software handle personal data.",
-      },
-      {
-        name: "Terms of use",
-        url: absoluteUrl("/terms/"),
-        note: "Terms of use for the Run Hound website, and how the MIT license governs the Run Hound software.",
-      },
+      ...pageLinks("Optional"),
     ],
   },
 ];

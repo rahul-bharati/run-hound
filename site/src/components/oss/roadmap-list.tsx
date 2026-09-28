@@ -1,58 +1,41 @@
-export type RoadmapStatus = "shipped" | "current" | "preview" | "planned";
+import type { RoadmapStage, RoadmapStatus } from "@/content/open-source";
+import { Tag } from "@/components/primitives/tag";
 
-export type RoadmapStage = {
-  /** The stage label ("V0"): a stage of what Run Hound can test, never a release number. */
-  stage: string;
-  name: string;
-  status: RoadmapStatus;
-  /** The releases that built the stage, or will, as a label that says so ("Release 0.1.0", "Since 0.4.0"). */
-  release?: string;
-  summary: string;
-  adds?: string;
+/** The status each stage is tagged with (a Tag: line-strong outline, muted mono; never accent, never warn, §2.5). */
+const statusLabel: Record<RoadmapStatus, string> = {
+  shipped: "Shipped",
+  preview: "Preview",
+  planned: "Planned",
 };
 
-const statusStyle: Record<RoadmapStatus, { card: string; pill: string; dot: string }> = {
-  shipped: { card: "border-line", pill: "border-line-strong text-muted", dot: "bg-muted" },
-  "current": { card: "border-accent/60", pill: "border-accent text-accent", dot: "bg-accent" },
-  // Partly released: part of the stage ships in the current release, the rest is planned.
-  preview: { card: "border-dashed border-accent/40", pill: "border-dashed border-accent/60 text-accent", dot: "bg-accent/60" },
-  planned: { card: "border-line", pill: "border-line-strong text-dim", dot: "bg-line-strong" },
-};
-
-/** Vertical roadmap with a status label per stage. The current stage is lit; a stage in preview is outlined. */
+/**
+ * The roadmap as an ordered list of stages, V0 to V4 (DESIGN.md §3.8): the stage and its status tag on the left from
+ * 640 px, its name, what it does and what each release added on the right. Static, calm: no stage is lit in accent, and
+ * a stage in preview is told apart by its tag and a dashed border, not by colour alone.
+ */
 export function RoadmapList({ stages }: { stages: readonly RoadmapStage[] }) {
   return (
     <ol className="flex flex-col gap-4">
-      {stages.map((stage) => {
-        const style = statusStyle[stage.status];
-        const current = stage.status === "current";
-        return (
-          <li
-            key={stage.stage}
-            aria-current={current ? "step" : undefined}
-            className={`grid gap-4 rounded-2xl border bg-surface p-6 sm:grid-cols-[160px_minmax(0,1fr)] sm:gap-8 sm:p-7 ${style.card}`}
-          >
-            <div className="flex flex-wrap items-center gap-3 sm:flex-col sm:items-start">
-              <span className={`font-display text-3xl font-extrabold tracking-tight ${current ? "text-accent" : ""}`}>
-                <span className="sr-only">Stage </span>
-                {stage.stage}
-              </span>
-              <span
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] tracking-widest ${style.pill}`}
-              >
-                <span aria-hidden="true" className={`size-1.5 rounded-full ${style.dot}`} />
-                {stage.status.toUpperCase()}
-              </span>
-              {stage.release ? <span className="font-mono text-xs text-dim">{stage.release}</span> : null}
-            </div>
-            <div className="flex flex-col gap-2">
-              <h3 className="font-display text-xl font-bold">{stage.name}</h3>
-              <p className="leading-relaxed text-muted">{stage.summary}</p>
-              {stage.adds ? <p className="text-[15px] leading-relaxed text-dim">{stage.adds}</p> : null}
-            </div>
-          </li>
-        );
-      })}
+      {stages.map((stage) => (
+        <li
+          key={stage.stage}
+          className={`card grid gap-4 sm:grid-cols-12 sm:gap-6 ${stage.status === "preview" ? "border-dashed border-line-strong" : ""}`}
+        >
+          <div className="flex flex-wrap items-center gap-3 sm:col-span-3 sm:flex-col sm:items-start">
+            <p className="font-display text-display-m text-fg">
+              <span className="sr-only">Stage </span>
+              {stage.stage}
+            </p>
+            <Tag>{statusLabel[stage.status]}</Tag>
+            {stage.release ? <p className="font-mono text-mono text-dim">{stage.release}</p> : null}
+          </div>
+          <div className="flex flex-col gap-2 sm:col-span-9">
+            <h3 className="font-display text-title font-bold text-fg">{stage.name}</h3>
+            <p className="text-body text-muted">{stage.summary}</p>
+            {stage.adds ? <p className="text-small text-muted">{stage.adds}</p> : null}
+          </div>
+        </li>
+      ))}
     </ol>
   );
 }

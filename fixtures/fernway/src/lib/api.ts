@@ -1,3 +1,4 @@
+import { sessionHeaders } from "./session-token";
 import { uuid } from "./utils";
 
 /** Field-level messages from a 400/409 body: `{ errors: { <field>: <message> } }`. */
@@ -61,11 +62,12 @@ function messageFor(status: number, body: unknown): { message: string; errors: F
 
 /**
  * Calls Fernway's JSON API (same origin). Resolves with the parsed JSON body (undefined for 204); rejects with an
- * ApiError for any non-2xx status or a network failure. Non-GET requests carry an Idempotency-Key header.
+ * ApiError for any non-2xx status or a network failure. Non-GET requests carry an Idempotency-Key header. The session
+ * goes along as the cookie, or in FERNWAY_SESSION=session-storage mode as "Authorization: Bearer <token>".
  */
 export async function api<T = unknown>(path: string, options: ApiOptions = {}): Promise<T> {
   const method = options.method ?? "GET";
-  const headers: Record<string, string> = { accept: "application/json" };
+  const headers: Record<string, string> = { accept: "application/json", ...sessionHeaders() };
   if (options.body !== undefined) headers["content-type"] = "application/json";
   if (method !== "GET") {
     const key = options.idempotencyKey === undefined ? uuid() : options.idempotencyKey;

@@ -9,8 +9,8 @@
  *   await app.stop();
  *
  * OPTIONS (AccountsAppOptions)
- *   tokenMode    "cookie" (default) | "bearer"
- *   loginVariant "email" (default) | "username" | "two-password" | "otp"
+ *   tokenMode    "cookie" (default) | "bearer" | "session-storage"
+ *   loginVariant "email" (default) | "username" | "two-password" | "otp" | "two-step" | "two-step-page"
  *   idor         GET /api/users/:id/profile returns ANY existing user's profile to any signed-in user (PUT is still
  *                owner-only).                                                 (Fernway V01)
  *   listLeak     GET /api/notes returns EVERY user's notes to any signed-in user.                        (V02)
@@ -41,16 +41,24 @@
  *   bearer mode: POST /api/login success returns { token, user } and sets NO cookie. The client stores the token in
  *                localStorage["token"] (same origin as app.url) and sends `Authorization: Bearer <token>` on every
  *                /api call. Only that header is read; cookies are ignored.
+ *   session-storage mode (0.6.0): the server behaves exactly as in bearer mode, but the client keeps the token in
+ *                sessionStorage["token"] (and the user summary as JSON in sessionStorage["user"]) for app.url's
+ *                origin, never in localStorage or a cookie. A new tab (a new browser context) starts with an empty
+ *                sessionStorage, so it shows the sign-in page unless those items are seeded before the client's
+ *                script runs.
  *   Sessions live in memory until POST /api/logout (or signOutEveryone()); reset() does NOT end them.
  *
  * HTTP API (JSON bodies; responses are application/json)
  *   POST /api/login         { email, password } (username variant: { username, password }; either key is read as the
  *                           identifier, matched against the email, or against the username in the username variant)
- *                           → 200 { user: { id, name, email } } (+ token in bearer mode)
+ *                           → 200 { user: { id, name, email } } (+ token in bearer and session-storage modes)
  *                           → 401 { error: "Email or password is incorrect" }
  *                                 (username variant: "Username or password is incorrect")
  *                           → 400 { error } for a body that isn't a JSON object
  *                           otp variant, right password → 200 { verify: true, challenge } and NO session yet
+ *   POST /api/login/identify  (two-step variants only; 404 otherwise) { email } → 200 { next: "password" } for ANY
+ *                           non-empty email (it never reveals which emails have accounts) | 400 { error } otherwise.
+ *                           Creates no session and never sees the password.
  *   POST /api/login/verify  { challenge, code } → code "123456" signs in exactly like /api/login's 200;
  *                           anything else → 401 { error: "That code is not right" }
  *   POST /api/signup        → always 403 { error: "New accounts are closed. Sign in instead." }
@@ -80,8 +88,24 @@
  *                          otp variant: after a correct password, the sign-in form gets `hidden` (its password field is
  *                            no longer visible, the URL stays /login) and a new form named "Verification" appears with
  *                            "Verification code" (input#code, autocomplete=one-time-code) and button "Verify".
- *                          On success the client stores the token (bearer) and does location.assign(next): the ?next=
- *                          path when it is a local path ("/…"), else /notes.
+ *                          two-step variant (0.6.0): the form named "Sign in" shows only "Email" (input#email type=email
+ *                            name=email autocomplete=username) and button "Continue"; its "Password" field
+ *                            (input#password type=password autocomplete=current-password) is in the form but inside a
+ *                            `hidden` paragraph (p#password-row), so no password field is visible. Continue sends
+ *                            POST /api/login/identify { email }; on its 200 the password row is shown (URL still /login),
+ *                            the button becomes "Sign in" and the password field gets focus. The next submit sends
+ *                            POST /api/login { email, password } like the email variant (errors in #signin-error).
+ *                          two-step-page variant (0.6.0): the same first step, without any password field in the page;
+ *                            on identify's 200 the client does location.assign("/login/password?email=<email>" plus
+ *                            "&next=<next>" when /login had a ?next=). GET /login/password (served in this variant
+ *                            only) shows h1 "Enter your password", "Signing in as <email>", a link "Use another account"
+ *                            (/login) and a form named "Sign in" with ONLY "Password" (input#password type=password
+ *                            autocomplete=current-password) and button "Sign in": no field for the email. Its submit
+ *                            sends POST /api/login { email (from the query), password }. Without ?email= it does
+ *                            location.replace("/login").
+ *                          On success the client stores the token (bearer: localStorage; session-storage:
+ *                          sessionStorage) and does location.assign(next): the ?next= path when it is a local path ("/…"),
+ *                          else /notes.
  *   GET /notes, /settings, /help, /profile   signed-in pages: the client first GETs /api/me; on non-200 it does
  *                          location.replace("/login?next=<path>") (e.g. /login?next=/notes). Signed in, each page has a
  *                          header with nav "Main" (links "Notes" /notes, "Settings" /settings, "Help" /help) and a
@@ -115,6 +139,11 @@
  *   storageState(user)  starts a new session and returns it as a Playwright storageState (SessionState): cookie mode →
  *                       the `sid` cookie for 127.0.0.1 (httpOnly, Lax); bearer mode → localStorage "token" for app.url.
  *                       Use it for browser.newContext({ storageState }) or ContextOptions.sessions without signIn().
+ *                       session-storage mode → throws (a storageState can't hold sessionStorage, and an empty one would
+ *                       be a signed-out identity): use sessionStorage(user), with { cookies: [], origins: [] } as the
+ *                       state.
+ *   sessionStorage(user) session-storage mode only (throws otherwise): starts a new session and returns it in the shape
+ *                       of SignedIn.sessionStorage: [{ origin: app.url, items: [{ name: "token", value: <token> }] }].
  *   account(id, user?)  a TestAccount for slot "a" | "b" (default user: a → alice, b → bob): label "Account A"/"Account
  *                       B", loginUrl, username (the email; "alice"/"bob" in the username variant), password
  *   accountsConfig({ isolated? })  { isolated (default true), accounts: { a: account("a"), b: account("b") } }
@@ -127,14 +156,14 @@ import { randomBytes } from "node:crypto";
 import type { ServerResponse } from "node:http";
 import type { AccountsConfig, TestAccount } from "../src/accounts/types.js";
 import type { AccountId } from "../src/core/types.js";
-import type { SessionState } from "../src/engine/auth.js";
+import type { SessionState, SignedIn } from "../src/engine/auth.js";
 import { startFixtureServer, type RecordedRequest } from "./server.js";
 
 export type UserKey = "alice" | "bob";
 
 export interface AccountsAppOptions {
-  tokenMode?: "cookie" | "bearer";
-  loginVariant?: "email" | "username" | "two-password" | "otp";
+  tokenMode?: "cookie" | "bearer" | "session-storage";
+  loginVariant?: "email" | "username" | "two-password" | "otp" | "two-step" | "two-step-page";
   idor?: boolean;
   listLeak?: boolean;
   noAuth?: boolean;
@@ -176,6 +205,7 @@ export interface AccountsApp {
   reset(): void;
   authHeaders(user: UserKey): Record<string, string>;
   storageState(user: UserKey): SessionState;
+  sessionStorage(user: UserKey): NonNullable<SignedIn["sessionStorage"]>;
   account(id: AccountId, user?: UserKey): TestAccount;
   accountsConfig(options?: { isolated?: boolean }): AccountsConfig;
   notes(): Note[];
@@ -274,12 +304,14 @@ const CLIENT = String.raw`(function () {
   function el(id) { return document.getElementById(id); }
   function showError(node, message) { node.textContent = message; node.hidden = false; }
   function clearError(node) { node.textContent = ''; node.hidden = true; }
-  function storedToken() { try { return localStorage.getItem('token'); } catch (e) { return null; } }
+  /** Where the token lives: sessionStorage in session-storage mode, else localStorage (bearer; cookie mode keeps none). */
+  function tokenStore() { return CONFIG.tokenMode === 'session-storage' ? sessionStorage : localStorage; }
+  function storedToken() { try { return tokenStore().getItem('token'); } catch (e) { return null; } }
 
   function api(method, path, body) {
     var headers = { accept: 'application/json' };
     if (body !== undefined) headers['content-type'] = 'application/json';
-    if (CONFIG.tokenMode === 'bearer') {
+    if (CONFIG.tokenMode === 'bearer' || CONFIG.tokenMode === 'session-storage') {
       var token = storedToken();
       if (token) headers.authorization = 'Bearer ' + token;
     }
@@ -306,7 +338,84 @@ const CLIENT = String.raw`(function () {
     if (CONFIG.tokenMode === 'bearer' && data && data.token) {
       try { localStorage.setItem('token', data.token); } catch (e) {}
     }
+    if (CONFIG.tokenMode === 'session-storage' && data && data.token) {
+      try {
+        sessionStorage.setItem('token', data.token);
+        if (data.user) sessionStorage.setItem('user', JSON.stringify(data.user));
+      } catch (e) {}
+    }
     location.assign(nextPath());
+  }
+
+  /** POST /api/login with the email and password; the outcome as on the one-step sign-in page. */
+  function sendLogin(email, password, error) {
+    clearError(error);
+    api('POST', '/api/login', { email: email, password: password }).then(function (r) {
+      if (r.status === 200 && r.data && !r.data.verify) return signedIn(r.data);
+      showError(error, (r.data && r.data.error) || 'Sign-in failed');
+    }, function () { showError(error, 'Could not reach the server'); });
+  }
+
+  /**
+   * Two-step sign-in (0.6.0): the email first, then the password, either revealed in the same form ("two-step") or
+   * on /login/password ("two-step-page").
+   */
+  function renderTwoStep() {
+    var samePage = CONFIG.loginVariant === 'two-step';
+    document.title = 'Sign in · Notes';
+    app.innerHTML = '<main><h1>Sign in</h1>' +
+      '<form id="signin-form" aria-label="Sign in">' +
+      '<p><label for="email">Email</label> <input id="email" name="email" type="email" autocomplete="username" required></p>' +
+      (samePage ? '<p id="password-row" hidden><label for="password">Password</label> <input id="password" name="password" type="password" autocomplete="current-password"></p>' : '') +
+      '<button type="submit" id="signin-submit">Continue</button>' +
+      '<div role="alert" id="signin-error" hidden></div>' +
+      '</form></main>';
+
+    var form = el('signin-form');
+    var revealed = false;
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var error = el('signin-error');
+      clearError(error);
+      var email = el('email').value;
+      if (revealed) return sendLogin(email, el('password').value, error);
+      api('POST', '/api/login/identify', { email: email }).then(function (r) {
+        if (r.status !== 200) return showError(error, (r.data && r.data.error) || 'Something went wrong');
+        if (!samePage) {
+          var query = new URLSearchParams();
+          query.set('email', email);
+          var next = new URLSearchParams(location.search).get('next');
+          if (next) query.set('next', next);
+          location.assign('/login/password?' + query.toString());
+          return;
+        }
+        revealed = true;
+        el('password-row').hidden = false;
+        el('password').required = true;
+        el('signin-submit').textContent = 'Sign in';
+        el('password').focus();
+      }, function () { showError(error, 'Could not reach the server'); });
+    });
+  }
+
+  /** The second page of the two-step-page variant: the password only, for the email in the query. */
+  function renderPasswordPage() {
+    var email = new URLSearchParams(location.search).get('email');
+    if (!email) { location.replace('/login'); return; }
+    document.title = 'Enter your password · Notes';
+    app.innerHTML = '<main><h1>Enter your password</h1>' +
+      '<p>Signing in as <strong id="signin-as"></strong> · <a href="/login">Use another account</a></p>' +
+      '<form id="password-form" aria-label="Sign in">' +
+      '<p><label for="password">Password</label> <input id="password" name="password" type="password" autocomplete="current-password" required></p>' +
+      '<button type="submit">Sign in</button>' +
+      '<div role="alert" id="signin-error" hidden></div>' +
+      '</form></main>';
+    el('signin-as').textContent = email;
+    el('password-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      sendLogin(email, el('password').value, el('signin-error'));
+    });
+    el('password').focus();
   }
 
   var IDENTIFIER = CONFIG.loginVariant === 'username'
@@ -390,6 +499,9 @@ const CLIENT = String.raw`(function () {
     el('logout').addEventListener('click', function () {
       api('POST', '/api/logout').then(function () {
         try { localStorage.removeItem('token'); } catch (e) {}
+        if (CONFIG.tokenMode === 'session-storage') {
+          try { sessionStorage.removeItem('token'); sessionStorage.removeItem('user'); } catch (e) {}
+        }
         location.assign('/login');
       });
     });
@@ -499,7 +611,9 @@ const CLIENT = String.raw`(function () {
 
   function route() {
     var path = location.pathname;
-    if (path === '/login') return renderLogin();
+    var twoStep = CONFIG.loginVariant === 'two-step' || CONFIG.loginVariant === 'two-step-page';
+    if (path === '/login') return twoStep ? renderTwoStep() : renderLogin();
+    if (path === '/login/password' && CONFIG.loginVariant === 'two-step-page') return renderPasswordPage();
     var view = VIEWS[path];
     if (!view) {
       document.title = 'Page not found · Notes';
@@ -602,7 +716,7 @@ export async function startAccountsApp(input: AccountsAppOptions = {}): Promise<
   const signInResponse = (res: ServerResponse, user: AppUser) => {
     const token = newSession(user);
     const summary = { id: user.id, name: user.name, email: user.email };
-    if (options.tokenMode === "bearer") return send(res, 200, { token, user: summary });
+    if (options.tokenMode !== "cookie") return send(res, 200, { token, user: summary });
     return send(res, 200, { user: summary }, { "set-cookie": `sid=${token}; Path=/; HttpOnly; SameSite=Lax` });
   };
 
@@ -628,6 +742,13 @@ export async function startAccountsApp(input: AccountsAppOptions = {}): Promise<
         return send(res, 200, { verify: true, challenge });
       }
       return signInResponse(res, user);
+    }
+
+    if (path === "/api/login/identify" && method === "POST" && (options.loginVariant === "two-step" || options.loginVariant === "two-step-page")) {
+      const body = parseObject(req.body);
+      const email = body && typeof body.email === "string" ? body.email.trim() : "";
+      if (!email) return send(res, 400, { error: "Enter your email" });
+      return send(res, 200, { next: "password" });
     }
 
     if (path === "/api/login/verify" && method === "POST") {
@@ -711,6 +832,7 @@ export async function startAccountsApp(input: AccountsAppOptions = {}): Promise<
       }
       if (path === "/settings" && options.deepLink404) return html(res, 404, NOT_FOUND_PAGE);
       if (path === "/login" || SIGNED_IN_PAGES.has(path)) return html(res, 200, page);
+      if (path === "/login/password" && options.loginVariant === "two-step-page") return html(res, 200, page);
       return html(res, 404, NOT_FOUND_PAGE);
     },
   });
@@ -748,6 +870,10 @@ export async function startAccountsApp(input: AccountsAppOptions = {}): Promise<
       return { authorization: `Bearer ${token}` };
     },
     storageState: (user) => {
+      // A storageState can't carry sessionStorage, and an empty one would silently be a signed-out identity.
+      if (options.tokenMode === "session-storage") {
+        throw new Error(`storageState(user) can't hold a tokenMode "session-storage" session: use sessionStorage(user), with { cookies: [], origins: [] } as the state`);
+      }
       const token = newSession(userOf(user));
       if (options.tokenMode === "bearer") {
         return { cookies: [], origins: [{ origin: url, localStorage: [{ name: "token", value: token }] }] };
@@ -756,6 +882,10 @@ export async function startAccountsApp(input: AccountsAppOptions = {}): Promise<
         cookies: [{ name: "sid", value: token, domain: "127.0.0.1", path: "/", expires: -1, httpOnly: true, secure: false, sameSite: "Lax" }],
         origins: [],
       };
+    },
+    sessionStorage: (user) => {
+      if (options.tokenMode !== "session-storage") throw new Error(`sessionStorage(user) is for tokenMode "session-storage"; this app uses "${options.tokenMode}"`);
+      return [{ origin: url, items: [{ name: "token", value: newSession(userOf(user)) }] }];
     },
     account,
     accountsConfig: (opts = {}) => ({ isolated: opts.isolated ?? true, accounts: { a: account("a"), b: account("b") } }),

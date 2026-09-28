@@ -1,0 +1,65 @@
+Every run writes a folder of results on your machine. Open its report.html in your browser. Each finding says what it means, why it matters and what to ask your AI to fix. It comes with its evidence and a Playwright test.
+
+## What one run leaves on your machine \{#run-folder\}
+
+A run writes `./runs/<runId>/` with Docker, or `app/runs/<runId>/` from source. Here is the folder of one run on Kennel, the test lab's pet-sitting booking page with planted bugs:
+
+```sh label="The run folder of a Kennel run"
+$ ls -F runs runs/*/
+runs:
+20260927-153524-2d830d/
+
+runs/20260927-153524-2d830d/:
+artifacts/
+report.html
+report.json
+report.md
+specs/
+```
+
+- `report.html`: the report to open in your browser. The web UI links to it when the run ends.
+- `report.md`: the same report as text, the easiest thing to send us.
+- `report.json`: everything, machine-readable, including `runHoundVersion`.
+- `artifacts/`: the evidence, 39 images and GIFs in this run.
+- `specs/`: a Playwright test for each finding, which reproduces it without Run Hound. This run left 24 tests, such as `double-submit-double-click-saves-once-1.spec.ts`.
+
+## The summary: groups and timing \{#summary\}
+
+The report opens with how long the run took, findings by severity, and confirmed against advisory. Then come the scenarios that passed, failed, errored or were skipped. Then a table for each group, **Accessibility**, **Features** and **Security**, with its results, findings and time. It also says how many test records the run may have created. Every scenario lists how long it took.
+
+## Findings \{#findings\}
+
+Each finding has a title, its group, a severity and whether it is confirmed or advisory. It says where on the page it is, and lists every place when the same problem affects several elements. Then three short texts: *What this means*, *Why it matters* and *What to ask your AI (or developer) to fix*.
+
+The evidence comes last. [Evidence frames](/docs/glossary/#evidence-frame) box the element and give the measured facts, and GIFs show flows such as a double click. [Request cards](/docs/glossary/#request-card) show the request, response or script line that proves a finding. Each finding links to its check's page, which explains how the check tests and how to fix what it finds.
+
+## Severity \{#severity\}
+
+- **Critical:** data or money is at risk right now, for example a secret key shipped to every visitor.
+- **High:** a core flow is broken or a group of people can't use it, for example a form that fails silently.
+- **Medium:** real harm in some situations, for example an error message that isn't announced.
+- **Low:** worth fixing when you are nearby; it rarely blocks anyone.
+
+## Confirmed and advisory \{#confirmed-advisory\}
+
+- **Confirmed:** decided by a real check. A request was sent twice, axe found a rule violation, or a value was missing after a reload. These should always be right: if one is wrong, please report it.
+- **Advisory:** relies on judgement. Examples are a missing `autocomplete` hint, or a header, cookie or CORS result on a dev server. A dev server doesn't send what your production build will. Worth a look, not a failure.
+
+Only confirmed findings fail a run on the command line: see [exit codes](/docs/cli/#exit-codes).
+
+## Also in the report \{#also\}
+
+- **Scenarios:** every scenario under its group, with its result, time and notes. It also lists the ones you didn't approve, and checks with nothing to test on your page.
+- **Pages tested:** every address the run loaded. If your page redirected to a login page, the run tested that page instead: plan it [signed in](/docs/signed-in-runs/).
+- **What a browser can't see:** backups, webhook signatures and other things no browser test can check. It keeps a clean report from passing for a clean app.
+
+## The Playwright test for each finding \{#playwright-test\}
+
+To judge a finding, look at its evidence first, then try it by hand. The test in `specs/` reproduces it without Run Hound. In your project:
+
+```sh label="Run a finding's test in your project"
+$ npm i -D @playwright/test @axe-core/playwright
+$ npx playwright test <file>
+```
+
+The test fails while the bug is there and passes once it is fixed, so it can stay in your CI. [The demo](/demo/) shows real evidence from a Kennel run.

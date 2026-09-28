@@ -6,6 +6,8 @@ import { SiteHeader } from "@/components/site-header";
 import { sharedMetadata, socialImage } from "@/lib/metadata";
 import { site } from "@/lib/site";
 import "./globals.css";
+// The header, search and footer styles, after globals.css (in its components layer).
+import "@/components/header/chrome.css";
 
 // On a slow link the fonts arrive after the first paint, and swapping them in re-wraps the text and shifts what
 // follows: the display font's big headings on phones, Geist's body text on the long legal pages on desktop.
@@ -72,7 +74,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           Skip to content
         </a>
         <SiteHeader />
-        <main id="main" className="flex flex-1 flex-col">
+        {/* The search index (scripts/pagefind.mjs) holds <main> only: never the header, the footer or the menu. */}
+        <main id="main" className="flex flex-1 flex-col" data-pagefind-body="">
           {children}
         </main>
         <SiteFooter />

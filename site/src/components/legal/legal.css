@@ -1,0 +1,93 @@
+/*
+ * The legal pages' shell (DESIGN.md §3.15; components/legal/legal.tsx): the intro, the contents beside the policy from
+ * 1024 px (sticky there, static at 400% zoom like the header), the policy in .prose-doc (globals.css) with a hairline
+ * above each section, a "#" link beside each heading, and the summary box. Sizes, spaces and colours are tokens
+ * (src/styles/tokens.css); the one literal is the contents column's 13.75 rem (220 px, as before the redesign). In the
+ * components layer, so utilities still win.
+ */
+@layer components {
+  .legal-intro {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    max-width: var(--container-prose);
+    margin-top: var(--space-6);
+  }
+
+  .legal-grid {
+    display: grid;
+    gap: var(--space-10);
+    margin-top: var(--space-10);
+  }
+  .legal-contents {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  @media (width >= 64rem) {
+    .legal-grid {
+      grid-template-columns: 13.75rem minmax(0, 1fr);
+      gap: var(--space-16);
+      margin-top: var(--space-12);
+    }
+    .legal-contents {
+      position: sticky;
+      top: calc(var(--header-height) + var(--space-6));
+      align-self: start;
+      max-height: calc(100vh - var(--header-height) - var(--space-12));
+      overflow-y: auto;
+    }
+  }
+  @media (max-height: 30rem) {
+    .legal-contents {
+      position: static;
+      max-height: none;
+    }
+  }
+
+  /* A hairline above each section; the first section's heading needs none when it opens the policy. */
+  .legal-prose > h2 {
+    padding-top: var(--space-8);
+    border-top: 1px solid var(--rh-line-soft);
+  }
+  .legal-prose > h2:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  /* The "#" beside a heading: shown on hover and keyboard focus, always on touch screens. */
+  .legal-prose .heading-anchor {
+    margin-inline-start: var(--space-2);
+    color: var(--rh-dim);
+    text-decoration: none;
+    opacity: 0;
+    transition: opacity var(--transition-duration-micro) var(--ease-move);
+  }
+  .legal-prose .heading-anchor::after {
+    content: "#";
+  }
+  .legal-prose :is(h2, h3):hover .heading-anchor,
+  .legal-prose .heading-anchor:focus-visible {
+    opacity: 1;
+  }
+  @media (hover: none) {
+    .legal-prose .heading-anchor {
+      opacity: 1;
+    }
+  }
+
+  /* The summary box: a card of Body text with its list, strong words in fg. */
+  .legal-summary {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-6);
+    border: 1px solid var(--rh-line);
+    border-radius: var(--radius-card);
+    background: var(--rh-surface);
+    font-size: var(--rh-text-body);
+  }
+  .legal-summary ul {
+    margin: 0;
+  }
+}

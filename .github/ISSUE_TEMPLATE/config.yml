@@ -1,5 +1,11 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
+  - name: Security problem
+    url: https://run-hound.rahulbharati.com/security/
+    about: Please don't report it in a public issue. The disclosure policy says how to report it privately.
+  - name: Question
+    url: https://github.com/rahul-bharati/run-hound/issues/new?template=feedback.yml
+    about: Ask it with the feedback form and choose "Question". The docs at run-hound.rahulbharati.com may answer it first.
   - name: Getting-started guide
     url: https://github.com/rahul-bharati/run-hound/blob/main/TESTING.md
-    about: How to run Run Hound 0.5.0 (the V2 preview), test your own app, try signed-in runs and read the report.
+    about: How to run Run Hound, test your own app, try signed-in runs and read the report.
