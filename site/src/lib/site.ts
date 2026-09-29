@@ -29,10 +29,10 @@ export const site = {
   previewName: "Signed-in runs and access checks",
   version,
   tag,
-  // The day `version` was released (its tag), as displayed and machine-readable: "Release 0.6.0 · 27 September 2026"
+  // The day `version` was released (its tag), as displayed and machine-readable: "Release 0.6.0 · 29 September 2026"
   // in the footer, dateModified in the structured data and lastModified in sitemap.xml. Update both with every release.
-  released: "27 September 2026",
-  releasedIso: "2026-09-27",
+  released: "29 September 2026",
+  releasedIso: "2026-09-29",
   // Label for the main call to action, used in the header, heroes and page footers.
   cta: "Try it locally",
   // `||`, not `??`: Docker passes an unset build arg as an empty string. A production build needs the real address
