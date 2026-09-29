@@ -2,15 +2,7 @@
 
 All notable changes to Run Hound. Versions follow [Semantic Versioning](https://semver.org/); while the version is 0.x, any release may change behaviour.
 
-## Unreleased
-
-### Changed
-
-- Test suite: 23.4 min → 4.0 min (`app`'s vitest run, wall clock; `paywall-trust.test.ts`, whose ~1,405 s of sequential tests gated the whole run, is split across 10 files that run in parallel; still 2,866 tests, same pass count)
-- Header keeps its search and GitHub link at full width without web fonts
-- Design notes updated (§2.5 NavLink prefetch, §4.4 motion gate, DrawSVG removed)
-
-## 0.6.0 (V2 preview: write-side checks and sign-in; ready for alpha testers), 27 September 2026
+## 0.6.0 (V2 preview: write-side checks and sign-in; ready for alpha testers), 29 September 2026
 
 The third slice of V2 finishes its write side and widens sign-in. Two new opt-in checks use the test accounts: can another account, or a visitor who isn't signed in, change or delete account A's records (`write-access`), and can account A get a paid plan without paying (`paywall-trust`). Both change account A's data on purpose, so they are unticked by default and follow the write-side safety contract of 0.5.0: `write-access` writes only the test record Run Hound created as A in the same scenario, `paywall-trust` may change A's plan and nothing else, both decide from a re-read as A (never a status code) and put back what they changed, naming anything they couldn't. Sign-in now handles pages that ask for the email first and the password next, and apps that keep their session in sessionStorage. TESTING.md opens with a short section for alpha testers. Contract: [docs/v2-spec.md](docs/v2-spec.md#060-write-side-checks-and-sign-in); how to try it: [TESTING.md](TESTING.md#for-alpha-testers).
 
@@ -37,6 +29,9 @@ The third slice of V2 finishes its write side and widens sign-in. Two new opt-in
 - Fernway: the Billing tab's "Switch back to Free" is now **Cancel plan**, which `paywall-trust` uses to put Alex back on Free; `/app/settings#billing` now opens the Billing tab on every navigation to it, not only on the first load; its README and CONTRACT say which check catches V06, V07 and V09, and that with `FERNWAY_SESSION=session-storage` there is no cookie for W09 or V08.
 - The issue forms list `write-access` and `paywall-trust` where they list checks, and two-step and sessionStorage sign-in under sign-in; the Feedback form gains a "Data not put back" kind.
 - The evidence GIFs on the site play once and rest on the proof frame.
+- The app's test suite runs in about 4 minutes instead of 23 on a many-core machine: `paywall-trust.test.ts`, whose sequential tests took about 1,405 s and set the whole run's time, is split across 10 files that run in parallel (still 2,866 tests, every one moved unchanged). GitHub's 4-vCPU runners gain less, since there the total test work is the limit.
+- The site's header keeps its search and GitHub link at full width when the web fonts don't load.
+- `docs/site/design.md` notes follow the build: the header's prefetch policy and the motion gate loaded at hydration (no DrawSVG).
 
 ### Fixed
 
@@ -47,6 +42,7 @@ The third slice of V2 finishes its write side and widens sign-in. Two new opt-in
 - **A captcha that replaces the sign-in form after submitting** now fails the sign-in with the captcha message; it used to count as signed in because the password field was gone.
 - **Verification-code pages after the password are told apart from landing pages more closely**: a field's own words are read through camel case (`verificationCode`) and its `aria-labelledby` label, so such code fields fail sign-in with the code message, as do "Mobile verification" or "Phone verification" code fields; a field that can't hold a code (`type=email`, an API token, an email, phone or name field with no code word, a "Send the verification email to" field) never makes one, and a numeric field under a bare "Please verify your email address" heading signs in (a heading has to name a code step outright, such as "Two-step verification", for a numeric field alone to count).
 - `csrf` no longer takes a read the page made while Run Hound typed (a name-availability check that echoes the typed value in its address) for the test record when the form's save is form-encoded, so such a create form is no longer skipped with a false "changed a record Account A already had … check Account A".
+- The site's Docker build no longer crashes in its image-cache warm-up (`scripts/warm-images.mjs` used `readdir` without importing it); CI now builds the site image as the deploy does.
 
 ### Security
 
