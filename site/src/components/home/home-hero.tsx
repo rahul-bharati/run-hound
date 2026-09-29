@@ -25,7 +25,9 @@ export function HomeHero() {
     <div className="hm-hero">
       <Container className="hm-hero-grid">
         <div className="hm-hero-text">
-          <Pill href={hero.pill.href} className="hm-pill">
+          {/* On intent, not in view: the pill's page changes each release and needn't be among the first viewport's
+              prefetches (at most 10, DESIGN.md §5.2), which the header's links already fill. */}
+          <Pill href={hero.pill.href} prefetch="intent" className="hm-pill">
             {hero.pill.label}
           </Pill>
           <h1 className="hm-h1">
