@@ -15,7 +15,7 @@
 // Node built-ins only.
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { availableParallelism } from "node:os";
 import { join, relative } from "node:path";

@@ -290,6 +290,11 @@ jobs:
           NEXT_TELEMETRY_DISABLED: "1"
         run: pnpm build
 
+      # What the deploy builds (Coolify, base directory /site): the Dockerfile with only site/ as its context, including
+      # the image-cache warm-up (scripts/warm-images.mjs), which pnpm build never runs.
+      - name: Build the site's Docker image
+        run: docker build --build-arg NEXT_PUBLIC_SITE_URL=https://example.com -t run-hound-site:ci .
+
   # The site's Playwright lab (DESIGN.md §5.1 rule 6, §5.2): builds the site, serves the standalone build as the Docker
   # image does, and runs every spec of site/scripts/lab/specs/ (the baseline and the external links only when named),
   # the release gate included. Required for a release (release-images.yml calls this workflow); on a pull request it
