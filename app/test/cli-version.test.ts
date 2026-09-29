@@ -45,7 +45,7 @@ const passing: Check = {
 
 /** The release this branch ships, and the day it is released (site/src/lib/site.ts `released` and `releasedIso`). */
 const RELEASE = "0.6.0";
-const RELEASED = { text: "27 September 2026", iso: "2026-09-27" };
+const RELEASED = { text: "29 September 2026", iso: "2026-09-29" };
 
 const REPO = join(appDir, "..");
 const repoFile = (name: string) => readFileSync(join(REPO, name), "utf8");
