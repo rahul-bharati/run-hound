@@ -44,7 +44,7 @@ body:
     id: version
     attributes:
       label: Run Hound version
-      description: "What `--version` prints for the Run Hound you ran. Docker: `docker run --rm ghcr.io/rahul-bharati/run-hound:<tag> --version` with the tag you ran. The test lab's tag is in `run-hound.compose.yml`. An image named without a tag is `latest`. From source: `pnpm exec tsx src/cli.ts --version` in `app/`. The web UI shows it under Settings → This server, and report.json as `runHoundVersion`."
+      description: "What `--version` prints for the Run Hound you ran. Docker: `docker run --rm ghcr.io/rahul-bharati/run-hound:<tag> --version` with the tag you ran. The test lab runs `latest` unless you set `RUNHOUND_TAG` (in `.env` next to `run-hound.compose.yml`). An image named without a tag is `latest`. From source: `pnpm exec tsx src/cli.ts --version` in `app/`. The web UI shows it under Settings → This server, and report.json as `runHoundVersion`."
       placeholder: run-hound 0.x.y
     validations:
       required: true

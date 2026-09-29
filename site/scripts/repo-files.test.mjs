@@ -167,11 +167,13 @@ describe("issue forms", () => {
       assert.match(field, /web UI/);
     });
 
-    test(`${name} sends test-lab users to the image tag they ran, not a newer latest`, () => {
-      // The test lab pins its images (run-hound.compose.yml), so `latest --version` would name a later release.
+    test(`${name} tells test-lab users the tag defaults to latest unless they set RUNHOUND_TAG`, () => {
+      // The test lab's images default to :latest (run-hound.compose.yml, RUNHOUND_TAG), but a tester may have
+      // pinned RUNHOUND_TAG to an older release, so `--version` (not a guess from the file) is still what's asked for.
       const text = read(`.github/ISSUE_TEMPLATE/${name}`);
       const field = text.split(/^\s*-\s+type:/m).find((block) => /^\s*id:\s*version\s*$/m.test(block));
       assert.ok(field, `${name} has a field with id "version"`);
+      assert.match(field, /RUNHOUND_TAG/);
       assert.match(field, /run-hound\.compose\.yml/);
       assert.match(read("run-hound.compose.yml"), /^\s*image: ghcr\.io\/rahul-bharati\/run-hound:\S+\s*$/m);
     });

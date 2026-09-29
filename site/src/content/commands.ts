@@ -105,8 +105,8 @@ export const commands = {
   pullAndRun: oneLine(runBlock),
   /** The test lab on one line, for a Copy button (was site.labCommand). */
   lab: oneLine(labBlock),
-  /** The image's version, in a sentence (what a bug report asks for). */
-  version: `docker run --rm ${site.image} --version`,
+  /** The version of the image you have (untagged, so `latest`), in a sentence (what a bug report asks for). */
+  version: `docker run --rm ${image} --version`,
   /** The AI settings as the image sees them, in a sentence. */
   aiStatus: `docker run --rm --network host ${image} ai status`,
 

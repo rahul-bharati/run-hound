@@ -1,4 +1,4 @@
-# Trying Run Hound 0.6.0 (V2 preview)
+# Trying Run Hound (V2 preview)
 
 Thanks for trying Run Hound. The repository is public and open source: anyone can try it (no clone needed with Docker), read the code and file issues. Run Hound is AI-assisted UI testing for AI-built apps: AI plans and explains, real checks decide. This preview ships the real checks; 0.4.0 adds signed-in runs with two test accounts and the first access checks, and handles the widgets and dialogs AI app builders generate; 0.5.0 adds the CSRF check (can another website change your data); 0.6.0 adds the other two write-side checks (can another account, or a visitor who isn't signed in, change your data; can an account get a paid plan without paying) and signs in to apps that ask for the email first and the password next, or keep their session in sessionStorage. Since 0.3.0 you can add your own model to review the plan, suggest extra flows and explain findings (optional, off by default). This guide starts with the short version for alpha testers, then covers what Run Hound does, how to run it on Kennel (the demo app) and then on your own app, signed-in runs, how to read the report, and what to send back.
 
@@ -157,9 +157,9 @@ The image has these settings built in: `RUNHOUND_ALLOWED_HOSTS=host.docker.inter
 
 **Windows PowerShell:** write each `docker run` on one line, since PowerShell doesn't continue lines with `\`, and use `mkdir runs` instead of `mkdir -p runs`. For the downloads in the test lab below, use `curl.exe` instead of `curl` (in Windows PowerShell 5.1, `curl` is an alias for `Invoke-WebRequest`, which rejects these options).
 
-The images are public on GitHub's registry and need no login: `ghcr.io/rahul-bharati/run-hound:0.6.0`, `run-hound-kennel`, `run-hound-samples` and `run-hound-fernway` (also tagged `0.6` and `latest`; linux/amd64 and arm64). The commands here use `latest`; `docker pull` again to update.
+The images are public on GitHub's registry and need no login: `ghcr.io/rahul-bharati/run-hound`, `run-hound-kennel`, `run-hound-samples` and `run-hound-fernway` (each release also tagged with its exact version, such as `X.Y.Z`, and its `X.Y`, besides `latest`; linux/amd64 and arm64). The commands here use `latest`; `docker pull` again to update.
 
-Check it works: `docker run --rm ghcr.io/rahul-bharati/run-hound --version` prints `run-hound 0.6.0`.
+Check it works: `docker run --rm ghcr.io/rahul-bharati/run-hound --version` prints `run-hound X.Y.Z` (the version in `app/package.json`).
 
 ### Try it on the demo apps: the test lab
 
@@ -171,7 +171,7 @@ mkdir -p runs                                  # reports land here; create it yo
 docker compose -f run-hound.compose.yml up     # or: podman compose -f run-hound.compose.yml up (podman-compose works too)
 ```
 
-A specific release's compose file, such as 0.6.0's: `https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.6.0/run-hound.compose.yml`.
+Every release is also published as `ghcr.io/rahul-bharati/run-hound:X.Y.Z` (and the other three images the same way); set `RUNHOUND_TAG=X.Y.Z` before `docker compose -f run-hound.compose.yml up` to pin one.
 
 This starts Run Hound and every test app, each on its own port bound to `127.0.0.1`:
 
@@ -196,7 +196,7 @@ The first start downloads about 0.5 GB of images (about 1 GB once unpacked). Whe
 
 - `docker compose -f run-hound.compose.yml ps` lists every service with its health check: `healthy` once it answers.
 - **Stop it** with Ctrl+C, then `docker compose -f run-hound.compose.yml down` (removes the containers; your reports in `./runs` stay). `up -d` starts it in the background instead.
-- **Update** to a later release: run the same `curl` command again (it always downloads the latest release's compose file) and run `docker compose -f run-hound.compose.yml up` again; it pulls the images the new file names. `docker compose -f run-hound.compose.yml pull` fetches them ahead of time.
+- **Update** to a later release: every image resolves `${RUNHOUND_TAG:-latest}` with `pull_policy: always`, so running `docker compose -f run-hound.compose.yml up` again re-checks the registry and pulls the latest release on its own; `docker compose -f run-hound.compose.yml pull` fetches them ahead of time. Download the compose file again (the same `curl` command) only when a release changes the file itself, not just the images.
 
 **Settings.** Every setting (host ports, `KENNEL_BUGS`, `FERNWAY_BUGS`, the runs folder, `RUNHOUND_ALLOWED_HOSTS`, AI, test accounts) has a default. To change one, put it in a `.env` file next to the compose file; the documented example is [`.env.example`](.env.example):
 
@@ -222,7 +222,7 @@ pnpm --filter fernway build         # only needed for the Fernway app
 
 On Ubuntu or Debian, if Chromium complains about missing libraries, run `pnpm --filter run-hound exec playwright install --with-deps chromium` (it uses sudo). On other Linux distributions Playwright prints "BEWARE: your OS is not officially supported"; that is harmless as long as Chromium starts.
 
-Check it works: `cd app && pnpm exec tsx src/cli.ts --version` prints `run-hound 0.6.0`. In the clone, `docker compose up --build` builds and starts the same containers as above from your working tree.
+Check it works: `cd app && pnpm exec tsx src/cli.ts --version` prints `run-hound X.Y.Z` (the version in `app/package.json`). In the clone, `docker compose up --build` builds and starts the same containers as above from your working tree.
 
 ## Try it on Kennel first (10 minutes)
 
@@ -338,7 +338,7 @@ Options: `--approve all|default|<id,id>` (default: the recommended scenarios; `a
 | A plan for your sign-in page when you entered another page | The page sent you to sign in, so the sign-in page was tested (check **Pages tested** in the report). Set up a test account and plan the page signed in ([Signed-in runs](#signed-in-runs-and-access-checks-v2-preview)). |
 | `Refusing to test …` | The host isn't local or private. Use `localhost`; list your own internal host names in `RUNHOUND_ALLOWED_HOSTS`. |
 | `EADDRINUSE` | The port is taken. Pick another (`--port`, `PORT`, `RUNHOUND_HOST_PORT`). |
-| `manifest unknown` or `denied` pulling `ghcr.io/rahul-bharati/run-hound…` | `manifest unknown`: the tag doesn't exist; check it (`0.6.0`, `0.6` or `latest`) and that the compose file came from a release tag. `denied`: usually an old `docker login ghcr.io`; run `docker logout ghcr.io` and try again (the images need no login). `no matching manifest`: your platform isn't linux/amd64 or linux/arm64, the only ones published. To build the images yourself instead: `docker compose up --build` in a clone. |
+| `manifest unknown` or `denied` pulling `ghcr.io/rahul-bharati/run-hound…` | `manifest unknown`: the tag doesn't exist; check it (`X.Y.Z`, `X.Y` or `latest`) and, if you set `RUNHOUND_TAG`, that it names a real release. `denied`: usually an old `docker login ghcr.io`; run `docker logout ghcr.io` and try again (the images need no login). `no matching manifest`: your platform isn't linux/amd64 or linux/arm64, the only ones published. To build the images yourself instead: `docker compose up --build` in a clone. |
 | `Invoke-WebRequest : A parameter cannot be found that matches parameter name 'fsSLO'` | Windows PowerShell's `curl` isn't curl. Use `curl.exe`. |
 | `EACCES … mkdir '/repo/app/runs/…'` | The container can't write to your reports folder. Create it yourself first (`mkdir -p runs`); on Podman avoid `--user`. |
 | `Error: executing /usr/bin/podman-compose run … exit status 1` | Podman's `docker compose` wrapper repeating Run Hound's exit code, not a crash: 1 means the run finished and found confirmed findings (the report was written), 2 an error or a run that tested nothing because every scenario errored or was skipped (the message above it says which). |
@@ -520,7 +520,7 @@ Open an issue with the **Feedback** form: <https://github.com/rahul-bharati/run-
 
 Please include:
 
-1. **The version**: `docker run --rm ghcr.io/rahul-bharati/run-hound:0.6.0 --version`, `pnpm exec tsx src/cli.ts --version` in `app/` from source, or `runHoundVersion` in `report.json`.
+1. **The version**: `docker run --rm ghcr.io/rahul-bharati/run-hound --version`, `pnpm exec tsx src/cli.ts --version` in `app/` from source, or `runHoundVersion` in `report.json`.
 2. **Your OS and how you ran it**: Docker (pull-and-run or the test lab) or from source, web UI or command line, Node version, and whether the run was signed in as a test account.
 3. **What you tested**: the framework, the dev server, and what the page does (not the URL, if it's private). Signed in: how your app signs in (email and password on one page, the email first, a session in sessionStorage, an auth service such as Supabase, Firebase or Clerk), and which write-side checks you ticked.
 4. **The report**: `report.md`, or that one run folder zipped (`zip -r run.zip runs/<runId>`, or `app/runs/<runId>` from source). **Never send the whole `runs/` folder**: `runs/.config` holds your saved API keys and test-account passwords. **Look through the screenshots first**: they show whatever your page showed and can't be redacted.

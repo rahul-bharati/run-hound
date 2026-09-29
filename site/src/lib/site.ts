@@ -1,5 +1,7 @@
-// The release this site describes. It must equal app/package.json: the release workflow (release-images.yml,
-// check-version) fails when they differ.
+// The release this site describes: set by hand in the same commit as app/package.json's version and the CHANGELOG
+// section for it (docs/development.md "Releasing"). release-images.yml's check-version no longer checks it against
+// the tag (docs/decisions/09-2026.md#2026-09-29-images-latest-no-version-pins); app/test/cli-version.test.ts still
+// checks `released`/`releasedIso` (below) against the CHANGELOG heading of this version.
 const version = "0.6.0";
 const tag = `v${version}`;
 const github = "https://github.com/rahul-bharati/run-hound";
@@ -69,8 +71,7 @@ export const site = {
   // Published on GHCR with every release, public (no login needed), for linux/amd64 and arm64: run-hound (web UI,
   // CLI and Chromium's headless shell: about 260 MB to download, 715 MB on disk), and the test apps run-hound-kennel,
   // run-hound-samples and run-hound-fernway. The four download about 0.5 GB together. In a clone,
-  // `docker compose up --build` (docker-compose.yml) builds the same images from source.
-  image: `${imageName}:${version}`,
+  // `docker compose up --build` (docker-compose.yml) builds the same images from source, tagged :local.
   labImages: ["run-hound-kennel", "run-hound-samples", "run-hound-fernway"],
   // Placeholders until real addresses exist.
   contactEmail: "contact@rahulbharati.dev",

@@ -7,10 +7,15 @@
 # pre-release such as v0.5.0-rc.1 or a manual run), then the GitHub Release v0.4.1 with run-hound.compose.yml and
 # .env.example (as run-hound.env.example) attached.
 #
+# Nothing in the repo pins a release any more (docs/decisions/09-2026.md#2026-09-29-images-latest-no-version-pins): a
+# release is app/package.json's version, site.ts's version and released date, and this file's CHANGELOG section; and
+# run-hound.compose.yml's published images always resolve ghcr.io/rahul-bharati/<name>:${RUNHOUND_TAG:-latest}.
+#
 # Order:
-#   1. check-version: the tag matches app/package.json, the site, both compose files, the Dockerfile comments and the
-#      tag-pinned download links in the compose file headers, README.md, TESTING.md and docs/; a pushed tag also needs
-#      its CHANGELOG.md section (the GitHub Release's notes).
+#   1. check-version: the tag matches app/package.json, and its CHANGELOG.md section exists (a pushed tag only, since
+#      it becomes the GitHub Release's notes); every image: line in run-hound.compose.yml is exactly one of the four
+#      ghcr.io/rahul-bharati/<name>:${RUNHOUND_TAG:-latest} values and every one in docker-compose.yml is exactly one
+#      of the four ghcr.io/rahul-bharati/<name>:local values, all four present in each file.
 #   2. ci-status, then ci: the whole CI workflow (every test suite, the image build and smoke test, the site build and
 #      its lab) must pass for this commit. When CI's run on main for this exact commit passed, it isn't run again
 #      (ci-status waits for it while it is still running); otherwise this workflow runs CI itself.
@@ -34,7 +39,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish, e.g. 0.4.1 (must match app/package.json and the compose files)"
+        description: "Version to publish, e.g. 0.4.1 (must match app/package.json)"
         required: true
 
 # The jobs that need more set their own: actions: read (ci-status), packages: write (build and merge, which push the
@@ -53,7 +58,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
-      - name: The tag matches app/package.json, the site, the compose files, the Dockerfile comments and the docs' links
+      - name: The tag matches app/package.json and its CHANGELOG section, and no compose image is pinned to a version
         id: version
         env:
           INPUT_VERSION: ${{ inputs.version }}
@@ -66,72 +71,34 @@ jobs:
             fail=1
           fi
 
-          # The site shows this version and builds its release tag and version-pinned image name from it.
-          site=$(sed -nE 's/^const version = "([^"]+)";.*/\1/p' site/src/lib/site.ts)
-          if [ "$site" != "$tag" ]; then
-            echo "::error file=site/src/lib/site.ts::The site's version (${site:-not found}) does not match the release version $tag"
-            fail=1
-          fi
-
-          # Every image in both compose files is pinned to exactly this version (users download run-hound.compose.yml
-          # from this release, as its GitHub Release asset or from its tag, so it must name this release's images), and
-          # run-hound.compose.yml has all four.
+          # Every image: line, in both files, checked exactly (not just "contains" or "isn't pinned"): each of
+          # run-hound.compose.yml's must be one of the four ghcr.io/rahul-bharati/<name>:${RUNHOUND_TAG:-latest}
+          # values, and each of docker-compose.yml's one of the four ghcr.io/rahul-bharati/<name>:local values (built
+          # from source, never a release tag or latest, so a local build can't be mistaken for, or silently shadow, a
+          # published one) -- with all four present in each file. This also catches an extra image: line, a name
+          # missing, or docker-compose.yml drifting onto :latest. Single-quoted so ${RUNHOUND_TAG:-latest} is kept
+          # literal here, never expanded by this shell.
+          # shellcheck disable=SC2016 # the ${RUNHOUND_TAG:-latest} below is compose syntax, compared as text
+          run_hound_expected=('ghcr.io/rahul-bharati/run-hound:${RUNHOUND_TAG:-latest}' 'ghcr.io/rahul-bharati/run-hound-kennel:${RUNHOUND_TAG:-latest}' 'ghcr.io/rahul-bharati/run-hound-samples:${RUNHOUND_TAG:-latest}' 'ghcr.io/rahul-bharati/run-hound-fernway:${RUNHOUND_TAG:-latest}')
+          local_expected=('ghcr.io/rahul-bharati/run-hound:local' 'ghcr.io/rahul-bharati/run-hound-kennel:local' 'ghcr.io/rahul-bharati/run-hound-samples:local' 'ghcr.io/rahul-bharati/run-hound-fernway:local')
           for file in run-hound.compose.yml docker-compose.yml; do
-            images=$(sed -nE 's/^[[:space:]]*image:[[:space:]]*([^[:space:]#]+).*/\1/p' "$file")
-            if [ -z "$images" ]; then
-              echo "::error file=$file::No image: lines found"
-              fail=1
-            fi
-            for image in $images; do
-              case "$image" in
-                "ghcr.io/rahul-bharati/run-hound:$tag" | "ghcr.io/rahul-bharati/run-hound-kennel:$tag" | \
-                "ghcr.io/rahul-bharati/run-hound-samples:$tag" | "ghcr.io/rahul-bharati/run-hound-fernway:$tag") ;;
-                *)
-                  echo "::error file=$file::$image is not pinned to this release (ghcr.io/rahul-bharati/run-hound[-kennel|-samples|-fernway]:$tag)"
-                  fail=1
-                  ;;
-              esac
-            done
-          done
-          for name in run-hound run-hound-kennel run-hound-samples run-hound-fernway; do
-            if ! grep -qE "^[[:space:]]*image: ghcr\.io/rahul-bharati/$name:" run-hound.compose.yml; then
-              echo "::error file=run-hound.compose.yml::The $name image is missing"
-              fail=1
-            fi
-          done
-
-          # Version numbers in the comments ("Run Hound 0.4.1", "ghcr.io/rahul-bharati/run-hound-kennel:0.4.1", ...)
-          # of the Dockerfiles, the compose files and .env.example must not contradict it either.
-          for file in app/Dockerfile fixtures/*/Dockerfile docker-compose.yml run-hound.compose.yml .env.example; do
+            if [ "$file" = run-hound.compose.yml ]; then expected=("${run_hound_expected[@]}"); else expected=("${local_expected[@]}"); fi
+            count=0
             while IFS=: read -r line ref; do
               [ -n "$ref" ] || continue
-              version=$(printf '%s' "$ref" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.-]*$')
-              version=${version%.}
-              if [ "$version" != "$tag" ]; then
-                echo "::error file=$file,line=$line::\"$ref\" contradicts the release version $tag"
+              image=$(printf '%s' "$ref" | sed -E 's/^[[:space:]]*image:[[:space:]]*//')
+              count=$((count + 1))
+              ok=0
+              for e in "${expected[@]}"; do [ "$image" = "$e" ] && ok=1 && break; done
+              if [ "$ok" != 1 ]; then
+                echo "::error file=$file,line=$line::$image is not one of $file's four expected images"
                 fail=1
               fi
-            done < <(grep -noE '(run-hound(-[a-z]+)?:|Run Hound \(?)v?[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.-]*' "$file" || true)
-          done
-
-          # Download links pinned to a release tag (curl of raw.githubusercontent.com/rahul-bharati/run-hound/vX.Y.Z/
-          # run-hound.compose.yml, github.com/.../blob/vX.Y.Z/.env.example) in the compose file headers, README.md,
-          # TESTING.md and the guides in docs/ must all be this release's, so a pinned link hands out this release's
-          # compose file: the compose file header's own curl line, and any "a specific release's compose file" example.
-          # The copy-paste one-liners in README.md and TESTING.md download from releases/latest/download/ instead (the
-          # GitHub Release that github-release, below, publishes only after the images); those aren't pinned, so this
-          # pattern doesn't match them and they aren't checked here.
-          link='(raw\.githubusercontent\.com/rahul-bharati/run-hound|github\.com/rahul-bharati/run-hound/(blob|tree|raw))'
-          for file in run-hound.compose.yml docker-compose.yml README.md TESTING.md docs/install.md docs/usage.md docs/ai.md \
-            docs/signed-in-runs.md docs/ai-built-apps.md docs/security.md docs/development.md; do
-            while IFS=: read -r line ref; do
-              [ -n "$ref" ] || continue
-              ref=${ref%/}
-              if [ "${ref##*/}" != "v$tag" ]; then
-                echo "::error file=$file,line=$line::\"$ref/\" is not pinned to the release tag v$tag"
-                fail=1
-              fi
-            done < <(grep -noE "$link/v?[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.-]*/" "$file" || true)
+            done < <(grep -noE 'image:[[:space:]]*[^[:space:]#]+' "$file" || true)
+            if [ "$count" != 4 ]; then
+              echo "::error file=$file::Found $count image: lines, expected exactly 4"
+              fail=1
+            fi
           done
 
           # The GitHub Release's notes are this version's CHANGELOG.md section ("## 0.4.1 ..." up to the next "## "):
@@ -529,6 +496,13 @@ jobs:
           cp run-hound.compose.yml "$assets/run-hound.compose.yml"
           # GitHub renames an asset whose name starts with a dot, so .env.example goes up under a name of its own.
           cp .env.example "$assets/run-hound.env.example"
+
+          # A pre-release's attached compose file defaults RUNHOUND_TAG to this pre-release, not latest: nothing in
+          # the repo pins a version any more, so an unset RUNHOUND_TAG resolves :latest, which for a pre-release would
+          # silently run the previous full release instead of the version the page is for.
+          if [[ "$VERSION" == *-* ]]; then
+            sed -i "s/\${RUNHOUND_TAG:-latest}/\${RUNHOUND_TAG:-$VERSION}/" "$assets/run-hound.compose.yml"
+          fi
 
           # The body of the "## <version> ..." heading, up to the next "## " heading, without the blank lines around
           # it. Relative links (docs/usage.md) are made absolute at this tag, since a release page doesn't resolve them.

@@ -1,4 +1,4 @@
-# Run Hound (0.6.0) plus the apps it is tested against, all local, built from this clone. See TESTING.md.
+# Run Hound plus the apps it is tested against, all local, built from this clone. See TESTING.md.
 #
 #   cp .env.example .env        # optional: every setting has a default; edit ports and options there
 #   mkdir -p runs               # reports land in ./runs; create it first so the files belong to you
@@ -25,16 +25,18 @@
 # must listen on all interfaces and accept that host name (TESTING.md has the settings for Vite and Next.js).
 # On Linux, `docker run --network host` (TESTING.md) is simpler: it tests http://localhost:<port> directly.
 #
-# The images built here get the published names and tags (ghcr.io/rahul-bharati/run-hound:0.6.0 and so on), because
-# the service definitions must stay identical to run-hound.compose.yml's (app/test/compose-files.test.ts checks that).
-# So after a local build, run-hound.compose.yml uses your build too until you run
-# `docker compose -f run-hound.compose.yml pull`, and never run `docker compose push` with this file.
+# The images built here are tagged :local (never a release tag or :latest, so a local build can't be mistaken for,
+# or silently shadow, a published release image); the rest of each service definition stays identical to
+# run-hound.compose.yml's (app/test/compose-files.test.ts checks that). Never run `docker compose push` with this
+# file. pull_policy: never (not the compose spec's `build`, which rebuilds unconditionally on every `up`) means a
+# plain `up` builds only an image that's missing, and `--build` still forces a rebuild, as documented above.
 
 x-sample: &sample
   build:
     context: .
     dockerfile: fixtures/samples/Dockerfile
-  image: ghcr.io/rahul-bharati/run-hound-samples:0.6.0
+  image: ghcr.io/rahul-bharati/run-hound-samples:local
+  pull_policy: never
   init: true
   # Healthy while the app answers on its PORT (any status below 500). The images have no curl, so Node's fetch probes.
   healthcheck: &app-healthcheck
@@ -49,7 +51,8 @@ services:
     build:
       context: .
       dockerfile: app/Dockerfile
-    image: ghcr.io/rahul-bharati/run-hound:0.6.0
+    image: ghcr.io/rahul-bharati/run-hound:local
+    pull_policy: never
     init: true
     environment:
       # Named hosts the safety gate accepts besides localhost and private addresses: the test apps and the names
@@ -130,7 +133,8 @@ services:
     build:
       context: .
       dockerfile: fixtures/kennel/Dockerfile
-    image: ghcr.io/rahul-bharati/run-hound-kennel:0.6.0
+    image: ghcr.io/rahul-bharati/run-hound-kennel:local
+    pull_policy: never
     init: true
     healthcheck: *app-healthcheck
     environment:
@@ -152,7 +156,8 @@ services:
     build:
       context: .
       dockerfile: fixtures/fernway/Dockerfile
-    image: ghcr.io/rahul-bharati/run-hound-fernway:0.6.0
+    image: ghcr.io/rahul-bharati/run-hound-fernway:local
+    pull_policy: never
     init: true
     healthcheck: *app-healthcheck
     environment:

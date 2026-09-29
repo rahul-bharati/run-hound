@@ -28,6 +28,12 @@ Run Hound is developed and scored against deliberately broken apps with planted 
 
 Fernway replaces, for 0.4.0, the multi-page Kennel on a local Supabase described in [docs/fixtures.md](fixtures.md); that stays planned as a Supabase variant. Scoring, in CI on every pull request, covers planted bugs found, false positives in clean mode and evidence on every finding; repeating runs to check that findings are stable is planned ([docs/fixtures.md](fixtures.md#scoring)).
 
+## Releasing
+
+A release is three things, moved together in one commit: `app/package.json`'s `version`, `site/src/lib/site.ts`'s `version`, `released` and `releasedIso`, and the root `CHANGELOG.md` — rename its `## Unreleased` heading to `## <version> (<one-line summary>), <date>` (the date `released` and `releasedIso` also carry). Nothing else in the repo is pinned to a release version any more ([2026-09-29](decisions/09-2026.md#2026-09-29-images-latest-no-version-pins)): `run-hound.compose.yml`'s published images always resolve `ghcr.io/rahul-bharati/<name>:${RUNHOUND_TAG:-latest}`, and `docker-compose.yml` (built from source) tags its own builds `:local`. `app/test/cli-version.test.ts` checks the three move together: it reads `app/package.json`'s version directly, checks `site.ts`'s `version` against it (a plain `X.Y.Z` release only; pre-releases are skipped) and checks `released`/`releasedIso` against the CHANGELOG heading. It also mirrors `release-images.yml`'s `check-version` job, which checks only the tag against `app/package.json` and the CHANGELOG section, and guards that neither compose file pins an image to a version — `site.ts` is not that job's concern, since a bad `site.ts` fails `pnpm test` (in CI, which the release depends on) rather than the release workflow itself.
+
+Then tag and push (`git tag vX.Y.Z && git push origin vX.Y.Z`): [release-images.yml](../.github/workflows/release-images.yml) builds, tags (`X.Y.Z`, `X.Y` and, for a full release, `latest`) and publishes the four images, then creates the GitHub Release from the CHANGELOG section.
+
 ## Decisions
 
 Record every decision in the append-only decision log. See [DECISIONS.md](../DECISIONS.md) for the index and how to add a decision.
