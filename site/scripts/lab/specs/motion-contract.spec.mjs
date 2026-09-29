@@ -429,7 +429,7 @@ describe("7-8. no layout shift, and every moment done within 5 s", () => {
 // ---- 9. Time to bug, throttled --------------------------------------------------------------------------------------
 
 describe("9. the bug on screen in time, throttled (desktop, median of 3)", () => {
-  test("/: the finding card at opacity ≥ 0.9 by 5.0 s and the stamp by 5.5 s from navigation; no held part flickers", async (t) => {
+  test("/: the finding card at opacity ≥ 0.9 by 5.0 s from navigation; no held part flickers", async (t) => {
     if (!expects.heroRun) return t.skip("the homepage's hero run arrives with P1 (src/content/hero-run.ts)");
     const heldParts = domContract["hero-run"].held;
     const selectors = heldParts.map((part) => `[data-motion="hero-run"] [data-part="${part}"]`);
@@ -442,17 +442,15 @@ describe("9. the bug on screen in time, throttled (desktop, median of 3)", () =>
       const frames = await readFrameSampler(page, { raw: true });
       const firstAt = (selector, level) => frames[selector]?.samples?.find(([, opacity]) => opacity !== null && opacity >= level)?.[0] ?? null;
       const finding = firstAt(selectors[heldParts.indexOf("finding")], 0.9);
-      const stamp = firstAt(selectors[heldParts.indexOf("stamp")], 0.9);
       const flicker = Object.entries(frames)
         .filter(([, f]) => f.flash)
         .map(([selector]) => selector);
-      runs.push({ finding, stamp, flicker });
+      runs.push({ finding, flicker });
       await context.close();
     }
     record("/", "timeToBug", runs);
-    assert.ok(runs.every((r) => r.finding !== null && r.stamp !== null), "the finding and the stamp appeared in every run");
+    assert.ok(runs.every((r) => r.finding !== null), "the finding appeared in every run");
     assert.ok(median(runs.map((r) => r.finding)) <= 5000, `finding at ${median(runs.map((r) => r.finding))} ms`);
-    assert.ok(median(runs.map((r) => r.stamp)) <= 5500, `stamp at ${median(runs.map((r) => r.stamp))} ms`);
     assert.deepEqual(runs.flatMap((r) => r.flicker), [], "no held part goes from visible to hidden");
   });
 });

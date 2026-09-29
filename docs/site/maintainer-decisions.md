@@ -24,3 +24,7 @@
 6. **The lab's throttled LCP limit on `/` is 1,100 ms** (was 1,000 ms; every other template keeps 1,200 ms): on
    GitHub's throttled runner the homepage's h1 paints at about 990-1,030 ms with no change to the page, so the gate
    failed at random and held back 0.6.0's release images.
+7. **The EVIDENCE stamp is removed from the site's figures** (the homepage's hero run and its evidence trio, and the
+   `/_design/` motion page that mirrors both): it read oddly to users. The evidence trio keeps its outline animation
+   (pictures rise, the accent outline draws, then hands over to the line-strong outline); every other beat's timing is
+   unchanged. `--ease-stamp` and the `stamp` ease name stay, for the 404 hound's nose.

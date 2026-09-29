@@ -15,9 +15,9 @@ import { ui } from "@/content/ui";
  * showing it moves nothing (CLS 0); it sits outside the caption, which stays at most 15 words.
  *
  * The window is a picture, aria-hidden like a screenshot, with a visually hidden list beside it saying what it shows.
- * It is a product figure: its status marks (the rail, the ticks, the progress bar, the EVIDENCE stamp) follow the web
- * UI's own colours and are exempt from the accent budget (§2.3, data-accent-exempt). The app under test keeps the paper
- * palette and Kennel's own orange "Book", which is a span, never a button. Every value comes from content/hero-run.ts.
+ * It is a product figure: its status marks (the rail, the ticks, the progress bar) follow the web UI's own colours
+ * and are exempt from the accent budget (§2.3, data-accent-exempt). The app under test keeps the paper palette and
+ * Kennel's own orange "Book", which is a span, never a button. Every value comes from content/hero-run.ts.
  * Its inner elements are styled by position (home.css), not a class each: the markup and the RSC payload that repeats
  * it are the page's HTML weight (§2.9).
  */
@@ -113,9 +113,6 @@ export function HeroRunFigure() {
               ))}
               <span className="hm-spec" data-part="spec-chip">
                 {run.finding.spec}
-              </span>
-              <span className="hm-stamp" data-part="stamp">
-                {run.finding.stamp}
               </span>
             </div>
           </div>

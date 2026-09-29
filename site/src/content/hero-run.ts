@@ -104,9 +104,8 @@ export const heroRun = {
     requests: finding.requests.map((r) => ({ line: `${r.method} ${r.path} → ${r.status}`, at: ms(r.atMs) })),
     /** Between the two saves, in ms (one decimal, as the web UI prints request times). */
     gapMs: Math.round((finding.requests[1].atMs - finding.requests[0].atMs) * 10) / 10,
-    /** The chip for the finding's exported test, and the stamp. */
+    /** The chip for the finding's exported test. */
     spec: "Playwright test",
-    stamp: "EVIDENCE",
   },
   /** Words the web UI shows around the values: "Found “Book a sitter”: 9 fields", "+16 more", "20 / 20 · 56 s". */
   labels: { found: "Found", fields: "fields", more: "more" },

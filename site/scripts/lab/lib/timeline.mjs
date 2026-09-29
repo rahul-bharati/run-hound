@@ -1,9 +1,9 @@
 /**
  * What a reader sees over time: a frame sampler (the opacity of chosen elements on every frame from navigation) and a
- * filmstrip (a screenshot every step). The §5.2 "Time to bug" gate (the finding card visible ≤ 5.0 s and the stamp
- * ≤ 5.5 s from navigation, throttled desktop, median of 3), the "no flicker" checks (the hero, the 404's trail) and the
- * storyboards read them. Ported from site-design/evidence/scripts/measure.mjs (its flicker sampler, lines 87-109) and
- * filmstrip.mjs (capture()).
+ * filmstrip (a screenshot every step). The §5.2 "Time to bug" gate (the finding card visible ≤ 5.0 s from navigation,
+ * throttled desktop, median of 3), the "no flicker" checks (the hero, the 404's trail) and the storyboards read them.
+ * Ported from site-design/evidence/scripts/measure.mjs (its flicker sampler, lines 87-109) and filmstrip.mjs
+ * (capture()).
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";

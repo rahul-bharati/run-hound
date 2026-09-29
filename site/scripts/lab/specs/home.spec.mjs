@@ -135,26 +135,24 @@ describe("the bug on screen in time, LCP and CLS (§5.2)", () => {
   // on GitHub's throttled runner the h1 paints at about 990-1,030 ms with no change to the homepage's render path
   // (0.6.0's release runs: medians of 1,016-1,028 ms failed where the same commit had passed), so 1,000 ms decided
   // releases at random.
-  test("throttled desktop, median of 5: the finding card by 5.0 s and the stamp by 5.5 s; LCP ≤ 1,100 ms on the h1", async () => {
+  test("throttled desktop, median of 5: the finding card by 5.0 s; LCP ≤ 1,100 ms on the h1", async () => {
     const finding = '[data-motion="hero-run"] [data-part="finding"]';
-    const stamp = '[data-motion="hero-run"] [data-part="stamp"]';
     const runs = [];
     for (let run = 0; run < 5; run += 1) {
       const { context, page } = await newPage(browser, { throttle: true });
       await installVitals(page);
-      await installFrameSampler(page, [finding, stamp], { ms: 9000 });
+      await installFrameSampler(page, [finding], { ms: 9000 });
       await page.goto(`${base}/`, { waitUntil: "load", timeout: 60_000 });
       await sleep(Math.max(0, 9500 - (await page.evaluate(() => performance.now()))));
       const frames = await readFrameSampler(page, { raw: true });
       const firstAt = (selector) => frames[selector]?.samples?.find(([, opacity]) => opacity !== null && opacity >= 0.9)?.[0] ?? null;
       const vitals = await readVitals(page);
-      runs.push({ finding: firstAt(finding), stamp: firstAt(stamp), lcp: vitals.lcp });
+      runs.push({ finding: firstAt(finding), lcp: vitals.lcp });
       await context.close();
     }
     result.timeToBug = runs;
-    assert.ok(runs.every((r) => r.finding !== null && r.stamp !== null), JSON.stringify(runs));
+    assert.ok(runs.every((r) => r.finding !== null), JSON.stringify(runs));
     assert.ok(median(runs.map((r) => r.finding)) <= 5000, `finding at ${median(runs.map((r) => r.finding))} ms`);
-    assert.ok(median(runs.map((r) => r.stamp)) <= 5500, `stamp at ${median(runs.map((r) => r.stamp))} ms`);
     assert.ok(median(runs.map((r) => r.lcp.t)) <= 1100, `LCP ${JSON.stringify(runs.map((r) => r.lcp))}`);
     for (const r of runs) assert.equal(r.lcp.tag, "h1", `LCP element ${r.lcp.el}`);
   });

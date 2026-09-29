@@ -389,7 +389,6 @@
   transform-origin: 0 50%;
 }
 .hm-finding {
-  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -437,24 +436,6 @@
   font-family: var(--font-mono);
   font-size: var(--text-tag);
 }
-/* The EVIDENCE stamp: a status mark of the product figures (exempt from the accent budget), resting turned -4°. */
-.hm-stamp {
-  padding: 0 var(--space-2);
-  border: 2px solid var(--rh-accent);
-  border-radius: var(--radius-chip);
-  background: color-mix(in oklab, var(--rh-bg-deep) 85%, transparent);
-  font-family: var(--font-mono);
-  font-size: var(--text-mono);
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  color: var(--rh-accent-text);
-  transform: rotate(-4deg);
-}
-.hm-finding .hm-stamp {
-  position: absolute;
-  right: var(--space-2);
-  bottom: var(--space-2);
-}
 /* The caption, then the Replay slot beside it (the button comes first in the DOM: a figcaption ends the figure). */
 .hm-caption {
   grid-row: 3;
@@ -499,8 +480,8 @@
     gap: var(--space-3);
   }
 }
-/* Phones: the plan shows three rows ("+17 more"), the saved rows only their copy, the stamp sits on the finding's top
-   edge (clear of the test chip), and below 400 px the rail keeps its dots, not its labels. */
+/* Phones: the plan shows three rows ("+17 more"), the saved rows only their copy, and below 400 px the rail keeps its
+   dots, not its labels. */
 @media (width < 40rem) {
   .hm-plan > li:nth-child(4),
   .hm-bookings > span small {
@@ -508,10 +489,6 @@
   }
   .hm-app {
     padding-inline: var(--space-2);
-  }
-  .hm-finding .hm-stamp {
-    top: calc(var(--space-3) * -1);
-    bottom: auto;
   }
 }
 @media (width < 25rem) {
@@ -701,12 +678,6 @@
 .hm-trio > .hm-outline > rect + rect {
   stroke: var(--rh-accent);
   stroke-width: 1.5px;
-}
-.hm-trio-stamp {
-  position: absolute;
-  top: calc(var(--space-3) * -1);
-  right: var(--space-6);
-  background: var(--rh-band);
 }
 .hm-proof {
   display: flex;

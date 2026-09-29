@@ -101,7 +101,7 @@ describe("hero run (§4.3)", () => {
     close(storyboardEnd(board, tokens), 2.73);
   });
 
-  test("the beats of the table: chips at 0.10 / 0.17 / 0.24, found 0.30, +16 more 0.76, ticks 0.88, saved copies 1.55 and 1.70, requests 2.00 and 2.12, stamp 2.30, spec chip 2.55", () => {
+  test("the beats of the table: chips at 0.10 / 0.17 / 0.24, found 0.30, +16 more 0.76, ticks 0.88, saved copies 1.55 and 1.70, requests 2.00 and 2.12, spec chip 2.55", () => {
     const chips = stepsOf(board, "chip")[0];
     assert.deepEqual([chips.at, chips.stagger], [0.1, 0.07]);
     close(firstAt(board, "found"), 0.3);
@@ -111,7 +111,6 @@ describe("hero run (§4.3)", () => {
     close(firstAt(board, "saved-2"), 1.7);
     close(firstAt(board, "request-1"), 2.0);
     close(firstAt(board, "request-2"), 2.12);
-    close(firstAt(board, "stamp"), 2.3);
     close(firstAt(board, "spec-chip"), 2.55);
   });
 
@@ -127,16 +126,14 @@ describe("hero run (§4.3)", () => {
     for (const [i, beat] of [0.6, 1.12, 1.3, 1.88].entries()) close(firstAt(board, `node-${i + 2}`), beat);
   });
 
-  test("the progress bar fills linearly from 1.48 to 1.88; the stamp lands from 1.15 and -12° to -4°", () => {
+  test("the progress bar fills linearly from 1.48 to 1.88", () => {
     const [bar] = stepsOf(board, "progress");
     assert.deepEqual([bar.at, bar.duration, bar.ease, bar.from?.scaleX, bar.to.scaleX], [1.48, 0.4, "none", 0, 1]);
-    const [stamp] = stepsOf(board, "stamp");
-    assert.deepEqual([stamp.from, stamp.to, stamp.ease], [{ opacity: 0, scale: 1.15, rotation: -12 }, { opacity: 1, scale: 1, rotation: -4 }, "stamp"]);
   });
 
-  test("the accent movers are the scan, the rail, the ticks, the progress bar and the stamp, one after another", () => {
+  test("the accent movers are the scan, the rail, the ticks and the progress bar, one after another", () => {
     const spans = accentSpans(board, tokens);
-    assert.deepEqual([...spans.keys()].sort(), ["progress", "rail", "scan", "stamp", "ticks"]);
+    assert.deepEqual([...spans.keys()].sort(), ["progress", "rail", "scan", "ticks"]);
   });
 
   test("the scan line and the press ring rest invisible (by class), so their from-states apply only when they start", () => {
@@ -195,11 +192,10 @@ describe("pipeline (§4.3): connectors at constant speed, node i + 1 lit when co
 
 describe("evidence trio (§4.3)", () => {
   const board = evidenceTrioStoryboard;
-  test("pictures rise at 0 / 0.12 / 0.24; the outline draws at 0.10; the stamp at 1.00; the outline hands over at 1.20; rest by 1.65", () => {
+  test("pictures rise at 0 / 0.12 / 0.24; the outline draws at 0.10; the outline hands over at 1.20; rest by 1.65", () => {
     const [media] = stepsOf(board, "media");
     assert.deepEqual([media.at, media.stagger, media.from, media.to], [0, 0.12, { opacity: 0, y: "rise-md" }, { opacity: 1, y: 0 }]);
     close(firstAt(board, "outline-accent"), 0.1);
-    close(firstAt(board, "stamp"), 1.0);
     close(firstAt(board, "outline-rest"), 1.2);
     close(storyboardEnd(board, tokens), 1.65);
   });

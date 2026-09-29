@@ -4,8 +4,8 @@
  * the 404's trail; src/motion/ animates them; both sides test against this file, so a renamed part fails a test.
  *
  * - The root carries data-motion="<name>" (the keys below). Everything that moves is inside it, aria-hidden, and never
- *   text a reader needs (§4.1 rule 2): the moving parts are figure internals, lines, rings, ticks, outlines, the stamp,
- *   figure media (never their captions) and the line hound.
+ *   text a reader needs (§4.1 rule 2): the moving parts are figure internals, lines, rings, ticks, outlines, figure
+ *   media (never their captions) and the line hound.
  * - Each moving element carries data-part="<part>", as many as `parts` says, in document order.
  * - The server renders every part in its finished state (rule 8).
  * - `held`: parts hidden from the first paint until the motion island is ready (or the 3 s fallback shows them), by
@@ -36,8 +36,8 @@
  * Pipeline specifics: `connector` ×4 are <span>s on the dashed line-strong track, each one column long from 1024 px
  * (scaled on x from the left node) and one row long below (scaled on y from the upper node); `node-ring` ×5 are the
  * accent rings, ring 1 lit from the start. Evidence trio: `media` ×3 are the three pictures (never their captions);
- * `outline-accent` and `outline-rest` are the two SVG outlines round the trio; `stamp` the EVIDENCE stamp. Check cards:
- * `trace` ×3 are dim SVG outlines round each card, `tick` ×12 the drawn ticks (4 per card, document order).
+ * `outline-accent` and `outline-rest` are the two SVG outlines round the trio. Check cards: `trace` ×3 are dim SVG
+ * outlines round each card, `tick` ×12 the drawn ticks (4 per card, document order).
  */
 export type MotionName = "hero-run" | "pipeline" | "evidence-trio" | "card-trace" | "reveal" | "trail-404";
 
@@ -68,7 +68,6 @@ export const domContract: Record<MotionName, Contract> = {
       finding: 1,
       "request-1": 1,
       "request-2": 1,
-      stamp: 1,
       "spec-chip": 1,
       "replay-slot": 1,
     },
@@ -89,13 +88,12 @@ export const domContract: Record<MotionName, Contract> = {
       "finding",
       "request-1",
       "request-2",
-      "stamp",
       "spec-chip",
     ],
     restHidden: ["scan", "press-ring"],
   },
   pipeline: { parts: { connector: 4, "node-ring": 5 }, held: [], restHidden: [] },
-  "evidence-trio": { parts: { media: 3, "outline-accent": 1, "outline-rest": 1, stamp: 1 }, held: [], restHidden: ["outline-accent"] },
+  "evidence-trio": { parts: { media: 3, "outline-accent": 1, "outline-rest": 1 }, held: [], restHidden: ["outline-accent"] },
   "card-trace": { parts: { trace: 3, tick: 12 }, held: [], restHidden: ["trace"] },
   reveal: { parts: {}, held: [], restHidden: [] },
   "trail-404": { parts: { trail: 1, hound: 1, head: 1 }, held: ["trail", "hound", "head"], restHidden: [] },

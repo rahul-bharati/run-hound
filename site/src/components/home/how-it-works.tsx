@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Band, SectionHeading } from "@/components/primitives/layout";
 import { ArrowLink } from "@/components/primitives/links";
-import { heroRun, kennelEvidence } from "@/content/hero-run";
+import { kennelEvidence } from "@/content/hero-run";
 import { bandIndex, home } from "@/content/home";
 
 /**
@@ -37,11 +37,11 @@ export function Pipeline() {
 
 /**
  * One finding, three kinds of proof (§3.1 block 2): the page (a real crop of the evidence frame, passed in as `crop`,
- * since it is a static image import), the requests and the test, inside one outline with the EVIDENCE stamp on its top
- * right edge. The request card and the test excerpt are HTML pictures, aria-hidden, each with one sr-only sentence; the
- * captions carry the facts and never move. The scroll runtime's one-shot effect (effects/evidence-trio.ts) raises the
- * three pictures, draws the accent outline, lands the stamp, then hands over to the line-strong outline, which is what
- * the server renders at rest (the accent outline rests hidden by class).
+ * since it is a static image import), the requests and the test, inside one outline. The request card and the test
+ * excerpt are HTML pictures, aria-hidden, each with one sr-only sentence; the captions carry the facts and never move.
+ * The scroll runtime's one-shot effect (effects/evidence-trio.ts) raises the three pictures, draws the accent outline,
+ * then hands over to the line-strong outline, which is what the server renders at rest (the accent outline rests
+ * hidden by class).
  */
 export function EvidenceTrio({ crop }: { crop: ReactNode }) {
   const { proof } = home.how;
@@ -52,9 +52,6 @@ export function EvidenceTrio({ crop }: { crop: ReactNode }) {
         <rect data-part="outline-rest" x="0.75" y="0.75" rx="16" />
         <rect className="rest-hidden" data-part="outline-accent" x="0.75" y="0.75" rx="16" />
       </svg>
-      <span className="hm-stamp hm-trio-stamp" data-part="stamp" aria-hidden="true" data-accent-exempt="">
-        {heroRun.finding.stamp}
-      </span>
       <figure className="hm-proof hm-proof-page">
         <div className="hm-media hm-crop" data-part="media">
           {crop}

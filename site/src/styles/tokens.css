@@ -298,13 +298,13 @@
    connectors are linear. */
 @theme static {
   --transition-duration-micro: 120ms; /* press, hover colour, tick */
-  --transition-duration-short: 180ms; /* copy state, stamp, menu, dialog */
+  --transition-duration-short: 180ms; /* copy state, menu, dialog */
   --transition-duration-medium: 280ms; /* rises, rail moves */
   --transition-duration-long: 450ms; /* crossfades, trace fade */
   --ease-enter: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-exit: cubic-bezier(0.3, 0, 0.8, 0.15);
   --ease-move: cubic-bezier(0.2, 0, 0, 1);
-  --ease-stamp: cubic-bezier(0.34, 1.56, 0.64, 1); /* the EVIDENCE stamp and the 404 nose only */
+  --ease-stamp: cubic-bezier(0.34, 1.56, 0.64, 1); /* the 404 nose only */
 }
 
 :root {
