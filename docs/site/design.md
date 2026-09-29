@@ -254,7 +254,7 @@ All in `site/src/components/primitives/`, shown on `/_design/` in every state. S
 | `SectionHeading` | h2 (Display M) + optional intro (Lead, ≤ 25 words) |
 | `ButtonLink` | Primary: accent fill, `accent-ink` text, 48 px tall (44 in the header), radius 12, arrow that nudges 2 px. Secondary: `line-strong` border, `fg` text. `:active` scale 0.97. Below 640 px the hero's two buttons share one row: the secondary shows the GitHub icon and "GitHub" (accessible name "View on GitHub", which contains the visible label) |
 | `ArrowLink`, `TextLink` | Accent text; underline on hover and focus; arrow nudge. External links end in "↗" with sr-only "(opens GitHub)" where it helps |
-| `NavLink` | Wraps `next/link` with the prefetch policy: `viewport` in the header, `intent` (on hover) in sidebars and hub grids, `none` in the footer and legal pages |
+| `NavLink` | Wraps `next/link` with the prefetch policy: the header prefetches the brand and three hubs when they are in view and the other links on hover or focus; `intent` (on hover) in sidebars and hub grids, `none` in the footer and legal pages |
 | `Pill` | The release pill: 32 px, `line-strong` outline, `muted` sans 13 px, arrow |
 | `Tag` | 22 px, `line-strong` outline, `muted` mono 11 px: "Preview", "Signed in", "Added in 0.6.0" |
 | `Card`, `IconTile` | §2.4; icon tile 40 px `surface-2`, lucide icon 20 px `muted` |
@@ -814,7 +814,7 @@ Starts on desktop when the timeline mounts; on phones when the window is half vi
 |---|---|---|---|---|
 | 0.00 | Explore (`explore`) | The scan line sweeps the form top to bottom and fades at the end; node 1 is lit from the start. Type chips pop (opacity, scale 0.9 → 1) at 0.10, 0.17, 0.24; "Found “Book a sitter”: 9 fields" fades in at 0.30 | scan `--motion-scan` (0.6), move; chips short, enter; text short | scan |
 | 0.60 | Plan (`plan`) | Rail line 0 → 25% (scaleX) and node 2 lights (ring opacity, scale 0.6 → 1). Four plan rows rise 8 px, 40 ms apart; "+16 more" at 0.76 | rail short (0.18) + node, move; rows medium, enter | rail |
-| 0.88 | – | The 4 ticks draw (DrawSVG 0 → 100%), 40 ms apart | micro each | ticks |
+| 0.88 | – | The 4 ticks draw (measured dash 0 → 100%), 40 ms apart | micro each | ticks |
 | 1.12 | Approve (`approve`) | Rail 25 → 50%, node 3 | short, move | rail |
 | 1.30 | Run (`run`) | Rail 50 → 75%, node 4. Two press rings on "Book" (scale 0.96 ↔ 1.04, 2 × micro, neutral colour). Progress bar scaleX 0 → 1 from 1.48 to 1.88. "Saved copy 1" rises 8 px at 1.55, "Saved copy 2" at 1.70 (`fail` text, static colour) | rail short; bar 0.40 linear; rows medium, enter | rail, then bar |
 | 1.88 | Report (`report`) | Rail 75 → 100%, node 5. The finding card rises 16 px with opacity (fully visible by about 2.0). Request rows rise 8 px at 2.00 and 2.12 | rail short; card medium, enter; rows medium, move | rail |
@@ -851,7 +851,7 @@ Starts on desktop when the timeline mounts; on phones when the window is half vi
 | t | What moves | Duration, ease | Accent |
 |---|---|---|---|
 | 0.00 / 0.12 / 0.24 | The three pictures (crop, request card, test) rise 16 px with opacity. Captions stay put | medium, enter | – |
-| 0.10 | The accent outline draws round the trio (DrawSVG) | `--motion-draw` (0.9), move | outline |
+| 0.10 | The accent outline draws round the trio (measured dash) | `--motion-draw` (0.9), move | outline |
 | 1.00 | The EVIDENCE stamp lands on the outline's top-right edge | short, stamp | stamp |
 | 1.20 | The accent outline fades out while the `line-strong` outline fades in beneath it | long, exit / enter | outline (fading) |
 | 1.65 | Rest: `line-strong` outline and the stamp | – | – |
@@ -861,7 +861,7 @@ DOM contract: `[data-motion="evidence-trio"]`, `data-part="media"` ×3, `outline
 
 #### Check cards (homepage checks band; one-shot at 80%)
 
-- Card *i* (0-2): a `dim` trace draws round the card at 0.14 *i* (DrawSVG, `--motion-trace` 0.8 s, move), then fades
+- Card *i* (0-2): a `dim` trace draws round the card at 0.14 *i* (measured dash, `--motion-trace` 0.8 s, move), then fades
   (long, exit) from 0.14 *i* + 0.8.
 - Ticks (accent) draw per card: card *i*, tick *k* (0-3) at 0.30 + 0.14 *i* + 0.05 *k* (micro each).
 - Ends at about 1.5 s. The card, its border and all its words are there throughout; nothing mint remains except the
@@ -874,11 +874,11 @@ DOM contract: `[data-motion="evidence-trio"]`, `data-part="media"` ×3, `outline
 top reaches 88% of the viewport. Captions never move. Only figures wholly below the viewport when the runtime arms get a
 from-state.
 
-#### 404 (GSAP core + DrawSVG, about 1.8 s, once)
+#### 404 (GSAP core, about 1.8 s, once)
 
 | t | What moves | Duration, ease |
 |---|---|---|
-| 0.00 | The `dim` dotted trail draws left to right (DrawSVG) while the line hound walks along it (translateX) | 1.3, move |
+| 0.00 | The `dim` dotted trail draws left to right (measured dash) while the line hound walks along it (translateX) | 1.3, move |
 | 0.40, 0.85 | The hound dips its nose (head group rotate 6°, yoyo) | 2 × micro |
 | 1.30 | Where the trail ends, it lifts its nose (rotate -10°) and settles at -6° | medium, stamp; short, move |
 | 1.80 | Rest | – |
@@ -916,7 +916,7 @@ site README says so, and GSAP code is never copied outside `site/src/motion/`.
 | `use-motion-allowed.ts` | `useSyncExternalStore` on `(prefers-reduced-motion: no-preference)` and not `navigator.connection?.saveData`; server snapshot `false` |
 | `after-load-idle.ts` | One shared promise: the `load` event, then `requestIdleCallback` with a 2 s timeout |
 | `tokens.ts` | §4.2 |
-| `motion-gate.tsx` | The only motion code in initial JS (≤ 1 KB). A page renders `<MotionGate islands={[…]} />` naming its islands (`hero-run`, `scroll`, `trail-404`). If motion is not allowed, it sets `data-ready` on held roots at hydration (so Save-Data readers get the finished frame at once, not after the 3 s fallback) and stops. Otherwise, after load plus idle, it mounts each island with `next/dynamic(…, { ssr: false })` |
+| `motion-gate.tsx` | One 972 B chunk the loader imports at hydration, before any GSAP chunk. A page renders `<MotionGate islands={[…]} />` naming its islands (`hero-run`, `scroll`, `trail-404`). If motion is not allowed, it sets `data-ready` on held roots at hydration (so Save-Data readers get the finished frame at once, not after the 3 s fallback) and stops. Otherwise, after load plus idle, it mounts each island with `next/dynamic(…, { ssr: false })` |
 | `hero-run-storyboard.ts`, `hero-run-timeline.tsx` | The hero's data and its `useGSAP` timeline |
 | `runtime-core.ts` | The scroll runtime's state machine, pure: IntersectionObserver, ScrollTrigger, the clock and imports are injected, so it is unit-tested without a browser |
 | `scroll-runtime.tsx` | The thin adapter that wires `runtime-core` to the DOM |
@@ -1071,7 +1071,7 @@ checks use `clock.runFor()`; `animations: "disabled"` and `clock.fastForward()` 
 | Homepage screens (reduced motion, header and footer included) | ≤ 7.0 at 1440×900; ≤ 10.0 at 390×844 | lab |
 | Footer height | ≤ 360 px at 1440; ≤ 760 px at 390 | lab |
 | First viewport | h1, the subhead with "free", both buttons and the command visible at 1440×900; "free" and the primary button within 844 px at 390 | lab |
-| Time to bug | finding card visible ≤ 5.0 s and stamp ≤ 5.5 s from navigation, throttled desktop, median of 3 | lab |
+| Time to bug | finding card visible ≤ 5.0 s and stamp ≤ 5.5 s from navigation, throttled desktop, median of 5 (`home.spec.mjs`; the motion contract's own §4.3.9 replay of the same two numbers stays a median of 3) | lab |
 | LCP | ≤ 1,000 ms throttled on `/` (element: h1 on desktop, h1 or subhead on phones); ≤ 1,200 ms on every other template | lab |
 | CLS | 0 (≤ 0.0001 measured) on `/` through load, hero, Replay and a full scroll; ≤ 0.01 on other templates | lab |
 | Initial JS (gzip -9 of first-party modern `<script src>`, no `noModule`, from `.next/`) | shared ≤ 153,000 B; `/` ≤ 158,000 B with page-specific ≤ 5,000; docs and check pages ≤ 156,000; others ≤ 155,000; no initial chunk contains `gsap`, `ScrollTrigger` or Pagefind's Component UI | build (`check-budgets.mjs`) |

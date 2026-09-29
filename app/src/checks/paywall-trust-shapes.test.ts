@@ -1,157 +1,38 @@
 /**
- * paywall-trust against other app shapes (0.6.0 review, round 1): where Account A's plan is read from, how a trial or a
- * renamed free plan looks, metered entitlements, a grant that lands late, a teammate's card with a heading of its own,
- * and the loads a page makes outside its frame (speculation rules, a SharedWorker). Driven through createCheckContext
- * like paywall-trust.test.ts, against small fixture apps built per test.
+ * paywall-trust against other app shapes (0.6.0 review, round 1): where Account A's plan is read from, a grant that
+ * lands late, and a teammate's card with a heading of its own. Driven through createCheckContext like
+ * paywall-trust.test.ts, against small fixture apps built per test.
  *
- * Payment providers: the browser is launched with host-resolver rules that send every Stripe, PayPal, Paddle and Lemon
- * Squeezy host to a local TCP sink, so any connection that "reaches the provider" is counted.
+ * Split from the original paywall-trust-shapes.test.ts (which also covered a clean success page that changes the
+ * plan without a grant, and the loads a page makes outside its frame) to keep each file under the suite's per-file
+ * time budget: see paywall-trust-shapes-trial.test.ts, paywall-trust-frames.test.ts and
+ * paywall-trust-frames-rules.test.ts. All four share test-support/paywall-harness.ts's fixture-app, discovery and
+ * browser/sink setup.
  */
-import { mkdtemp, rm } from "node:fs/promises";
-import type { ServerResponse } from "node:http";
-import { createServer as createNetServer, type AddressInfo, type Server as NetServer } from "node:net";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { chromium, type Browser } from "playwright";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer, type RecordedRequest, type RouteHandler } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage, emptyForm } from "../engine/discover.js";
-import { check } from "./paywall-trust.js";
+import { describe, expect, it } from "vitest";
+import type { FixtureServer } from "../../test-support/server.js";
+import {
+  ALEX,
+  app,
+  BILLING,
+  browser,
+  confirmed,
+  CONFIRM_ON_LOAD,
+  DASHBOARD,
+  notFound,
+  page,
+  pathOf,
+  runOn,
+  SELF,
+  send,
+  SHOW,
+  signedIn,
+  SUCCESS_LINK,
+  usePaywallHarness,
+  WHO,
+} from "../../test-support/paywall-harness.js";
 
-const A: AccountRef = { id: "a", label: "Account A" };
-/** Account A's username (the account marker): never printed. */
-const ALEX = "alex@example.test";
-const SESSION = "a-session-7d1f";
-const SELF: SessionState = {
-  cookies: [{ name: "sid", value: SESSION, domain: "127.0.0.1", path: "/", expires: -1, httpOnly: true, secure: false, sameSite: "Lax" }],
-  origins: [],
-};
-const PROVIDER_PATTERNS = ["*.stripe.com", "*.paypal.com", "*.paddle.com", "*.lemonsqueezy.com"];
-
-let browser: Browser;
-let sink: NetServer;
-/** One entry per connection that reached the stand-in payment provider. */
-const sinkHits: string[] = [];
-const servers: FixtureServer[] = [];
-const contexts: RunningCheckContext[] = [];
-const dirs: string[] = [];
-
-beforeAll(async () => {
-  sink = createNetServer((socket) => {
-    sinkHits.push("connection");
-    socket.destroy();
-  });
-  await new Promise<void>((resolve) => sink.listen(0, "127.0.0.1", resolve));
-  const port = (sink.address() as AddressInfo).port;
-  browser = await chromium.launch({ args: [`--host-resolver-rules=${PROVIDER_PATTERNS.map((p) => `MAP ${p} 127.0.0.1:${port}`).join(", ")}`] });
-});
-afterEach(async () => {
-  await Promise.all(contexts.splice(0).map((c) => c.dispose()));
-  await Promise.all(servers.splice(0).map((s) => s.close()));
-  await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
-});
-afterAll(async () => {
-  await browser?.close();
-  await new Promise<void>((resolve) => sink.close(() => resolve()));
-});
-
-const send = (res: ServerResponse, status: number, body: unknown) => {
-  res.writeHead(status, { "content-type": "application/json" });
-  res.end(JSON.stringify(body));
-};
-const signedIn = (req: RecordedRequest) => new RegExp(`(?:^|;\\s*)sid=${SESSION}\\b`).test(req.headers.cookie ?? "");
-const pathOf = (r: RecordedRequest) => new URL(r.url, "http://x").pathname;
-
-/** A page with the app's nav (Dashboard, Billing). */
-function page(title: string, body: string, script = "", head = ""): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title>${head}</head><body>
-<header><nav aria-label="Main"><a href="/app">Dashboard</a> <a href="/app/billing">Billing</a></nav></header>
-<main><h1>${title}</h1>${body}</main>
-<script>${script}</script></body></html>`;
-}
-
-const notFound = (res: ServerResponse) => {
-  res.writeHead(404, { "content-type": "text/html; charset=utf-8" });
-  res.end(`<!doctype html><html lang="en"><head><title>Not found</title></head><body><main><h1>Page not found</h1></main></body></html>`);
-};
-
-async function app(o: { pages: Record<string, string>; routes: Record<string, RouteHandler>; fallback?: RouteHandler }): Promise<FixtureServer> {
-  const server = await startFixtureServer({
-    pages: o.pages,
-    routes: {
-      "GET /favicon.ico": (_req, res) => {
-        res.writeHead(204);
-        res.end();
-      },
-      ...o.routes,
-    },
-    fallback: o.fallback ?? ((_req, res) => notFound(res)),
-  });
-  servers.push(server);
-  return server;
-}
-
-async function discover(url: string): Promise<DiscoveredPage> {
-  const context = await browser.newContext({ storageState: SELF, serviceWorkers: "block" });
-  try {
-    const p = await context.newPage();
-    await p.goto(url);
-    await p.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => undefined);
-    return await discoverPage(p);
-  } finally {
-    await context.close();
-  }
-}
-
-/** Plans and runs paywall-trust on `path` of the app as Account A. server.requests then hold only what the run sent. */
-async function runOn(server: FixtureServer, path = "/app"): Promise<CheckResult> {
-  const targetUrl = `${server.url}${path}`;
-  const discovered = await discover(targetUrl);
-  const planned = check.plan(discovered.forms[0] ?? emptyForm(discovered.url), discovered, { signedIn: true, otherAccount: false });
-  const scenario: Scenario = { ...planned[0]!, scope: "page", scopeLabel: "Whole page" };
-  // Let whatever discovery started finish before counting.
-  await new Promise((r) => setTimeout(r, 1000));
-  server.requests.length = 0;
-  sinkHits.length = 0;
-  const dir = await mkdtemp(join(tmpdir(), "rh-paywall-shapes-"));
-  dirs.push(dir);
-  const ctx = createCheckContext({
-    browser,
-    form: discovered.forms[0] ?? emptyForm(targetUrl),
-    openForm: false,
-    discoveredPage: discovered,
-    targetUrl,
-    artifactsDir: dir,
-    runToken: "pw7e57a1",
-    checkId: "paywall-trust",
-    scenarioTitle: scenario.title,
-    sessions: { self: SELF },
-    accounts: { self: A, other: null },
-    markers: [ALEX],
-    lookup: async (host: string) => {
-      throw new Error(`no DNS in tests (${host})`);
-    },
-  });
-  contexts.push(ctx);
-  return check.run(ctx, scenario);
-}
-
-const confirmed = (r: CheckResult) => r.findings.filter((f) => f.confidence === "confirmed");
-
-const SUCCESS_LINK = `<a href="/app/upgraded">Already paid? Refresh your plan</a>`;
-const WHO = { id: "u_alex", email: ALEX, name: "Alex Rivera" };
-const SHOW = `fetch('/api/me').then(r => r.json()).then(m => { document.getElementById('plan').textContent = JSON.stringify(m.plan); });`;
-const DASHBOARD = page("Dashboard", `<p id="plan">Loading…</p>${SUCCESS_LINK}`, SHOW);
-const BILLING = page(
-  "Billing",
-  `<p id="plan">Loading…</p><button type="button" id="cancel">Cancel plan</button>`,
-  `${SHOW}
-document.getElementById('cancel').addEventListener('click', () => fetch('/api/billing/cancel', { method: 'POST' }));`,
-);
-const CONFIRM_ON_LOAD = page("Your upgrade", `<p>Confirming…</p>`, `fetch('/api/billing/confirm', { method: 'POST' });`);
+usePaywallHarness({ tmpPrefix: "rh-paywall-shapes-" });
 
 describe("paywall-trust: where Account A's plan is read from", () => {
   it("re-reads every GET that holds Account A's plan: a grant seen by /api/me is found when the page read a session endpoint (a cached JWT) first", async () => {
@@ -257,101 +138,6 @@ describe("paywall-trust: where Account A's plan is read from", () => {
     expect(confirmed(result)).toHaveLength(1);
     expect(result.findings[0]!.meaning).toMatch(/isPro 0 → 1/);
     expect(state.pro).toBe(0);
-  }, 120_000);
-});
-
-describe("paywall-trust: a clean success page that changes the plan without a grant", () => {
-  it.each([
-    ["subscription_status: trialing", (trial: boolean) => ({ plan: trial ? "pro" : "free", subscription_status: trial ? "trialing" : null })],
-    ["trial_ends_at set", (trial: boolean) => ({ plan: trial ? "pro" : "free", trial_ends_at: trial ? new Date(Date.now() + 14 * 86400000).toISOString() : null })],
-    ["a plan object with trial_ends_at", (trial: boolean) => ({ plan: trial ? { id: "pro", name: "Pro", trial_ends_at: new Date(Date.now() + 14 * 86400000).toISOString() } : { id: "free", name: "Free" } })],
-    ["an isTrial flag", (trial: boolean) => ({ plan: trial ? "pro" : "free", isTrial: trial })],
-  ])("a free trial kept beside the plan (%s) is never a confirmed finding", async (_name, shape) => {
-    const state = { trial: false, confirms: 0 };
-    const server = await app({
-      pages: {
-        "/app": DASHBOARD,
-        "/app/billing": BILLING,
-        // The app starts the 14-day Pro trial (no card) when the page loads: a trial, not a paid plan.
-        "/app/upgraded": page("Your trial", `<p>Starting your trial…</p>`, `fetch('/api/billing/confirm', { method: 'POST' });`),
-      },
-      routes: {
-        "GET /api/me": (req, res) => (signedIn(req) ? send(res, 200, { ...WHO, ...shape(state.trial) }) : send(res, 401, {})),
-        "POST /api/billing/confirm": (_req, res) => {
-          state.confirms += 1;
-          state.trial = true;
-          return send(res, 200, { trial: true });
-        },
-        "POST /api/billing/cancel": (_req, res) => {
-          state.trial = false;
-          return send(res, 200, { plan: "free" });
-        },
-      },
-    });
-    const result = await runOn(server);
-    expect(state.confirms).toBeGreaterThan(0);
-    expect(confirmed(result)).toEqual([]);
-    expect(result.findings).toEqual([]);
-    expect(result.status).toBe("skipped");
-    expect(result.notes).toMatch(/^Inconclusive/);
-    expect(result.notes).toMatch(/trial/i);
-  }, 120_000);
-
-  it("a usage counter of a metered entitlement going up (used 3 → 4) is never a confirmed finding", async () => {
-    const state = { used: 3 };
-    const server = await app({
-      pages: {
-        "/app": DASHBOARD,
-        "/app/billing": BILLING,
-        // Runs the app's "AI summary" of the page as it loads: one use of a metered feature.
-        "/app/upgraded": page("Your upgrade", `<p>We couldn't find a payment for this upgrade.</p>`, `fetch('/api/summary', { method: 'POST' });`),
-      },
-      routes: {
-        "GET /api/me": (req, res) =>
-          signedIn(req) ? send(res, 200, { ...WHO, plan: "free", entitlements: [{ key: "ai_summaries", limit: 10, used: state.used }] }) : send(res, 401, {}),
-        "POST /api/summary": (_req, res) => {
-          state.used += 1;
-          return send(res, 200, { summary: "…" });
-        },
-        "POST /api/billing/cancel": (_req, res) => send(res, 200, {}),
-      },
-    });
-    const result = await runOn(server);
-    expect(state.used).toBeGreaterThan(3);
-    expect(confirmed(result)).toEqual([]);
-    expect(result.status).toBe("skipped");
-    expect(result.notes).toMatch(/^Inconclusive/);
-    expect(result.notes).toMatch(/entitlements/);
-  }, 120_000);
-
-  it("a free plan renamed (free → free_2026) is never a confirmed finding, and no cancel is clicked on the free account", async () => {
-    const state = { plan: "free", cancels: 0 };
-    const server = await app({
-      pages: {
-        "/app": DASHBOARD,
-        "/app/billing": BILLING,
-        // "Refresh your plan": stores the provider's name for the free tier (no payment: still the free tier).
-        "/app/upgraded": page("Your plan", `<p>We couldn't find a payment. You're on the free plan.</p>`, `fetch('/api/billing/sync', { method: 'POST' });`),
-      },
-      routes: {
-        "GET /api/me": (req, res) => (signedIn(req) ? send(res, 200, { ...WHO, plan: state.plan }) : send(res, 401, {})),
-        "POST /api/billing/sync": (_req, res) => {
-          state.plan = "free_2026";
-          return send(res, 200, { plan: state.plan });
-        },
-        "POST /api/billing/cancel": (_req, res) => {
-          state.cancels += 1;
-          return send(res, 200, {});
-        },
-      },
-    });
-    const result = await runOn(server);
-    expect(state.plan).toBe("free_2026");
-    expect(confirmed(result)).toEqual([]);
-    expect(result.status).toBe("skipped");
-    expect(result.notes).toMatch(/free_2026/);
-    expect(state.cancels).toBe(0);
-    expect(server.requests.filter((r) => r.method === "POST" && pathOf(r) === "/api/billing/cancel")).toEqual([]);
   }, 120_000);
 });
 
@@ -568,80 +354,6 @@ document.querySelectorAll('[data-down]').forEach(b => b.addEventListener('click'
     expect(result.status).toBe("fail");
     expect(state.teammateDowngrades).toBe(0);
     expect(state.cancels).toBe(1);
-    expect(state.plan).toBe("free");
-  }, 120_000);
-});
-
-describe("paywall-trust: loads a page makes outside its frame never reach a payment provider", () => {
-  // The app's own "Manage billing" link: a billing portal start the check never opens itself.
-  const MANAGE = `<a href="/billing/portal">Manage billing</a>`;
-  it.each([
-    ["list prerender", `<script type="speculationrules">{"prerender":[{"source":"list","urls":["/billing/portal"]}]}</script>`, ""],
-    ["list prefetch", `<script type="speculationrules">{"prefetch":[{"source":"list","urls":["/billing/portal"]}]}</script>`, ""],
-    ["document rules, immediate prefetch", `<script type="speculationrules">{"prefetch":[{"source":"document","where":{"href_matches":"/*"},"eagerness":"immediate"}]}</script>`, ""],
-    ["document rules, immediate prerender", `<script type="speculationrules">{"prerender":[{"source":"document","where":{"href_matches":"/*"},"eagerness":"immediate"}]}</script>`, ""],
-    ["a Speculation-Rules header", "", "/speculation.json"],
-    ["link rel=prefetch", `<link rel="prefetch" href="/billing/portal">`, ""],
-  ])("speculation rules on the page under test (%s) never load the app's portal start", async (_name, head, header) => {
-    const server = await app({
-      pages: {
-        "/app/billing": page("Billing", `<p id="plan">Loading…</p>`, SHOW),
-        "/app/upgraded": page("Your upgrade", `<p>We couldn't find a payment.</p>`),
-      },
-      routes: {
-        "GET /app": (_req, res) => {
-          res.writeHead(200, { "content-type": "text/html; charset=utf-8", ...(header ? { "speculation-rules": `"${header}"` } : {}) });
-          res.end(page("Dashboard", `<p id="plan">Loading…</p>${SUCCESS_LINK} ${MANAGE}`, SHOW, head));
-        },
-        "GET /speculation.json": (_req, res) => {
-          res.writeHead(200, { "content-type": "application/speculationrules+json" });
-          res.end(JSON.stringify({ prerender: [{ source: "list", urls: ["/billing/portal"] }] }));
-        },
-        "GET /api/me": (req, res) => (signedIn(req) ? send(res, 200, { ...WHO, plan: "free" }) : send(res, 401, {})),
-        // A billing portal start: the app's server creates a portal session at the provider and redirects there.
-        "GET /billing/portal": (_req, res) => {
-          res.writeHead(303, { location: "https://billing.stripe.com/p/session/test_portal" });
-          res.end();
-        },
-      },
-    });
-    const result = await runOn(server);
-    await new Promise((r) => setTimeout(r, 1000));
-    expect(server.requests.filter((r) => pathOf(r) === "/billing/portal")).toEqual([]);
-    expect(sinkHits).toEqual([]);
-    expect(result.status).not.toBe("error");
-    if (_name === "link rel=prefetch") expect(result.notes).toMatch(/prefetch or prerender \/billing\/portal/);
-  }, 120_000);
-
-  it("a SharedWorker the page under test starts never reaches the provider", async () => {
-    const state = { plan: "free" };
-    const server = await app({
-      pages: {
-        "/app": page("Dashboard", `<p id="plan">Loading…</p>${SUCCESS_LINK}`, `${SHOW} try { new SharedWorker('/shared.js'); } catch (e) {}`),
-        "/app/billing": BILLING,
-        "/app/upgraded": CONFIRM_ON_LOAD,
-      },
-      routes: {
-        "GET /api/me": (req, res) => (signedIn(req) ? send(res, 200, { ...WHO, plan: state.plan }) : send(res, 401, {})),
-        "POST /api/billing/confirm": (_req, res) => {
-          state.plan = "pro";
-          return send(res, 200, { confirmed: true });
-        },
-        "POST /api/billing/cancel": (_req, res) => {
-          state.plan = "free";
-          return send(res, 200, {});
-        },
-        "GET /shared.js": (_req, res) => {
-          res.writeHead(200, { "content-type": "text/javascript" });
-          res.end(`fetch('https://js.stripe.com/v3/', { mode: 'no-cors' }).catch(() => {}); fetch('https://api.stripe.com/v1/billing_portal/sessions', { method: 'POST', mode: 'no-cors' }).catch(() => {});`);
-        },
-      },
-    });
-    const result = await runOn(server);
-    await new Promise((r) => setTimeout(r, 1000));
-    expect(sinkHits).toEqual([]);
-    expect(server.requests.filter((r) => pathOf(r) === "/shared.js")).toEqual([]);
-    expect(result.status).toBe("fail");
     expect(state.plan).toBe("free");
   }, 120_000);
 });
