@@ -60,6 +60,6 @@ In the clone, `docker compose up --build` builds and starts the same containers 
 
 ## Update \{#update\}
 
-To update the image, run `docker pull` again, then start it as before. The test lab names the images of one release: to update it, download the compose file of the new release and start it again.
+To update the image, run `docker pull` again, then start it as before. The test lab always runs the latest release: a plain `up` re-checks the registry and pulls a newer image on its own. Download the compose file again only when a release changes the file itself, such as a new service, port or setting.
 
 From source, pull the new commits and run `pnpm install` again.

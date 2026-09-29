@@ -2,11 +2,15 @@
  * Tester release (0.1.0): one version everywhere (docs/v0-spec.md, "Tester release").
  * `run-hound --version` and `run-hound run --version` print the version from app/package.json, the report's
  * runHoundVersion matches it, and the web UI shows it.
- * Release 0.6.0: that version is also the one wherever release-images.yml's check-version job looks, so a v0.6.0 tag
- * passes it, and the site's release date and the CHANGELOG heading name the same day.
+ * Since 2026-09-29 (docs/decisions/09-2026.md#2026-09-29-images-latest-no-version-pins) a release is
+ * app/package.json's version, site.ts's version and released date, and the CHANGELOG section for that version:
+ * nothing else in the repo is pinned to it, so this file reads app/package.json's version instead of a hard-coded
+ * one. The "site.ts's released and releasedIso" test (below) checks site.ts's version against it too, since
+ * release-images.yml's check-version job (also mirrored below) no longer does: it checks only the tag against
+ * app/package.json and the CHANGELOG section, plus that neither compose file pins an image to a version.
  */
 import { execFile } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -43,20 +47,12 @@ const passing: Check = {
   run: async (_ctx, s) => ({ checkId: "dead-control", scenarioId: s.id, status: "pass", findings: [], durationMs: 1 }),
 };
 
-/** The release this branch ships, and the day it is released (site/src/lib/site.ts `released` and `releasedIso`). */
-const RELEASE = "0.6.0";
-const RELEASED = { text: "29 September 2026", iso: "2026-09-29" };
-
 const REPO = join(appDir, "..");
 const repoFile = (name: string) => readFileSync(join(REPO, name), "utf8");
-/** Every match of `re` (a global regex) in `text`, with its 1-based line number, like `grep -no`. */
-function grepNo(text: string, re: RegExp): { line: number; ref: string }[] {
-  return text.split("\n").flatMap((l, i) => [...l.matchAll(re)].map((m) => ({ line: i + 1, ref: m[0] })));
-}
 
 describe("version (tester release)", () => {
-  it("package.json says 0.6.0 (V2 preview: write-side checks and sign-in)", () => {
-    expect(PKG_VERSION).toBe(RELEASE);
+  it("app/package.json has a version", () => {
+    expect(PKG_VERSION).toMatch(/^\d+\.\d+\.\d+/);
   });
 
   it.each([[["--version"]], [["run", "--version"]]])("`run-hound %s` prints exactly the package version and exits 0", async (args) => {
@@ -100,14 +96,14 @@ describe("version (tester release)", () => {
 });
 
 /**
- * The same checks as the check-version job of .github/workflows/release-images.yml, run for RELEASE: the tag must
- * match app/package.json, the site, every image in both compose files, the version numbers in the comments of the
- * Dockerfiles, the compose files and .env.example, and every tag-pinned download link in the compose file headers,
- * README.md, TESTING.md and the guides in docs/. The file lists, image names and patterns below are the workflow's;
- * the first two tests read them back from release-images.yml, so a change to the job fails here until this mirror
- * follows it.
+ * The same checks as the check-version job of .github/workflows/release-images.yml: the tag must match
+ * app/package.json, and CHANGELOG.md has a section for it (a pushed tag only, since it becomes the GitHub Release's
+ * notes); every image: line in run-hound.compose.yml is exactly one of the four
+ * ghcr.io/rahul-bharati/<name>:${RUNHOUND_TAG:-latest} values, and every one in docker-compose.yml is exactly one of
+ * the four ghcr.io/rahul-bharati/<name>:local values, all four present in each. The first test reads the job's text
+ * back from release-images.yml, so a change to the job fails here until this mirror follows it.
  */
-describe(`release ${RELEASE}: one version wherever release-images.yml's check-version looks`, () => {
+describe("release-images.yml's check-version, mirrored locally", () => {
   /** The check-version job's text in release-images.yml (from its key to the next job's), or "" when not found. */
   const CHECK_VERSION = (() => {
     const wf = repoFile(".github/workflows/release-images.yml");
@@ -116,163 +112,71 @@ describe(`release ${RELEASE}: one version wherever release-images.yml's check-ve
     return end < 0 ? "" : wf.slice(start, end);
   })();
 
-  /** The job's loops, in order: `for file in … ; do` (compose images), `for image in $images`, `for name in …`
-   * (run-hound.compose.yml has each image), the comment loop and the download-link loop. */
   const COMPOSE_FILES = ["run-hound.compose.yml", "docker-compose.yml"];
   const IMAGE_NAMES = ["run-hound", "run-hound-kennel", "run-hound-samples", "run-hound-fernway"];
-  const COMMENT_FILES = ["app/Dockerfile", "fixtures/*/Dockerfile", "docker-compose.yml", "run-hound.compose.yml", ".env.example"];
-  const LINK_FILES = [
-    "run-hound.compose.yml",
-    "docker-compose.yml",
-    "README.md",
-    "TESTING.md",
-    "docs/install.md",
-    "docs/usage.md",
-    "docs/ai.md",
-    "docs/signed-in-runs.md",
-    "docs/ai-built-apps.md",
-    "docs/security.md",
-    "docs/development.md",
-  ];
 
-  /** The job's grep -E patterns, verbatim (these ERE patterns mean the same in JavaScript). */
-  const VERSION_SRC = String.raw`[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.-]*`;
-  const COMMENT_REF_SRC = String.raw`(run-hound(-[a-z]+)?:|Run Hound \(?)v?` + VERSION_SRC;
-  const LINK_HOST_SRC = String.raw`(raw\.githubusercontent\.com/rahul-bharati/run-hound|github\.com/rahul-bharati/run-hound/(blob|tree|raw))`;
-  const LINK_TAIL_SRC = `/v?${VERSION_SRC}/`;
-
-  /** A path from a shell loop, with a `dir/*\/rest` glob expanded the way bash does (sorted, no dot directories). */
-  function expand(pattern: string): string[] {
-    const star = pattern.indexOf("/*/");
-    if (star < 0) return [pattern];
-    const dir = pattern.slice(0, star);
-    const rest = pattern.slice(star + 3);
-    return readdirSync(join(REPO, dir))
-      .filter((name) => !name.startsWith("."))
-      .sort()
-      .map((name) => `${dir}/${name}/${rest}`)
-      .filter((file) => existsSync(join(REPO, file)));
-  }
-
-  it("its loops walk the same files and image names as release-images.yml's check-version", () => {
+  it("its loop walks the same compose files as release-images.yml's check-version", () => {
     expect(CHECK_VERSION, "release-images.yml has a check-version job followed by the ci job").not.toBe("");
     const loops = [...CHECK_VERSION.matchAll(/^[ \t]*for (\w+) in ([^;]*); do$/gm)].map((m) => [
       m[1],
       m[2]!.replace(/\\[ \t]*\n/g, " ").split(/\s+/).filter(Boolean),
     ]);
-    expect(loops).toEqual([
-      ["file", COMPOSE_FILES],
-      ["image", ["$images"]],
-      ["name", IMAGE_NAMES],
-      ["file", COMMENT_FILES],
-      ["file", LINK_FILES],
-    ]);
+    expect(loops).toEqual([["file", COMPOSE_FILES]]);
   });
 
   it("its patterns are the ones this block mirrors", () => {
     const snippets = [
-      String.raw`site=$(sed -nE 's/^const version = "([^"]+)";.*/\1/p' site/src/lib/site.ts)`,
-      String.raw`images=$(sed -nE 's/^[[:space:]]*image:[[:space:]]*([^[:space:]#]+).*/\1/p' "$file")`,
-      `grep -noE '${COMMENT_REF_SRC}' "$file"`,
-      `version=$(printf '%s' "$ref" | grep -oE '${VERSION_SRC}$')`,
-      "version=${version%.}",
-      `link='${LINK_HOST_SRC}'`,
-      `grep -noE "$link${LINK_TAIL_SRC}" "$file"`,
-      'if [ "${ref##*/}" != "v$tag" ]; then',
+      'if [ "$tag" != "$pkg" ]; then',
+      'for e in "${expected[@]}"; do [ "$image" = "$e" ] && ok=1 && break; done',
+      String.raw`sed -E 's/^[[:space:]]*image:[[:space:]]*//'`,
+      String.raw`grep -noE 'image:[[:space:]]*[^[:space:]#]+' "$file"`,
+      String.raw`$1 == "##" { h = $2; sub(/,$/, "", h); if (h == v) { found = 1; exit } }`,
     ];
     for (const snippet of snippets) expect(CHECK_VERSION, snippet).toContain(snippet);
   });
 
-  it("the site's version is the release", () => {
-    const site = /^const version = "([^"]+)";/m.exec(repoFile("site/src/lib/site.ts"))?.[1];
-    expect(site, "site/src/lib/site.ts has `const version = \"…\";`").toBe(RELEASE);
-  });
-
-  it.each(COMPOSE_FILES)("every image in %s is pinned to the release", (file) => {
-    const images = [...repoFile(file).matchAll(/^[ \t]*image:[ \t]*([^\s#]+)/gm)].map((m) => m[1]);
-    expect(images.length, `${file} has image: lines`).toBeGreaterThan(0);
-    const allowed = IMAGE_NAMES.map((name) => `ghcr.io/rahul-bharati/${name}:${RELEASE}`);
-    for (const image of images) expect(allowed, `${file}: ${image}`).toContain(image);
-  });
-
-  it("run-hound.compose.yml names all four images", () => {
-    const text = repoFile("run-hound.compose.yml");
-    for (const name of IMAGE_NAMES) {
-      expect(text, name).toMatch(new RegExp(`^[ \\t]*image: ghcr\\.io/rahul-bharati/${name}:`, "m"));
+  it("run-hound.compose.yml's and docker-compose.yml's four images are each exactly one of the four expected values", () => {
+    const expectedByFile: Record<string, string[]> = {
+      "run-hound.compose.yml": IMAGE_NAMES.map((name) => `ghcr.io/rahul-bharati/${name}:\${RUNHOUND_TAG:-latest}`),
+      "docker-compose.yml": IMAGE_NAMES.map((name) => `ghcr.io/rahul-bharati/${name}:local`),
+    };
+    for (const file of COMPOSE_FILES) {
+      const images = [...repoFile(file).matchAll(/^\s*image:\s*(\S+)/gm)].map((m) => m[1]!);
+      expect([...images].sort(), file).toEqual([...expectedByFile[file]!].sort());
     }
-  });
-
-  it("the version numbers in the Dockerfile, compose and .env.example comments are the release", () => {
-    const fixtures = expand("fixtures/*/Dockerfile");
-    const files = COMMENT_FILES.flatMap(expand);
-    const ref = new RegExp(COMMENT_REF_SRC, "g");
-    const tail = new RegExp(`${VERSION_SRC}$`);
-    const wrong: string[] = [];
-    for (const file of files) {
-      for (const { line, ref: found } of grepNo(repoFile(file), ref)) {
-        const version = (tail.exec(found)?.[0] ?? "").replace(/\.$/, "");
-        if (version !== RELEASE) wrong.push(`${file}:${line}: "${found}"`);
-      }
-    }
-    expect(fixtures.length, "fixtures/*/Dockerfile found").toBeGreaterThan(0);
-    expect(wrong).toEqual([]);
-  });
-
-  it("every tag-pinned download link in the compose headers, README.md, TESTING.md and docs/ names the release tag", () => {
-    const link = new RegExp(LINK_HOST_SRC + LINK_TAIL_SRC, "g");
-    const wrong: string[] = [];
-    let pinned = 0;
-    for (const file of LINK_FILES) {
-      for (const { line, ref } of grepNo(repoFile(file), link)) {
-        pinned++;
-        if (ref.replace(/\/$/, "").split("/").pop() !== `v${RELEASE}`) wrong.push(`${file}:${line}: "${ref}"`);
-      }
-    }
-    expect(pinned, "the docs hand out tag-pinned download links").toBeGreaterThan(0);
-    expect(wrong).toEqual([]);
   });
 
   /**
-   * Beyond the workflow's lists (so the tests above that mirror it stay as they are): the issue forms and the fixture
-   * READMEs hand testers a `docker run … run-hound:X.Y.Z --version` command, a `run-hound X.Y.Z` placeholder, a
-   * `Run Hound X.Y.Z` heading and fixture image tags, and each must name the release. Wording that dates a feature
-   * ("since 0.5.0", "Run Hound 0.6.0 and later") is history, not a pin, and is left out.
+   * docs/development.md ("Releasing") says a release renames CHANGELOG.md's "## Unreleased" to "## <version> (…),
+   * <date>" in the same commit that bumps app/package.json and site.ts, so package.json's current version either
+   * already has that dated section (this branch ships it, or already shipped it) or, between releases, "##
+   * Unreleased" holds what will become the next one's section.
    */
-  it("the version pins in .github/ISSUE_TEMPLATE/*.yml and fixtures/*/README.md are the release", () => {
-    const templates = readdirSync(join(REPO, ".github/ISSUE_TEMPLATE"))
-      .filter((name) => /\.ya?ml$/.test(name))
-      .sort()
-      .map((name) => `.github/ISSUE_TEMPLATE/${name}`);
-    const readmes = expand("fixtures/*/README.md");
-    expect(templates.length, ".github/ISSUE_TEMPLATE has issue forms").toBeGreaterThan(0);
-    expect(readmes.length, "fixtures/*/README.md found").toBeGreaterThan(0);
-    const pin = new RegExp(String.raw`(since )?(run-hound(-[a-z]+)?:|run-hound |Run Hound \(?)v?(${VERSION_SRC})( (and|or) later)?`, "g");
-    const wrong: string[] = [];
-    let pinned = 0;
-    for (const file of [...templates, ...readmes]) {
-      repoFile(file)
-        .split("\n")
-        .forEach((text, i) => {
-          for (const m of text.matchAll(pin)) {
-            if (m[1] || m[6]) continue;
-            pinned++;
-            if (m[4]!.replace(/\.$/, "") !== RELEASE) wrong.push(`${file}:${i + 1}: "${m[0]}"`);
-          }
-        });
+  it('CHANGELOG.md documents app/package.json\'s version: a dated "## <version>" section, or "## Unreleased" when it has none yet', () => {
+    const changelog = repoFile("CHANGELOG.md");
+    const heading = changelog.split("\n").find((l) => l.startsWith(`## ${PKG_VERSION} `));
+    if (!heading) {
+      expect(changelog, `no "## ${PKG_VERSION}" section yet, and no "## Unreleased" either`).toMatch(/^## Unreleased$/m);
     }
-    expect(pinned, "the issue forms and fixture READMEs pin a version").toBeGreaterThan(0);
-    expect(wrong).toEqual([]);
   });
 
-  it("the site's release date and the CHANGELOG heading name the release day", () => {
+  it("site.ts's released and releasedIso are the same day, and match the CHANGELOG heading of site.ts's version", () => {
     const site = repoFile("site/src/lib/site.ts");
-    expect(/^\s*released: "([^"]+)",/m.exec(site)?.[1]).toBe(RELEASED.text);
-    expect(/^\s*releasedIso: "([^"]+)",/m.exec(site)?.[1]).toBe(RELEASED.iso);
-    const [y, m, d] = RELEASED.iso.split("-").map(Number);
+    const siteVersion = /^const version = "([^"]+)";/m.exec(site)?.[1];
+    const released = /^\s*released: "([^"]+)",/m.exec(site)?.[1];
+    const releasedIso = /^\s*releasedIso: "([^"]+)",/m.exec(site)?.[1];
+    expect(siteVersion, 'site.ts has `const version = "…";`').toBeDefined();
+    expect(released, 'site.ts has `released: "…",`').toBeDefined();
+    expect(releasedIso, 'site.ts has `releasedIso: "…",`').toBeDefined();
+    // Pre-releases (X.Y.Z-rc.1) are skipped: site/src/lib/version-line.test.ts only allows a plain X.Y.Z there.
+    if (!PKG_VERSION.includes("-")) {
+      expect(siteVersion, "site.ts's version is app/package.json's").toBe(PKG_VERSION);
+    }
+    const [y, m, d] = releasedIso!.split("-").map(Number);
     const shown = new Date(Date.UTC(y!, m! - 1, d!)).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
-    expect(shown, "released and releasedIso are the same day").toBe(RELEASED.text);
-    const heading = repoFile("CHANGELOG.md").split("\n").find((l) => l.startsWith(`## ${RELEASE} `));
-    expect(heading, `CHANGELOG.md has a "## ${RELEASE}" heading`).toBeDefined();
-    expect(heading).toContain(RELEASED.text);
+    expect(shown, "released and releasedIso are the same day").toBe(released);
+    const heading = repoFile("CHANGELOG.md").split("\n").find((l) => l.startsWith(`## ${siteVersion} `));
+    expect(heading, `CHANGELOG.md has a "## ${siteVersion}" heading`).toBeDefined();
+    expect(heading).toContain(released);
   });
 });

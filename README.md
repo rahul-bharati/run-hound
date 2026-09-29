@@ -35,7 +35,7 @@ mkdir -p runs                                  # reports land in ./runs; create 
 docker compose -f run-hound.compose.yml up     # UI on http://localhost:4000 (Podman: podman compose -f run-hound.compose.yml up)
 ```
 
-Open <http://localhost:4000> and enter `http://kennel:3000/book`; the other targets are listed in [the test lab](https://run-hound.rahulbharati.com/docs/test-lab/#apps). The first start downloads about 0.5 GB. Settings, stopping, updating and the command line in the lab: [the test lab](https://run-hound.rahulbharati.com/docs/test-lab/). A specific release's compose file, such as 0.6.0's: `https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.6.0/run-hound.compose.yml`.
+Open <http://localhost:4000> and enter `http://kennel:3000/book`; the other targets are listed in [the test lab](https://run-hound.rahulbharati.com/docs/test-lab/#apps). The first start downloads about 0.5 GB. Settings, stopping, updating and the command line in the lab: [the test lab](https://run-hound.rahulbharati.com/docs/test-lab/). Every release is also published as `ghcr.io/rahul-bharati/run-hound:X.Y.Z` (and the other three images the same way); set `RUNHOUND_TAG=X.Y.Z` before `docker compose -f run-hound.compose.yml up` to pin one.
 
 ## What it checks
 

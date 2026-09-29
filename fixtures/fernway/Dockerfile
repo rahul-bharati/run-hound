@@ -1,9 +1,10 @@
 # Fernway: a polished, AI-builder-style SaaS app (Vite + React + Tailwind v4 + shadcn/ui-style components) that
 # Run Hound is tested against. Clean by default; FERNWAY_BUGS plants bugs, FERNWAY_LOGIN (one-step | two-step) and
 # FERNWAY_SESSION (cookie | session-storage) pick the sign-in form and where the session lives (see CONTRACT.md).
-# Build from the repository root (the pnpm workspace and lockfile live there):
-#   docker build -f fixtures/fernway/Dockerfile -t ghcr.io/rahul-bharati/run-hound-fernway:0.6.0 .
-#   docker run --rm -p 127.0.0.1:4110:4110 -e FERNWAY_BUGS=none ghcr.io/rahul-bharati/run-hound-fernway:0.6.0
+# Published as ghcr.io/rahul-bharati/run-hound-fernway. Build it yourself from the repository root (the pnpm
+# workspace and lockfile live there):
+#   docker build -f fixtures/fernway/Dockerfile -t localhost/run-hound-fernway:dev .
+#   docker run --rm -p 127.0.0.1:4110:4110 -e FERNWAY_BUGS=none localhost/run-hound-fernway:dev
 # Fernway is a local test target only: do not expose it to the internet.
 
 # ---- build: install the workspace deps for fernway and run `vite build` ----

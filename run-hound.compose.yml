@@ -1,8 +1,17 @@
-# Run Hound 0.6.0 and the apps it is tested against, from the published images: no clone, no build.
+# Run Hound and the apps it is tested against, from the published images: no clone, no build.
 #
-#   curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.6.0/run-hound.compose.yml
+#   curl -fsSLO https://github.com/rahul-bharati/run-hound/releases/latest/download/run-hound.compose.yml
 #   mkdir -p runs                                  # reports land in ./runs; create it first so the files belong to you
 #   docker compose -f run-hound.compose.yml up     # or: podman compose -f run-hound.compose.yml up
+#
+# Every image below is `:${RUNHOUND_TAG:-latest}` with pull_policy: always, so a plain `up` re-checks the registry
+# and always runs the latest release instead of reusing a cached `latest`. Set RUNHOUND_TAG=X.Y.Z (.env.example) to
+# pin one release instead, or to try a pre-release. Offline, with Docker Compose, `up` needs the registry reachable:
+# add `--pull missing` (or `--pull never`, once you have pulled every image you need) to reuse what's already on your
+# machine. Podman is different (confirmed against podman-compose 1.6.0's source): `up --pull` only changes its own
+# pre-pull step, not the `--pull=always` it always passes to `podman create` from this file's own pull_policy, and
+# `podman compose run` has no `--pull` flag at all -- so offline, with Podman, you need the registry reachable, or
+# pull each image once yourself (`podman pull ...`) and start it with a plain `podman run` instead of through compose.
 #
 # Then open http://localhost:4000 and test one of these targets (inside the compose network the apps are reached by
 # service name, so enter these addresses in the UI):
@@ -20,14 +29,16 @@
 #
 # Your own app on this machine: enter http://host.docker.internal:<port>/<page> (TESTING.md has the dev-server
 # settings). Every setting below has a default; override them in a .env file next to this one (the variables are
-# listed in https://github.com/rahul-bharati/run-hound/blob/v0.6.0/.env.example). All ports are bound to 127.0.0.1.
+# listed in https://github.com/rahul-bharati/run-hound/releases/latest/download/run-hound.env.example). All ports
+# are bound to 127.0.0.1.
 #
 # Only want Run Hound itself? `docker compose -f run-hound.compose.yml up run-hound` still starts the test apps it
 # depends on; for Run Hound alone use the single `docker run` in the README.
 # Working from a clone? docker-compose.yml builds these same services from source.
 
 x-sample: &sample
-  image: ghcr.io/rahul-bharati/run-hound-samples:0.6.0
+  image: ghcr.io/rahul-bharati/run-hound-samples:${RUNHOUND_TAG:-latest}
+  pull_policy: always
   init: true
   # Healthy while the app answers on its PORT (any status below 500). The images have no curl, so Node's fetch probes.
   healthcheck: &app-healthcheck
@@ -39,7 +50,8 @@ x-sample: &sample
 
 services:
   run-hound:
-    image: ghcr.io/rahul-bharati/run-hound:0.6.0
+    image: ghcr.io/rahul-bharati/run-hound:${RUNHOUND_TAG:-latest}
+    pull_policy: always
     init: true
     environment:
       # Named hosts the safety gate accepts besides localhost and private addresses: the test apps and the names
@@ -117,7 +129,8 @@ services:
 
   # ---- Kennel: the deliberately broken booking app -------------------------------------------------------------
   kennel: &kennel
-    image: ghcr.io/rahul-bharati/run-hound-kennel:0.6.0
+    image: ghcr.io/rahul-bharati/run-hound-kennel:${RUNHOUND_TAG:-latest}
+    pull_policy: always
     init: true
     healthcheck: *app-healthcheck
     environment:
@@ -136,7 +149,8 @@ services:
 
   # ---- Fernway: a Lovable/Bolt-style SaaS app (Vite, React, Tailwind, Radix) --------------------------------------
   fernway: &fernway
-    image: ghcr.io/rahul-bharati/run-hound-fernway:0.6.0
+    image: ghcr.io/rahul-bharati/run-hound-fernway:${RUNHOUND_TAG:-latest}
+    pull_policy: always
     init: true
     healthcheck: *app-healthcheck
     environment:

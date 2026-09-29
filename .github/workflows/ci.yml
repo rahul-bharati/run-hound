@@ -203,9 +203,13 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
 
-      # linux/amd64 only, loaded into the runner's Docker (nothing is pushed). The tags are the ones both compose files
-      # use, so the test lab below runs exactly these builds. The GHA cache scopes are CI's own ("ci-<image>");
-      # release-images.yml reads them too, so a release after a green main rebuilds little.
+      # linux/amd64 only, loaded into the runner's Docker (nothing is pushed). Each image gets its version tag (for the
+      # smoke tests below, which name it) and :latest (run-hound.compose.yml's images default to
+      # ghcr.io/rahul-bharati/<name>:${RUNHOUND_TAG:-latest}, so the test lab below runs exactly these builds without
+      # RUNHOUND_TAG set). The GHA cache scopes are CI's own ("ci-<image>"); release-images.yml reads them too, so a
+      # release after a green main rebuilds little. Both the `up` and the `run` against run-hound.compose.yml below
+      # pass --pull never, so the lab and the smoke-test run use these just-built local images instead of the
+      # service's pull_policy: always pulling ghcr.io's :latest and retagging over them.
       - name: Build run-hound
         uses: docker/build-push-action@v7
         with:
@@ -214,7 +218,9 @@ jobs:
           platforms: linux/amd64
           load: true
           provenance: false
-          tags: ghcr.io/rahul-bharati/run-hound:${{ steps.version.outputs.version }}
+          tags: |
+            ghcr.io/rahul-bharati/run-hound:${{ steps.version.outputs.version }}
+            ghcr.io/rahul-bharati/run-hound:latest
           cache-from: type=gha,scope=ci-run-hound
           cache-to: type=gha,mode=max,scope=ci-run-hound
 
@@ -226,7 +232,9 @@ jobs:
           platforms: linux/amd64
           load: true
           provenance: false
-          tags: ghcr.io/rahul-bharati/run-hound-kennel:${{ steps.version.outputs.version }}
+          tags: |
+            ghcr.io/rahul-bharati/run-hound-kennel:${{ steps.version.outputs.version }}
+            ghcr.io/rahul-bharati/run-hound-kennel:latest
           cache-from: type=gha,scope=ci-run-hound-kennel
           cache-to: type=gha,mode=max,scope=ci-run-hound-kennel
 
@@ -238,7 +246,9 @@ jobs:
           platforms: linux/amd64
           load: true
           provenance: false
-          tags: ghcr.io/rahul-bharati/run-hound-samples:${{ steps.version.outputs.version }}
+          tags: |
+            ghcr.io/rahul-bharati/run-hound-samples:${{ steps.version.outputs.version }}
+            ghcr.io/rahul-bharati/run-hound-samples:latest
           cache-from: type=gha,scope=ci-run-hound-samples
           cache-to: type=gha,mode=max,scope=ci-run-hound-samples
 
@@ -250,7 +260,9 @@ jobs:
           platforms: linux/amd64
           load: true
           provenance: false
-          tags: ghcr.io/rahul-bharati/run-hound-fernway:${{ steps.version.outputs.version }}
+          tags: |
+            ghcr.io/rahul-bharati/run-hound-fernway:${{ steps.version.outputs.version }}
+            ghcr.io/rahul-bharati/run-hound-fernway:latest
           cache-from: type=gha,scope=ci-run-hound-fernway
           cache-to: type=gha,mode=max,scope=ci-run-hound-fernway
 
@@ -344,7 +356,7 @@ jobs:
       - name: "Smoke test: a CLI run in the lab finds Kennel's bugs (exit 1)"
         run: |
           set +e
-          docker compose -f run-hound.compose.yml run --rm -T run-hound run http://kennel:3000/book --approve all | tee run.log
+          docker compose -f run-hound.compose.yml run --rm -T --pull never run-hound run http://kennel:3000/book --approve all | tee run.log
           code=${PIPESTATUS[0]}
           set -e
           findings=$(grep -oE '^[0-9]+ findings' run.log | grep -oE '^[0-9]+' || true)
