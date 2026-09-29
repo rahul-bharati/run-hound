@@ -1072,7 +1072,7 @@ checks use `clock.runFor()`; `animations: "disabled"` and `clock.fastForward()` 
 | Footer height | ≤ 360 px at 1440; ≤ 760 px at 390 | lab |
 | First viewport | h1, the subhead with "free", both buttons and the command visible at 1440×900; "free" and the primary button within 844 px at 390 | lab |
 | Time to bug | finding card visible ≤ 5.0 s and stamp ≤ 5.5 s from navigation, throttled desktop, median of 5 (`home.spec.mjs`; the motion contract's own §4.3.9 replay of the same two numbers stays a median of 3) | lab |
-| LCP | ≤ 1,000 ms throttled on `/` (element: h1 on desktop, h1 or subhead on phones); ≤ 1,200 ms on every other template | lab |
+| LCP | ≤ 1,100 ms throttled on `/` (element: h1 on desktop, h1 or subhead on phones); ≤ 1,200 ms on every other template | lab |
 | CLS | 0 (≤ 0.0001 measured) on `/` through load, hero, Replay and a full scroll; ≤ 0.01 on other templates | lab |
 | Initial JS (gzip -9 of first-party modern `<script src>`, no `noModule`, from `.next/`) | shared ≤ 153,000 B; `/` ≤ 158,000 B with page-specific ≤ 5,000; docs and check pages ≤ 156,000; others ≤ 155,000; no initial chunk contains `gsap`, `ScrollTrigger` or Pagefind's Component UI | build (`check-budgets.mjs`) |
 | Lazy JS | `/`: ≤ 32,000 B after load + idle, ≤ 22,000 B more on approach; inner pages ≤ 32,000; docs 0; search on open ≤ 16,000 (dialog + `pagefind.js`) | build (sizes) + lab (requests) |

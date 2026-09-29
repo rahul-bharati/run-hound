@@ -21,3 +21,6 @@
 5. **Defaults for questions not asked:** no new analytics or tracking in 0.6.0 (Cloudflare Web Analytics stays as it
    is); no "built with AI" or employer statement; no light theme or localisation; Cloudflare dashboard changes stay with
    the maintainer.
+6. **The lab's throttled LCP limit on `/` is 1,100 ms** (was 1,000 ms; every other template keeps 1,200 ms): on
+   GitHub's throttled runner the homepage's h1 paints at about 990-1,030 ms with no change to the page, so the gate
+   failed at random and held back 0.6.0's release images.
