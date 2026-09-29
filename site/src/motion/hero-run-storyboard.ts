@@ -1,12 +1,12 @@
 /**
  * The hero run (DESIGN.md §4.3): the homepage's one story, about 2.7 s, played once, then it rests on the finished
- * frame with Replay. Explore, plan, approve, run, report, then the EVIDENCE stamp. Everything here moves inside the
- * aria-hidden run window; no text a reader needs ever moves (§4.1 rule 2). The frame's facts (form name, field count,
- * requests) come from the real Kennel 0.6.0 run (content/hero-run.ts, P1's); this file holds only the timing.
+ * frame with Replay. Explore, plan, approve, run, report. Everything here moves inside the aria-hidden run window; no
+ * text a reader needs ever moves (§4.1 rule 2). The frame's facts (form name, field count, requests) come from the
+ * real Kennel 0.6.0 run (content/hero-run.ts, P1's); this file holds only the timing.
  *
  * Accent movers, one at a time (rule 6): the scan line (0-0.60), the rail with its nodes (0.60-0.78, 1.12-1.48,
- * 1.88-2.06), the ticks (0.88-1.12), the progress bar (1.48-1.88), the stamp (2.30-2.48). The finding lands at 1.88 s
- * and is fully visible by about 2.0 s; the run rests at 2.73 s, when Replay appears.
+ * 1.88-2.06), the ticks (0.88-1.12), the progress bar (1.48-1.88). The finding lands at 1.88 s and is fully visible by
+ * about 2.0 s; the run rests at 2.73 s, when Replay appears.
  */
 import type { Storyboard } from "./storyboard";
 
@@ -41,7 +41,6 @@ export const heroRunStoryboard: Storyboard = {
     finding: 1,
     "request-1": 1,
     "request-2": 1,
-    stamp: 1,
     "spec-chip": 1,
     "replay-slot": 1,
   },
@@ -73,14 +72,13 @@ export const heroRunStoryboard: Storyboard = {
     { part: "saved-1", at: 1.55, duration: "medium", ease: "enter", from: { opacity: 0, y: "rise-sm" }, to: risen },
     { part: "saved-2", at: 1.7, duration: "medium", ease: "enter", from: { opacity: 0, y: "rise-sm" }, to: risen },
 
-    // Report: the rail to 100% and node 5; the finding card rises 16 px; the two requests rise 8 px; the stamp lands;
-    // the "Playwright test" chip fades in. Rest at 2.73 s.
+    // Report: the rail to 100% and node 5; the finding card rises 16 px; the two requests rise 8 px; the
+    // "Playwright test" chip fades in. Rest at 2.73 s.
     { part: "rail-line", at: 1.88, duration: "short", ease: "move", to: { scaleX: 1 }, accent: "rail" },
     node("node-5", 1.88),
     { part: "finding", at: 1.88, duration: "medium", ease: "enter", from: { opacity: 0, y: "rise-md" }, to: risen },
     { part: "request-1", at: 2.0, duration: "medium", ease: "move", from: { opacity: 0, y: "rise-sm" }, to: risen },
     { part: "request-2", at: 2.12, duration: "medium", ease: "move", from: { opacity: 0, y: "rise-sm" }, to: risen },
-    { part: "stamp", at: 2.3, duration: "short", ease: "stamp", from: { opacity: 0, scale: 1.15, rotation: -12 }, to: { opacity: 1, scale: 1, rotation: -4 }, accent: "stamp" },
     { part: "spec-chip", at: 2.55, duration: "short", ease: "enter", from: hidden, to: shown },
   ],
 };

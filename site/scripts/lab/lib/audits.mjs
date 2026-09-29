@@ -32,7 +32,7 @@ export async function runAxe(page, { tags = axeTags } = {}) {
  * - focus rings (outlines are never counted);
  * - anything inside an element marked data-accent-exempt: the primary button (G2's ButtonLink primary variant carries
  *   the attribute), the key words of the h1 and the closing h2, and the status marks of a product figure (the run
- *   window's progress and ticks, the EVIDENCE stamp).
+ *   window's progress and ticks).
  * Visually hidden text (.sr-only, or any box of 1 px or less) is never seen, so it is never counted. An SVG counts
  * once, as its outermost <svg>: an accent icon is one object however many shapes it draws; a shape counts when its fill
  * covers more than 1 px each way, or its stroke of 2 px or more runs more than 1 px.

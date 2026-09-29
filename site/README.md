@@ -39,7 +39,8 @@ reflow at 320 px, CSP violations, search, the release gate (`release-gate.spec.m
 Firefox and WebKit (`cross-browser.spec.mjs`). Name specs to run only those (`pnpm lab home search`). The baseline
 (`pnpm lab baseline`) and the external links (`pnpm lab external-links`, weekly in
 `.github/workflows/site-links.yml`) run only when named. Output (JSON per spec, screenshots) goes to
-`.lab-out/<build>/`, which is git-ignored; CI keeps it as the `site-lab` artefact.
+`.lab-out/<build>/`, which is git-ignored; CI runs the lab as a matrix (`--shard`) and keeps each shard's output as
+its own artefact, `site-lab-<n>`.
 
 ```bash
 pnpm exec playwright install chromium firefox webkit   # once; WebKit also needs: sudo pnpm exec playwright install-deps webkit
@@ -62,8 +63,9 @@ Both are build-time variables (inlined into the pages):
 
 `src/lib/site.ts` holds the Run Hound version the site describes. It must equal `app/package.json`: the release
 workflow (`release-images.yml`, check-version) fails when they differ. The download links (`curl` of
-`run-hound.compose.yml` and `.env.example`) are pinned to that release's tag, so publish the site after the tag is
-pushed.
+`run-hound.compose.yml` and the settings asset, `run-hound.env.example`) point at the latest GitHub Release, which
+`release-images.yml` creates only once every image is pushed, so they never name images GHCR doesn't have yet; the
+site itself can be deployed any time, not only after a tag is pushed.
 
 ## Security headers
 

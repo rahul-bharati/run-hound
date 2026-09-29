@@ -120,8 +120,8 @@ Every must-change the judges listed for the winner, every shared one, and every 
 | E1 | Engineering | Phone menu fails WCAG 2.1.1 (focus-out handler on the wrong element) | One `focusout` handler on `<header>`, closing only when `relatedTarget` is outside the header | H1; `header.spec`: open the menu, Tab, focus is on the first item |
 | E2 | Engineering | Empty live region covers "Other ways to start" | No stacked layers: the hint never changes; the copy status is an sr-only `role="status"` elsewhere (§2.5 Command) | G2; `home.spec`: a real mouse click on the link changes `location.hash` |
 | E3 | Engineering | Header sticky at 400% zoom | Header and docs bar `position: static` under `@media (max-height: 30rem)` | H1, D1; `header.spec` at 320×256 |
-| E4 | Engineering | ScrollTrigger and DrawSVG downloaded for every visitor | DrawSVG and the runtime load when an effect is within half a viewport; ScrollTrigger only when the pipeline is | M1; `motion-contract.spec` counts requests at rest |
-| E5 | Engineering | The rAF loop runs while the reader rests | ScrollTrigger drives only the pipeline, and is parked after 1.5 s without scrolling | M1; `motion-contract.spec`: 0 rAF in 3 s at all 21 stop points after 2 s of rest |
+| E4 | Engineering | ScrollTrigger and DrawSVG downloaded for every visitor | DrawSVG and the runtime load when an effect is within half a viewport; ScrollTrigger only when the pipeline is | M1; `motion-contract-2.spec` counts requests at rest |
+| E5 | Engineering | The rAF loop runs while the reader rests | ScrollTrigger drives only the pipeline, and is parked after 1.5 s without scrolling | M1; `motion-contract-1.spec`/`motion-contract-2.spec`: 0 rAF in 3 s at all 21 stop points after 2 s of rest |
 | E6 | Engineering | Home HTML over D20 (182.7 KB raw) | Component classes, one SVG sprite, one markup variant per figure, CSS-drawn pipeline connectors (§2.9) | P1, G2; `check-budgets` 135,000 / 25,000 B |
 | E7 | Engineering | `check-copy` not in the build; no motion tests | `pnpm build` runs `check-copy`, `check-registry`, `check-budgets`; the lab runs the motion contract | G1, M1 |
 | ES1 | Engineering | Arbitrary Tailwind values grew to 225-262 | Values become tokens or component classes; `eslint-plugin-tailwindcss` errors on arbitrary values in new code; the total may not exceed 139 (today) | G2; `pnpm lint`, `check-budgets` counts |
@@ -199,7 +199,7 @@ the lab fails a page that computes more than 9 distinct font sizes in `<main>`.
 
 - Mono stays at or under 12% of the words in `<main>` (lab check). Evidence measured 9.9%.
 - Big numbers (45%, 6 / 8 / 12) are Display M in `fg`, static. Nothing counts up.
-- Captions are sentence case and ≤ 15 words. No uppercase outside mono labels of ≤ 3 words and "HIGH" / "EVIDENCE".
+- Captions are sentence case and ≤ 15 words. No uppercase outside mono labels of ≤ 3 words and "HIGH".
 - D18 (Bricolage's `opsz` axis, 35.6 KB on every first visit) is decided on `/_design/`: the page shows the display
   steps with and without the axis at 40, 60 and 80 px; drop the axis if the difference is invisible.
 
@@ -207,17 +207,15 @@ the lab fails a page that computes more than 9 distinct font sizes in `<main>`.
 
 - **`accent` (#5EE6A3)** marks the one thing to do or the one thing that changed. It is allowed on: the primary
   button, the key words of the home h1 and the closing h2, link text (`ArrowLink`, inline links), focus rings, pass
-  ticks, progress, the pipeline's drawn line and node rings, the EVIDENCE stamp, the active nav underline and the
-  current docs item.
+  ticks, progress, the pipeline's drawn line and node rings, the active nav underline and the current docs item.
 - **The accent budget at rest.** In any viewport-sized window of any page at rest, at most **one strong accent object**
   outside the exempt uses. "Strong" means a filled shape, an accent stroke ≥ 2 px, or accent display text. Exempt: the
   primary button, link text, focus rings, the key words of the h1 and the closing h2, and the status marks inside a
-  product figure (the run window's progress bar and ticks, the EVIDENCE stamp), which follow the web UI's own status
-  rules. The lab counts the rest (§5.2), so the rule catches what made the evidence prototype loud. What this changes
-  from it:
+  product figure (the run window's progress bar and ticks), which follow the web UI's own status rules. The lab
+  counts the rest (§5.2), so the rule catches what made the evidence prototype loud. What this changes from it:
   - Pipeline nodes rest as a 28 px `bg` disc with a 1.5 px accent ring and an `fg` number, never a solid mint disc. The
     drawn line is 1.5 px.
-  - The evidence outline settles to `line-strong` once the stamp lands, so the stamp stands alone.
+  - The evidence outline settles to `line-strong` once it has drawn.
   - Check cards have no top bars. Their count numerals are `fg`. Only the 12 small ticks are accent.
   - AI-built and trust icons are `muted` strokes in `surface-2` tiles; they never draw themselves.
   - The proof strip's bullets are `dim` ticks, not accent (they are bullets, not run results).
@@ -365,8 +363,7 @@ If the phone page lands above 10 screens: cut block 1 to two statistics first, t
     9 fields"; four plan rows with ticks, the real scenario titles from the 0.6.0 plan ("Double-click “Book” with
     valid data", "Submit while the server answers with an error", "Load the page on a 320 px wide screen", "Check the
     page's security headers"), "+16 more"; a progress bar "20 / 20 · 56 s"; the finding card: HIGH, "Double-clicking
-    “Book” saves 2 times", `POST /api/bookings → 201` at "+29.8 ms" and "+30.0 ms", a "Playwright test" chip and the
-    **EVIDENCE** stamp.
+    “Book” saves 2 times", `POST /api/bookings → 201` at "+29.8 ms" and "+30.0 ms", and a "Playwright test" chip.
   - Every value comes from `content/runs/kennel-0.6.0.json`, extracted from the real run
     `site-design/kennel-run/runs/20260927-153524-2d830d/` (Run Hound 0.6.0, 20 scenarios, 56,828 ms, request #1 at
     +29.8 ms and #2 at +30.0 ms). A test fails if the window and the extract disagree.
@@ -391,8 +388,7 @@ to cut if words or phone height must go.
   - Report: "Every finding comes with proof you can check yourself."
   Nodes are numbered rings on a dashed `line-strong` track; the drawn accent line and lit rings are the finished state
   (the scroll draw is §4.3).
-- **h3 "One finding, three kinds of proof"**, the evidence trio inside one outline with the EVIDENCE stamp on its top
-  right edge, 6 + 6 columns from 1024 px:
+- **h3 "One finding, three kinds of proof"**, the evidence trio inside one outline, 6 + 6 columns from 1024 px:
   - **The page** (left): a real crop of the double-submit evidence frame from the 0.6.0 run, the "Your bookings" rows
     with both saved copies and their red markers, text ≥ 11 CSS px at 1024 px. Caption: "The page: one double click,
     two saved bookings, both marked."
@@ -750,16 +746,15 @@ except links to moved docs anchors. Excluded from search. `/security/` stays the
 ### 4.1 Rules (they replace brief §5.1 and go into brand.md's new "Motion" section)
 
 1. **Purpose first.** Every moving thing is the product working (the hero run), progress through the loop (the
-   pipeline), proof arriving (evidence, ticks, the stamp) or feedback on an action. Anything else ships static.
+   pipeline), proof arriving (evidence, ticks) or feedback on an action. Anything else ships static.
 2. **Text never moves or waits.** No heading, paragraph, caption, card text, link or button is ever faded, moved,
-   blurred, split or typed in. Only `aria-hidden` figure internals, lines, rings, ticks, outlines, the stamp, media inside
+   blurred, split or typed in. Only `aria-hidden` figure internals, lines, rings, ticks, outlines, media inside
    figures (never their captions) and the line hound move.
 3. **One story per page, played once**, then it rests on the finished state. The hero has Replay. Scroll effects play
    once per page view and their triggers are killed.
 4. **Scroll triggers; it drives one thing.** Only the pipeline is scrubbed. No scroll-jacking, pinning, parallax,
    smooth-scroll library or scrubbed text; `html { scroll-behavior: smooth }` is gone.
-5. **Transform, opacity and SVG stroke drawing only.** Rises of 8-16 px; scale 0.96-1.04, except the stamp's one landing
-   from 1.15.
+5. **Transform, opacity and SVG stroke drawing only.** Rises of 8-16 px; scale 0.96-1.04.
 6. **One accent-coloured thing moves at a time.** Checked by a unit test over each storyboard's data.
 7. **Interruptible.** A pointer or key inside the hero skips to the end. Focus moving into an effect, printing, or
    jumping past it finishes it.
@@ -775,13 +770,13 @@ except links to moved docs anchors. Excluded from search. `/security/` stays the
 ```css
 @theme static {
   --transition-duration-micro: 120ms;   /* press, hover colour, tick */
-  --transition-duration-short: 180ms;   /* copy state, stamp, menu, dialog */
+  --transition-duration-short: 180ms;   /* copy state, menu, dialog */
   --transition-duration-medium: 280ms;  /* rises, rail moves */
   --transition-duration-long: 450ms;    /* crossfades, trace fade */
   --ease-enter: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-exit:  cubic-bezier(0.3, 0, 0.8, 0.15);
   --ease-move:  cubic-bezier(0.2, 0, 0, 1);
-  --ease-stamp: cubic-bezier(0.34, 1.56, 0.64, 1);   /* the EVIDENCE stamp and the 404 nose only */
+  --ease-stamp: cubic-bezier(0.34, 1.56, 0.64, 1);   /* the 404 nose only */
 }
 :root {
   --motion-rise-sm: 8px; --motion-rise-md: 16px; --motion-nudge: 2px; --motion-stagger: 40ms;
@@ -818,7 +813,6 @@ Starts on desktop when the timeline mounts; on phones when the window is half vi
 | 1.12 | Approve (`approve`) | Rail 25 → 50%, node 3 | short, move | rail |
 | 1.30 | Run (`run`) | Rail 50 → 75%, node 4. Two press rings on "Book" (scale 0.96 ↔ 1.04, 2 × micro, neutral colour). Progress bar scaleX 0 → 1 from 1.48 to 1.88. "Saved copy 1" rises 8 px at 1.55, "Saved copy 2" at 1.70 (`fail` text, static colour) | rail short; bar 0.40 linear; rows medium, enter | rail, then bar |
 | 1.88 | Report (`report`) | Rail 75 → 100%, node 5. The finding card rises 16 px with opacity (fully visible by about 2.0). Request rows rise 8 px at 2.00 and 2.12 | rail short; card medium, enter; rows medium, move | rail |
-| 2.30 | – | The **EVIDENCE** stamp lands: opacity 0 → 1, scale 1.15 → 1, rotate -12° → -4° | short, stamp | stamp |
 | 2.55 | – | "Playwright test" chip fades in | short, enter | – |
 | 2.73 | Rest | Nothing moves. Replay (a 44 px text button) becomes visible in its reserved slot | – | – |
 
@@ -829,7 +823,7 @@ Starts on desktop when the timeline mounts; on phones when the window is half vi
 - **DOM contract** (P1 renders it, M1 animates it; both test it): root `[data-motion="hero-run"]`; held parts carry
   `data-beat="late"`; named parts `data-part=`: `scan`, `chip` ×3, `found`, `rail-line`, `node-2` … `node-5`,
   `plan-row` ×4, `plan-more`, `tick` ×4, `press-ring`, `progress`, `saved-1`, `saved-2`, `finding`, `request-1`,
-  `request-2`, `stamp`, `spec-chip`, `replay-slot`. `scan` and `press-ring` rest invisible by class.
+  `request-2`, `spec-chip`, `replay-slot`. `scan` and `press-ring` rest invisible by class.
 
 #### Pipeline (How it works; ScrollTrigger + CSS connectors; scrubbed)
 
@@ -852,12 +846,11 @@ Starts on desktop when the timeline mounts; on phones when the window is half vi
 |---|---|---|---|
 | 0.00 / 0.12 / 0.24 | The three pictures (crop, request card, test) rise 16 px with opacity. Captions stay put | medium, enter | – |
 | 0.10 | The accent outline draws round the trio (measured dash) | `--motion-draw` (0.9), move | outline |
-| 1.00 | The EVIDENCE stamp lands on the outline's top-right edge | short, stamp | stamp |
 | 1.20 | The accent outline fades out while the `line-strong` outline fades in beneath it | long, exit / enter | outline (fading) |
-| 1.65 | Rest: `line-strong` outline and the stamp | – | – |
+| 1.65 | Rest: `line-strong` outline | – | – |
 
 DOM contract: `[data-motion="evidence-trio"]`, `data-part="media"` ×3, `outline-accent` (rests hidden by class),
-`outline-rest`, `stamp`.
+`outline-rest`.
 
 #### Check cards (homepage checks band; one-shot at 80%)
 
@@ -998,7 +991,7 @@ site README says so, and GSAP code is never copied outside `site/src/motion/`.
 No global motion toggle: 2.3.3 is AAA, the OS setting covers it, and the only autoplaying piece has Replay and skips on
 any input.
 
-### 4.6 The motion contract (Playwright, `site/scripts/lab/specs/motion-contract.spec.mjs`)
+### 4.6 The motion contract (Playwright, `site/scripts/lab/specs/motion-contract-1.spec.mjs` and `motion-contract-2.spec.mjs`)
 
 Run against the built standalone site in the `site-lab` CI job, at 1440×900 and 390×844 (DPR 3, touch), with the
 brief's throttled profile (4× CPU, 1.6 Mbps down, 750 kbps up, 150 ms RTT, cache off) where it says so. Mid-animation
@@ -1018,8 +1011,8 @@ checks use `clock.runFor()`; `animations: "disabled"` and `clock.fastForward()` 
    `outline-accent`).
 7. CLS is 0 through load, the hero run, a Replay click and a full scroll down and back.
 8. The hero and every effect finish within 5 s of starting (WCAG 2.2.2).
-9. Throttled desktop, median of 3: the finding card at opacity ≥ 0.9 by 5.0 s from navigation, the stamp by 5.5 s;
-   0 held parts ever go from visible to hidden (no flicker).
+9. Throttled desktop, median of 3: the finding card at opacity ≥ 0.9 by 5.0 s from navigation; 0 held parts ever go
+   from visible to hidden (no flicker).
 10. The pipeline's lit nodes never go from lit to unlit while scrolling down, including across a park and resume.
 11. Requests: a visit that never scrolls downloads no ScrollTrigger and no DrawSVG.
 12. Unit tests (`pnpm test`): each storyboard's accent intervals don't overlap; the hero's finding lands ≤ 1.9 s and the
@@ -1071,7 +1064,7 @@ checks use `clock.runFor()`; `animations: "disabled"` and `clock.fastForward()` 
 | Homepage screens (reduced motion, header and footer included) | ≤ 7.0 at 1440×900; ≤ 10.0 at 390×844 | lab |
 | Footer height | ≤ 360 px at 1440; ≤ 760 px at 390 | lab |
 | First viewport | h1, the subhead with "free", both buttons and the command visible at 1440×900; "free" and the primary button within 844 px at 390 | lab |
-| Time to bug | finding card visible ≤ 5.0 s and stamp ≤ 5.5 s from navigation, throttled desktop, median of 5 (`home.spec.mjs`; the motion contract's own §4.3.9 replay of the same two numbers stays a median of 3) | lab |
+| Time to bug | finding card visible ≤ 5.0 s from navigation, throttled desktop, median of 5 (`home.spec.mjs`; the motion contract's own §4.3.9 replay of the same number stays a median of 3) | lab |
 | LCP | ≤ 1,100 ms throttled on `/` (element: h1 on desktop, h1 or subhead on phones); ≤ 1,200 ms on every other template | lab |
 | CLS | 0 (≤ 0.0001 measured) on `/` through load, hero, Replay and a full scroll; ≤ 0.01 on other templates | lab |
 | Initial JS (gzip -9 of first-party modern `<script src>`, no `noModule`, from `.next/`) | shared ≤ 153,000 B; `/` ≤ 158,000 B with page-specific ≤ 5,000; docs and check pages ≤ 156,000; others ≤ 155,000; no initial chunk contains `gsap`, `ScrollTrigger` or Pagefind's Component UI | build (`check-budgets.mjs`) |
@@ -1283,7 +1276,7 @@ D1 → D2 `content/routes/docs.ts` and the seven MDX files D2 polishes; G1 → C
 
 #### M1 · Motion
 
-- **Owns:** `site/src/motion/**` and tests; `site/scripts/lab/specs/motion-contract.spec.mjs`.
+- **Owns:** `site/src/motion/**` and tests; `site/scripts/lab/specs/motion-contract-1.spec.mjs` and `motion-contract-2.spec.mjs`.
 - **Depends on:** G1, G2.
 - **Starts with:** `tokens.test.ts` (ms and s parsing; the solver against known points of the four curves; every name in
   `motion-token-names.ts` read); storyboard tests (accent intervals don't overlap; hero finding ≤ 1.9 s, end ≤ 2.8 s;

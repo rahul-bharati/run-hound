@@ -45,15 +45,15 @@ const mkdirRuns = "mkdir -p runs";
 /** The web UI, on two lines as a terminal block shows it. */
 const runUi = `docker run ${runFlags} \\\n  ${runsMount} ${image}`;
 
-// The test lab: one compose file, pinned to this release's tag (site.composeFileUrl), starts Run Hound, Kennel, Fernway
-// and the sample apps from the published images.
+// The test lab: one compose file, downloaded from the latest GitHub Release (site.composeFileUrl), starts Run Hound,
+// Kennel, Fernway and the sample apps from the published images.
 const composeFile = "run-hound.compose.yml";
 const download = `curl -fsSLO ${site.composeFileUrl}`;
 const labUp = `docker compose -f ${composeFile} up`;
 const podmanLabUp = `podman compose -f ${composeFile} up`;
 const labPs = `docker compose -f ${composeFile} ps`;
 const labDown = `docker compose -f ${composeFile} down`;
-// The documented settings file for the compose file, from the same release.
+// The documented settings file for the compose file, from the same latest release.
 const envDownload = `curl -fsSL ${site.envFileUrl} -o .env`;
 const envComment = "optional: host ports, KENNEL_BUGS, FERNWAY_BUGS, allowed hosts, AI, test accounts (every one has a default)";
 

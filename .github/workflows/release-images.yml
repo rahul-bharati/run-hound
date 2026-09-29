@@ -1,15 +1,24 @@
-# Builds and publishes the Docker images when a version tag is pushed (git tag v0.4.1 && git push origin v0.4.1):
+# Publishes a release when a version tag is pushed (git tag v0.4.1 && git push origin v0.4.1): the Docker images
 #   ghcr.io/rahul-bharati/run-hound          Run Hound (web UI + CLI, Chromium's headless shell included)
 #   ghcr.io/rahul-bharati/run-hound-kennel   Kennel, the deliberately broken demo app
 #   ghcr.io/rahul-bharati/run-hound-samples  the well-built sample apps (false-positive suite)
 #   ghcr.io/rahul-bharati/run-hound-fernway  Fernway, a Lovable-style SaaS test app (clean, or with planted bugs)
-# Tags: 0.4.1, 0.4 and latest (latest only for a pushed release tag, not a pre-release such as v0.5.0-rc.1 or a
-# manual run), for linux/amd64 and linux/arm64.
+# for linux/amd64 and linux/arm64, tagged 0.4.1, 0.4 and latest (latest only for a pushed release tag, not a
+# pre-release such as v0.5.0-rc.1 or a manual run), then the GitHub Release v0.4.1 with run-hound.compose.yml and
+# .env.example (as run-hound.env.example) attached.
 #
-# Order: check-version (the tag matches app/package.json, the site, both compose files, the Dockerfile comments and
-# the tag-pinned download links in the compose file headers, README.md, TESTING.md and docs/), then the whole CI workflow
-# (every test suite, the image build and smoke test, the site build), and only then the images are built for both
-# platforms and pushed. After the push, each image's arm64 variant is pulled and started under QEMU as a sanity check.
+# Order:
+#   1. check-version: the tag matches app/package.json, the site, both compose files, the Dockerfile comments and the
+#      tag-pinned download links in the compose file headers, README.md, TESTING.md and docs/; a pushed tag also needs
+#      its CHANGELOG.md section (the GitHub Release's notes).
+#   2. ci-status, then ci: the whole CI workflow (every test suite, the image build and smoke test, the site build and
+#      its lab) must pass for this commit. When CI's run on main for this exact commit passed, it isn't run again
+#      (ci-status waits for it while it is still running); otherwise this workflow runs CI itself.
+#   3. build: each image for each platform on a runner of that platform (arm64 on GitHub's arm64 runners, no QEMU),
+#      pushed by digest only (no tag yet) and started there as a sanity check.
+#   4. merge: per image, one multi-platform index from its two digests, and only then the tags.
+#   5. github-release: the GitHub Release (a pushed tag only), once every image is published, so
+#      releases/latest/download/run-hound.compose.yml never names images that aren't on GHCR yet.
 #
 # GHCR needs no setup: the workflow's GITHUB_TOKEN pushes. New GHCR packages are private: after the first release,
 # open each package (github.com/rahul-bharati?tab=packages) → Package settings → Change visibility → Public.
@@ -28,7 +37,8 @@ on:
         description: "Version to publish, e.g. 0.4.1 (must match app/package.json and the compose files)"
         required: true
 
-# packages: write only for the job that pushes the images (image, below).
+# The jobs that need more set their own: actions: read (ci-status), packages: write (build and merge, which push the
+# images), contents: write (github-release).
 permissions:
   contents: read
 
@@ -56,7 +66,7 @@ jobs:
             fail=1
           fi
 
-          # The site shows this version and builds its image tags and tag-pinned download links from it.
+          # The site shows this version and builds its release tag and version-pinned image name from it.
           site=$(sed -nE 's/^const version = "([^"]+)";.*/\1/p' site/src/lib/site.ts)
           if [ "$site" != "$tag" ]; then
             echo "::error file=site/src/lib/site.ts::The site's version (${site:-not found}) does not match the release version $tag"
@@ -64,7 +74,8 @@ jobs:
           fi
 
           # Every image in both compose files is pinned to exactly this version (users download run-hound.compose.yml
-          # from this release's tag, so it must name this release's images), and run-hound.compose.yml has all four.
+          # from this release, as its GitHub Release asset or from its tag, so it must name this release's images), and
+          # run-hound.compose.yml has all four.
           for file in run-hound.compose.yml docker-compose.yml; do
             images=$(sed -nE 's/^[[:space:]]*image:[[:space:]]*([^[:space:]#]+).*/\1/p' "$file")
             if [ -z "$images" ]; then
@@ -103,10 +114,13 @@ jobs:
             done < <(grep -noE '(run-hound(-[a-z]+)?:|Run Hound \(?)v?[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.-]*' "$file" || true)
           done
 
-          # The download links (curl of raw.githubusercontent.com/rahul-bharati/run-hound/vX.Y.Z/run-hound.compose.yml
-          # and .env.example; github.com/.../blob/vX.Y.Z/...) in the compose file headers, README.md, TESTING.md and the
-          # guides in docs/ are pinned to a release tag: every one must be this release's, so the docs hand out this
-          # release's compose file.
+          # Download links pinned to a release tag (curl of raw.githubusercontent.com/rahul-bharati/run-hound/vX.Y.Z/
+          # run-hound.compose.yml, github.com/.../blob/vX.Y.Z/.env.example) in the compose file headers, README.md,
+          # TESTING.md and the guides in docs/ must all be this release's, so a pinned link hands out this release's
+          # compose file: the compose file header's own curl line, and any "a specific release's compose file" example.
+          # The copy-paste one-liners in README.md and TESTING.md download from releases/latest/download/ instead (the
+          # GitHub Release that github-release, below, publishes only after the images); those aren't pinned, so this
+          # pattern doesn't match them and they aren't checked here.
           link='(raw\.githubusercontent\.com/rahul-bharati/run-hound|github\.com/rahul-bharati/run-hound/(blob|tree|raw))'
           for file in run-hound.compose.yml docker-compose.yml README.md TESTING.md docs/install.md docs/usage.md docs/ai.md \
             docs/signed-in-runs.md docs/ai-built-apps.md docs/security.md docs/development.md; do
@@ -120,27 +134,103 @@ jobs:
             done < <(grep -noE "$link/v?[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.-]*/" "$file" || true)
           done
 
+          # The GitHub Release's notes are this version's CHANGELOG.md section ("## 0.4.1 ..." up to the next "## "):
+          # a pushed tag needs one before anything is published, not only once the images are out. A manual run
+          # creates no GitHub Release.
+          if [ "$GITHUB_EVENT_NAME" = push ] && ! awk -v v="$tag" '
+            $1 == "##" { h = $2; sub(/,$/, "", h); if (h == v) { found = 1; exit } }
+            END { exit !found }' CHANGELOG.md; then
+            echo "::error file=CHANGELOG.md::No \"## $tag\" section: the GitHub Release takes its notes from it"
+            fail=1
+          fi
+
           if [ "$fail" != 0 ]; then exit 1; fi
           echo "version=$pkg" >> "$GITHUB_OUTPUT"
 
-  # Every suite, the image smoke tests and the site build (ci.yml). Nothing is pushed unless all of it passes.
+  # Every suite, the image smoke tests, the site build and its lab (ci.yml), unless ci-status (below) found that CI's
+  # run on main for this exact commit passed. Nothing is pushed unless one or the other passed.
   ci:
-    needs: check-version
+    needs: [check-version, ci-status]
+    # passed is empty if ci-status itself failed (it shouldn't: it reports false on any error), and CI runs then too.
+    if: ${{ !cancelled() && needs.check-version.result == 'success' && needs.ci-status.outputs.passed != 'true' }}
     uses: ./.github/workflows/ci.yml
     permissions:
       contents: read
 
-  image:
-    needs: [check-version, ci]
+  # CI runs on every push to main, and a release is normally a tag on a commit main has just tested. When that run
+  # passed for this exact commit, it ran the same ci.yml on the same files, the site lab included (the lab blocks on
+  # main; only a pull request lets it fail), so running it again would only repeat every check for the same answer.
+  # When main's run failed, was cancelled (a later push to main cancels it), timed out or doesn't exist (a tag on a
+  # commit that never was main's head, or a manual run from another branch), passed is false and this workflow runs
+  # CI itself, as it always did.
+  ci-status:
+    name: CI on main for this commit
+    needs: check-version
     runs-on: ubuntu-latest
+    timeout-minutes: 100
+    permissions:
+      actions: read
+    outputs:
+      passed: ${{ steps.status.outputs.passed }}
+    steps:
+      # A run still queued or in progress is waited for rather than run a second time. CI's jobs all have time limits
+      # well under the 90 minutes given here, so the watch normally ends with a conclusion.
+      - name: Did CI pass on main for this commit?
+        id: status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          passed=false
+          fields=databaseId,status,conclusion,url
+          run=$(gh run list --workflow ci.yml --event push --branch main --commit "$SHA" --limit 1 --json "$fields" \
+            --jq '.[0] // empty') || { echo "::warning::Couldn't list CI's runs on main"; run=""; }
+          if [ -z "$run" ]; then
+            echo "::notice::No CI run on main for $SHA, so this release runs CI itself."
+          else
+            id=$(jq -r .databaseId <<< "$run")
+            if [ "$(jq -r .status <<< "$run")" != completed ]; then
+              echo "Waiting for CI on main: $(jq -r .url <<< "$run")"
+              timeout 90m gh run watch "$id" --interval 60 --compact || true
+              run=$(gh run view "$id" --json "$fields") || run='{}'
+            fi
+            status=$(jq -r '.status // "unknown"' <<< "$run")
+            conclusion=$(jq -r '.conclusion // ""' <<< "$run")
+            url=$(jq -r '.url // ""' <<< "$run")
+            if [ "$status" = completed ] && [ "$conclusion" = success ]; then
+              passed=true
+              echo "::notice::CI passed on main for this commit ($url), so this release doesn't run it again."
+            else
+              echo "::notice::CI on main for this commit is ${conclusion:-$status} ($url), so this release runs CI itself."
+            fi
+          fi
+          echo "passed=$passed" >> "$GITHUB_OUTPUT"
+
+  # Each image for each platform on a runner of that platform: arm64 on GitHub's arm64 runners (free for public
+  # repositories) instead of under QEMU on x86, which made arm64 the slow half of every release. This is Docker's
+  # pattern for a build split across runners (docs.docker.com/build/ci/github-actions/multi-platform/): each leg pushes
+  # its platform by digest only, with no tag, and merge (below) joins an image's two digests into one index and tags
+  # that, so no tag ever points at one platform alone or at an image that failed its sanity check.
+  build:
+    name: Build ${{ matrix.image.name }} (${{ matrix.target.platform }})
+    needs: [check-version, ci-status, ci]
+    # ci skipped because ci-status found CI passed on main must not skip the images (!cancelled() stops GitHub skipping
+    # this job just because ci was skipped); a failed or cancelled ci, or a skipped one that ci-status didn't clear,
+    # never lets them run.
+    if: >-
+      ${{ !cancelled() && needs.check-version.result == 'success' && (needs.ci.result == 'success' ||
+      (needs.ci.result == 'skipped' && needs.ci-status.outputs.passed == 'true')) }}
+    runs-on: ${{ matrix.target.runner }}
     permissions:
       contents: read
       packages: write
-    timeout-minutes: 90
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        include:
+        # merge (below) uses this same list.
+        image: &images
           - name: run-hound
             file: app/Dockerfile
             title: Run Hound
@@ -163,12 +253,21 @@ jobs:
             description: Fernway, a Lovable-style SaaS test app with optional planted bugs.
             port: "4110"
             path: /
+        target:
+          - platform: linux/amd64
+            arch: amd64
+            uname: x86_64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            arch: arm64
+            uname: aarch64
+            runner: ubuntu-24.04-arm
     env:
       HAS_DOCKERHUB: ${{ vars.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+      GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.image.name }}
+      DOCKERHUB_IMAGE: docker.io/${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image.name }}
     steps:
       - uses: actions/checkout@v7
-
-      - uses: docker/setup-qemu-action@v4
 
       - uses: docker/setup-buildx-action@v4
 
@@ -186,18 +285,19 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Labels go on each platform's image config; annotations also go on the multi-arch index, which is where GHCR
-      # reads the package description from. Both include org.opencontainers.image.source (links the package to this
-      # repository), .version and .revision (the tagged commit), which metadata-action fills in itself.
+      # Labels go on each platform's image config and annotations on each platform's manifest here; merge puts the
+      # same annotations on the multi-platform index, which is where GHCR reads the package description from. Both
+      # include org.opencontainers.image.source (links the package to this repository), .version and .revision (the
+      # tagged commit), which metadata-action fills in itself. merge runs this step with these same inputs for its tags.
       - name: Image names, tags, labels and annotations
         id: meta
         uses: docker/metadata-action@v6
         env:
-          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
-        with:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest
+        with: &metadata
           images: |
-            ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}
-            ${{ env.HAS_DOCKERHUB == 'true' && format('docker.io/{0}/{1}', vars.DOCKERHUB_USERNAME, matrix.name) || '' }}
+            ${{ env.GHCR_IMAGE }}
+            ${{ env.HAS_DOCKERHUB == 'true' && env.DOCKERHUB_IMAGE || '' }}
           # latest=false: metadata-action would otherwise add latest to any non-pre-release semver tag, a manual run
           # included; the raw entry below is the only one that sets it (a pushed release tag only).
           flavor: |
@@ -207,68 +307,255 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},value=v${{ needs.check-version.outputs.version }}
             type=raw,value=latest,enable=${{ github.event_name == 'push' && !contains(needs.check-version.outputs.version, '-') }}
           labels: |
-            org.opencontainers.image.title=${{ matrix.title }}
-            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.title=${{ matrix.image.title }}
+            org.opencontainers.image.description=${{ matrix.image.description }}
             org.opencontainers.image.licenses=MIT
           annotations: |
-            org.opencontainers.image.title=${{ matrix.title }}
-            org.opencontainers.image.description=${{ matrix.description }}
+            org.opencontainers.image.title=${{ matrix.image.title }}
+            org.opencontainers.image.description=${{ matrix.image.description }}
             org.opencontainers.image.licenses=MIT
 
-      # The amd64 half mostly comes from CI's cache (scope ci-<image>), built from this same commit minutes earlier.
-      - name: Build and push
+      - name: Where to push
+        id: push
+        run: |
+          names=$GHCR_IMAGE
+          if [ "$HAS_DOCKERHUB" = true ]; then names="$names,$DOCKERHUB_IMAGE"; fi
+          echo "names=$names" >> "$GITHUB_OUTPUT"
+
+      # This platform only, pushed by digest to GHCR (and the Docker Hub mirror), untagged. The amd64 leg mostly comes
+      # from CI's cache (scope ci-<image>), built from this same commit on main or by this run's own ci. Each leg also
+      # keeps a scope of its own (<image>-<arch>), but GitHub lets only runs on the same tag read a tag's cache: it
+      # speeds up a re-run of this release, not the next release.
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: ${{ matrix.file }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          file: ${{ matrix.image.file }}
+          platforms: ${{ matrix.target.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
+          outputs: type=image,"name=${{ steps.push.outputs.names }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: |
-            type=gha,scope=${{ matrix.name }}
-            type=gha,scope=ci-${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+            type=gha,scope=${{ matrix.image.name }}-${{ matrix.target.arch }}
+            ${{ matrix.target.arch == 'amd64' && format('type=gha,scope=ci-{0}', matrix.image.name) || '' }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.target.arch }}
 
-      # CI runs only amd64, so the arm64 images would otherwise never be started anywhere. Pull the pushed arm64 variant
-      # and start it under QEMU: run-hound prints --version (Node, tsx and esbuild's arm64 binary all have to work),
-      # the apps must answer on their port. Cost: about a minute for run-hound (a ~260 MB pull plus Node starting under
-      # emulation), well under a minute for the others. It doesn't launch Chromium; that stays a manual check on arm64.
-      - name: arm64 sanity check (under QEMU)
+      # CI runs only amd64 images, so the arm64 ones would otherwise never be started anywhere. Each leg pulls the
+      # digest it just pushed and starts it natively, before any tag points at it: uname -m is the platform's,
+      # run-hound prints --version (Node, tsx and esbuild's native binary all have to work), the apps must answer on
+      # their port. It doesn't launch Chromium; that stays a manual check on arm64.
+      - name: Sanity check (${{ matrix.target.platform }}, native)
         env:
-          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}:${{ needs.check-version.outputs.version }}
-          NAME: ${{ matrix.name }}
+          IMAGE: ${{ env.GHCR_IMAGE }}@${{ steps.build.outputs.digest }}
+          PLATFORM: ${{ matrix.target.platform }}
+          UNAME: ${{ matrix.target.uname }}
+          NAME: ${{ matrix.image.name }}
           VERSION: ${{ needs.check-version.outputs.version }}
-          APP_PORT: ${{ matrix.port }}
-          APP_PATH: ${{ matrix.path }}
+          APP_PORT: ${{ matrix.image.port }}
+          APP_PATH: ${{ matrix.image.path }}
         run: |
-          docker pull --platform linux/arm64 "$IMAGE"
-          arch=$(docker run --rm --platform linux/arm64 --entrypoint uname "$IMAGE" -m)
+          docker pull "$IMAGE"
+          arch=$(docker run --rm --entrypoint uname "$IMAGE" -m)
           echo "uname -m: $arch"
-          if [ "$arch" != aarch64 ]; then
-            echo "::error::$IMAGE for linux/arm64 reports $arch"
+          if [ "$arch" != "$UNAME" ]; then
+            echo "::error::$IMAGE for $PLATFORM reports $arch, expected $UNAME"
             exit 1
           fi
           if [ "$NAME" = run-hound ]; then
-            out=$(docker run --rm --platform linux/arm64 "$IMAGE" --version)
+            out=$(docker run --rm "$IMAGE" --version)
             echo "$out"
             if [ "$out" != "run-hound $VERSION" ]; then
-              echo "::error::arm64 run-hound --version printed \"$out\", expected \"run-hound $VERSION\""
+              echo "::error::$PLATFORM run-hound --version printed \"$out\", expected \"run-hound $VERSION\""
               exit 1
             fi
             exit 0
           fi
-          docker run --detach --name arm64-check --platform linux/arm64 -e PORT="$APP_PORT" \
-            -p "127.0.0.1:18080:$APP_PORT" "$IMAGE"
+          docker run --detach --name sanity-check -e PORT="$APP_PORT" -p "127.0.0.1:18080:$APP_PORT" "$IMAGE"
           ok=no
           for _ in $(seq 1 60); do
             if curl -fsS -o /dev/null "http://127.0.0.1:18080$APP_PATH"; then ok=yes; break; fi
             sleep 2
           done
-          docker logs arm64-check
-          docker rm -f arm64-check
+          docker logs sanity-check
+          docker rm -f sanity-check
           if [ "$ok" != yes ]; then
-            echo "::error::$IMAGE for linux/arm64 didn't answer on port $APP_PORT within 2 minutes"
+            echo "::error::$IMAGE for $PLATFORM didn't answer on port $APP_PORT within 2 minutes"
             exit 1
+          fi
+
+      - name: Export the digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      # The image name comes last in the artifact's name: run-hound is a prefix of the other three names, and merge
+      # picks an image's two digests by how the artifact's name ends.
+      - name: Upload the digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.target.arch }}-${{ matrix.image.name }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
+  # One multi-platform index per image from its amd64 and arm64 digests, tagged 0.4.1, 0.4 (and latest) on GHCR and
+  # the optional Docker Hub mirror. It runs only once every leg of build has passed, so a release never tags some
+  # images while another failed to build or start.
+  merge:
+    name: Publish ${{ matrix.image.name }}
+    needs: [check-version, build]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        image: *images
+    env:
+      HAS_DOCKERHUB: ${{ vars.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+      GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.image.name }}
+      DOCKERHUB_IMAGE: docker.io/${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image.name }}
+    steps:
+      - name: Download the digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*-${{ matrix.image.name }}
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub (optional mirror)
+        if: env.HAS_DOCKERHUB == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # build's inputs (same tags, labels and annotations), with the annotations for the index this time.
+      - name: Image names, tags, labels and annotations
+        id: meta
+        uses: docker/metadata-action@v6
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: index
+        with: *metadata
+
+      - name: Create the multi-platform index and tag it
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          digests=(*)
+          if [ "${#digests[@]}" != 2 ]; then
+            echo "::error::Expected 2 digests (amd64 and arm64) for $GHCR_IMAGE, found ${#digests[@]}: ${digests[*]}"
+            exit 1
+          fi
+          annotations=()
+          while IFS= read -r annotation; do
+            annotations+=(--annotation "$annotation")
+          done < <(jq -r '.annotations[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          repos=("$GHCR_IMAGE")
+          if [ "$HAS_DOCKERHUB" = true ]; then repos+=("$DOCKERHUB_IMAGE"); fi
+          for repo in "${repos[@]}"; do
+            tags=()
+            while IFS= read -r tag; do
+              tags+=(--tag "$tag")
+            done < <(jq -r --arg prefix "$repo:" '.tags[] | select(startswith($prefix))' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+            if [ "${#tags[@]}" = 0 ]; then
+              echo "::error::metadata-action gave no tags for $repo"
+              exit 1
+            fi
+            sources=()
+            for digest in "${digests[@]}"; do sources+=("$repo@sha256:$digest"); done
+            docker buildx imagetools create "${annotations[@]}" "${tags[@]}" "${sources[@]}"
+          done
+
+      # Each tag must now be an index with both platforms (and their provenance attestations, which are listed as
+      # unknown/unknown and left out of the comparison).
+      - name: Every tag has both platforms
+        run: |
+          fail=0
+          for tag in $(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON"); do
+            docker buildx imagetools inspect "$tag"
+            platforms=$(docker buildx imagetools inspect --raw "$tag" |
+              jq -r '[.manifests[].platform | select(.os != "unknown") | .os + "/" + .architecture] | sort | join(",")')
+            if [ "$platforms" != linux/amd64,linux/arm64 ]; then
+              echo "::error::$tag has ${platforms:-no platforms}, expected linux/amd64,linux/arm64"
+              fail=1
+            fi
+          done
+          exit "$fail"
+
+  # The GitHub Release for the tag: title "Run Hound 0.4.1", this version's CHANGELOG.md section as its notes, and the
+  # compose file and settings example of the tagged commit attached. It runs only after every image's merge passed,
+  # which is the point: README.md, TESTING.md and the site hand out
+  # https://github.com/rahul-bharati/run-hound/releases/latest/download/run-hound.compose.yml, and that URL can only
+  # ever name images that are already on GHCR. (They used to hand out the compose file pinned to the tag, which exists
+  # from the moment the tag is pushed, before its images were published.) A pre-release is published as one, so
+  # releases/latest, like the latest image tag, stays on the last release. A manual run has no tag and skips this job.
+  github-release:
+    name: GitHub Release
+    needs: [check-version, merge]
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.merge.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Create the GitHub Release (or update it, on a re-run)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          assets="$RUNNER_TEMP/assets"
+          notes="$RUNNER_TEMP/notes.md"
+          mkdir -p "$assets"
+          cp run-hound.compose.yml "$assets/run-hound.compose.yml"
+          # GitHub renames an asset whose name starts with a dot, so .env.example goes up under a name of its own.
+          cp .env.example "$assets/run-hound.env.example"
+
+          # The body of the "## <version> ..." heading, up to the next "## " heading, without the blank lines around
+          # it. Relative links (docs/usage.md) are made absolute at this tag, since a release page doesn't resolve them.
+          awk -v v="$VERSION" '
+            $1 == "##" { if (found) exit; h = $2; sub(/,$/, "", h); found = (h == v); next }
+            found { lines[++n] = $0 }
+            END {
+              first = 1; while (first <= n && lines[first] == "") first++
+              last = n; while (last >= first && lines[last] == "") last--
+              for (i = first; i <= last; i++) print lines[i]
+            }
+          ' CHANGELOG.md |
+            sed -E "s|\]\((\./)?([^):/#][^):]*)\)|]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$tag/\2)|g" > "$notes"
+          if [ ! -s "$notes" ]; then
+            echo "::error file=CHANGELOG.md::The \"## $VERSION\" section is missing or empty"
+            exit 1
+          fi
+
+          if [[ "$VERSION" == *-* ]]; then flags=(--prerelease); else flags=(--latest); fi
+          files=("$assets/run-hound.compose.yml" "$assets/run-hound.env.example")
+          if gh release view "$tag" > /dev/null 2>&1; then
+            # A re-run: the release, or the draft an interrupted create left, is already there.
+            gh release upload "$tag" "${files[@]}" --clobber
+            gh release edit "$tag" --title "Run Hound $VERSION" --notes-file "$notes" --draft=false "${flags[@]}"
+          else
+            # With assets, gh creates the release as a draft, uploads them and only then publishes it, so the latest
+            # release never lacks its compose file.
+            gh release create "$tag" "${files[@]}" --verify-tag --title "Run Hound $VERSION" --notes-file "$notes" \
+              "${flags[@]}"
           fi

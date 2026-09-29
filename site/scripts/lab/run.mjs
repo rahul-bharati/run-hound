@@ -12,6 +12,13 @@
  * node --test scripts/lab/specs/lab-helpers.spec.mjs). Stopped with Ctrl+C or SIGTERM, the run stops its specs and the
  * server before it exits (130 or 143).
  *
+ * `--shard <i>/<n>` (1-based) splits the default spec set (never a named one) across `n` CI shards, deterministically
+ * (lib/shard.mjs: greedy longest-first bin packing over measured per-spec weights), so e.g. `--shard 2/3` runs only
+ * shard 2's specs; every default spec lands in exactly one shard, across every `i`. `--list` prints the specs that
+ * would run (after `--shard`, if given) and exits before starting the server, for CI to check the shards line up.
+ * `--help`/`-h` prints this header comment and exits 0; an unrecognized `--flag` prints a one-line error and exits 2 --
+ * neither ever falls through to running the default lab.
+ *
  * What a spec gets (environment): LAB_ORIGIN (the server, e.g. http://127.0.0.1:4870), LAB_OUT (its output folder,
  * site/.lab-out/<lab id>/; see lib/out.mjs), NEXT_DIST_DIR. The helpers a spec uses are in scripts/lab/lib/:
  * - browser.mjs: launch(), newPage(browser, { profile: "desktop" | "phone", reducedMotion, saveData, throttle }),
@@ -38,16 +45,42 @@
  * Chromium comes from the site's Playwright (1.63): install it once with `pnpm exec playwright install chromium`.
  */
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { distName, siteDir } from "../lib/build-output.mjs";
 import { labOut } from "./lib/out.mjs";
+import { packShards } from "./lib/shard.mjs";
 import { defaultPort, startServer } from "./serve.mjs";
 
 const args = process.argv.slice(2);
+
+/** The one-line synopsis an unrecognized flag's error is shown with; --help/-h show the full header comment below. */
+const usage = "Usage: pnpm lab [spec ...] [--port <n>] [--shard <i>/<n>] [--list] [--help]";
+const knownFlags = ["--port", "--shard", "--list", "--help"];
+
+if (args.includes("--help") || args.includes("-h")) {
+  // The file's own header comment (this doc block) is the one source of truth for usage, so --help can't drift from
+  // it: read this file, take everything between the opening /** and the closing */, and strip the comment markers.
+  const source = readFileSync(join(import.meta.dirname, "run.mjs"), "utf8");
+  const header = /^\/\*\*\n([\s\S]*?)\n \*\//.exec(source)?.[1] ?? "";
+  console.log(header.replace(/^ \* ?/gm, "").trimEnd());
+  process.exit(0);
+}
+
+const unrecognized = args.find((arg) => arg.startsWith("--") && !knownFlags.includes(arg));
+if (unrecognized) {
+  console.error(`lab: unrecognized option ${JSON.stringify(unrecognized)}. ${usage}`);
+  process.exit(2);
+}
+
 const at = args.indexOf("--port");
 const port = at >= 0 ? Number(args[at + 1]) : defaultPort;
-const names = args.filter((arg, i) => !arg.startsWith("--") && args[i - 1] !== "--port");
+const shardAt = args.indexOf("--shard");
+const shardOption = shardAt >= 0 ? args[shardAt + 1] : undefined;
+const list = args.includes("--list");
+const names = args.filter(
+  (arg, i) => !arg.startsWith("--") && args[i - 1] !== "--port" && args[i - 1] !== "--shard",
+);
 const specsDir = join(import.meta.dirname, "specs");
 /**
  * Specs that run only when named: the baseline (it re-measures every page) and the external links (the network, and
@@ -56,6 +89,18 @@ const specsDir = join(import.meta.dirname, "specs");
 const namedOnly = ["baseline.spec.mjs", "external-links.spec.mjs"];
 
 const all = existsSync(specsDir) ? readdirSync(specsDir).filter((name) => name.endsWith(".spec.mjs")).sort() : [];
+const defaultSet = all.filter((spec) => !namedOnly.includes(spec));
+
+let specNames = defaultSet;
+if (shardOption !== undefined) {
+  if (names.length) throw new Error("lab: --shard splits the default spec set; it can't be combined with a named spec");
+  const match = /^(\d+)\/(\d+)$/.exec(shardOption);
+  if (!match) throw new Error(`lab: --shard must be "<index>/<count>" (1-based), got ${JSON.stringify(shardOption)}`);
+  const [index, count] = [Number(match[1]), Number(match[2])];
+  if (index < 1 || index > count) throw new Error(`lab: --shard ${shardOption}: index must be between 1 and ${count}`);
+  specNames = packShards(defaultSet, count)[index - 1];
+}
+
 const specs = names.length
   ? names.map((name) => {
       const direct = resolve(name);
@@ -64,10 +109,15 @@ const specs = names.length
       if (!file) throw new Error(`lab: no spec "${name}" in ${relative(siteDir, specsDir)} (${all.join(", ")})`);
       return join(specsDir, file);
     })
-  : all.filter((spec) => !namedOnly.includes(spec)).map((spec) => join(specsDir, spec));
+  : specNames.map((spec) => join(specsDir, spec));
 if (specs.length === 0) {
   console.error("lab: no specs to run");
   process.exit(1);
+}
+
+if (list) {
+  for (const spec of specs) console.log(basename(spec));
+  process.exit(0);
 }
 
 const server = await startServer({ port });

@@ -166,10 +166,12 @@ Check it works: `docker run --rm ghcr.io/rahul-bharati/run-hound --version` prin
 One compose file starts Run Hound with every test app. In an empty folder:
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.6.0/run-hound.compose.yml
+curl -fsSLO https://github.com/rahul-bharati/run-hound/releases/latest/download/run-hound.compose.yml
 mkdir -p runs                                  # reports land here; create it yourself so the files belong to you
 docker compose -f run-hound.compose.yml up     # or: podman compose -f run-hound.compose.yml up (podman-compose works too)
 ```
+
+A specific release's compose file, such as 0.6.0's: `https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.6.0/run-hound.compose.yml`.
 
 This starts Run Hound and every test app, each on its own port bound to `127.0.0.1`:
 
@@ -194,12 +196,12 @@ The first start downloads about 0.5 GB of images (about 1 GB once unpacked). Whe
 
 - `docker compose -f run-hound.compose.yml ps` lists every service with its health check: `healthy` once it answers.
 - **Stop it** with Ctrl+C, then `docker compose -f run-hound.compose.yml down` (removes the containers; your reports in `./runs` stay). `up -d` starts it in the background instead.
-- **Update** to a later release: download that release's compose file (the same `curl` with the new tag, such as `v0.6.0`, in the address) and run `docker compose -f run-hound.compose.yml up` again; it pulls the images the new file names. `docker compose -f run-hound.compose.yml pull` fetches them ahead of time.
+- **Update** to a later release: run the same `curl` command again (it always downloads the latest release's compose file) and run `docker compose -f run-hound.compose.yml up` again; it pulls the images the new file names. `docker compose -f run-hound.compose.yml pull` fetches them ahead of time.
 
 **Settings.** Every setting (host ports, `KENNEL_BUGS`, `FERNWAY_BUGS`, the runs folder, `RUNHOUND_ALLOWED_HOSTS`, AI, test accounts) has a default. To change one, put it in a `.env` file next to the compose file; the documented example is [`.env.example`](.env.example):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.6.0/.env.example -o .env   # then edit it
+curl -fsSL https://github.com/rahul-bharati/run-hound/releases/latest/download/run-hound.env.example -o .env   # then edit it
 ```
 
 Ports taken? Set them in `.env` (for example `RUNHOUND_HOST_PORT=4400`), or on the command line: `RUNHOUND_HOST_PORT=4400 KENNEL_HOST_PORT=5310 docker compose -f run-hound.compose.yml up`.

@@ -30,12 +30,12 @@ The Windows PowerShell notes and installing from source are in [Install](https:/
 One compose file starts Run Hound with every test app: Kennel (broken and clean), Fernway (a Lovable-style SaaS app, clean and with planted bugs) and five well-built sample apps. In an empty folder:
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.6.0/run-hound.compose.yml
+curl -fsSLO https://github.com/rahul-bharati/run-hound/releases/latest/download/run-hound.compose.yml
 mkdir -p runs                                  # reports land in ./runs; create it first so the files belong to you
 docker compose -f run-hound.compose.yml up     # UI on http://localhost:4000 (Podman: podman compose -f run-hound.compose.yml up)
 ```
 
-Open <http://localhost:4000> and enter `http://kennel:3000/book`; the other targets are listed in [the test lab](https://run-hound.rahulbharati.com/docs/test-lab/#apps). The first start downloads about 0.5 GB. Settings, stopping, updating and the command line in the lab: [the test lab](https://run-hound.rahulbharati.com/docs/test-lab/).
+Open <http://localhost:4000> and enter `http://kennel:3000/book`; the other targets are listed in [the test lab](https://run-hound.rahulbharati.com/docs/test-lab/#apps). The first start downloads about 0.5 GB. Settings, stopping, updating and the command line in the lab: [the test lab](https://run-hound.rahulbharati.com/docs/test-lab/). A specific release's compose file, such as 0.6.0's: `https://raw.githubusercontent.com/rahul-bharati/run-hound/v0.6.0/run-hound.compose.yml`.
 
 ## What it checks
 

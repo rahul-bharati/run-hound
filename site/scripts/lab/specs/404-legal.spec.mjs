@@ -6,7 +6,7 @@
  * one strong accent object per viewport at rest (§2.3); the trail drawn once in at most 2 s, the hound walking it from
  * its start and resting where the server put it, no held part ever shown and then hidden (no flicker), and nothing
  * moving under reduced motion; axe finds nothing; no overflow at 320 px; no CSP violation. The motion contract
- * (motion-contract.spec.mjs) checks the 404 with every other moving page.
+ * (motion-contract-1.spec.mjs, motion-contract-2.spec.mjs) checks the 404 with every other moving page.
  *
  * The legal pages: a visible "Last updated" date, one h1 first, the breadcrumb from the registry, out of the search
  * index (Pagefind, queried the way the search dialog does), every link resolving (pages, #fragments, promised

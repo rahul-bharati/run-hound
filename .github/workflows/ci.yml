@@ -1,8 +1,22 @@
-# Type-checks and runs every suite: Run Hound's unit and browser tests, Kennel's and Fernway's own tests, and the
-# acceptance suite (Run Hound against Kennel and Fernway in clean mode and with every planted bug, plus the unfamiliar
-# sample apps). It also builds the four Docker images (amd64, nothing pushed) and smoke-tests them in the compose test
-# lab, and lints and builds the marketing site (site/, its own pnpm project).
-# Release images (release-images.yml) calls this workflow first, so no image is published unless all of it passes.
+# Type-checks and runs every suite, split into parallel jobs (the old single "test" job took ~52 minutes; splitting
+# it, and the lab below, cuts a PR's wall-clock time to about the slowest parallel piece instead of the sum of them):
+#   - app-tests: Run Hound's unit and browser tests, sharded 1..4 with vitest's own `--shard` (by test file; the app
+#     suite needs no Kennel or Fernway build -- it only reads fixtures/kennel/bugs.json as ground truth).
+#   - acceptance-kennel / acceptance-fernway: the acceptance suite (Run Hound against Kennel and Fernway in clean mode
+#     and with every planted bug, plus the unfamiliar sample apps), split by which fixture app each test file needs, so
+#     each job builds only Kennel or only Fernway instead of both. kennel.acceptance.test.ts alone (25 modes: clean
+#     plus each V0/V1 bug) and fernway.acceptance.test.ts alone (8 routes, 19 planted bugs, sign-in and write-side
+#     runs; 40 tests) are the suite's two long poles; each anchors one job, padded with the acceptance suite's other,
+#     lighter files. acceptance-fernway names its files explicitly; acceptance-kennel excludes exactly that list, so
+#     it is the catch-all and a new acceptance test file always lands in one job or the other, never neither.
+#   - checks: type-checks every package, validates the compose files, and runs Kennel's and Fernway's own tests (short
+#     on their own, so not worth a job each).
+# The rest is as before: images builds the four Docker images (amd64, nothing pushed) and smoke-tests them in the
+# compose test lab; site lints and builds the marketing site (site/, its own pnpm project); site-lab runs its
+# Playwright lab, now as a 4-way matrix too (site/scripts/lab/run.mjs --shard, greedy-packed by measured spec weight).
+# Release images (release-images.yml) runs this workflow for the tagged commit unless this workflow's push run on
+# main already passed for that exact commit (its ci-status job); either way no image is published unless all of it
+# passed.
 name: CI
 
 on:
@@ -22,13 +36,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  # Run Hound's own unit and browser tests, sharded by vitest's own `--shard=<i>/<n>` (splits the resolved test-file
+  # list into n roughly-equal, non-overlapping groups; confirmed against the installed vitest, 5.0.1 -- both `--help`
+  # and its source carry it). No Kennel or Fernway build: app/src and app/test only read fixtures/kennel/bugs.json as
+  # static ground-truth data, never start either app.
+  app-tests:
+    name: "Run Hound tests (${{ matrix.shard }}/${{ strategy.job-total }})"
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    env:
-      # Kennel and Fernway are built once below; the suites reuse their dist/ instead of rebuilding it.
-      KENNEL_SKIP_BUILD: "1"
-      FERNWAY_SKIP_BUILD: "1"
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v7
 
@@ -43,6 +62,109 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Chromium and its system dependencies
+        run: pnpm --filter run-hound exec playwright install --with-deps chromium
+
+      - name: "Run Hound tests (shard ${{ matrix.shard }}/${{ strategy.job-total }})"
+        run: pnpm --filter run-hound exec vitest run --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+
+  # The acceptance suite (Run Hound against Kennel and Fernway in clean mode and with every planted bug, plus the
+  # unfamiliar sample apps) split in two by which fixture app each test file needs, not by vitest's own `--shard`:
+  # with only 7 files and two of them (kennel.acceptance.test.ts's 25 modes, fernway.acceptance.test.ts's 8 routes,
+  # 19 planted bugs and sign-in/write-side runs, 40 tests) far outweighing the rest, an even-file-count `--shard`
+  # split would leave one job with both long poles and the other nearly empty. Grouping by app instead balances the
+  # two jobs AND means each builds only the one fixture app its files start, instead of both (as the old single job
+  # always did). acceptance-fernway names its files explicitly (only they need Fernway); acceptance-kennel excludes
+  # exactly that list with vitest's `--exclude`, so it is the catch-all and a new acceptance test file always lands
+  # in one job or the other, never silently in neither.
+  acceptance-kennel:
+    name: "Acceptance: Kennel (1/2)"
+    runs-on: ubuntu-latest
+    # Measured on main (run 36562271670): kennel.acceptance.test.ts 10.0 min, plus setup (~1 min); acceptance-fernway
+    # below is the tighter one (~16 min against a 20-minute timeout), so both get the same headroom.
+    timeout-minutes: 30
+    env:
+      # Built once below; the suite reuses dist/ instead of rebuilding it.
+      KENNEL_SKIP_BUILD: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium and its system dependencies
+        run: pnpm --filter run-hound exec playwright install --with-deps chromium
+      - name: Build Kennel
+        run: pnpm --filter kennel build
+      # kennel.acceptance.test.ts (every Kennel mode) and evidence.acceptance.test.ts (evidence capture) both start
+      # Kennel; golden.test.ts and fernway-docs.test.ts start no browser and no fixture app at all ("no browser, no
+      # Kennel" / "no browser, no Fernway" in their own headers) and just ride along here. This job is the catch-all:
+      # rather than name its own files, it excludes exactly acceptance-fernway's explicit list below (vitest 5.0.1's
+      # `--exclude <glob>`, confirmed with `--help`), so a new acceptance test file neither of them already names
+      # still runs, here. FERNWAY_SKIP_BUILD isn't set in this job, so a Fernway-dependent file that lands here still
+      # builds Fernway itself first (slower than acceptance-fernway, which reuses the build below, but it runs).
+      - name: "Acceptance: Kennel modes, evidence, golden files, Fernway docs, and anything not in acceptance-fernway"
+        run: >
+          pnpm --filter acceptance exec vitest run
+          --exclude '**/fernway.acceptance.test.ts' --exclude '**/samples.acceptance.test.ts'
+          --exclude '**/fernway-helpers.test.ts'
+
+  acceptance-fernway:
+    name: "Acceptance: Fernway (2/2)"
+    runs-on: ubuntu-latest
+    # Measured on main (run 36562271670): fernway.acceptance.test.ts 14.8 min, samples.acceptance.test.ts 2.5 min,
+    # plus setup (~1 min) -- about 16 min, too close to a 20-minute timeout.
+    timeout-minutes: 30
+    env:
+      # Built once below; the suite reuses dist/ instead of rebuilding it.
+      FERNWAY_SKIP_BUILD: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium and its system dependencies
+        run: pnpm --filter run-hound exec playwright install --with-deps chromium
+      - name: Build Fernway
+        run: pnpm --filter fernway build
+      # fernway.acceptance.test.ts starts Fernway; samples.acceptance.test.ts starts the (Fernway-independent) sample
+      # apps; fernway-helpers.test.ts starts no browser and no Fernway ("no browser, no Fernway" in its own header)
+      # and just rides along here. This is the explicit list acceptance-kennel's job above excludes; add a file's
+      # name here only when it truly needs Fernway, since anything left out defaults to running in that job instead.
+      - name: "Acceptance: Fernway routes and bugs, sample apps, Fernway helpers"
+        run: >
+          pnpm --filter acceptance exec vitest run
+          src/fernway.acceptance.test.ts src/samples.acceptance.test.ts src/fernway-helpers.test.ts
+
+  # The short things the old "test" job also ran: type-checking, the compose files, and Kennel's and Fernway's own
+  # test suites (0.5 and 2.7 minutes measured; not worth a job, and their own runner's queue time, each).
+  checks:
+    name: Checks (type-check, compose files, Kennel and Fernway tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Built once below; the suites reuse dist/ instead of rebuilding it.
+      KENNEL_SKIP_BUILD: "1"
+      FERNWAY_SKIP_BUILD: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Kennel's and Fernway's own suites drive a real browser (fixtures/*/test/*.test.ts).
       - name: Install Chromium and its system dependencies
         run: pnpm --filter run-hound exec playwright install --with-deps chromium
 
@@ -62,17 +184,11 @@ jobs:
       - name: Build Fernway
         run: pnpm --filter fernway build
 
-      - name: Run Hound tests (unit and browser)
-        run: pnpm --filter run-hound test
-
       - name: Kennel tests (clean mode and every bug)
         run: pnpm --filter kennel test
 
       - name: Fernway tests (clean mode and every bug)
         run: pnpm --filter fernway test
-
-      - name: Acceptance (Run Hound against Kennel, Fernway and the sample apps)
-        run: pnpm test:acceptance
 
   images:
     name: Docker images (build and smoke test)
@@ -297,13 +413,21 @@ jobs:
 
   # The site's Playwright lab (DESIGN.md §5.1 rule 6, §5.2): builds the site, serves the standalone build as the Docker
   # image does, and runs every spec of site/scripts/lab/specs/ (the baseline and the external links only when named),
-  # the release gate included. Required for a release (release-images.yml calls this workflow); on a pull request it
-  # reports without blocking the merge. The screenshots and each spec's JSON are kept as an artefact.
+  # the release gate included, as a 4-way matrix (run.mjs --shard, scripts/lab/lib/shard.mjs's greedy-by-measured-
+  # weight packing: motion-contract-1.spec.mjs, motion-contract-2.spec.mjs and release-gate.spec.mjs, the three long
+  # poles, each anchor a shard of its own so none waits behind another; the fourth shard packs every lighter spec).
+  # Required for a release (a release reuses main's passing run or calls this workflow); on a pull request it reports
+  # without blocking the merge. The screenshots and each spec's JSON are kept as an artefact, one per shard
+  # (upload-artifact v4 refuses two artefacts with the same name in one run).
   site-lab:
-    name: Marketing site (lab)
+    name: "Marketing site (lab, ${{ matrix.shard }}/${{ strategy.job-total }})"
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 45
     continue-on-error: ${{ github.event_name == 'pull_request' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     defaults:
       run:
         working-directory: site
@@ -337,17 +461,17 @@ jobs:
           NEXT_TELEMETRY_DISABLED: "1"
         run: pnpm build
 
-      - name: Lab
+      - name: "Lab (shard ${{ matrix.shard }}/${{ strategy.job-total }})"
         env:
           # The cross-browser smoke set fails, rather than skips, a browser that can't start.
           LAB_ALL_BROWSERS: "1"
-        run: pnpm lab
+        run: pnpm lab --shard ${{ matrix.shard }}/${{ strategy.job-total }}
 
       - name: Keep the lab's output
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: site-lab
+          name: site-lab-${{ matrix.shard }}
           path: site/.lab-out/
           if-no-files-found: warn
           retention-days: 14

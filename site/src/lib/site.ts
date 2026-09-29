@@ -1,11 +1,13 @@
 // The release this site describes. It must equal app/package.json: the release workflow (release-images.yml,
 // check-version) fails when they differ.
 const version = "0.6.0";
-// Download links (curl) are pinned to the release tag, so the compose file always names the images of this release.
 const tag = `v${version}`;
-const raw = (path: string) => `https://raw.githubusercontent.com/rahul-bharati/run-hound/${tag}/${path}`;
 const github = "https://github.com/rahul-bharati/run-hound";
-const composeFileUrl = raw("run-hound.compose.yml");
+// Download links (curl) point at the latest GitHub Release, not this tag: release-images.yml creates that release
+// only once all four images are pushed, so the site never hands out a compose file whose images don't exist yet on
+// GHCR. (The compose file inside the release still pins its own images, by tag - see its own header comment.)
+const latestRelease = (asset: string) => `${github}/releases/latest/download/${asset}`;
+const composeFileUrl = latestRelease("run-hound.compose.yml");
 // Run Hound's image without a tag, i.e. `latest`: the main pull-and-run commands use it, so they never go stale.
 const imageName = "ghcr.io/rahul-bharati/run-hound";
 
@@ -61,8 +63,9 @@ export const site = {
   // The test lab, the second way: run-hound.compose.yml starts Run Hound, Kennel, Fernway and the sample apps from the
   // published images (content/commands.ts downloads it).
   composeFileUrl,
-  // The documented settings file for the compose file, from the same release.
-  envFileUrl: raw(".env.example"),
+  // The documented settings file for the compose file, from the same latest release: GitHub renames a leading-dot
+  // asset name, so .env.example is published there as run-hound.env.example (release-images.yml).
+  envFileUrl: latestRelease("run-hound.env.example"),
   // Published on GHCR with every release, public (no login needed), for linux/amd64 and arm64: run-hound (web UI,
   // CLI and Chromium's headless shell: about 260 MB to download, 715 MB on disk), and the test apps run-hound-kennel,
   // run-hound-samples and run-hound-fernway. The four download about 0.5 GB together. In a clone,
