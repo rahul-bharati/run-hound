@@ -28,7 +28,7 @@ const github = { label: ui.header.viewOnGitHub, href: site.github };
 // ---- 0. Hero ------------------------------------------------------------------------------------------------------------
 
 const hero = {
-  pill: { label: `New in ${site.version}: paywall and data-change checks`, href: href("checks", "group-security") },
+  pill: { label: `New in ${site.version}: an isolated test browser`, href: href("docs-safety", "isolated-browser") },
   /** The h1's three phrases, whole from 1024 px; the last is in accent. */
   h1: ["Find the bugs", "your AI forgot", "to test."],
   subhead: `${site.name} is free, open-source, AI-assisted UI testing for apps built with Lovable, Bolt or v0. It tests a page in a real browser on your machine, with evidence for every finding.`,

@@ -75,6 +75,7 @@ Every check, in plain words: [TESTING.md](TESTING.md#the-checks). The full catal
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
 | [DECISIONS.md](DECISIONS.md) | The append-only decision log: why Run Hound is the way it is |
 | [docs/v0-spec.md](docs/v0-spec.md), [docs/v1-spec.md](docs/v1-spec.md), [docs/v2-spec.md](docs/v2-spec.md) | The build contracts for V0 (single form), V1 (single page) and the V2 preview (signed-in runs, access checks and the write-side checks) |
+| [docs/launch-spec.md](docs/launch-spec.md) | The road to the public launch (0.6.1 to 0.6.5), and the contract for 0.6.1: an isolated test browser, Bedrock access keys, redaction and the footprint test |
 | [docs/ai-spec.md](docs/ai-spec.md) | Optional AI (0.3.0): providers, settings, privacy and consent rules |
 | [docs/app-ui-spec.md](docs/app-ui-spec.md) | The local web UI |
 | [docs/fixtures.md](docs/fixtures.md) | The Kennel test fixture, its planned Supabase variant, and scoring |
@@ -86,12 +87,12 @@ Every check, in plain words: [TESTING.md](TESTING.md#the-checks). The full catal
 
 ## Roadmap
 
-V0 to V4 are stages of what Run Hound can test, not version numbers: releases stay 0.x while they are built, and 1.0.0 is the release that completes V4 ([decision](docs/decisions/09-2026.md#2026-09-21-stages-are-feature-sets)).
+V0 to V4 are stages of what Run Hound can test, not version numbers, and no longer decide when 1.0.0 comes ([decision](docs/decisions/09-2026.md#2026-09-21-stages-are-feature-sets)). The public launch is **0.6.5** (Docker and `npx run-hound`), to get feedback from people using Run Hound now; **1.0.0** is the release that refactors the app code so it is maintainable ([decision](docs/decisions/09-2026.md#2026-09-30-launch-at-0-6-5)).
 
 - **V0: Single form** (shipped, 0.1.0) and **V1: Single page** (shipped: 0.2.0, AI in 0.3.0, AI-built UIs in 0.4.0).
 - **V2: Single feature** (preview since 0.4.0): signed-in runs and the access checks in 0.4.0, `csrf` in 0.5.0, and `write-access`, `paywall-trust` and two-step and sessionStorage sign-in in 0.6.0; feature testing across pages, the rest of V2, is planned.
-- **V3: Whole app** (planned) and **V4: Live staging**, behind ownership verification (planned: 1.0.0).
-- 0.9.9, right before 1.0.0, will be the `npx run-hound` release, with no Docker ([Road to 1.0](docs/roadmap.md#road-to-10); [decision](docs/decisions/09-2026.md#2026-09-26-npx-release-is-0-9-9)). Details: [Roadmap](docs/roadmap.md).
+- **V3: Whole app** and **V4: Live staging**, behind ownership verification, are both still planned, not tied to a release.
+- **0.6.1 to 0.6.5** get Run Hound to the public launch: an isolated test browser and Bedrock access keys (0.6.1), a clean per-launch UI and window (0.6.2), `npx run-hound` (0.6.3), launch prep (0.6.4), then the launch itself (0.6.5). Contract: [docs/launch-spec.md](docs/launch-spec.md). Details: [Roadmap](docs/roadmap.md#road-to-10).
 
 ## Contributing
 

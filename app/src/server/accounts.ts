@@ -2,12 +2,12 @@
  * Test-account helpers shared by the web server (GET/PUT /api/accounts, POST /api/accounts/test, POST /api/plan
  * signInAs) and the CLI (`accounts …`, `run --as`). docs/v2-spec.md "Test accounts". Nothing here returns a password.
  */
-import { chromium } from "playwright";
 import { notReadyMessage } from "../accounts/config.js";
 import { ACCOUNT_IDS, type AccountsConfig, type AccountsPatch, type AccountsStatus, type SignInCheck } from "../accounts/types.js";
 import type { AccountId, AccountRef, Plan } from "../core/types.js";
 import { signIn, SignInError } from "../engine/auth.js";
 import { cleanErrorMessage, TargetNotAllowedError } from "../engine/errors.js";
+import { launchChromium } from "../engine/isolation.js";
 import { redactSecrets, registerAccountUsernames, registerSecretLiterals } from "../engine/redact.js";
 import { checkTarget, pinArgs, type SafetyOptions } from "../engine/safety.js";
 
@@ -77,7 +77,7 @@ export async function testSignIn(id: AccountId, resolved: { config: AccountsConf
       if (err instanceof TargetNotAllowedError) return { id, ok: false, message: redactSecrets(`${status.label}'s sign-in page can't be used: ${err.reason}.`) };
       throw err;
     }
-    const browser = await chromium.launch({ headless: true, args: pinned });
+    const browser = await launchChromium({ headless: true, args: pinned });
     try {
       const signed = await signIn(browser, account, safety);
       const path = landedPath(signed.landedOn);

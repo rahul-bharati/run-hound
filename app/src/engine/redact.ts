@@ -1,5 +1,5 @@
 export interface SecretMatch {
-  /** Pattern name, e.g. "openai-key", "stripe-secret", "aws-access-key", "supabase-service-role", "private-key". */
+  /** Pattern name, e.g. "openai-key", "stripe-secret", "aws-access-key", "aws-secret-key", "supabase-service-role", "private-key". */
   kind: string;
   /** Redacted form safe to show: first 4 chars + "…" + length, never the full value. */
   preview: string;
@@ -15,9 +15,11 @@ interface Pattern {
 
 /**
  * True for a value random enough to be a real key: it mixes digits with upper- and lower-case letters.
- * Keeps kebab-case identifiers such as "sk-skeleton-loader-container" out of the results.
+ * Keeps kebab-case identifiers such as "sk-skeleton-loader-container" out of the results, and short placeholder
+ * values such as "ollama", "none" or "test" (0.6.1: ai/config.ts uses this to decide whether an API key is worth
+ * registering with registerSecretLiterals).
  */
-function looksRandom(value: string): boolean {
+export function looksRandom(value: string): boolean {
   return /\d/.test(value) && /[a-z]/.test(value) && /[A-Z]/.test(value);
 }
 
@@ -38,6 +40,10 @@ const PATTERNS: Pattern[] = [
   { kind: "openai-key", regex: /\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}/g, accept: looksRandom },
   { kind: "stripe-secret", regex: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}/g },
   { kind: "aws-access-key", regex: /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g },
+  // An AWS secret access key has no prefix of its own (40 of A-Z a-z 0-9 / +), so only a labelled one is matched:
+  // aws_secret_access_key, AWS_SECRET_ACCESS_KEY, aws-secret-access-key, SecretAccessKey or secretAccessKey, optional
+  // quotes (JSON-escaped too), ":" or "=". Only the value is replaced, so the label stays readable (0.6.1).
+  { kind: "aws-secret-key", regex: /(?<=\b(?:aws[_-]?)?secret[_-]?access[_-]?key\\?["']?\s*[:=]\s*\\?["']?)[A-Za-z0-9\/+]{40}(?![A-Za-z0-9\/+=])/gi },
   { kind: "github-token", regex: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}\b/g },
   { kind: "github-token", regex: /\bgithub_pat_[A-Za-z0-9_]{30,}\b/g },
   { kind: "slack-token", regex: /\bxox[abprs]-[A-Za-z0-9-]{10,}/g },

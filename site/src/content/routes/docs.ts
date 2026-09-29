@@ -195,7 +195,7 @@ export const docsRoutes = [
       "What Run Hound will and won't test or change: local targets only, risky scenarios off until you tick them, secrets hidden, and the records a run leaves.",
     label: "Safety and test records",
     h1: "Safety and test records",
-    anchors: ["local-only", "what-it-changes", "secrets", "test-records"],
+    anchors: ["local-only", "isolated-browser", "what-it-changes", "secrets", "test-records"],
   }),
   docsPage({
     slug: "limitations",

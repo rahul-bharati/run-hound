@@ -13,13 +13,12 @@ import { builtInChecks, checkPageWords as words, releaseAdded } from "@/content/
 import type { CheckPage } from "@/content/checks/pages/types";
 import { route, type RouteId } from "@/content/routes";
 import { fill, ui } from "@/content/ui";
-import { site } from "@/lib/site";
 import styles from "./checks.module.css";
 import { CopyBlock, Repeat } from "./copy-block";
 import { Dash } from "./dash";
 import { evidenceAssets } from "./evidence-assets";
 import { checkHref } from "./links";
-import { askPrompt, isPicture, listingOf, pageEvidence, pageFinding, type Evidence } from "./run-evidence";
+import { askPrompt, checkedAgainst, isPicture, listingOf, pageEvidence, pageFinding, type Evidence } from "./run-evidence";
 
 const labels = ui.checkPage;
 
@@ -147,7 +146,7 @@ export function CheckPageView({ page }: { page: CheckPage }) {
           <p className={styles.lede} data-check-lede="">
             {page.lede}
           </p>
-          <p className={styles.meta}>{fill(labels.checked, { version: site.version, date: site.released })}</p>
+          <p className={styles.meta}>{fill(labels.checked, { version: checkedAgainst.version, date: checkedAgainst.date })}</p>
         </div>
 
         <section className={styles.aside} aria-label={words.facts.label}>

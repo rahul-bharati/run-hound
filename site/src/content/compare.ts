@@ -128,7 +128,7 @@ export const tools: readonly Tool[] = [
     name: "Escape and the vibe-app scanners",
     what: "Escape and a long tail of scanners for vibe-coded apps check live apps from outside. They cover dynamic scanning, attack-surface management, secrets in JavaScript bundles, row-level security and headers. They are cloud-hosted and cover security only. ZAP and Burp, proxies for dynamic security testing, are another kind of tool. They are built for specialists, and they don't know which user should see which row. The table's column covers Escape and the vibe-app scanners, not ZAP or Burp.",
     adds: "Security is one of Run Hound's three lenses: the same run checks features and accessibility and exports Playwright tests. Signed in as test accounts you own, it also asks whether another account, or a signed-out visitor, can read or change your data.",
-    together: `Use them together: they scan deployed apps, which Run Hound doesn't test yet. Testing live staging sites behind ownership verification is planned for the V4 stage, which the 1.0.0 release completes.`,
+    together: `Use them together: they scan deployed apps, which Run Hound doesn't test yet. Testing live staging sites behind ownership verification is planned for the V4 stage.`,
     sources: [
       { label: "Escape", href: "https://escape.tech/" },
       { label: "ZAP", href: "https://www.zaproxy.org/blog/2024-09-24-zap-has-joined-forces-with-checkmarx/" },
@@ -248,7 +248,7 @@ export const capabilities: readonly Capability[] = [
 
 /** What Run Hound doesn't do yet, so the comparison isn't read as more than it is (docs/roadmap.md, TESTING.md). */
 export const notYet: readonly string[] = [
-  "Test a deployed or public site: testing live staging sites behind ownership verification is planned for the V4 stage, which the 1.0.0 release completes.",
+  "Test a deployed or public site: testing live staging sites behind ownership verification is planned for the V4 stage.",
   "Test a feature across several pages: each run tests one page, and multi-page feature runs are planned for the V2 stage.",
   "Replay a checkout with a changed price or plan, or call the APIs only paid accounts use. The paid-plan check opens success pages only; these two probes are planned.",
   "Sign in with verification codes, captchas, Google or GitHub accounts, or a password page on another site.",

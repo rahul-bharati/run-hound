@@ -156,7 +156,7 @@ export const faqGroups: readonly FaqGroup[] = [
         q: "What do I need to run it?",
         a: [
           "Docker 24+, Docker Desktop or Podman, on Linux, macOS or Windows (amd64 or arm64). Run Hound's image is about 260 MB to download and 715 MB on disk.",
-          "There is nothing to clone and no sign-up: pull the image and run it. From source it needs Node.js 22.12 or newer, pnpm and git, on Linux or macOS (on Windows, through WSL2). A release that starts with `npx run-hound`, with no Docker, is planned as 0.9.9.",
+          "There is nothing to clone and no sign-up: pull the image and run it. From source it needs Node.js 22.12 or newer, pnpm and git, on Linux or macOS (on Windows, through WSL2). A release that starts with `npx run-hound`, with no Docker, is planned for 0.6.3, on the way to the 0.6.5 public launch.",
         ],
         links: [to("Quick start with Docker or Podman", docs.quickStart), to("Requirements", docs.requirements)],
       },
@@ -189,7 +189,7 @@ export const faqGroups: readonly FaqGroup[] = [
         q: "Can Run Hound test my live website?",
         a: [
           "Not yet: it tests only `localhost`, private network addresses and internal host names you list in `RUNHOUND_ALLOWED_HOSTS`. It refuses other hosts. List only hosts you own there, since that setting skips the address check.",
-          "Testing live staging and dev sites behind ownership verification is planned for the V4 stage, and completing V4 is the 1.0.0 release.",
+          "Testing live staging and dev sites behind ownership verification is planned for the V4 stage.",
         ],
         links: [to("Safety and test records", docs.safety), to("The roadmap", { to: "open-source", hash: "roadmap" })],
       },

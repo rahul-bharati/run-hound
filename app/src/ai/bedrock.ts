@@ -15,15 +15,17 @@ import { isAwsRegion } from "./config.js";
  * `inferenceConfig: {temperature: 0}`.
  * Auth: config.apiKey (a Bedrock API key) as `Authorization: Bearer`; else SigV4 (service "bedrock") with the
  * credentials of the AWS chain (ai/aws-credentials.ts: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN
- * from `env`, then the profile config.awsProfile / AWS_PROFILE / "default": static keys, credential_process or SSO);
- * nothing there → AiError "auth" (nothing sent to Bedrock). No config.region → the profile's region.
- * No region and no baseUrl, or SigV4 without a region → AiError "not-configured".
+ * from `env`, then the pair saved in the config (awsAccessKeyId / awsSecretAccessKey / awsSessionToken), then the
+ * named profile config.awsProfile / AWS_PROFILE: static keys, credential_process or SSO; no implicit "default");
+ * nothing there → AiError "auth" (nothing sent to Bedrock). No config.region → the named profile's region (none when
+ * no profile is named: ~/.aws is not read). No region and no baseUrl, or SigV4 without a region → AiError
+ * "not-configured", checked before any credential is resolved.
  * `options.home` (for ~/.aws) is for tests; it defaults to os.homedir().
  * Errors as in chatJson; a 400 whose body says the model doesn't support tool use → AiError "http" with a message
  * saying to choose a model that supports tool use.
  */
 export async function converseJson(
-  config: Pick<AiConfig, "baseUrl" | "model" | "apiKey" | "region" | "timeoutMs" | "awsProfile">,
+  config: Pick<AiConfig, "baseUrl" | "model" | "apiKey" | "region" | "timeoutMs" | "awsProfile" | "awsAccessKeyId" | "awsSecretAccessKey" | "awsSessionToken">,
   messages: ChatMessage[],
   schema: { name: string; schema: JsonSchema },
   signal?: AbortSignal,
@@ -58,8 +60,12 @@ export async function converseJson(
   if (config.apiKey) {
     headers.authorization = `Bearer ${config.apiKey}`;
   } else {
-    const { credentials } = await resolveAwsCredentials({ ...aws, timeoutMs: config.timeoutMs, ...(signal ? { signal } : {}) });
     if (!region) throw new AiError("not-configured", "Choose a Bedrock region");
+    const saved =
+      config.awsAccessKeyId && config.awsSecretAccessKey
+        ? { accessKeyId: config.awsAccessKeyId, secretAccessKey: config.awsSecretAccessKey, ...(config.awsSessionToken ? { sessionToken: config.awsSessionToken } : {}) }
+        : null;
+    const { credentials } = await resolveAwsCredentials({ ...aws, saved, timeoutMs: config.timeoutMs, ...(signal ? { signal } : {}) });
     headers = signV4({ method: "POST", url, headers, body }, credentials, region, "bedrock");
     delete headers.host; // fetch sets the same Host itself
   }

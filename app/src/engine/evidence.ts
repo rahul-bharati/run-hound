@@ -6,6 +6,7 @@ import { PNG } from "pngjs";
 import type { Browser, BrowserContext, Locator, Page } from "playwright";
 import { BRAND, MARK_DATA_URI } from "../core/brand.js";
 import type { Box, Fact, Highlight } from "../core/types.js";
+import { ISOLATED_CONTEXT } from "./isolation.js";
 
 /** Frame layout, in CSS px of the composed image. */
 export const FRAME = {
@@ -156,7 +157,7 @@ const renderers = new WeakMap<Browser, Promise<Renderer>>();
 const renderQueues = new WeakMap<Browser, Promise<unknown>>();
 
 async function openRenderer(browser: Browser): Promise<Renderer> {
-  const context = await browser.newContext({ viewport: { width: 800, height: 600 }, deviceScaleFactor: 1, offline: true });
+  const context = await browser.newContext({ viewport: { width: 800, height: 600 }, deviceScaleFactor: 1, offline: true, ...ISOLATED_CONTEXT });
   // Evidence is built from our own HTML and data: URLs only; anything else is refused before it is sent.
   await context.route(/^(?!data:|about:)/i, (route) => route.abort());
   const page = await context.newPage();

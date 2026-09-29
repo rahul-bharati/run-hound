@@ -2,7 +2,7 @@
 // section for it (docs/development.md "Releasing"). release-images.yml's check-version no longer checks it against
 // the tag (docs/decisions/09-2026.md#2026-09-29-images-latest-no-version-pins); app/test/cli-version.test.ts still
 // checks `released`/`releasedIso` (below) against the CHANGELOG heading of this version.
-const version = "0.6.0";
+const version = "0.6.1";
 const tag = `v${version}`;
 const github = "https://github.com/rahul-bharati/run-hound";
 // Download links (curl) point at the latest GitHub Release, not this tag: release-images.yml creates that release
@@ -24,19 +24,21 @@ export const site = {
   description:
     "Open-source, AI-assisted UI testing for AI-built apps. Real checks in a real browser, with evidence and a Playwright test for every finding.",
   // The release is `version`. V0 to V4 are stages of what Run Hound can test, not releases: V0 (single form) shipped
-  // in 0.1.0, V1 (single page) in 0.2.0 to 0.4.0, V2 is in preview since 0.4.0, V3 is planned, and V4 is planned as
-  // 1.0.0, with 0.9.9, right before it, the `npx run-hound` release. The open-source page and docs/roadmap.md list
-  // them. `preview` is the stage in preview, named as the web UI and reports name it: test accounts and signed-in
-  // runs, access checks, mass assignment and deep links since 0.4.0 (docs/v2-spec.md), the CSRF check (csrf) since
-  // 0.5.0, and write-access, paywall-trust and two-step and sessionStorage sign-in since 0.6.0.
+  // in 0.1.0, V1 (single page) in 0.2.0 to 0.4.0, V2 is in preview since 0.4.0, V3 and V4 are planned. The stages no
+  // longer decide when 1.0.0 comes: the public launch is 0.6.5 (Docker and `npx run-hound`, arriving in 0.6.3), and
+  // 1.0.0 is the release that refactors the app code so it is maintainable (docs/decisions/09-2026.md
+  // #2026-09-30-launch-at-0-6-5). The open-source page and docs/roadmap.md list the stages. `preview` is the stage in
+  // preview, named as the web UI and reports name it: test accounts and signed-in runs, access checks, mass
+  // assignment and deep links since 0.4.0 (docs/v2-spec.md), the CSRF check (csrf) since 0.5.0, and write-access,
+  // paywall-trust and two-step and sessionStorage sign-in since 0.6.0.
   preview: "V2 preview",
   previewName: "Signed-in runs and access checks",
   version,
   tag,
-  // The day `version` was released (its tag), as displayed and machine-readable: "Release 0.6.0 · 29 September 2026"
+  // The day `version` was released (its tag), as displayed and machine-readable: "Release 0.6.1 · 30 September 2026"
   // in the footer, dateModified in the structured data and lastModified in sitemap.xml. Update both with every release.
-  released: "29 September 2026",
-  releasedIso: "2026-09-29",
+  released: "30 September 2026",
+  releasedIso: "2026-09-30",
   // Label for the main call to action, used in the header, heroes and page footers.
   cta: "Try it locally",
   // `||`, not `??`: Docker passes an unset build arg as an empty string. A production build needs the real address

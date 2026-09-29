@@ -179,13 +179,14 @@ function aiBuiltApps(): string {
 function roadmap(): string {
   return section(
     "Roadmap",
-    "V0 to V4 are stages of what Run Hound can test, not version numbers. Releases stay 0.x while the stages are built; 1.0.0 is the release that completes V4, and 0.9.9, right before it, is the npx run-hound release, with no Docker.",
+    "V0 to V4 are stages of what Run Hound can test, not version numbers, and no longer decide when 1.0.0 comes. The public launch is 0.6.5 (Docker and npx run-hound), to get feedback from people using Run Hound now; 1.0.0 is the release that refactors the app code so it is maintainable.",
     bullets([
       "V0: single form (shipped, 0.1.0).",
       "V1: single page (shipped: 0.2.0, optional AI in 0.3.0, apps from AI builders in 0.4.0).",
       "V2: single feature (preview since 0.4.0): signed-in runs, access-control, mass-assignment and deep-links in 0.4.0, csrf in 0.5.0. Built in 0.6.0: write-access (can account B, or a visitor who isn't signed in, change or delete A's records, with the update and delete requests the app itself sends) and paywall-trust (can A get a paid plan without paying: a success page that grants it on load; the only check that may change A's plan, which it puts back through the app's own cancel control); sign-in that asks for the email first and the password next, and sessions kept in sessionStorage. Planned: feature testing across pages (a feature named by the user, such as signup or checkout, tested end to end across its pages), the rest of the V2 stage; the two other paywall-trust probes (a checkout replayed with a changed price or plan, and the APIs only paid accounts use); and opt-in, throttled checks for rate limits, file upload and prompt injection in LLM features.",
       "V3: whole app (planned): dead-link crawl, cross-browser runs, Core Web Vitals, SEO and social previews.",
-      "V4: live staging, behind ownership verification (planned: 1.0.0).",
+      "V4: live staging, behind ownership verification (planned, not tied to a release).",
+      "0.6.1 to 0.6.5 get Run Hound to the public launch: an isolated test browser and Bedrock access keys (0.6.1), a clean per-launch UI and window (0.6.2), npx run-hound (0.6.3), launch prep (0.6.4), then the launch itself (0.6.5). 1.0.0, after the launch, refactors the app code so it is maintainable. Native desktop packages follow, with a desktop launch of their own.",
     ]),
   );
 }

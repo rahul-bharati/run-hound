@@ -6,7 +6,8 @@ import type { Severity } from "@/components/finding";
  * 0.3.0, AI-built UIs in 0.4.0); V2 = single feature (a preview since 0.4.0: signed-in runs, access checks, mass
  * assignment and deep links, the CSRF check since 0.5.0, and write access and paywall trust since 0.6.0; feature testing
  * across pages and the rest of its list are planned); V3 = the whole app (planned);
- * V4 = live staging behind domain verification (planned: 1.0.0).
+ * V4 = live staging behind domain verification (planned, not tied to a release; the public launch is 0.6.5, and
+ * 1.0.0 is the app-code refactor, so the stages no longer decide when it comes).
  */
 export type Stage = "V0" | "V1" | "V2" | "V3" | "V4";
 
@@ -51,7 +52,7 @@ export const stageMeaning: Record<Stage, string> = {
   V1: "One page: available now, more to come",
   V2: "One feature, end to end: a preview is available now (signed-in runs, access checks and write-side checks)",
   V3: "The whole app: planned",
-  V4: "Live staging, domain verified: planned for 1.0.0",
+  V4: "Live staging, domain verified: planned",
 };
 
 export const categories: CheckCategory[] = [

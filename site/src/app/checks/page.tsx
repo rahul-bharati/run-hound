@@ -2,7 +2,7 @@ import { CheckCard, isShipped } from "@/components/checks/check-card";
 import styles from "@/components/checks/checks.module.css";
 import { Dash } from "@/components/checks/dash";
 import { checkPageHref } from "@/components/checks/links";
-import { featuredFinding } from "@/components/checks/run-evidence";
+import { checkedAgainst, featuredFinding } from "@/components/checks/run-evidence";
 import { JsonLd } from "@/components/json-ld";
 import { Breadcrumbs } from "@/components/primitives/breadcrumbs";
 import { Band, Container } from "@/components/primitives/layout";
@@ -73,7 +73,7 @@ export default function ChecksPage() {
             </span>
           </h1>
           <p className={styles.lede}>{fill(hub.intro, { total, version: site.version })}</p>
-          <p className={styles.meta}>{fill(ui.checkPage.checked, { version: site.version, date: site.released })}</p>
+          <p className={styles.meta}>{fill(ui.checkPage.checked, { version: checkedAgainst.version, date: checkedAgainst.date })}</p>
           <nav aria-label={ui.docs.onThisPage}>
             <ul className={styles.onThisPage}>
               {onThisPage.map((item) => (

@@ -24,6 +24,7 @@ import { attachCapture } from "./capture.js";
 import { composeFrame, encodeGif, gifScale, renderCard, resolveHighlights, type FrameHeader } from "./evidence.js";
 import { cleanErrorMessage, explainNavigationError } from "./errors.js";
 import { guardContext, rememberedCredentials, type NavigationGuard } from "./guard.js";
+import { ISOLATED_CONTEXT } from "./isolation.js";
 import { redactSecrets, registeredLiterals } from "./redact.js";
 import { checkTarget, type SafetyOptions } from "./safety.js";
 
@@ -594,6 +595,7 @@ export function createCheckContext(options: ContextOptions): RunningCheckContext
         locale: BROWSER_LOCALE,
         // A service worker's own requests bypass context.route (the write block and the safety guard).
         serviceWorkers: "block",
+        ...ISOLATED_CONTEXT,
         ...(state ? { storageState: state } : {}),
       });
       if (disposed) {

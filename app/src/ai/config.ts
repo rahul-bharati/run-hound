@@ -2,8 +2,9 @@ import { randomBytes } from "node:crypto";
 import { chmod, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { looksRandom, registerSecretLiterals } from "../engine/redact.js";
 import { isPrivateAddress } from "../engine/safety.js";
-import { awsCredentialsAvailable, awsProfileRegion } from "./aws-credentials.js";
+import { awsCredentialsAvailable, awsProfileRegion, NO_CREDENTIALS } from "./aws-credentials.js";
 import { AI_PROVIDERS, type AiConfig, type AiConfigPatch, type AiFeatures, type AiProvider, type AiStatus, type ConfigSource } from "./types.js";
 
 /** Default endpoints per provider, used when baseUrl is empty and to prefill the Settings form. */
@@ -13,7 +14,10 @@ export const DEFAULT_BASE_URLS = {
   bedrock: "",
 } as const;
 
-/** AI off, provider "ollama", its default base URL, no model, all three features on (they apply once enabled), 120 s. */
+/**
+ * AI off, provider "ollama", its default base URL, no model, no key, no AWS profile or access keys, all three features
+ * on (they apply once enabled), 120 s.
+ */
 export const DEFAULT_AI_CONFIG: AiConfig = {
   enabled: false,
   provider: "ollama",
@@ -22,6 +26,9 @@ export const DEFAULT_AI_CONFIG: AiConfig = {
   apiKey: null,
   region: null,
   awsProfile: null,
+  awsAccessKeyId: null,
+  awsSecretAccessKey: null,
+  awsSessionToken: null,
   allowRemote: false,
   features: { review: true, suggest: true, explain: true },
   timeoutMs: 120_000,
@@ -62,7 +69,9 @@ export interface ResolvedAiConfig {
   staleKey?: { savedFor: string; endpoint: string };
 }
 
-type Field = keyof Required<AiStatus["sources"]>;
+// sources.awsKeys (the AWS access key pair, docs/launch-spec.md "Bedrock credentials") covers three AiConfig fields
+// that resolve together as a unit, so it is not in FIELDS: resolve() settles it on its own.
+type Field = Exclude<keyof Required<AiStatus["sources"]>, "awsKeys">;
 type Layer = Partial<Omit<AiConfig, "features">> & { features?: Partial<AiFeatures> };
 
 const FIELDS: readonly Field[] = ["enabled", "provider", "baseUrl", "model", "apiKey", "region", "awsProfile", "allowRemote", "features", "timeoutMs"];
@@ -83,6 +92,10 @@ function fromFile(raw: unknown): Layer {
   if (typeof r.apiKey === "string" && r.apiKey !== "") out.apiKey = r.apiKey;
   if (isAwsRegion(r.region)) out.region = r.region;
   if (typeof r.awsProfile === "string" && r.awsProfile !== "") out.awsProfile = r.awsProfile;
+  // Kept as saved (even half a pair, so its secret is still registered for redaction); resolve() applies only a whole pair.
+  if (typeof r.awsAccessKeyId === "string" && r.awsAccessKeyId !== "") out.awsAccessKeyId = r.awsAccessKeyId;
+  if (typeof r.awsSecretAccessKey === "string" && r.awsSecretAccessKey !== "") out.awsSecretAccessKey = r.awsSecretAccessKey;
+  if (typeof r.awsSessionToken === "string" && r.awsSessionToken !== "") out.awsSessionToken = r.awsSessionToken;
   if (typeof r.allowRemote === "boolean") out.allowRemote = r.allowRemote;
   if (typeof r.allowRemoteHost === "string" && r.allowRemoteHost !== "") out.allowRemoteHost = r.allowRemoteHost;
   if (typeof r.apiKeyOrigin === "string" && r.apiKeyOrigin !== "") out.apiKeyOrigin = r.apiKeyOrigin;
@@ -149,14 +162,20 @@ function fromFlags(flags: AiFlags): Layer {
 }
 
 interface Resolution extends ResolvedAiConfig {
-  /** The variable behind each env-sourced field. */
-  envNames: Partial<Record<Field, string>>;
+  /** The variable behind each env-sourced field (awsKeys: the AWS access key pair). */
+  envNames: Partial<Record<Field | "awsKeys", string>>;
+  /**
+   * Every AI secret this resolution read, whether or not it applies: the file's apiKey, awsSecretAccessKey and
+   * awsSessionToken; RUNHOUND_AI_API_KEY; for Bedrock AWS_BEARER_TOKEN_BEDROCK, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN.
+   */
+  secrets: string[];
 }
 
 /** `saved` replaces the file's contents (saveAiConfig uses it to see where a patch would point before writing). */
 async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | undefined, saved?: Layer): Promise<Resolution> {
   const file = configFile(env, home);
-  const { layer: envLayer, names: envNames } = fromEnv(env);
+  const { layer: envLayer, names } = fromEnv(env);
+  const envNames: Resolution["envNames"] = names;
   const fileLayer = saved ?? (await readSaved(file));
   const layers: [ConfigSource, Layer][] = [
     ["file", fileLayer],
@@ -164,7 +183,7 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
     ["flag", fromFlags(flags)],
   ];
   const config: AiConfig = { ...DEFAULT_AI_CONFIG, features: { ...DEFAULT_AI_CONFIG.features } };
-  const sources = Object.fromEntries(FIELDS.map((f) => [f, "default"])) as Required<AiStatus["sources"]>;
+  const sources = { ...Object.fromEntries(FIELDS.map((f) => [f, "default"])), awsKeys: "default" } as Required<AiStatus["sources"]>;
   const rank: Record<ConfigSource, number> = { default: 0, file: 1, env: 2, flag: 3 };
 
   for (const [source, layer] of layers) {
@@ -223,6 +242,34 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
     envNames.apiKey = "AWS_BEARER_TOKEN_BEDROCK";
   }
 
+  // The AWS access key pair resolves as a unit from one source (defaults < file < env, no flag): a layer counts only
+  // with both the ID and the secret, and the session token comes only from the same layer as its pair. The env pair
+  // is for Bedrock only, like AWS_BEARER_TOKEN_BEDROCK.
+  if (fileLayer.awsAccessKeyId && fileLayer.awsSecretAccessKey) {
+    config.awsAccessKeyId = fileLayer.awsAccessKeyId;
+    config.awsSecretAccessKey = fileLayer.awsSecretAccessKey;
+    config.awsSessionToken = fileLayer.awsSessionToken ?? null;
+    sources.awsKeys = "file";
+  }
+  if (config.provider === "bedrock" && env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) {
+    config.awsAccessKeyId = env.AWS_ACCESS_KEY_ID;
+    config.awsSecretAccessKey = env.AWS_SECRET_ACCESS_KEY;
+    config.awsSessionToken = env.AWS_SESSION_TOKEN || null;
+    sources.awsKeys = "env";
+    envNames.awsKeys = "AWS_ACCESS_KEY_ID";
+  }
+
+  // fileLayer.apiKey and RUNHOUND_AI_API_KEY are registered only when they look like a real credential: an API key
+  // has no fixed shape (unlike an AWS secret access key, always 40 chars), and a short, ordinary-looking placeholder
+  // used with a local server ("ollama", "none", "test", "lm-studio") would otherwise be redacted as a literal
+  // everywhere Run Hound writes its own output — reports, exported specs, progress and `ai status` (docs/decisions
+  // 2026-09-30-ai-secrets-redacted). The AWS pair and the Bedrock bearer token are always registered unconditionally:
+  // they are always long, so this never keeps a real secret out.
+  const secrets = [fileLayer.awsSecretAccessKey, fileLayer.awsSessionToken];
+  if (looksLikeApiKey(fileLayer.apiKey)) secrets.push(fileLayer.apiKey);
+  if (looksLikeApiKey(env.RUNHOUND_AI_API_KEY)) secrets.push(env.RUNHOUND_AI_API_KEY);
+  if (config.provider === "bedrock") secrets.push(env.AWS_BEARER_TOKEN_BEDROCK, env.AWS_SECRET_ACCESS_KEY, env.AWS_SESSION_TOKEN);
+
   // Consent saved from the Settings page names the host it was given for, and counts for that host only. Consent from
   // env or a flag applies to whatever endpoint this invocation uses.
   if (sources.allowRemote === "file") {
@@ -230,7 +277,20 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
     if (host !== null) config.allowRemoteHost = host;
     if (config.allowRemote && host !== endpointHost(config)) config.allowRemote = false;
   }
-  return { config, sources, file, envNames, ...(staleKey ? { staleKey } : {}) };
+  return { config, sources, file, envNames, secrets: secrets.filter((v): v is string => typeof v === "string" && v !== ""), ...(staleKey ? { staleKey } : {}) };
+}
+
+/** Shortest an API key can be and still count as a real credential without looking random (below: looksRandom must say so). */
+const MIN_API_KEY_LENGTH = 16;
+
+/**
+ * True when `value` is worth registering with registerSecretLiterals: long enough (>= 16 chars) to be a real key, or
+ * shorter but random-looking (mixes digits with upper- and lower-case letters, per looksRandom). False for short,
+ * ordinary-looking placeholders such as "ollama", "none", "test" or "lm-studio", which local-server users set as the
+ * API key and which registering would redact everywhere they appear in Run Hound's own output.
+ */
+function looksLikeApiKey(value: string | null | undefined): value is string {
+  return typeof value === "string" && value.length > 0 && (value.length >= MIN_API_KEY_LENGTH || looksRandom(value));
 }
 
 /**
@@ -268,8 +328,12 @@ function legacyKeyOrigin(file: Layer, region: string | null): string {
  * RUNHOUND_AI_BASE_URL, RUNHOUND_AI_API_KEY, RUNHOUND_AI_REGION, RUNHOUND_AI_ALLOW_REMOTE, RUNHOUND_AI_TIMEOUT_MS,
  * RUNHOUND_AI_FEATURES (comma list of review,suggest,explain). For bedrock, a missing key falls back to
  * AWS_BEARER_TOKEN_BEDROCK and a missing region to AWS_REGION, then AWS_DEFAULT_REGION (source "env"), then the
- * `region` of the AWS profile (source stays "default"). awsProfile: file < RUNHOUND_AI_AWS_PROFILE; for bedrock a
- * missing one falls back to AWS_PROFILE (source "env").
+ * `region` of the named AWS profile (source stays "default"; with no profile named ~/.aws is not read and the region
+ * stays null). awsProfile: file < RUNHOUND_AI_AWS_PROFILE; for bedrock a missing one falls back to AWS_PROFILE (source
+ * "env"); there is no implicit "default" profile.
+ * The AWS access key pair (awsAccessKeyId, awsSecretAccessKey, awsSessionToken; sources.awsKeys): the file's whole
+ * pair, then for bedrock AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (+ AWS_SESSION_TOKEN); a half pair counts as none,
+ * and the token only comes with its own pair.
  * Setting a provider (anywhere) with no base URL from the same or a later source uses that provider's default URL.
  * Unknown provider names and non-numeric timeouts are ignored (the lower source stands).
  * Consent from the file counts only when the file's allowRemoteHost equals endpointHost of the resolved config (then
@@ -278,10 +342,33 @@ function legacyKeyOrigin(file: Layer, region: string | null): string {
  * without one: keyOriginFor of the file's own provider/baseUrl/region); then config.apiKeyOrigin is that origin.
  * Otherwise apiKey resolves to null (source "default"; for bedrock AWS_BEARER_TOKEN_BEDROCK may still apply) and
  * `staleKey` says why. Env keys are never bound.
+ *
+ * Redaction (docs/launch-spec.md "Redaction"): every AI secret the resolution read (Resolution.secrets), applied or not,
+ * is registered with registerSecretLiterals — except an API key (file apiKey or RUNHOUND_AI_API_KEY) too short and too
+ * ordinary-looking to be a real credential (looksLikeApiKey), so a placeholder such as "ollama" or "test" used with a
+ * local server isn't redacted out of every report, spec and CLI line Run Hound prints. The AWS secret access key,
+ * session token and Bedrock bearer token are always registered: they are always long. The module holds one such
+ * registration: each call registers its set and then drops the previous call's, so there is no gap and a secret the
+ * config no longer holds stops being registered.
  */
 export async function resolveAiConfig(options: { env?: NodeJS.ProcessEnv; flags?: AiFlags; home?: string } = {}): Promise<ResolvedAiConfig> {
-  const { config, sources, file, staleKey } = await resolve(options.env ?? process.env, options.flags ?? {}, options.home);
+  const { config, sources, file, staleKey, secrets } = await resolve(options.env ?? process.env, options.flags ?? {}, options.home);
+  registerAiSecrets(secrets);
   return { config, sources, file, ...(staleKey ? { staleKey } : {}) };
+}
+
+/** The live registration of the AI secrets resolveAiConfig last read. */
+let aiSecretsRegistration: (() => void) | null = null;
+
+/**
+ * Registers `values`, then drops the previous registration (in that order, so a value held by both never lapses).
+ * No secrets registers nothing: only the previous registration is dropped.
+ */
+function registerAiSecrets(values: string[]): void {
+  const unregister = values.length > 0 ? registerSecretLiterals(values) : null;
+  const previous = aiSecretsRegistration;
+  aiSecretsRegistration = unregister;
+  previous?.();
 }
 
 /** Throws unless the value is empty or an http(s) URL; returns it without a trailing slash. */
@@ -334,6 +421,49 @@ async function writePrivate(file: string, text: string): Promise<void> {
   }
 }
 
+/** What a patch does to the saved AWS access key pair. */
+type PairChange = { kind: "keep" } | { kind: "remove" } | { kind: "remove-token" } | { kind: "set"; id: string; secret: string; token: string | null };
+
+/** An access key ID as IAM issues them: 16 to 128 letters, digits or underscores. */
+const ACCESS_KEY_ID = /^\w{16,128}$/;
+
+/**
+ * Reads the patch's awsAccessKeyId, awsSecretAccessKey and awsSessionToken (docs/launch-spec.md "Saving"). Throws an
+ * Error naming fields, never values: a non-string, one of the ID and secret without the other, a token without a new
+ * pair, an ID that isn't 16 to 128 letters, digits or underscores, a secret or token with whitespace, or any change to
+ * a pair set by the environment (naming AWS_ACCESS_KEY_ID).
+ */
+function pairChange(patch: AiConfigPatch, current: Resolution): PairChange {
+  const id = patch.awsAccessKeyId;
+  const secret = patch.awsSecretAccessKey;
+  const token = patch.awsSessionToken;
+  for (const [field, value] of [["awsAccessKeyId", id], ["awsSecretAccessKey", secret], ["awsSessionToken", token]] as const) {
+    if (value !== undefined && value !== null && typeof value !== "string") throw new Error(`${field} must be a string`);
+  }
+  const remove = id === null || secret === null;
+  const hasId = typeof id === "string" && id !== "";
+  const hasSecret = typeof secret === "string" && secret !== "";
+  const hasToken = typeof token === "string" && token !== "";
+  const setting = hasId || hasSecret;
+  if (!remove && !setting && !hasToken && token !== null) return { kind: "keep" };
+  if (current.sources.awsKeys === "env") {
+    throw new Error(`The AWS access keys are set by ${current.envNames.awsKeys ?? "AWS_ACCESS_KEY_ID"} and AWS_SECRET_ACCESS_KEY and can't be changed here`);
+  }
+  if (remove) {
+    if (setting || hasToken) throw new Error("Send null to remove the AWS access keys, or both the access key ID and the secret access key to set them");
+    return { kind: "remove" };
+  }
+  if (!setting) {
+    if (hasToken) throw new Error("A session token is saved only with a new access key ID and secret access key");
+    return { kind: "remove-token" };
+  }
+  if (!hasId || !hasSecret) throw new Error("Enter both the access key ID and the secret access key");
+  if (!ACCESS_KEY_ID.test(id)) throw new Error("The access key ID must be 16 to 128 letters, digits or underscores");
+  if (/\s/.test(secret)) throw new Error("The secret access key must not contain spaces or line breaks");
+  if (hasToken && /\s/.test(token)) throw new Error("The session token must not contain spaces or line breaks");
+  return { kind: "set", id, secret, token: hasToken ? token : null };
+}
+
 /** Set on saveAiConfig's result when a saved key was dropped because the endpoint changed. */
 export const KEY_REMOVED_NOTICE = "The saved API key was removed because the endpoint changed.";
 
@@ -351,6 +481,9 @@ export const KEY_REMOVED_NOTICE = "The saved API key was removed because the end
  * and the result carries `notice` (KEY_REMOVED_NOTICE). A saved key is stored with apiKeyOrigin = keyOriginFor of the
  * effective endpoint after the patch (a new key, or a kept key that applied before; a key that didn't apply keeps its
  * binding).
+ * AWS access keys (pairChange): awsAccessKeyId and awsSecretAccessKey are saved together; both left out or "" keep the
+ * saved pair; null for either removes the pair and its token; awsSessionToken is saved only with a new pair (a new pair
+ * without one removes the saved token), and null alone removes the token. A pair set by the env is locked.
  */
 export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS.ProcessEnv; home?: string } = {}): Promise<ResolvedAiConfig & { notice?: string }> {
   const env = options.env ?? process.env;
@@ -375,6 +508,7 @@ export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS
     }
     changes[field] = value;
   }
+  const pair = pairChange(patch, current);
 
   const saved = (await readSaved(current.file)) as Record<string, unknown>;
   if (changes.provider !== undefined && changes.provider !== saved.provider && changes.baseUrl === undefined) delete saved.baseUrl;
@@ -382,6 +516,18 @@ export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS
   if (next.apiKey === null) delete next.apiKey;
   if (next.region === null || next.region === "") delete next.region;
   if (next.awsProfile === null || next.awsProfile === "") delete next.awsProfile;
+  if (pair.kind === "remove") {
+    delete next.awsAccessKeyId;
+    delete next.awsSecretAccessKey;
+    delete next.awsSessionToken;
+  } else if (pair.kind === "remove-token") {
+    delete next.awsSessionToken;
+  } else if (pair.kind === "set") {
+    next.awsAccessKeyId = pair.id;
+    next.awsSecretAccessKey = pair.secret;
+    if (pair.token) next.awsSessionToken = pair.token;
+    else delete next.awsSessionToken;
+  }
 
   // Where requests went before this patch and where they will go after it.
   const before = current.config;
@@ -437,16 +583,21 @@ export function endpointHost(config: Pick<AiConfig, "provider" | "baseUrl" | "re
 
 /**
  * The status for the UI and CLI. `problem`, first match wins: "AI is off" (disabled), "Choose a model",
- * "Choose a Bedrock region" (bedrock without region), "Bedrock needs credentials: an API key, AWS access keys or an AWS profile" (bedrock with no
- * apiKey and nothing in the AWS chain: awsCredentialsAvailable, which checks env keys and the profile's files without
- * running credential_process or calling SSO; when a saved key was not applied because the endpoint moved, this and a
- * remote openai-compatible endpoint without a key say "The saved API key is for <origin>; enter a key for <origin>"
+ * "Choose a Bedrock region" (bedrock without region), "Bedrock needs credentials: an API key, AWS access keys or an AWS
+ * profile" (bedrock with no apiKey and nothing in the AWS chain: awsCredentialsAvailable, which checks the env keys, the
+ * config's access key pair and a named profile's files without running credential_process or calling SSO, and reads
+ * nothing under ~/.aws when no profile is named; when a saved key was not applied because the endpoint moved, this and
+ * a remote openai-compatible endpoint without a key say "The saved API key is for <origin>; enter a key for <origin>"
  * instead), "Sending page structure to <host> needs your consent"
  * (remote && !allowRemote); else null. `home` (for ~/.aws) defaults to os.homedir().
+ * hasAwsKeys / hasAwsSessionToken / sources.awsKeys say whether the config holds an access key pair (and its token)
+ * and where from; the key ID, the secret and the token themselves are never copied into the status.
  */
 export function aiStatus(resolved: ResolvedAiConfig, env: NodeJS.ProcessEnv = process.env, home?: string): AiStatus {
   const c = resolved.config;
-  const awsKeys = c.provider === "bedrock" && !c.apiKey && awsCredentialsAvailable({ env, profile: c.awsProfile ?? null, ...(home ? { home } : {}) });
+  const hasAwsKeys = Boolean(c.awsAccessKeyId && c.awsSecretAccessKey);
+  const saved = hasAwsKeys ? { accessKeyId: c.awsAccessKeyId!, secretAccessKey: c.awsSecretAccessKey!, ...(c.awsSessionToken ? { sessionToken: c.awsSessionToken } : {}) } : null;
+  const awsKeys = c.provider === "bedrock" && !c.apiKey && awsCredentialsAvailable({ env, profile: c.awsProfile ?? null, saved, ...(home ? { home } : {}) });
   const hasKey = Boolean(c.apiKey) || (c.provider === "bedrock" && awsKeys);
   const remote = isRemote(c);
   const host = endpointHost(c);
@@ -457,7 +608,7 @@ export function aiStatus(resolved: ResolvedAiConfig, env: NodeJS.ProcessEnv = pr
   else if (c.provider === "bedrock" && !c.region) problem = "Choose a Bedrock region";
   else if (stale && ((c.provider === "openai-compatible" && remote && !c.apiKey) || (c.provider === "bedrock" && !hasKey))) {
     problem = `The saved API key is for ${stale.savedFor}; enter a key for ${stale.endpoint}`;
-  } else if (c.provider === "bedrock" && !hasKey) problem = "Bedrock needs credentials: an API key, AWS access keys or an AWS profile";
+  } else if (c.provider === "bedrock" && !hasKey) problem = NO_CREDENTIALS;
   else if (remote && !c.allowRemote) problem = `Sending page structure to ${host} needs your consent`;
   return {
     enabled: c.enabled,
@@ -470,10 +621,12 @@ export function aiStatus(resolved: ResolvedAiConfig, env: NodeJS.ProcessEnv = pr
     features: { ...c.features },
     timeoutMs: c.timeoutMs,
     hasKey,
+    hasAwsKeys,
+    hasAwsSessionToken: hasAwsKeys && Boolean(c.awsSessionToken),
     remote,
     host,
     problem,
-    sources: { ...resolved.sources },
+    sources: { ...resolved.sources, awsKeys: resolved.sources.awsKeys ?? "default" },
     file: resolved.file,
   };
 }

@@ -202,7 +202,7 @@ select.input:disabled, .input:disabled { opacity:.6; cursor:not-allowed; }
 .option .locked { margin-top:.1rem; white-space:nowrap; }
 .link-btn { align-self:flex-start; background:none; border:0; padding:0; margin-top:.45rem; min-height:24px; color:var(--accent); font-size:.84rem; text-decoration:underline; text-underline-offset:3px; }
 .link-btn:hover { color:var(--accent-strong); }
-.key-note:empty { display:none; }
+.key-note:empty, .aws-keys-note:empty { display:none; }
 .ai-features { border:0; padding:0; margin:1.25rem 0 0; min-width:0; display:grid; gap:.4rem; }
 .ai-features legend { padding:0; margin-bottom:.45rem; }
 .ai-consent { margin-top:1.1rem; padding:.75rem .9rem; border:1px solid rgb(245 182 66 / .35); background:rgb(245 182 66 / .06); border-radius:var(--r-md); }

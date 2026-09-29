@@ -329,10 +329,13 @@ interface StoredPlan {
 /**
  * The AI session for one request, from the config as it is now (saved file + env). `wanted` undefined = use AI when
  * it is enabled and usable. When AI is wanted but can't be used, the reason comes back as a plan warning.
+ * The config is resolved even when AI is not wanted: resolving registers the saved AI secrets with the redactor
+ * (0.6.1), so they stay out of this plan's and its run's output whatever the tested page shows.
  */
 async function aiForRequest(wanted: boolean | undefined): Promise<{ ai?: AiSession; warning?: string }> {
+  const resolved = await resolveAiConfig();
   if (wanted === false) return {};
-  const out = aiSession(await resolveAiConfig());
+  const out = aiSession(resolved);
   if ("session" in out) return { ai: out.session };
   return wanted ? { warning: `AI was not used: ${out.problem}.` } : {};
 }
@@ -411,10 +414,17 @@ async function checkTitles(checks: Check[] | undefined): Promise<Record<string, 
  *   GET  /api/settings               {version, runsDir, allowedHosts, serverHosts, ai: AiStatus}
  *   GET  /api/ai                     AiStatus (ai/types.ts): the resolved AI config without the key (hasKey says whether
  *                                   one is set), where each value came from (sources; env/flag = locked), remote, host,
- *                                   problem ("AI is off", "Choose a model", "... needs your consent") or null
+ *                                   problem ("AI is off", "Choose a model", "... needs your consent") or null. For the
+ *                                   Bedrock access keys only hasAwsKeys, hasAwsSessionToken and sources.awsKeys: never
+ *                                   the key ID, the secret or the token, nor a field named after them.
  *   PUT  /api/ai  AiConfigPatch      200 AiStatus (+ notice when the saved key was removed because the endpoint changed) | 400 {error} (invalid value, or a value set by an environment variable,
  *                                   named) | 403 cross-site | 415 not JSON. Saves <configDir>/ai.json (0600). apiKey:
  *                                   omitted or "" keeps the saved key, null removes it. The key is never sent back.
+ *                                   Bedrock access keys (0.6.1, docs/launch-spec.md "Bedrock credentials"):
+ *                                   awsAccessKeyId + awsSecretAccessKey (+ awsSessionToken) are write-only like the key:
+ *                                   set together, omitted or "" keeps them, null for either removes the pair and its
+ *                                   token. 400 for half a pair, a token without a new pair, an invalid value, or a pair
+ *                                   set by the environment (naming AWS_ACCESS_KEY_ID); an error never carries a value.
  *   POST /api/ai/test  {}            200 {ok: true, model, ms} | {ok: false, error}: one tiny call with the saved settings
  *                                   (even while AI is switched off, so it can be tried before turning it on)
  *   GET  /api/ai/models?provider=&baseUrl=&allowRemote=  200 AiModelList {models: [{id, details, suitable}], error}

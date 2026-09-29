@@ -444,7 +444,7 @@ While signed in, Run Hound never clicks a sign-out control (it would end the run
 
 ## Trying the AI features
 
-Optional, and new in 0.3.0. You need a model: the easiest is [Ollama](https://ollama.com) on your machine (`ollama pull qwen3:8b`, or any model you like), or LM Studio, or an OpenAI-compatible / Amazon Bedrock endpoint you have access to.
+Optional, and new in 0.3.0. You need a model: the easiest is [Ollama](https://ollama.com) on your machine (`ollama pull qwen3:8b`, or any model you like), or LM Studio, or an OpenAI-compatible / Amazon Bedrock endpoint you have access to. For Bedrock (since 0.6.1), Settings → AI → Credentials lets you save an AWS access key pair directly (write-only, kept in `ai.json` at `0600`) instead of exporting `AWS_*` variables or naming a profile; `~/.aws` is read only when you explicitly name a profile there, `default` included — see [docs/ai-spec.md](docs/ai-spec.md#bedrock-credentials-061).
 
 1. In the web UI open **Settings → AI**, turn on **Use AI** and choose **Ollama**. **In a container** (pull-and-run or the test lab), change the **Base URL** from `http://127.0.0.1:11434/v1`, which is the container itself, to `http://host.docker.internal:11434/v1` (Podman: `http://host.containers.internal:11434/v1`), and start Ollama listening on all interfaces: `OLLAMA_HOST=0.0.0.0 ollama serve`. Pick the model from the dropdown, press **Save**, then **Test connection** (it tests the saved settings).
 2. Plan a page with **Review with AI** ticked. Planning takes longer (a 9B model on a laptop: about a minute). Each scenario shows the model's reason; **Suggested by AI** scenarios show their steps and are unticked: tick the ones that look useful.

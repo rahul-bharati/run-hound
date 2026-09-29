@@ -83,7 +83,10 @@ function explain(error: unknown, config: AiConfig): string {
     case "timeout":
       return `${where} did not answer within ${Math.round(config.timeoutMs / 1000)} s`;
     case "auth":
-      return `The server refused the credentials (HTTP ${error.status ?? "?"}); check the API key`;
+      // No HTTP status: nothing was sent, the credentials were missing or unusable (e.g. Bedrock with no API key,
+      // access keys or named AWS profile), and the error says which.
+      if (error.status === undefined) return error.message;
+      return `The server refused the credentials (HTTP ${error.status}); check the ${config.provider === "bedrock" ? "credentials" : "API key"}`;
     case "bad-output":
       if (error.message === OUT_OF_SPACE) return error.message;
       return `The model answered, but not with valid JSON: ${error.message}`;
