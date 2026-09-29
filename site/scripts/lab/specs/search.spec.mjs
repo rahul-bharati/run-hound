@@ -28,6 +28,12 @@ after(async () => {
 });
 
 const dialogOpen = (page) => page.evaluate(() => Boolean(document.querySelector("dialog[open]")));
+/**
+ * Search is live: the trigger's effect has attached the Ctrl+K listener and marked the button data-search-ready. A key
+ * press or click before that (a slow runner reaches `load` before hydration) is lost, and a test that expects nothing
+ * to open would pass for the wrong reason.
+ */
+const searchReady = (page) => page.waitForSelector("[data-search-trigger][data-search-ready]", { state: "attached" });
 const status = (page) => page.evaluate(() => document.querySelector("dialog [role='status']")?.textContent.trim() ?? null);
 
 /** Types a query into the open dialog and waits until its status names a count or no results; returns ms taken. */
@@ -64,6 +70,7 @@ describe("Ctrl+K, ⌘K and the button open it; it loads on first open", () => {
     const { context, page } = await newPage(browser, { viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
     const log = recordRequests(page);
     await page.goto(`${base}/`, { waitUntil: "load" });
+    await searchReady(page);
     await sleep(1500);
     const before = log.requests.filter((r) => r.path.startsWith("/pagefind/") || /pagefind\/pagefind\.js/.test(r.path));
     const initialScripts = log.requests.filter((r) => r.type === "script").map((r) => r.path);
@@ -102,6 +109,7 @@ describe("Ctrl+K, ⌘K and the button open it; it loads on first open", () => {
   test("the trigger opens it on a phone; the empty state; axe with it open", async () => {
     const { context, page } = await newPage(browser, { profile: "phone", reducedMotion: "reduce" });
     await page.goto(`${base}/`, { waitUntil: "load" });
+    await searchReady(page);
     await page.click("[data-search-trigger]");
     await page.waitForSelector("dialog[open]");
     await query(page, "zzqqxv");
@@ -126,6 +134,7 @@ describe("Ctrl+K, ⌘K and the button open it; it loads on first open", () => {
   test("a click that moves no focus (Safari): Escape returns focus to the trigger, not the top of the page", async () => {
     const { context, page } = await newPage(browser, { profile: "phone", reducedMotion: "reduce" });
     await page.goto(`${base}/`, { waitUntil: "load" });
+    await searchReady(page);
     // element.click() from script fires the click without moving focus, as a mouse click does in Safari.
     await page.evaluate(() => {
       document.activeElement?.blur();
@@ -144,6 +153,7 @@ describe("keys inside the dialog", () => {
   test("arrow keys move through the results; Enter follows one; the dialog closes", async () => {
     const { context, page } = await newPage(browser, { viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
     await page.goto(`${base}/`, { waitUntil: "load" });
+    await searchReady(page);
     await page.keyboard.press("Control+k");
     await page.waitForSelector("dialog[open]");
     await query(page, "double-submit");
@@ -172,10 +182,12 @@ describe("keys inside the dialog", () => {
   test("Ctrl+K in a text field of the page doesn't open search", async () => {
     const { context, page } = await newPage(browser, { viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
     await page.goto(`${base}/`, { waitUntil: "load" });
+    await searchReady(page);
     await page.evaluate(() => {
       const input = document.createElement("input");
       input.id = "lab-field";
-      document.querySelector("main").prepend(input);
+      // In <body>, which React 19 leaves alone for nodes it didn't render; <main> it may re-render and drop it.
+      document.body.append(input);
     });
     await page.focus("#lab-field");
     await page.keyboard.press("Control+k");

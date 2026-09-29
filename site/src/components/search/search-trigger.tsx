@@ -39,7 +39,13 @@ export function SearchTrigger({ docs }: { docs: string }) {
       show();
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    // Ctrl+K works from here on: the lab waits for this before pressing it (scripts/lab/specs/search.spec.mjs).
+    const button = trigger.current;
+    button?.setAttribute("data-search-ready", "");
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      button?.removeAttribute("data-search-ready");
+    };
   }, [show]);
 
   const warm = () => {
