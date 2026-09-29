@@ -16,7 +16,7 @@
  *
  * The motion code marks a root it has taken over: data-ready (the hold is released; globals.css), and
  * data-motion-state="armed" (its start state is set, waiting), "playing", then "done" (at rest), which the lab's
- * motion contract (scripts/lab/specs/motion-contract.spec.mjs) reads.
+ * motion contract (scripts/lab/specs/motion-contract-1.spec.mjs, motion-contract-2.spec.mjs) reads.
  *
  * Hero run specifics:
  * - `scan` is an HTML line at the top of the scanned form, positioned inside it; it sweeps down to the bottom of its

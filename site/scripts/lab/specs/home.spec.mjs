@@ -2,7 +2,7 @@
  * The homepage on the built site (DESIGN.md §3.1, §5.2; node P1): its words, screens and first viewport, the proof
  * strip above the run window on phones, the CTA, the bug on screen in time, LCP and CLS, the HTML weight, the accent
  * and type audits, the h1 in three phrases, "Other ways to start" under a real mouse click, the pill on one line, and
- * axe-core. The motion contract (motion-contract.spec.mjs) covers what moves. Run:
+ * axe-core. The motion contract (motion-contract-1.spec.mjs, motion-contract-2.spec.mjs) covers what moves. Run:
  *
  *   NEXT_DIST_DIR=.next-P1 pnpm build && NEXT_DIST_DIR=.next-P1 pnpm lab home --port 4917
  */

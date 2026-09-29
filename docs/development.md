@@ -16,7 +16,7 @@ pnpm --filter fernway test                    # Fernway's own tests (builds it o
 pnpm test:acceptance                          # Run Hound against Kennel, Fernway and the sample apps, clean and with every planted bug
 ```
 
-The suites pick random free ports, so they don't collide with anything already running. CI ([.github/workflows/ci.yml](../.github/workflows/ci.yml)) runs on every pull request and every push to main: the type-checks and every suite above, a build of the four Docker images with a smoke test in the compose test lab, and a lint and build of the website. A release runs all of CI first, and publishes no image unless it passes.
+The suites pick random free ports, so they don't collide with anything already running. CI ([.github/workflows/ci.yml](../.github/workflows/ci.yml)) runs on every pull request and every push to main, split into parallel jobs: the type-checks and every suite above, a build of the four Docker images with a smoke test in the compose test lab, and a lint and build of the website. A release reuses CI's already-passing run on main for the same commit when there is one, and otherwise runs CI itself; either way, it publishes no image unless CI passed.
 
 ## Test fixtures
 

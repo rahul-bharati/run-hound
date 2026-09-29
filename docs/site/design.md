@@ -120,8 +120,8 @@ Every must-change the judges listed for the winner, every shared one, and every 
 | E1 | Engineering | Phone menu fails WCAG 2.1.1 (focus-out handler on the wrong element) | One `focusout` handler on `<header>`, closing only when `relatedTarget` is outside the header | H1; `header.spec`: open the menu, Tab, focus is on the first item |
 | E2 | Engineering | Empty live region covers "Other ways to start" | No stacked layers: the hint never changes; the copy status is an sr-only `role="status"` elsewhere (§2.5 Command) | G2; `home.spec`: a real mouse click on the link changes `location.hash` |
 | E3 | Engineering | Header sticky at 400% zoom | Header and docs bar `position: static` under `@media (max-height: 30rem)` | H1, D1; `header.spec` at 320×256 |
-| E4 | Engineering | ScrollTrigger and DrawSVG downloaded for every visitor | DrawSVG and the runtime load when an effect is within half a viewport; ScrollTrigger only when the pipeline is | M1; `motion-contract.spec` counts requests at rest |
-| E5 | Engineering | The rAF loop runs while the reader rests | ScrollTrigger drives only the pipeline, and is parked after 1.5 s without scrolling | M1; `motion-contract.spec`: 0 rAF in 3 s at all 21 stop points after 2 s of rest |
+| E4 | Engineering | ScrollTrigger and DrawSVG downloaded for every visitor | DrawSVG and the runtime load when an effect is within half a viewport; ScrollTrigger only when the pipeline is | M1; `motion-contract-2.spec` counts requests at rest |
+| E5 | Engineering | The rAF loop runs while the reader rests | ScrollTrigger drives only the pipeline, and is parked after 1.5 s without scrolling | M1; `motion-contract-1.spec`/`motion-contract-2.spec`: 0 rAF in 3 s at all 21 stop points after 2 s of rest |
 | E6 | Engineering | Home HTML over D20 (182.7 KB raw) | Component classes, one SVG sprite, one markup variant per figure, CSS-drawn pipeline connectors (§2.9) | P1, G2; `check-budgets` 135,000 / 25,000 B |
 | E7 | Engineering | `check-copy` not in the build; no motion tests | `pnpm build` runs `check-copy`, `check-registry`, `check-budgets`; the lab runs the motion contract | G1, M1 |
 | ES1 | Engineering | Arbitrary Tailwind values grew to 225-262 | Values become tokens or component classes; `eslint-plugin-tailwindcss` errors on arbitrary values in new code; the total may not exceed 139 (today) | G2; `pnpm lint`, `check-budgets` counts |
@@ -991,7 +991,7 @@ site README says so, and GSAP code is never copied outside `site/src/motion/`.
 No global motion toggle: 2.3.3 is AAA, the OS setting covers it, and the only autoplaying piece has Replay and skips on
 any input.
 
-### 4.6 The motion contract (Playwright, `site/scripts/lab/specs/motion-contract.spec.mjs`)
+### 4.6 The motion contract (Playwright, `site/scripts/lab/specs/motion-contract-1.spec.mjs` and `motion-contract-2.spec.mjs`)
 
 Run against the built standalone site in the `site-lab` CI job, at 1440×900 and 390×844 (DPR 3, touch), with the
 brief's throttled profile (4× CPU, 1.6 Mbps down, 750 kbps up, 150 ms RTT, cache off) where it says so. Mid-animation
@@ -1276,7 +1276,7 @@ D1 → D2 `content/routes/docs.ts` and the seven MDX files D2 polishes; G1 → C
 
 #### M1 · Motion
 
-- **Owns:** `site/src/motion/**` and tests; `site/scripts/lab/specs/motion-contract.spec.mjs`.
+- **Owns:** `site/src/motion/**` and tests; `site/scripts/lab/specs/motion-contract-1.spec.mjs` and `motion-contract-2.spec.mjs`.
 - **Depends on:** G1, G2.
 - **Starts with:** `tokens.test.ts` (ms and s parsing; the solver against known points of the four curves; every name in
   `motion-token-names.ts` read); storyboard tests (accent intervals don't overlap; hero finding ≤ 1.9 s, end ≤ 2.8 s;

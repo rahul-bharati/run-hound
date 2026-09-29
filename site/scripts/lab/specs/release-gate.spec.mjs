@@ -9,7 +9,8 @@
  * - first-viewport prefetches: at most 10 route prefetches and 120 KB, desktop, at rest after load;
  * - every check page shows a real finding (no "No finding from the test apps is shown here yet"), for all 26 checks;
  * - LCP ≤ 1,200 ms and CLS ≤ 0.01, throttled, the median of 3, on one page of every template other than / (the home
- *   page's own gates are home.spec.mjs's and motion-contract.spec.mjs's), desktop and phone;
+ *   page's own gates are home.spec.mjs's and motion-contract-1.spec.mjs's/motion-contract-2.spec.mjs's), desktop and
+ *   phone;
  * - Run Hound's own focus-visible and reflow-320 checks pass on the built site, one page per template (needs the app's
  *   dependencies at ../app; skipped, saying so, without them).
  * Results go to <lab out>/release-gate.json. Run: pnpm lab release-gate.

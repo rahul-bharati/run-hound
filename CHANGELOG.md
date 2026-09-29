@@ -7,6 +7,13 @@ All notable changes to Run Hound. Versions follow [Semantic Versioning](https://
 ### Changed
 
 - The site's figures no longer carry the rotated EVIDENCE stamp (the homepage's hero run and its evidence trio); the maintainer found it read oddly. The trio's outline and every other beat are unchanged; the lab's "Time to bug" gate now times the finding card only.
+- **CI runs in parallel jobs**: the old single "test" job (about 52 minutes measured: Run Hound's tests 31.0, acceptance 15.3, Fernway's own tests 2.7, Kennel's 0.5, the rest setup and type-checking) splits into `app-tests` (Run Hound's own tests, sharded 4 ways), `acceptance-kennel` and `acceptance-fernway` (the acceptance suite split by which fixture app each file needs, each with a 30-minute timeout), and a short `checks` job. The "Marketing site (lab)" job (about 50 minutes measured) becomes a 4-way matrix bin-packed by measured spec weight: `motion-contract.spec.mjs` (about 24 minutes on its own, the lab's critical path) splits into `motion-contract-1.spec.mjs` and `motion-contract-2.spec.mjs` along its numbered checks, and together with `release-gate.spec.mjs` (about 14 minutes) the three each anchor a shard of their own, with a fourth shard packing every lighter spec.
+- **Releases build arm64 natively**: each of the four images builds on a runner of its own platform (arm64 on GitHub's `ubuntu-24.04-arm`, no QEMU), pushes by digest, and is sanity-checked there before the two platforms are merged into one multi-platform index and tagged. A release also reuses CI's already-passing run on `main` for the same commit instead of running the whole CI workflow again, falling back to running it only when no such run passed. A GitHub Release (title, this file's version section as its notes, `run-hound.compose.yml` and `run-hound.env.example` attached) is created only once every image is published.
+- A release now needs a `## X.Y.Z` section in this file for its version: `check-version` fails the pushed tag without one, since the GitHub Release's notes are copied from it.
+
+### Fixed
+
+- The one-line install command (`curl` of `run-hound.compose.yml`) now downloads from the latest GitHub Release instead of a tag-pinned `raw.githubusercontent.com` link, so it can never name images the release hasn't published yet: on 0.6.0's release day, the live site's command already pointed at v0.6.0's images while the held release had yet to push them. A specific release's compose file is still reachable by its tag-pinned link, called out next to the main command in README.md and TESTING.md.
 
 ## 0.6.0 (V2 preview: write-side checks and sign-in; ready for alpha testers), 29 September 2026
 

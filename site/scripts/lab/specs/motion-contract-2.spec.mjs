@@ -3,7 +3,13 @@
  * in Chromium at 1440×900 and 390×844 (DPR 3, touch), with the throttled profile where it says so. Item 12 of §4.6
  * (storyboards, the runtime's state machine, the gate) is `pnpm test` (src/motion/*.test.ts).
  *
- *   NEXT_DIST_DIR=.next-lab pnpm build && NEXT_DIST_DIR=.next-lab pnpm lab motion-contract
+ * Split from one file into two so CI's critical path stops being a single ~23.6-minute spec
+ * (docs/decisions/09-2026.md#2026-09-29-ci-parallel-jobs): this half runs the phone half of item 4-6 through item
+ * 11, the lazy motion bytes gate and the figure-presence check (~12.5 min measured); motion-contract-1.spec.mjs
+ * runs items 1-3 and the desktop half of 4-6 (~11.0 min). Shared setup (the pages, budgets, DOM contract and the
+ * page-side probes) lives in ../lib/motion-contract-shared.mjs.
+ *
+ *   NEXT_DIST_DIR=.next-lab pnpm build && NEXT_DIST_DIR=.next-lab pnpm lab motion-contract-2
  *
  * Which moving figures a page must have is switched on by the file of the node that renders it, the way check-copy and
  * check-budgets switch on theirs: the homepage's hero run, evidence trio and check cards once src/content/hero-run.ts
@@ -18,67 +24,31 @@
  * `animations: "disabled"` and clock.fastForward() would leave GSAP's tweens unfinished.
  */
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
-import { gzipSync } from "node:zlib";
-import { distDir, siteDir } from "../../lib/build-output.mjs";
-import { cspViolations, launch, median, newPage, origin, sleep, slowScroll } from "../lib/browser.mjs";
-import { installRafCounter, installTextAudit, rafDuring, readTextAudit, restState } from "../lib/motion.mjs";
+import { launch, median, newPage, sleep, slowScroll } from "../lib/browser.mjs";
+import { installRafCounter, rafDuring, restState } from "../lib/motion.mjs";
+import { installFrameSampler, readFrameSampler } from "../lib/timeline.mjs";
+import { installVitals, readVitals } from "../lib/vitals.mjs";
+import {
+  base,
+  domContract,
+  expects,
+  heroDone,
+  installStateLog,
+  isMotionChunk,
+  motionBudget,
+  motionChunks,
+  motionPages,
+  nothingPlaying,
+  notFound,
+  readStateLog,
+  replayVisible,
+  restHiddenParts,
+  roots,
+} from "../lib/motion-contract-shared.mjs";
 import { writeJson } from "../lib/out.mjs";
 import { recordRequests } from "../lib/requests.mjs";
-import { labRoutes } from "../lib/routes.mjs";
-import { installFrameSampler, readFrameSampler } from "../lib/timeline.mjs";
-import { installVitals, readTiming, readVitals } from "../lib/vitals.mjs";
 
-// The DOM contract, from its one source (the site's .ts modules load through the test hooks, as in `pnpm test`).
-await import("../../test-hooks.mjs");
-const { domContract, restHiddenParts } = await import("../../../src/motion/dom-contract.ts");
-
-const base = origin();
-const { indexable, notFound } = await labRoutes();
-const exists = (path) => existsSync(join(siteDir, path));
-const expects = {
-  heroRun: exists("src/content/hero-run.ts"),
-  trail404: exists("src/components/not-found"),
-  reveals: exists("src/content/how-it-works.ts"),
-  demoReveals: exists("src/content/demo.ts"),
-};
-
-/** §4.4's budgets for the motion code a page requests (gzip -9), and the gate's own chunk. */
-const motionBudget = { homeAfterLoad: 32_000, homeApproach: 22_000, innerPage: 32_000, gateChunk: 1_024 };
-
-/**
- * The build's motion chunks, read from the build (Turbopack's chunk loaders): the gate's chunk (the one exporting
- * MotionGate, with the motion query in it), every chunk its dynamic imports name (each loader's
- * Promise.all(["static/chunks/….js", …]) list), and the chunks those name in turn (the engine, ScrollTrigger). Only
- * these count toward the motion budgets: Next's route prefetches and the page's own lazy chunks are not motion code.
- */
-function buildMotionChunks() {
-  const dir = join(distDir, "static", "chunks");
-  const files = existsSync(dir) ? readdirSync(dir).filter((file) => file.endsWith(".js")) : [];
-  const text = new Map(files.map((file) => [file, readFileSync(join(dir, file), "latin1")]));
-  const gate = files.filter((file) => text.get(file).includes('"MotionGate"') && text.get(file).includes("(prefers-reduced-motion: no-preference)"));
-  const loaded = (file) => [...(text.get(file) ?? "").matchAll(/Promise\.all\(\[((?:"static\/chunks\/[^"]+\.js",?)+)\]/g)].flatMap((m) => [...m[1].matchAll(/static\/chunks\/([^"]+\.js)/g)].map((n) => n[1]));
-  const motion = new Set();
-  const queue = gate.flatMap(loaded);
-  while (queue.length) {
-    const file = queue.shift();
-    if (motion.has(file) || gate.includes(file)) continue;
-    motion.add(file);
-    queue.push(...loaded(file));
-  }
-  const gzip = (file) => gzipSync(Buffer.from(text.get(file), "latin1"), { level: 9 }).length;
-  return { gate: gate.map((file) => ({ file, gzip: gzip(file) })), lazy: [...motion].map((file) => ({ file, gzip: gzip(file) })) };
-}
-const motionChunks = buildMotionChunks();
-const isMotionChunk = (path) => motionChunks.lazy.some((chunk) => path.split("?")[0].endsWith(`/static/chunks/${chunk.file}`));
-
-/** The pages with (or due to have) motion: the homepage, the 404, How it works, Demo and one check page. */
-const firstCheckPage = indexable.find((route) => /^\/checks\/[^/]+\/$/.test(route.path))?.path;
-const motionPages = ["/", notFound, "/how-it-works/", "/demo/", firstCheckPage].filter(
-  (path, i, all) => path && all.indexOf(path) === i && (path === notFound || indexable.some((route) => route.path === path)),
-);
 const result = { build: process.env.NEXT_DIST_DIR ?? ".next", expects, motionChunks, pages: {} };
 const record = (path, key, value) => ((result.pages[path] ??= {})[key] = value);
 let browser;
@@ -88,260 +58,16 @@ before(async () => {
 });
 after(async () => {
   await browser?.close();
-  writeJson("motion-contract.json", result);
-});
-
-// ---- Page-side probes (run in the page) -----------------------------------------------------------------------------
-
-/** The page's motion roots: name, state and whether it holds late parts. */
-const roots = (page) =>
-  page.evaluate(() =>
-    [...document.querySelectorAll("[data-motion]")].map((root) => ({
-      name: root.getAttribute("data-motion"),
-      state: root.getAttribute("data-motion-state"),
-      ready: root.hasAttribute("data-ready"),
-      held: Boolean(root.querySelector('[data-beat="late"]')),
-    })),
-  );
-
-/** Waits until no motion root is playing (at most `ms`), then returns whether all settled. */
-const nothingPlaying = (page, ms = 8000) =>
-  page
-    .waitForFunction(() => !document.querySelector('[data-motion-state="playing"]'), null, { timeout: ms, polling: 100 })
-    .then(() => true)
-    .catch(() => false);
-
-/**
- * The held figures (the hero run, the 404's trail) have settled: none is still to mount or playing. A figure settles
- * "done", or "armed" when it waits for the reader to scroll it half into view (a phone). Their islands mount after load
- * plus idle, so a root with no state yet is waited for; under reduced motion or Save-Data none ever gets one, so the
- * wait ends when the hold is released (data-ready with no state).
- */
-const heroDone = (page, ms = 12_000) =>
-  page
-    .waitForFunction(
-      () => {
-        const held = [...document.querySelectorAll("[data-motion]")].filter((root) => root.querySelector('[data-beat="late"]'));
-        const motion = matchMedia("(prefers-reduced-motion: no-preference)").matches && !navigator.connection?.saveData;
-        return held.every((root) => (motion ? ["done", "armed"].includes(root.getAttribute("data-motion-state") ?? "") : root.hasAttribute("data-ready") || !motion));
-      },
-      null,
-      { timeout: ms, polling: 100 },
-    )
-    .then(() => true)
-    .catch(() => false);
-
-/** Records, from navigation, when each motion root's data-motion-state and data-ready change (page clock). */
-async function installStateLog(page) {
-  await page.addInitScript(() => {
-    window.__motionLog = [];
-    new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        const root = m.target;
-        window.__motionLog.push({
-          t: Math.round(performance.now()),
-          name: root.getAttribute("data-motion"),
-          attribute: m.attributeName,
-          value: root.getAttribute(m.attributeName),
-        });
-      }
-    }).observe(document, { subtree: true, attributes: true, attributeFilter: ["data-motion-state", "data-ready"] });
-  });
-}
-const readStateLog = (page) => page.evaluate(() => window.__motionLog ?? []);
-
-/**
- * Watches the first viewport's elements with words for an inline opacity below 1 (§4.6 #2), from the first byte, with
- * a MutationObserver on style attributes.
- */
-async function installInlineOpacityWatch(page) {
-  await page.addInitScript(() => {
-    window.__inlineFaded = [];
-    const words = /[\p{L}\p{N}]/u;
-    new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        const el = m.target;
-        if (!(el instanceof HTMLElement) || !el.closest("main")) continue;
-        if (el.closest('[aria-hidden="true"]')) continue;
-        const opacity = el.style.opacity;
-        if (opacity === "" || Number(opacity) >= 1) continue;
-        if (!words.test(el.textContent ?? "")) continue;
-        const rect = el.getBoundingClientRect();
-        if (rect.top >= innerHeight) continue;
-        window.__inlineFaded.push(`${el.tagName.toLowerCase()} «${el.textContent.trim().slice(0, 40)}» opacity ${opacity}`);
-      }
-    }).observe(document, { subtree: true, attributes: true, attributeFilter: ["style"] });
-  });
-}
-
-/** The h1's opacity (with its ancestors') at DOMContentLoaded. */
-async function installH1AtDomContentLoaded(page) {
-  await page.addInitScript(() => {
-    document.addEventListener("DOMContentLoaded", () => {
-      const h1 = document.querySelector("h1");
-      let opacity = h1 ? 1 : null;
-      for (let node = h1; node && node.nodeType === 1; node = node.parentElement) opacity *= Number(getComputedStyle(node).opacity);
-      window.__h1AtDcl = opacity;
-    });
-  });
-}
-
-/**
- * Every moving part as the reader has it: parts below opacity 1 (the rest-hidden ones left out), and parts that motion
- * code has written a transform or an opacity onto (an inline style: the server writes none, §2.9).
- */
-const partsAtRest = (page, restHidden) =>
-  page.evaluate((hidden) => {
-    const out = { faded: [], moved: [] };
-    for (const el of document.querySelectorAll("[data-motion] [data-part], [data-motion] [data-beat], [data-motion='reveal']")) {
-      const part = el.getAttribute("data-part") ?? el.getAttribute("data-motion");
-      if (part === "replay-slot" || hidden.includes(part) || el.classList.contains("rest-hidden")) continue;
-      if (Number(getComputedStyle(el).opacity) < 0.999) out.faded.push(`${part} ${getComputedStyle(el).opacity}`);
-      const inline = el.style ? ["transform", "translate", "rotate", "scale", "opacity"].filter((property) => el.style[property]) : [];
-      if (inline.length) out.moved.push(`${part}: ${inline.map((property) => `${property} ${el.style[property]}`).join("; ")}`);
-    }
-    return out;
-  }, restHidden);
-
-/**
- * The page has settled before a frame is compared: the fonts ready and the first viewport's images decoded (a late
- * font or image is not motion). Lazy images below the fold are left out: decode() can wait on them, and the
- * screenshot this guards (page.screenshot with no fullPage) never shows them anyway.
- *
- * Not `page.waitForLoadState("networkidle")`: a page with several findings' worth of images (/demo/, the heaviest
- * of motionPages) keeps a trickle of lazy, below-the-fold requests going out for a while after load, at browser-paced
- * low priority, so a 500 ms window with zero network in flight can take much longer to arrive than the 30 s this
- * waits by default — Playwright's own docs warn networkidle is unreliable on exactly this kind of page. None of that
- * traffic is above the fold, so it can't be mistaken for motion in the frames this compares; fonts.ready plus
- * decoding only the in-view images already waits for everything a visible frame actually depends on.
- */
-async function settled(page) {
-  await page.evaluate(async () => {
-    await document.fonts.ready;
-    const inView = [...document.images].filter((image) => image.getBoundingClientRect().top < innerHeight);
-    const decoded = Promise.all(inView.map((image) => image.decode().catch(() => {})));
-    await Promise.race([decoded, new Promise((resolve) => setTimeout(resolve, 3000))]);
-  });
-}
-
-const replayVisible = (page) =>
-  page.evaluate(() => {
-    const slot = document.querySelector('[data-part="replay-slot"]');
-    return slot ? getComputedStyle(slot).visibility === "visible" : false;
-  });
-
-// ---- 1. Reduced motion and Save-Data: no motion chunk, finished frames ----------------------------------------------
-
-describe("1. reduced motion and Save-Data get the finished frames and no motion code", () => {
-  for (const mode of ["reduce", "save-data"]) {
-    for (const path of motionPages) {
-      test(`${mode} on ${path}`, async () => {
-        const { context, page } = await newPage(browser, { reducedMotion: mode === "reduce" ? "reduce" : "no-preference", saveData: mode === "save-data" });
-        await installStateLog(page);
-        const log = recordRequests(page);
-        await page.goto(base + path, { waitUntil: "load" });
-        const timing = await readTiming(page);
-        await settled(page);
-        const shots = [];
-        for (let second = 0; second <= 3; second += 1) {
-          if (second) await sleep(1000);
-          // GIFs are the page's own media (they play once, T1; Save-Data doesn't stop them), not motion code: masked,
-          // as the lab's screenshots do.
-          shots.push(await page.screenshot({ scale: "css", mask: [page.locator('img[src*=".gif"], img[srcset*=".gif"]')] }));
-        }
-        await slowScroll(page, { step: 300, pause: 40, back: true });
-        await sleep(500);
-        const scripts = log.requests.filter((r) => r.type === "script");
-        const motion = scripts.filter((r) => r.gsap || r.scrollTrigger || r.drawSVG);
-        const gsapLoaded = await page.evaluate(() => typeof window.gsapVersions !== "undefined");
-        const rest = await partsAtRest(page, restHiddenParts);
-        const states = await readStateLog(page);
-        const found = await roots(page);
-        record(path, mode, { roots: found, motionScripts: motion.map((r) => r.path), rest, states, load: timing.load });
-        assert.deepEqual(motion.map((r) => r.path), [], "no motion chunk is requested");
-        assert.equal(gsapLoaded, false, "window.gsapVersions is undefined");
-        assert.deepEqual(rest.faded, [], "every moving part at opacity 1");
-        assert.deepEqual(rest.moved, [], "no moving part transformed");
-        assert.equal(await replayVisible(page), false, "no Replay");
-        assert.ok(found.every((root) => root.state === null), "no root taken over by motion code");
-        if (mode === "save-data") {
-          // The hold is released at hydration: data-ready on every held root soon after load (well before the 3 s
-          // fallback; the lab can't see hydration itself, so load + 200 ms stands for it).
-          for (const root of found.filter((r) => r.held)) assert.ok(root.ready, `${root.name}: hold not released`);
-          const released = states.filter((s) => s.attribute === "data-ready").map((s) => s.t);
-          for (const t of released) assert.ok(t <= timing.load + 200, `hold released at ${t} ms, load at ${timing.load} ms`);
-        }
-        for (let i = 1; i < shots.length; i += 1) assert.ok(shots[i].equals(shots[0]), `frame at ${i} s differs from the frame at 0 s`);
-        await context.close();
-      });
-    }
-  }
-});
-
-// ---- 2, 3. Text never moves or waits --------------------------------------------------------------------------------
-
-describe("2-3. text never moves or waits", () => {
-  for (const path of motionPages) {
-    for (const reducedMotion of ["no-preference", "reduce"]) {
-      test(`${path}, ${reducedMotion}: h1 at opacity 1 at DOMContentLoaded; no words faded inline in the first viewport`, async () => {
-        const { context, page } = await newPage(browser, { reducedMotion });
-        await installH1AtDomContentLoaded(page);
-        await installInlineOpacityWatch(page);
-        await page.goto(base + path, { waitUntil: "load" });
-        if (reducedMotion === "reduce") await sleep(1500);
-        else await heroDone(page);
-        const h1 = await page.evaluate(() => window.__h1AtDcl);
-        const faded = await page.evaluate(() => window.__inlineFaded);
-        record(path, `h1-${reducedMotion}`, { h1, faded });
-        assert.equal(h1, 1, "the h1 is at opacity 1 at DOMContentLoaded");
-        assert.deepEqual(faded, []);
-        await context.close();
-      });
-    }
-
-    test(`${path}: the text audit through the hero, a slow scroll, End, three anchor jumps and a fast walk back`, async () => {
-      const { context, page } = await newPage(browser);
-      await installTextAudit(page);
-      await page.goto(base + path, { waitUntil: "load" });
-      await heroDone(page);
-      await page.mouse.move(720, 450);
-      const height = await page.evaluate(() => document.documentElement.scrollHeight);
-      for (let y = 0; y < height; y += 120) {
-        await page.mouse.wheel(0, 120);
-        await sleep(50);
-      }
-      await nothingPlaying(page);
-      await page.keyboard.press("Home");
-      await sleep(300);
-      await page.keyboard.press("End");
-      await sleep(800);
-      const anchors = await page.evaluate(() => [...document.querySelectorAll("main [id]")].map((el) => el.id).filter((id) => /^[a-z][\w-]*$/.test(id)).slice(0, 3));
-      await page.evaluate(() => window.scrollTo(0, 0));
-      await sleep(300);
-      for (const id of anchors) {
-        await page.evaluate((hash) => (location.hash = hash), id);
-        await sleep(700);
-      }
-      for (let y = await page.evaluate(() => scrollY); y > 0; y -= 900) {
-        await page.evaluate((to) => window.scrollTo(0, to), y);
-        await sleep(30);
-      }
-      await nothingPlaying(page);
-      await sleep(500);
-      const caught = await readTextAudit(page);
-      record(path, "textAudit", { anchors, caught });
-      assert.deepEqual(caught, [], "no element with words below opacity 1 or moved by motion");
-      assert.deepEqual(await cspViolations(page), [], "no CSP violation through the motion");
-      await context.close();
-    });
-  }
+  writeJson("motion-contract-2.json", result);
 });
 
 // ---- 4, 5, 6. Rest --------------------------------------------------------------------------------------------------
 
 describe("4-6. nothing runs at rest", () => {
-  // Both viewports (§5.2): on a phone, the 404's trail may wait "armed" for half visibility.
-  const cases = ["desktop", "phone"].flatMap((profile) => motionPages.map((path) => ({ path, profile })));
+  // Phone half of item 4-6 (§5.2): motion-contract-1.spec.mjs runs the same test at desktop; on a phone, the 404's
+  // trail may wait "armed" for half visibility. Split from one "4-6. nothing runs at rest" describe so each half of
+  // the ~19-minute stop-point walk lands in its own file (docs/decisions/09-2026.md#2026-09-29-ci-parallel-jobs).
+  const cases = motionPages.map((path) => ({ path, profile: "phone" }));
   for (const { path, profile } of cases) {
     test(`${path} at ${profile}: 0 requestAnimationFrame callbacks in 3 s at each of 21 stop points after 2 s at rest; no infinite animations; nothing faded after End`, async () => {
       const { context, page } = await newPage(browser, { profile });

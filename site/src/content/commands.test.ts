@@ -133,8 +133,8 @@ describe("the commands", () => {
     assert.match(commands.blocks.run.output?.[0] ?? "", new RegExp(`The ${host.replace(/\./g, "\\.")} address below`));
   });
 
-  test("the test lab's compose file is pinned to this release's tag and is a file of the repository", () => {
-    assert.equal(site.composeFileUrl, `https://raw.githubusercontent.com/rahul-bharati/run-hound/v${site.version}/run-hound.compose.yml`);
+  test("the test lab's compose file comes from the latest GitHub Release and is a file of the repository", () => {
+    assert.equal(site.composeFileUrl, "https://github.com/rahul-bharati/run-hound/releases/latest/download/run-hound.compose.yml");
     assert.ok(commands.lab.startsWith(`curl -fsSLO ${site.composeFileUrl} && `));
     assert.ok(existsSync(join(repo, "run-hound.compose.yml")));
     assert.ok(existsSync(join(repo, ".env.example")), "the settings file the lab's .env starts from");
@@ -214,7 +214,7 @@ describe("the terminal blocks (CodeBlock data, §2.5)", () => {
 
   test("the lab's settings file comes from the same release as its compose file", () => {
     assert.deepEqual(commands.blocks.labEnv.commands, [`curl -fsSL ${site.envFileUrl} -o .env`]);
-    assert.equal(site.envFileUrl, site.composeFileUrl.replace("run-hound.compose.yml", ".env.example"));
+    assert.equal(site.envFileUrl, site.composeFileUrl.replace("run-hound.compose.yml", "run-hound.env.example"));
   });
 
   test("checking the lab never stops it: the status and the stop are separate blocks", () => {
