@@ -41,6 +41,8 @@
     }
   }
 
+  /* Below 1024 px .site-nav isn't rendered (display: none, next rule), so this bar has two children (the brand and
+     the ml-auto group on the right): gap keeps its usual 24 px floor between them there. */
   .site-header-bar {
     position: relative;
     display: flex;
@@ -65,9 +67,20 @@
   .site-nav {
     display: none;
   }
+  /* From 1024 px the bar has three children (brand, nav, the ml-auto group): the bar's own `gap` would then add a
+     fixed 24 px on top of the ml-auto group's auto margin, between nav and that group, that never gives — the exact
+     slack a widened fallback font (no web fonts in time, e.g. DejaVu Sans) needs and doesn't have (overflow at 1280
+     and 1440 px, §5.2 "the header specimens lay out as the live header does"). Zeroing the bar's gap here and giving
+     nav its own fixed margin for the brand↔nav space keeps every measurement identical when there's room (the ml-auto
+     margin already pushes the right group flush to the end either way) and lets only the nav↔group space shrink,
+     down to touching, when there isn't. */
   @media (width >= 64rem) {
+    .site-header-bar {
+      gap: 0;
+    }
     .site-nav {
       display: block;
+      margin-inline-start: var(--space-6);
     }
   }
 

@@ -204,11 +204,18 @@ const partsAtRest = (page, restHidden) =>
   }, restHidden);
 
 /**
- * The page has settled before a frame is compared: the network idle, the fonts ready and the first viewport's images
- * decoded (a late font or image is not motion). Lazy images below the fold are left out: decode() can wait on them.
+ * The page has settled before a frame is compared: the fonts ready and the first viewport's images decoded (a late
+ * font or image is not motion). Lazy images below the fold are left out: decode() can wait on them, and the
+ * screenshot this guards (page.screenshot with no fullPage) never shows them anyway.
+ *
+ * Not `page.waitForLoadState("networkidle")`: a page with several findings' worth of images (/demo/, the heaviest
+ * of motionPages) keeps a trickle of lazy, below-the-fold requests going out for a while after load, at browser-paced
+ * low priority, so a 500 ms window with zero network in flight can take much longer to arrive than the 30 s this
+ * waits by default — Playwright's own docs warn networkidle is unreliable on exactly this kind of page. None of that
+ * traffic is above the fold, so it can't be mistaken for motion in the frames this compares; fonts.ready plus
+ * decoding only the in-view images already waits for everything a visible frame actually depends on.
  */
 async function settled(page) {
-  await page.waitForLoadState("networkidle");
   await page.evaluate(async () => {
     await document.fonts.ready;
     const inView = [...document.images].filter((image) => image.getBoundingClientRect().top < innerHeight);

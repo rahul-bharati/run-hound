@@ -16,8 +16,10 @@ export function SiteHeader() {
       {...props}
       brand={
         <>
-          {/* The mark is 40 × 23 in the bar; in view on every page, so not lazy. */}
-          <LogoMark size={23} loading="eager" />
+          {/* The mark is 40 × 23 in the bar; in view on every page, so not lazy, but it is decorative next to the
+              wordmark text and never the LCP candidate (the h1 is, DESIGN.md §5.2): fetchPriority low keeps it from
+              competing with the render-blocking CSS and fonts on a throttled connection. */}
+          <LogoMark size={23} loading="eager" fetchPriority="low" />
           {/* Below 360 px only the mark shows; the name stays the link's name. */}
           <span className="max-xs:sr-only">{site.name}</span>
         </>
