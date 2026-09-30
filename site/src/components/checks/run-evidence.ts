@@ -77,6 +77,26 @@ export type Extract = { runHoundVersion: string; app: RunApp; runs: Run[] };
 /** Both extracts: Kennel for the signed-out checks, Fernway for the signed-in ones. */
 export const extracts: readonly Extract[] = [kennel, fernway] as unknown as Extract[];
 
+/** "27 September 2026" from an ISO instant, in site.released's own style (UTC, so the build machine's zone can't move the day). */
+function formatDate(iso: string): string {
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(iso));
+}
+
+/**
+ * What a check page's and the checks hub's "Checked against release {version} · {date}" label shows (0.6.1,
+ * docs/launch-spec.md §7): the extracts' own runHoundVersion and the earliest run's startedAt date, never
+ * site.version/site.released. The findings, severities and evidence those pages show come from these runs, so the
+ * label must keep saying the run's version even once the site itself has moved past it ("a figure from the 0.6.0
+ * runs keeps saying 0.6.0"). Both extracts must share one runHoundVersion (checked at build time, not just by a test):
+ * a page mixing evidence from two Run Hound versions would need a version per finding, which nothing here supports yet.
+ */
+export const checkedAgainst: { version: string; date: string } = (() => {
+  const versions = new Set(extracts.map((e) => e.runHoundVersion));
+  if (versions.size !== 1) throw new Error(`run-evidence: extracts disagree on runHoundVersion: ${[...versions].join(", ")}`);
+  const earliest = extracts.flatMap((e) => e.runs).map((r) => r.startedAt).sort()[0];
+  return { version: [...versions][0]!, date: formatDate(earliest!) };
+})();
+
 /** Every string the extracts hold, joined: what a page's own numbers are checked against (pages.test.ts). */
 export function extractsText(): string {
   return JSON.stringify(extracts);

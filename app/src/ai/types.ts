@@ -35,9 +35,20 @@ export interface AiConfig {
   region: string | null;
   /**
    * Bedrock only: the AWS profile (in ~/.aws/config and ~/.aws/credentials) to take credentials from when there is no
-   * API key and no AWS_ACCESS_KEY_ID. null/absent: AWS_PROFILE, else "default". See ai/aws-credentials.ts.
+   * API key and no access key pair. null/absent: AWS_PROFILE, else none: ~/.aws is read only for a named profile
+   * (0.6.1, no implicit "default"). See ai/aws-credentials.ts.
    */
   awsProfile?: string | null;
+  /**
+   * Bedrock only (0.6.1, docs/launch-spec.md "Bedrock credentials"): an AWS access key pair for SigV4, saved in ai.json
+   * or from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN. The pair resolves as a unit from one source
+   * (the session token only from the same source). Never sent to the browser, never in AiStatus.
+   */
+  awsAccessKeyId?: string | null;
+  /** Bedrock only: the secret access key of awsAccessKeyId. Write-only: never returned, registered for redaction. */
+  awsSecretAccessKey?: string | null;
+  /** Bedrock only: the session token of temporary keys. Write-only: never returned, registered for redaction. */
+  awsSessionToken?: string | null;
   /**
    * Consent to send redacted page structure to a remote endpoint. Local endpoints don't need it. In a resolved config
    * this is the effective value: consent saved from the Settings page counts only for the host it was given for.
@@ -72,13 +83,23 @@ export interface AiStatus {
   baseUrl: string;
   model: string;
   region: string | null;
-  /** Bedrock: the AWS profile named in the config (or by AWS_PROFILE); null = "default". */
+  /** Bedrock: the AWS profile named in the config (or by AWS_PROFILE); null = none named, so ~/.aws is not read. */
   awsProfile?: string | null;
   allowRemote: boolean;
   features: AiFeatures;
   timeoutMs: number;
-  /** True when a key is set (from the file, the env, or for bedrock AWS credentials: env keys or an AWS profile). */
+  /**
+   * True when a key is set (from the file, the env, or for bedrock AWS credentials: an access key pair from the file or
+   * env, or a named AWS profile with usable credentials).
+   */
   hasKey: boolean;
+  /**
+   * 0.6.1: true when an AWS access key pair is set (ai.json, or for Bedrock AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY).
+   * The key ID, the secret and the token themselves are never in the status. Always set by aiStatus.
+   */
+  hasAwsKeys?: boolean;
+  /** 0.6.1: true when that pair has a session token. Always set by aiStatus. */
+  hasAwsSessionToken?: boolean;
   /** True when the endpoint is not loopback / private network (always true for bedrock). */
   remote: boolean;
   /** The endpoint host as shown in the consent text, e.g. "api.openai.com" or "bedrock-runtime.us-east-1.amazonaws.com". */
@@ -86,12 +107,21 @@ export interface AiStatus {
   /** Set when the config can't be used as is: "Choose a model", "Sending to api.openai.com needs your consent". */
   problem: string | null;
   /** Per field. Env and flag values can't be changed from the UI (it shows them locked). */
-  sources: Record<"enabled" | "provider" | "baseUrl" | "model" | "apiKey" | "region" | "allowRemote" | "features" | "timeoutMs", ConfigSource> & { awsProfile?: ConfigSource };
+  sources: Record<"enabled" | "provider" | "baseUrl" | "model" | "apiKey" | "region" | "allowRemote" | "features" | "timeoutMs", ConfigSource> & {
+    awsProfile?: ConfigSource;
+    /** 0.6.1: where the AWS access key pair came from ("env" = locked in the UI). Always set by aiStatus. */
+    awsKeys?: ConfigSource;
+  };
   /** Absolute path of the saved config file. */
   file: string;
 }
 
-/** A change from the Settings page or CLI. `apiKey`: undefined or "" = keep the saved key, null = remove it. */
+/**
+ * A change from the Settings page or CLI. `apiKey`: undefined or "" = keep the saved key, null = remove it.
+ * 0.6.1 AWS keys: awsAccessKeyId and awsSecretAccessKey are set together (both non-empty) or kept (both undefined or
+ * ""); null for either removes the saved pair and its token; awsSessionToken is saved only with a new pair (a new pair
+ * without one removes the saved token), and null removes it.
+ */
 export type AiConfigPatch = Partial<Omit<AiConfig, "features" | "allowRemoteHost" | "apiKeyOrigin">> & { features?: Partial<AiFeatures> };
 
 /** A JSON Schema in the portable subset: every property required, nullable not optional, additionalProperties false, no numeric or length limits. */

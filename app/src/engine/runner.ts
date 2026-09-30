@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { chromium, type Browser, type LaunchOptions, type Page } from "playwright";
+import type { Browser, LaunchOptions, Page } from "playwright";
 import { groupOf } from "../core/format.js";
 import { resolveAccounts } from "../accounts/config.js";
 import type { AccountsConfig, TestAccount } from "../accounts/types.js";
@@ -42,6 +42,7 @@ import {
   TargetUnreachableError,
 } from "./errors.js";
 import { guardContext, guardSummary, rememberCredentials, type NavigationGuard } from "./guard.js";
+import { ISOLATED_CONTEXT, launchChromium } from "./isolation.js";
 import { changesCredentials, credentialFormNote, NEVER_SUBMITS } from "../checks/lib/functional-form.js";
 import { buildPlan, formOfScenario } from "./plan.js";
 import { redactAccountSecrets, redactDeep, redactSecrets, registerAccountUsernames, registerSecretLiterals } from "./redact.js";
@@ -470,7 +471,7 @@ async function discoverSignedInOrOut(
 ): Promise<Plan> {
   if (signing) engineStep(options, `Signing in as ${accountLabel(signing.account)}`, signing.account.loginUrl || url);
   else engineStep(options, "Opening the page to find its forms and controls", url);
-  const browser = await chromium.launch(launchOptions(target, options));
+  const browser = await launchChromium(launchOptions(target, options));
   let closed = false;
   try {
     let session: SessionState | undefined;
@@ -484,7 +485,7 @@ async function discoverSignedInOrOut(
     }
     const env: PlanEnv = { signedIn: Boolean(signing), otherAccount: Boolean(signing?.other) };
     // serviceWorkers: a service worker's own requests bypass context.route (discovery's write block, the guard).
-    const context = await browser.newContext({ locale: BROWSER_LOCALE, serviceWorkers: "block", ...(session ? { storageState: session } : {}) });
+    const context = await browser.newContext({ locale: BROWSER_LOCALE, serviceWorkers: "block", ...ISOLATED_CONTEXT, ...(session ? { storageState: session } : {}) });
     // 0.6.0: a session the app keeps in sessionStorage is put back before any page script runs, as in openPage.
     await seedSessionStorage(context, sessionItems);
     const guard = await guardContext(context, safety);
@@ -927,7 +928,7 @@ async function runPlanWith(plan: Plan, options: RunOptions, secrets: SecretRegis
   if (stopped()) skipRest();
   else {
     engineStep(options, options.headed ? "Opening a browser window" : "Starting the browser", plan.target);
-    const browser = await chromium.launch(launchOptions(target, options));
+    const browser = await launchChromium(launchOptions(target, options));
     browserName = `Chromium ${browser.version()}`;
     options.onProgress?.({ type: "browser", name: browserName });
     try {

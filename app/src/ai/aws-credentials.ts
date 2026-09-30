@@ -3,23 +3,28 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { redactSecrets } from "../engine/redact.js";
+import { redactSecrets, registerSecretLiterals } from "../engine/redact.js";
 import { httpError, parseBody, send } from "./http.js";
 import type { AwsCredentials } from "./sigv4.js";
 import { AiError } from "./types.js";
 
 /**
- * The AWS credential chain for Bedrock SigV4, without the AWS SDK (docs/ai-spec.md, "Bedrock auth"):
+ * The AWS credential chain for Bedrock SigV4, without the AWS SDK (docs/ai-spec.md, "Bedrock auth"; docs/launch-spec.md
+ * "Bedrock credentials"):
  * 1. AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (+ AWS_SESSION_TOKEN) from the env;
- * 2. the profile named by the config (awsProfile / RUNHOUND_AI_AWS_PROFILE), else AWS_PROFILE, else "default", read
- *    from the shared credentials file ([name] sections; AWS_SHARED_CREDENTIALS_FILE, default ~/.aws/credentials) and
- *    the shared config file ([default] / [profile name] sections; AWS_CONFIG_FILE, default ~/.aws/config). Settings of
- *    both files are merged; the credentials file wins. Within the profile, in order:
+ * 2. the access key pair saved in ai.json (`saved`, + its session token), source "saved", reading no file;
+ * 3. the profile named by the config (awsProfile / RUNHOUND_AI_AWS_PROFILE), else AWS_PROFILE. There is no implicit
+ *    "default" (0.6.1): with no profile named, nothing under ~/.aws is opened or checked, and the chain fails with
+ *    AiError "auth" (NO_CREDENTIALS). A profile named "default" is read like any other. The profile is read from the
+ *    shared credentials file ([name] sections; AWS_SHARED_CREDENTIALS_FILE, default ~/.aws/credentials) and the shared
+ *    config file ([default] / [profile name] sections; AWS_CONFIG_FILE, default ~/.aws/config). Settings of both files
+ *    are merged; the credentials file wins. Within the profile, in order:
  *    - role_arn (assume role / source_profile chains): AiError "not-configured", not supported yet;
  *    - aws_access_key_id + aws_secret_access_key (+ aws_session_token);
  *    - credential_process: the command is split like botocore's shlex.split (splitCredentialProcess), run without a
- *      shell (killed with SIGKILL after timeoutMs; a non-zero exit reports its redacted stderr) and must print the
- *      Version 1 JSON {Version: 1, AccessKeyId, SecretAccessKey, SessionToken?, Expiration? (RFC 3339)};
+ *      shell with env credentialProcessEnv(env) (killed with SIGKILL after timeoutMs; a non-zero exit reports its
+ *      redacted stderr) and must print the Version 1 JSON {Version: 1, AccessKeyId, SecretAccessKey, SessionToken?,
+ *      Expiration? (RFC 3339)};
  *    - IAM Identity Center: sso_session (→ [sso-session name] with sso_region, sso_start_url) or the legacy
  *      sso_start_url + sso_region, with sso_account_id and sso_role_name. The access token cached by `aws sso login`
  *      (~/.aws/sso/cache/<sha1 hex of the session name, or of the start URL for legacy profiles>.json: accessToken,
@@ -28,6 +33,9 @@ import { AiError } from "./types.js";
  *      "auth" saying to run `aws sso login --profile <name>`. Tokens are never refreshed here.
  * Temporary credentials (from credential_process with an Expiration, or SSO) are cached per profile for the life of
  * the process, until 5 minutes before they expire. Static keys are read again each time.
+ * Every secret access key and session token the chain resolves, from any source, is registered with the redactor
+ * (registerSecretLiterals) for the life of the process; a later resolution from the same source (the env, the saved
+ * pair, or one profile) replaces that source's registration.
  */
 
 export interface AwsCredentialOptions {
@@ -35,8 +43,14 @@ export interface AwsCredentialOptions {
   env?: NodeJS.ProcessEnv;
   /** Home directory for ~/.aws; defaults to os.homedir(). Tests pass a temp dir. */
   home?: string;
-  /** The configured profile (AiConfig.awsProfile). null/undefined: AWS_PROFILE, else "default". */
+  /** The configured profile (AiConfig.awsProfile). null/undefined: AWS_PROFILE, else none (~/.aws is not read). */
   profile?: string | null;
+  /**
+   * 0.6.1 (docs/launch-spec.md "Bedrock credentials"): the access key pair saved in ai.json (AiConfig.awsAccessKeyId,
+   * awsSecretAccessKey, awsSessionToken), checked after the env keys and before any profile; resolves with source
+   * "saved" and reads no file. Counts only with both the ID and the secret.
+   */
+  saved?: AwsCredentials | null;
   /** For credential_process and the SSO request. Default 60 000. */
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -50,7 +64,7 @@ export interface ResolvedAwsCredentials {
   credentials: AwsCredentials;
   /** Epoch ms when temporary credentials expire; null for long-term keys. */
   expiration: number | null;
-  source: "env" | "profile" | "process" | "sso";
+  source: "env" | "saved" | "profile" | "process" | "sso";
 }
 
 type Section = Record<string, string>;
@@ -60,9 +74,29 @@ type Ini = Record<string, Section>;
 const REFRESH_MARGIN_MS = 5 * 60_000;
 const cache = new Map<string, ResolvedAwsCredentials>();
 
-/** Forgets every cached temporary credential (tests; a changed profile). */
+/** The live redactor registration of each source's resolved secrets: "env", "saved", or "profile|<cache key>". */
+const registrations = new Map<string, () => void>();
+
+/**
+ * Forgets every cached temporary credential and drops the chain's redactor registrations, as in a fresh process. For
+ * tests: nothing else calls it, so in a real process resolved secrets stay registered while it runs.
+ */
 export function clearAwsCredentialCache(): void {
   cache.clear();
+  for (const unregister of registrations.values()) unregister();
+  registrations.clear();
+}
+
+/** The message when no method gives credentials (the same words as AiStatus.problem). */
+export const NO_CREDENTIALS = "Bedrock needs credentials: an API key, AWS access keys or an AWS profile";
+
+/** Registers what a source resolved to, then drops that source's previous registration (no gap between the two). */
+function registerResolved(source: string, credentials: AwsCredentials): void {
+  const values = [credentials.secretAccessKey, credentials.sessionToken].filter((v): v is string => typeof v === "string" && v !== "");
+  const unregister = registerSecretLiterals(values);
+  const previous = registrations.get(source);
+  registrations.set(source, unregister);
+  previous?.();
 }
 
 /**
@@ -96,9 +130,12 @@ export function parseAwsIni(text: string): Ini {
   return out;
 }
 
-/** The profile to use: the configured one, else AWS_PROFILE, else "default". */
-export function awsProfileName(env: NodeJS.ProcessEnv, configured?: string | null): string {
-  return configured || env.AWS_PROFILE || "default";
+/**
+ * The profile to use: the configured one, else AWS_PROFILE, else null: no profile is named, and nothing under ~/.aws
+ * may be read (0.6.1: no implicit "default"; a profile explicitly named "default" is a named profile).
+ */
+export function awsProfileName(env: NodeJS.ProcessEnv, configured?: string | null): string | null {
+  return configured || env.AWS_PROFILE || null;
 }
 
 function expandHome(path: string, home: string): string {
@@ -143,6 +180,12 @@ function readProfile(env: NodeJS.ProcessEnv, home: string, name: string): Profil
 const envKeys = (env: NodeJS.ProcessEnv): AwsCredentials | null =>
   env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY
     ? { accessKeyId: env.AWS_ACCESS_KEY_ID, secretAccessKey: env.AWS_SECRET_ACCESS_KEY, ...(env.AWS_SESSION_TOKEN ? { sessionToken: env.AWS_SESSION_TOKEN } : {}) }
+    : null;
+
+/** The saved pair when it is whole (an ID and a secret), with its token when it has one; else null. */
+const savedKeys = (saved: AwsCredentials | null | undefined): AwsCredentials | null =>
+  saved && typeof saved.accessKeyId === "string" && saved.accessKeyId && typeof saved.secretAccessKey === "string" && saved.secretAccessKey
+    ? { accessKeyId: saved.accessKeyId, secretAccessKey: saved.secretAccessKey, ...(typeof saved.sessionToken === "string" && saved.sessionToken ? { sessionToken: saved.sessionToken } : {}) }
     : null;
 
 interface SsoSettings {
@@ -251,6 +294,26 @@ export function splitCredentialProcess(command: string, profileName: string): st
   return out;
 }
 
+/** The AWS credential variables a credential_process helper never gets (upper case; compared case-insensitively). */
+const HELPER_DROPPED = new Set(["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_BEARER_TOKEN_BEDROCK"]);
+
+/**
+ * 0.6.1 (docs/launch-spec.md "What credential_process gets"): the environment a credential_process helper is started
+ * with: `env` without Run Hound's own variables (every name starting with RUNHOUND_) and without the AWS credential
+ * variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_BEARER_TOKEN_BEDROCK); everything else is
+ * kept, as the AWS CLI keeps it (real helpers need their own variables, HOME, a session bus). Names are compared
+ * case-insensitively ("runhound_x", "aws_secret_access_key" go too). Pure: returns a new object.
+ */
+export function credentialProcessEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(env)) {
+    const upper = name.toUpperCase();
+    if (upper.startsWith("RUNHOUND_") || HELPER_DROPPED.has(upper)) continue;
+    out[name] = value;
+  }
+  return out;
+}
+
 const MAX_OUTPUT = 1024 * 1024;
 /** After the helper exits, how long to wait for its stdout/stderr to close (a grandchild may keep them open). */
 const EXIT_GRACE_MS = 200;
@@ -261,7 +324,7 @@ type ProcessResult = { outcome: "exit"; code: number | null; stdout: string; std
  * Runs the helper without a shell. Always settles: on timeout (SIGKILL) or abort it resolves at once, and after the
  * helper exits it waits at most EXIT_GRACE_MS for the pipes to close, so a grandchild holding stdout open can't hang it.
  */
-function runProcess(file: string, args: string[], timeoutMs: number, signal?: AbortSignal): Promise<ProcessResult> {
+function runProcess(file: string, args: string[], env: NodeJS.ProcessEnv, timeoutMs: number, signal?: AbortSignal): Promise<ProcessResult> {
   return new Promise((resolve) => {
     if (signal?.aborted) return resolve({ outcome: "aborted" });
     let stdout = "";
@@ -289,7 +352,7 @@ function runProcess(file: string, args: string[], timeoutMs: number, signal?: Ab
       finish({ outcome: "timeout" });
     }, timeoutMs);
     try {
-      child = spawn(file, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true, timeout: timeoutMs, killSignal: "SIGKILL" });
+      child = spawn(file, args, { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, timeout: timeoutMs, killSignal: "SIGKILL" });
     } catch (error) {
       clearTimeout(timer);
       return resolve({ outcome: "error", message: error instanceof Error ? error.message : String(error) });
@@ -314,7 +377,7 @@ async function fromProcess(profile: Profile, options: AwsCredentialOptions): Pro
   const [file, ...args] = splitCredentialProcess(profile.settings.credential_process!, profile.name);
   if (!file) throw new AiError("not-configured", `The ${what} is empty`);
   const timeoutMs = options.timeoutMs ?? 60_000;
-  const result = await runProcess(file, args, timeoutMs, options.signal);
+  const result = await runProcess(file, args, credentialProcessEnv(options.env ?? process.env), timeoutMs, options.signal);
   if (result.outcome === "timeout") {
     throw new AiError("timeout", `credential_process for profile "${profile.name}" did not finish within ${timeoutMs >= 1000 ? `${Math.round(timeoutMs / 1000)} s` : `${timeoutMs} ms`}`);
   }
@@ -347,15 +410,28 @@ async function fromProcess(profile: Profile, options: AwsCredentialOptions): Pro
   };
 }
 
-/** Resolves credentials through the chain above; rejects with AiError ("auth", "not-configured", or from the SSO request). */
+/**
+ * Resolves credentials through the chain above; rejects with AiError ("auth", "not-configured", or from the SSO
+ * request). With no env pair, no saved pair and no profile named it rejects with AiError("auth", NO_CREDENTIALS) and
+ * reads nothing. Registers the secret access key and session token it resolves with the redactor.
+ */
 export async function resolveAwsCredentials(options: AwsCredentialOptions = {}): Promise<ResolvedAwsCredentials> {
   const env = options.env ?? process.env;
   const fromEnv = envKeys(env);
-  if (fromEnv) return { credentials: fromEnv, expiration: null, source: "env" };
+  if (fromEnv) {
+    registerResolved("env", fromEnv);
+    return { credentials: fromEnv, expiration: null, source: "env" };
+  }
+  const fromSaved = savedKeys(options.saved);
+  if (fromSaved) {
+    registerResolved("saved", fromSaved);
+    return { credentials: fromSaved, expiration: null, source: "saved" };
+  }
 
+  const name = awsProfileName(env, options.profile);
+  if (name === null) throw new AiError("auth", NO_CREDENTIALS);
   const home = options.home ?? homedir();
   const now = options.now ?? Date.now();
-  const name = awsProfileName(env, options.profile);
   const files = paths(env, home);
   const key = `${home}|${files.config}|${files.credentials}|${name}`;
   const cached = cache.get(key);
@@ -363,10 +439,7 @@ export async function resolveAwsCredentials(options: AwsCredentialOptions = {}):
   cache.delete(key);
 
   const profile = readProfile(env, home, name);
-  if (!profile) {
-    if (name === "default") throw new AiError("auth", "Bedrock needs an API key or AWS credentials (access keys, or a profile in ~/.aws)");
-    throw new AiError("auth", `AWS profile "${name}" was not found in ${files.config} or ${files.credentials}`);
-  }
+  if (!profile) throw new AiError("auth", `AWS profile "${name}" was not found in ${files.config} or ${files.credentials}`);
   const s = profile.settings;
   if (s.role_arn) {
     throw new AiError(
@@ -374,34 +447,37 @@ export async function resolveAwsCredentials(options: AwsCredentialOptions = {}):
       `AWS profile "${name}" uses role_arn (assume role), which is not supported yet; use a profile with access keys, credential_process or SSO`,
     );
   }
+  let resolved: ResolvedAwsCredentials;
   if (s.aws_access_key_id && s.aws_secret_access_key) {
-    return {
+    resolved = {
       credentials: { accessKeyId: s.aws_access_key_id, secretAccessKey: s.aws_secret_access_key, ...(s.aws_session_token ? { sessionToken: s.aws_session_token } : {}) },
       expiration: null,
       source: "profile",
     };
-  }
-  let resolved: ResolvedAwsCredentials;
-  if (s.credential_process) {
+  } else if (s.credential_process) {
     resolved = await fromProcess(profile, options);
   } else {
     const sso = ssoSettings(profile);
     if (!sso) throw new AiError("auth", `AWS profile "${name}" has no credentials (access keys, credential_process or SSO)`);
     resolved = await fromSso(profile, sso, home, options, now);
   }
+  registerResolved(`profile|${key}`, resolved.credentials);
   if (resolved.expiration !== null) cache.set(key, resolved);
   return resolved;
 }
 
 /**
  * True when something in the chain could give credentials, checked without running anything or calling SSO: env keys,
- * or a profile with access keys, credential_process, or an SSO configuration whose token cache file exists.
+ * the saved pair, or a named profile with access keys, credential_process, or an SSO configuration whose token cache
+ * file exists. With no profile named it reads nothing under ~/.aws.
  */
 export function awsCredentialsAvailable(options: Omit<AwsCredentialOptions, "signal" | "timeoutMs" | "ssoPortalUrl"> = {}): boolean {
   const env = options.env ?? process.env;
-  if (envKeys(env)) return true;
+  if (envKeys(env) || savedKeys(options.saved)) return true;
+  const name = awsProfileName(env, options.profile);
+  if (name === null) return false;
   const home = options.home ?? homedir();
-  const profile = readProfile(env, home, awsProfileName(env, options.profile));
+  const profile = readProfile(env, home, name);
   if (!profile) return false;
   const s = profile.settings;
   if (s.role_arn) return false;
@@ -414,9 +490,11 @@ export function awsCredentialsAvailable(options: Omit<AwsCredentialOptions, "sig
   }
 }
 
-/** The `region` of the profile (config file), or null. */
+/** The `region` of the named profile (config file), or null. With no profile named it reads nothing and is null. */
 export function awsProfileRegion(options: Pick<AwsCredentialOptions, "env" | "home" | "profile"> = {}): string | null {
   const env = options.env ?? process.env;
-  const profile = readProfile(env, options.home ?? homedir(), awsProfileName(env, options.profile));
+  const name = awsProfileName(env, options.profile);
+  if (name === null) return null;
+  const profile = readProfile(env, options.home ?? homedir(), name);
   return profile?.settings.region || null;
 }

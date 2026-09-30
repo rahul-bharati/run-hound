@@ -58,6 +58,8 @@ const ALL_DEFAULT: AiStatus["sources"] = {
   features: "default",
   timeoutMs: "default",
   awsProfile: "default",
+  // 0.6.1 (docs/launch-spec.md "How the pair resolves"): sources.awsKeys is always set.
+  awsKeys: "default",
 };
 
 describe("configDir", () => {
@@ -244,11 +246,12 @@ describe("resolveAiConfig", () => {
       expect(r.sources.awsProfile).toBe("env");
     });
 
-    it("takes the region from the AWS profile when nothing else sets one", async () => {
+    it("takes the region from the named AWS profile when nothing else sets one, and none when no profile is named", async () => {
       await mkdir(join(tmp, ".aws"), { recursive: true });
       await writeFile(join(tmp, ".aws", "config"), "[default]\nregion = us-west-2\n[profile work]\nregion = eu-central-1\n");
+      // 0.6.1 (docs/launch-spec.md "When ~/.aws is read"): no implicit "default" profile.
       let r = await resolveAiConfig({ env: { ...env, RUNHOUND_AI_PROVIDER: "bedrock" }, home: tmp });
-      expect(r.config.region).toBe("us-west-2");
+      expect(r.config.region).toBeNull();
       r = await resolveAiConfig({ env: { ...env, RUNHOUND_AI_PROVIDER: "bedrock", RUNHOUND_AI_AWS_PROFILE: "work" }, home: tmp });
       expect(r.config.region).toBe("eu-central-1");
       r = await resolveAiConfig({ env: { ...env, RUNHOUND_AI_PROVIDER: "bedrock", AWS_REGION: "ap-south-1" }, home: tmp });

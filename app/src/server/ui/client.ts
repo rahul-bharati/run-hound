@@ -1083,6 +1083,7 @@ export const CLIENT = String.raw`
     let current = st.model || "";
     let otherMode = false;
     let removeKey = false;
+    let removeKeys = false;
     let list = null;
     let seq = 0;
     let timer = null;
@@ -1101,18 +1102,54 @@ export const CLIENT = String.raw`
     const modelRow = h("div", { class: "model-row" }, modelSelect, refresh);
     const modelOther = h("input", { id: "ai-model-other", class: "input", type: "text", spellcheck: "false", autocomplete: "off", disabled: locked("model") });
     const modelsMsg = h("p", { class: "field-hint", id: "ai-models-msg" });
-    const keyInput = h("input", { id: "ai-key", class: "input", type: "password", autocomplete: "new-password", spellcheck: "false", placeholder: st.hasKey ? "Saved" : "Not set", disabled: locked("apiKey") });
+    // For Bedrock, hasKey also counts access keys and a profile: only an API key of its own makes this field "Saved".
+    const apiKeySet = st.provider === "bedrock" ? sources.apiKey === "file" || sources.apiKey === "env" : st.hasKey === true;
+    const keyInput = h("input", { id: "ai-key", class: "input", type: "password", autocomplete: "new-password", spellcheck: "false", placeholder: apiKeySet ? "Saved" : "Not set", disabled: locked("apiKey") });
     keyInput.value = "";
     const keyNote = h("span", { class: "field-hint key-note" });
-    const removeBtn = st.hasKey && !locked("apiKey") ? h("button", { type: "button", class: "link-btn", id: "ai-key-remove", text: "Remove key" }) : null;
+    const removeBtn = apiKeySet && !locked("apiKey") ? h("button", { type: "button", class: "link-btn", id: "ai-key-remove", text: "Remove key" }) : null;
+    const keyField = h("div", { class: "ai-field" },
+      h("label", { class: "field-label", for: "ai-key", text: "API key" }), keyInput, lockNote("apiKey"), removeBtn, keyNote,
+      h("span", { class: "field-hint", text: "Stays on this machine; never shown again. Not needed for Ollama or LM Studio." }));
     const region = h("input", { id: "ai-region", class: "input", type: "text", spellcheck: "false", autocomplete: "off", placeholder: "us-east-1", disabled: locked("region") });
     region.value = st.region || "";
     const regionRow = h("div", { class: "ai-field" }, h("label", { class: "field-label", for: "ai-region", text: "Region" }), region, lockNote("region"));
-    const awsProfile = h("input", { id: "ai-aws-profile", class: "input", type: "text", spellcheck: "false", autocomplete: "off", placeholder: "default", disabled: locked("awsProfile"), "aria-describedby": "ai-aws-profile-hint" });
+    const awsProfile = h("input", { id: "ai-aws-profile", class: "input", type: "text", spellcheck: "false", autocomplete: "off", placeholder: "Profile name", disabled: locked("awsProfile"), "aria-describedby": "ai-aws-profile-hint" });
     awsProfile.value = st.awsProfile || "";
     const awsProfileRow = h("div", { class: "ai-field ai-aws-profile-field" },
       h("label", { class: "field-label", for: "ai-aws-profile", text: "AWS profile" }), awsProfile, lockNote("awsProfile"),
-      h("span", { class: "field-hint", id: "ai-aws-profile-hint", text: "Uses ~/.aws on the machine running Run Hound: static keys, credential_process or SSO (run \u0060aws sso login\u0060 first)" }));
+      h("span", { class: "field-hint", id: "ai-aws-profile-hint", text: "Uses ~/.aws on the machine running Run Hound: static keys, credential_process or SSO (run \u0060aws sso login\u0060 first). Only a named profile is read: type default to use your [default] profile." }));
+    // Bedrock credentials (0.6.1): one method at a time, the first one the status says is set. A select, not radio
+    // buttons: their labels would share words with the "API key" and "AWS profile" fields' labels.
+    const authChoice = h("select", { id: "ai-aws-auth", class: "input", "aria-describedby": "ai-aws-auth-hint" },
+      h("option", { value: "api-key", text: "Bedrock API key" }),
+      h("option", { value: "access-keys", text: "Access keys" }),
+      h("option", { value: "profile", text: "AWS profile" }));
+    authChoice.value = sources.apiKey === "file" || sources.apiKey === "env" ? "api-key" : st.hasAwsKeys ? "access-keys" : st.awsProfile ? "profile" : "api-key";
+    const authRow = h("div", { class: "ai-field ai-aws-auth-field" },
+      h("label", { class: "field-label", for: "ai-aws-auth", text: "Credentials" }), authChoice,
+      h("span", { class: "field-hint", id: "ai-aws-auth-hint", text: "One method is saved at a time: saving it removes the others saved in ai.json." }));
+    // The access keys are write-only, like the API key and account passwords: never prefilled, never sent back.
+    const awsKeyId = h("input", { id: "ai-aws-key-id", class: "input", type: "text", spellcheck: "false", autocomplete: "off", placeholder: st.hasAwsKeys ? "Saved" : "Not set", disabled: locked("awsKeys") });
+    const awsSecret = h("input", { id: "ai-aws-secret", class: "input", type: "password", spellcheck: "false", autocomplete: "new-password", placeholder: st.hasAwsKeys ? "Saved" : "Not set", disabled: locked("awsKeys") });
+    const awsToken = h("input", { id: "ai-aws-session-token", class: "input", type: "password", spellcheck: "false", autocomplete: "new-password", placeholder: st.hasAwsSessionToken ? "Saved" : "Not set", disabled: locked("awsKeys") });
+    for (const input of [awsKeyId, awsSecret, awsToken]) input.value = "";
+    const keysNote = h("span", { class: "field-hint aws-keys-note" });
+    const removeKeysBtn = st.hasAwsKeys && !locked("awsKeys") ? h("button", { type: "button", class: "link-btn", id: "ai-aws-keys-remove", text: "Remove keys" }) : null;
+    const awsKeyRows = [
+      h("div", { class: "ai-field ai-aws-keys-field" },
+        h("label", { class: "field-label", for: "ai-aws-key-id", text: "Access key ID" }), awsKeyId, lockNote("awsKeys")),
+      h("div", { class: "ai-field ai-aws-keys-field" },
+        h("label", { class: "field-label", for: "ai-aws-secret", text: "Secret access key" }), awsSecret, lockNote("awsKeys"), removeKeysBtn, keysNote,
+        h("span", { class: "field-hint", text: "Stays on this machine in ai.json; never shown again." })),
+      h("div", { class: "ai-field ai-aws-keys-field" },
+        h("label", { class: "field-label", for: "ai-aws-session-token", text: "Session token (optional)" }), awsToken, lockNote("awsKeys")),
+    ];
+    // Before 0.6.1 an unnamed [default] profile was read on its own; say how to keep using it.
+    const noCredentials = st.provider === "bedrock" && !st.hasKey && !st.awsProfile && st.problem === "Bedrock needs credentials: an API key, AWS access keys or an AWS profile";
+    const migrationNote = noCredentials
+      ? h("p", { class: "field-hint ai-aws-note", id: "ai-aws-note", text: "Run Hound reads ~/.aws only for a named profile. To keep using your [default] profile, choose AWS profile under Credentials and type default." })
+      : null;
     const features = st.features || { review: true, suggest: true, explain: true };
     const feat = (key, id, label, desc) => {
       const cb = h("input", { type: "checkbox", id, disabled: locked("features") });
@@ -1149,10 +1186,19 @@ export const CLIENT = String.raw`
       if (bed) { modelOther.removeAttribute("aria-label"); modelLabel.setAttribute("for", "ai-model-other"); }
       else { modelOther.setAttribute("aria-label", "Other model id"); modelLabel.setAttribute("for", "ai-model"); }
       regionRow.hidden = !bed;
-      awsProfileRow.hidden = !bed;
+      syncAuthUi();
       baseLabel.textContent = bed ? "Endpoint override (optional)" : "Base URL";
       baseUrl.placeholder = bed ? "https://bedrock-runtime.<region>.amazonaws.com" : "http://127.0.0.1:11434/v1";
       if (bed) { modelsMsg.textContent = ""; modelsMsg.className = "field-hint"; }
+    }
+    /** Bedrock shows the Credentials choice and only the chosen method's fields; other providers the API key alone. */
+    function syncAuthUi() {
+      const bed = isBedrock();
+      const method = authChoice.value;
+      authRow.hidden = !bed;
+      keyField.hidden = bed && method !== "api-key";
+      for (const row of awsKeyRows) row.hidden = !bed || method !== "access-keys";
+      awsProfileRow.hidden = !bed || method !== "profile";
     }
     function drawModels() {
       fillModelSelect(modelSelect, list, otherMode ? "" : current);
@@ -1224,6 +1270,7 @@ export const CLIENT = String.raw`
     });
     baseUrl.addEventListener("input", () => { drawConsent(); loadSoon(); });
     region.addEventListener("input", drawConsent);
+    authChoice.addEventListener("change", syncAuthUi);
     refresh.addEventListener("click", loadModels);
     modelSelect.addEventListener("change", () => {
       if (modelSelect.value === OTHER_MODEL) {
@@ -1246,6 +1293,15 @@ export const CLIENT = String.raw`
         keyInput.placeholder = removeKey ? "Will be removed" : "Saved";
       });
     }
+    if (removeKeysBtn) {
+      removeKeysBtn.addEventListener("click", () => {
+        removeKeys = !removeKeys;
+        removeKeysBtn.textContent = removeKeys ? "Undo remove" : "Remove keys";
+        keysNote.textContent = removeKeys ? "The saved keys will be removed when you save." : "";
+        awsKeyId.placeholder = awsSecret.placeholder = removeKeys ? "Will be removed" : "Saved";
+        if (st.hasAwsSessionToken) awsToken.placeholder = removeKeys ? "Will be removed" : "Saved";
+      });
+    }
 
     save.addEventListener("click", async () => {
       error.textContent = "";
@@ -1255,15 +1311,44 @@ export const CLIENT = String.raw`
       if (!locked("provider")) patch.provider = providerOf();
       if (!locked("baseUrl")) patch.baseUrl = baseUrl.value.trim();
       if (!locked("model")) patch.model = modelValue();
-      if (!locked("apiKey")) {
+      if (isBedrock()) {
+        // The chosen method's values, and null for each other method's value saved in ai.json, so one method is saved
+        // at a time. A locked (env) field is never sent. Half a pair goes as typed: the server says what is missing.
+        const method = authChoice.value;
+        if (!locked("apiKey")) {
+          if (method === "api-key") {
+            if (removeKey) patch.apiKey = null;
+            else if (keyInput.value) patch.apiKey = keyInput.value;
+          } else if (sources.apiKey === "file") patch.apiKey = null;
+        }
+        if (!locked("awsKeys")) {
+          if (method === "access-keys") {
+            const id = awsKeyId.value.trim();
+            const secret = awsSecret.value.trim();
+            const token = awsToken.value.trim();
+            if (removeKeys) patch.awsAccessKeyId = null;
+            else {
+              if (id) patch.awsAccessKeyId = id;
+              if (secret) patch.awsSecretAccessKey = secret;
+              if (token) patch.awsSessionToken = token;
+            }
+          } else if (sources.awsKeys === "file") patch.awsAccessKeyId = null;
+        }
+        if (!locked("awsProfile")) {
+          if (method === "profile") patch.awsProfile = awsProfile.value.trim() || null;
+          else if (sources.awsProfile === "file") patch.awsProfile = null;
+        }
+        if (!locked("region")) patch.region = region.value.trim() || null;
+      } else if (!locked("apiKey")) {
         if (removeKey) patch.apiKey = null;
         else if (keyInput.value) patch.apiKey = keyInput.value;
       }
-      if (!locked("region") && isBedrock()) patch.region = region.value.trim() || null;
-      if (!locked("awsProfile") && isBedrock()) patch.awsProfile = awsProfile.value.trim() || null;
       if (!locked("features")) patch.features = { review: fReview.cb.checked, suggest: fSuggest.cb.checked, explain: fExplain.cb.checked };
       if (consent && !locked("allowRemote")) patch.allowRemote = consent.checked;
+      // The card is drawn again from the answer: hold the toggles still until then, so no click is lost to the redraw.
+      const toggles = [removeBtn, removeKeysBtn].filter(Boolean);
       save.disabled = true;
+      for (const b of toggles) b.disabled = true;
       saveLabel.textContent = "Saving…";
       try {
         const next = await api("/api/ai", patch, "PUT");
@@ -1275,6 +1360,7 @@ export const CLIENT = String.raw`
       } catch (err) {
         if (my !== gen) return;
         save.disabled = false;
+        for (const b of toggles) b.disabled = false;
         saveLabel.textContent = "Save";
         error.textContent = err.message;
       }
@@ -1299,20 +1385,20 @@ export const CLIENT = String.raw`
       announce(testOut.textContent);
     });
 
-    const keyField = h("div", { class: "ai-field" },
-      h("label", { class: "field-label", for: "ai-key", text: "API key" }), keyInput, lockNote("apiKey"), removeBtn, keyNote,
-      h("span", { class: "field-hint", text: "Stays on this machine; never shown again. Not needed for Ollama or LM Studio." }));
     fill(card, 
       h("h2", { id: "ai-h", class: "card-title" }, icon("sparkle"), "AI"),
       h("p", { class: "muted ai-intro", text: "Optional. A model reviews the plan, suggests extra flows and explains findings in plain words. It never decides pass or fail: the checks do." }),
       st.problem ? h("p", { class: "warning ai-problem", id: "ai-problem", text: st.problem }) : null,
+      migrationNote,
       h("div", { class: "option ai-switch" }, enabled, h("label", { for: "ai-enabled" }, "Use AI", h("span", { class: "desc", text: "Off by default. Planning and runs work the same without it." })), lockNote("enabled")),
       h("div", { class: "ai-fields" },
         h("div", { class: "ai-field" }, h("label", { class: "field-label", for: "ai-provider", text: "Provider" }), preset, lockNote("provider")),
         h("div", { class: "ai-field" }, baseLabel, baseUrl, lockNote("baseUrl")),
         h("div", { class: "ai-field ai-model-field" }, modelLabel, modelRow, modelOther, lockNote("model"), modelsMsg),
-        keyField,
         regionRow,
+        authRow,
+        keyField,
+        ...awsKeyRows,
         awsProfileRow),
       h("fieldset", { class: "ai-features" }, h("legend", { class: "field-label", text: "What the model does" }), fReview.row, fSuggest.row, fExplain.row, lockNote("features")),
       consentSlot,

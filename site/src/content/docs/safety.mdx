@@ -8,6 +8,19 @@ Run Hound tests only apps on your own machine or private network. Scenarios that
 - A test account's sign-in page must pass the same check as a target.
 - The web UI answers only to loopback names and addresses, the host of `RUNHOUND_PUBLIC_URL` and the address given to `serve --host`. Add others with `RUNHOUND_SERVER_HOSTS`. Don't expose it to your network: anyone who can reach it can start runs.
 
+## The test browser is isolated \{#isolated-browser\}
+
+Since 0.6.1, the browser Run Hound drives gets its own environment and its own home folder, separate from the rest of your machine:
+
+- It never inherits your shell's secrets, AWS keys, tokens or proxy settings; it gets only what Chromium itself needs (a display, fonts, language).
+- It never saves a download.
+- `~/.aws` is read only when you explicitly name an AWS profile, `default` included; there is no implicit default profile.
+- Its per-launch home folder is removed when the browser closes, crashes, or fails to start.
+- Other requests the tested page makes (scripts, images, `fetch`, analytics, its sign-in provider) stay allowed, to any host. Only navigations are held to your allowed targets, as they would be for any user of your app. Use test accounts, not real ones.
+- **What this changes for a host install** (running from source, or `npx` from 0.6.3; Docker is unaffected). The browser's own home folder holds no certificates. A locally trusted target, such as `https://localhost` via `mkcert` or `next dev --experimental-https`, now fails with a certificate error. Behind a proxy-only network, it can no longer reach the tested page's own third-party requests, since it no longer inherits your proxy settings. Both read as a false finding, not a security gap; an explicit opt-in for a proxy and a trusted certificate is planned.
+
+See [Launch readiness](https://github.com/rahul-bharati/run-hound/blob/main/docs/launch-spec.md#061-isolated-by-default) for the full contract.
+
 ## What it may change \{#what-it-changes\}
 
 - Scenarios that could change or delete existing data, such as clicking a "Delete" button, are off by default. Pass `--allow-destructive` or tick the option in the web UI to turn them on.

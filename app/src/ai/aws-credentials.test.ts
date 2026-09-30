@@ -124,10 +124,11 @@ describe("splitCredentialProcess (botocore / Python shlex.split, posix=True)", (
 });
 
 describe("awsProfileName", () => {
-  it("prefers the configured profile, then AWS_PROFILE, then default", () => {
+  // 0.6.1 (docs/launch-spec.md "When ~/.aws is read"): no implicit "default"; null when no profile is named.
+  it("prefers the configured profile, then AWS_PROFILE, else names none", () => {
     expect(awsProfileName({ AWS_PROFILE: "env" }, "configured")).toBe("configured");
     expect(awsProfileName({ AWS_PROFILE: "env" }, null)).toBe("env");
-    expect(awsProfileName({}, undefined)).toBe("default");
+    expect(awsProfileName({}, undefined)).toBeNull();
   });
 });
 
@@ -139,9 +140,9 @@ describe("resolveAwsCredentials", () => {
     expect(r.source).toBe("env");
   });
 
-  it("reads static keys of the default profile from ~/.aws/credentials", async () => {
+  it("reads static keys of a profile named default from ~/.aws/credentials", async () => {
     await writeFile(aws("credentials"), `[default]\naws_access_key_id = ${KEY_ID}\naws_secret_access_key = ${SECRET}\n`);
-    const r = await resolveAwsCredentials({ env: {}, home });
+    const r = await resolveAwsCredentials({ env: {}, home, profile: "default" });
     expect(r.credentials).toEqual({ accessKeyId: KEY_ID, secretAccessKey: SECRET });
     expect(r.source).toBe("profile");
   });
@@ -164,7 +165,7 @@ describe("resolveAwsCredentials", () => {
   it("honours AWS_SHARED_CREDENTIALS_FILE and AWS_CONFIG_FILE", async () => {
     await writeFile(join(home, "creds.ini"), `[default]\naws_access_key_id = ELSEWHERE\naws_secret_access_key = x\n`);
     await writeFile(join(home, "config.ini"), `[profile p]\naws_access_key_id = CONFIGELSEWHERE\naws_secret_access_key = y\n`);
-    expect((await resolveAwsCredentials({ env: { AWS_SHARED_CREDENTIALS_FILE: join(home, "creds.ini") }, home })).credentials.accessKeyId).toBe("ELSEWHERE");
+    expect((await resolveAwsCredentials({ env: { AWS_SHARED_CREDENTIALS_FILE: join(home, "creds.ini") }, home, profile: "default" })).credentials.accessKeyId).toBe("ELSEWHERE");
     expect((await resolveAwsCredentials({ env: { AWS_CONFIG_FILE: join(home, "config.ini") }, home, profile: "p" })).credentials.accessKeyId).toBe("CONFIGELSEWHERE");
   });
 
@@ -320,9 +321,10 @@ describe("resolveAwsCredentials", () => {
 });
 
 describe("awsProfileRegion", () => {
-  it("reads the region of the profile from the config file", async () => {
+  it("reads the region of the named profile from the config file, and none when no profile is named", async () => {
     await writeFile(aws("config"), `[default]\nregion = us-west-2\n[profile dev]\nregion = eu-central-1\n`);
-    expect(awsProfileRegion({ env: {}, home })).toBe("us-west-2");
+    expect(awsProfileRegion({ env: {}, home })).toBeNull();
+    expect(awsProfileRegion({ env: {}, home, profile: "default" })).toBe("us-west-2");
     expect(awsProfileRegion({ env: { AWS_PROFILE: "dev" }, home })).toBe("eu-central-1");
     expect(awsProfileRegion({ env: {}, home, profile: "none" })).toBeNull();
   });
@@ -338,7 +340,9 @@ describe("awsCredentialsAvailable", () => {
     await writeFile(aws("config"), `[profile proc]\ncredential_process = /usr/bin/false\n`);
     expect(awsCredentialsAvailable({ env: {}, home, profile: "proc" })).toBe(true);
     await writeFile(aws("credentials"), `[default]\naws_access_key_id = ${KEY_ID}\naws_secret_access_key = ${SECRET}\n`);
-    expect(awsCredentialsAvailable({ env: {}, home })).toBe(true);
+    // 0.6.1: a [default] profile counts only when it is named.
+    expect(awsCredentialsAvailable({ env: {}, home })).toBe(false);
+    expect(awsCredentialsAvailable({ env: {}, home, profile: "default" })).toBe(true);
   });
 
   it("is true for an SSO profile only when a cached token file exists (without calling SSO)", async () => {

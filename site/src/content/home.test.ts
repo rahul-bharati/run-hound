@@ -96,10 +96,10 @@ describe("the copy rules (docs/brand.md)", () => {
 });
 
 describe("the hero (§3.1 block 0)", () => {
-  test(`the pill: one line of at most 46 characters, to the security checks on this site`, () => {
+  test(`the pill: one line of at most 46 characters, internal`, () => {
     assert.ok(home.hero.pill.label.length <= 46, `${home.hero.pill.label.length}: ${home.hero.pill.label}`);
     assert.match(home.hero.pill.href, /^\/[^/]/);
-    assert.equal(home.hero.pill.href, href("checks", "group-security"));
+    assert.equal(home.hero.pill.href, href("docs-safety", "isolated-browser"));
     assert.ok(home.hero.pill.label.startsWith(`New in ${site.version}:`));
   });
 

@@ -148,7 +148,7 @@ export type RoadmapStage = {
 
 /** Releases stay 0.x while the stages are built (brand.md, "Shipped vs planned"). */
 export const roadmapNote =
-  "Releases stay 0.x while the stages are built. 1.0.0 is the release that completes V4, and 0.9.9, right before it, is the `npx run-hound` release.";
+  "Releases stay 0.x while the stages are built, and the stages no longer decide when 1.0.0 comes. The public launch is 0.6.5 (Docker and `npx run-hound`); 1.0.0 is the release that refactors the app code so it is maintainable.";
 
 /** V0 to V4 (docs/roadmap.md): shipped, in preview, planned. */
 export const roadmap: readonly RoadmapStage[] = [
@@ -189,8 +189,7 @@ export const roadmap: readonly RoadmapStage[] = [
     stage: "V4",
     name: "Live staging",
     status: "planned",
-    release: "Release 1.0.0",
-    summary: "Testing live staging and dev sites behind ownership verification. Completing it is the 1.0.0 release.",
+    summary: "Testing live staging and dev sites behind ownership verification. Not tied to a release yet.",
     adds: "Adds checks for live hosts, such as mixed content and email DNS records.",
   },
 ];

@@ -38,6 +38,7 @@ import { planSummary } from "./engine/plan.js";
 import { exitQuietlyOnClosedPipe } from "./engine/stdio.js";
 import { createApp } from "./server/app.js";
 import { testConnection } from "./ai/client.js";
+import { NO_CREDENTIALS } from "./ai/aws-credentials.js";
 import { aiStatus, resolveAiConfig, type AiFlags } from "./ai/config.js";
 import { flowStepWords } from "./ai/describe.js";
 import { aiSession, type AiSession } from "./ai/session.js";
@@ -137,6 +138,10 @@ function aiRemedy(status: AiStatus): string {
     return ` Nothing was sent. Pass --ai-allow-remote (or set RUNHOUND_AI_ALLOW_REMOTE=1) to send redacted page structure to ${status.host}, or use a local endpoint.`;
   }
   if (status.problem === "Choose a model") return " Pass --ai-model <id> or set RUNHOUND_AI_MODEL.";
+  if (status.problem === NO_CREDENTIALS) {
+    // 0.6.1: ~/.aws is no longer read for an unnamed [default] profile; say how to keep using it.
+    return " Set RUNHOUND_AI_API_KEY (or AWS_BEARER_TOKEN_BEDROCK); set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, or save access keys in Settings; or name an AWS profile with RUNHOUND_AI_AWS_PROFILE or AWS_PROFILE. ~/.aws is read only for a named profile: set it to default to use your [default] profile.";
+  }
   return "";
 }
 

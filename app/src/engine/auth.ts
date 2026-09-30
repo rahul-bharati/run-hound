@@ -47,6 +47,7 @@ import { BROWSER_LOCALE, isCredentialHeader } from "./context.js";
 import { discoverPage } from "./discover.js";
 import { cleanErrorMessage, explainNavigationError, TargetNotAllowedError } from "./errors.js";
 import { guardContext, guardSummary, type NavigationGuard } from "./guard.js";
+import { ISOLATED_CONTEXT } from "./isolation.js";
 import { redactSecrets, registerSecretLiterals } from "./redact.js";
 import { checkTarget, type SafetyOptions } from "./safety.js";
 
@@ -1854,7 +1855,7 @@ async function signInReady(browser: Browser, account: TestAccount, label: string
   let releaseBrowser: (() => Promise<void>) | undefined;
   try {
     // serviceWorkers: a service worker's own requests bypass context.route (the guard and the password blocks).
-    context = await browser.newContext({ locale: BROWSER_LOCALE, serviceWorkers: "block" });
+    context = await browser.newContext({ locale: BROWSER_LOCALE, serviceWorkers: "block", ...ISOLATED_CONTEXT });
     // Close the worker, speculation-rules and window.close channels the routes never see, before any page script runs.
     await context.addInitScript(SIGN_IN_HARDENING);
     const guard = await guardContext(context, safety);

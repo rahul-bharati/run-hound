@@ -1,6 +1,6 @@
 # Roadmap
 
-V0 to V4 are stages of what Run Hound can test, not version numbers. Releases stay 0.x while the stages are built; 1.0.0 is the release that completes V4, and 0.9.9, right before it, is the `npx run-hound` release. Each stage heading gives its status and names the releases that built it (for V4, the release that will).
+V0 to V4 are stages of what Run Hound can test, not version numbers. Each stage heading gives its status and names the releases that built it. The stages no longer decide when 1.0.0 comes: since 30 September 2026, the public launch is **0.6.5**, and **1.0.0** is the release that refactors the app code so it is maintainable ([decision](decisions/09-2026.md#2026-09-30-launch-at-0-6-5); details: [Launch readiness](launch-spec.md) and [Road to 1.0](#road-to-10), below).
 
 ## V0: Single form (shipped, 0.1.0)
 
@@ -34,9 +34,9 @@ Point it at the app and let the agent do it. It discovers and prioritizes featur
 
 - Adds whole-app checks: dead-link crawl, cross-browser runs, Core Web Vitals, SEO and social previews.
 
-## V4: Live staging (planned: 1.0.0)
+## V4: Live staging (planned)
 
-Support for testing live staging/dev sites behind ownership verification. Completing V4 is the 1.0.0 release.
+Support for testing live staging/dev sites behind ownership verification. Not tied to a release yet.
 
 - Adds live-host checks: exposed dotfiles, staging wired to production, mixed content, email DNS (SPF/DKIM/DMARC).
 
@@ -50,7 +50,13 @@ Ideas not tied to a stage or a release:
 
 ## Road to 1.0
 
-Releases stay 0.x while the stages are built: V0 and V1 have shipped, V2 is in preview and V3 is planned for a 0.x release ([decision: stages are feature sets](decisions/09-2026.md#2026-09-21-stages-are-feature-sets)).
+Releases stay 0.x while the stages are built: V0 and V1 have shipped, V2 is in preview and V3 and V4 are planned for a later 0.x or later ([decision: stages are feature sets](decisions/09-2026.md#2026-09-21-stages-are-feature-sets); superseded in part by the launch plan below). The public launch comes at **0.6.5**, before V3 or V4 are built, to get feedback from people using Run Hound now ([decision](decisions/09-2026.md#2026-09-30-launch-at-0-6-5)):
 
-- **0.9.9** will be the `npx run-hound` release: Run Hound published as an npm package, so it starts with `npx run-hound` on your own machine, with no Docker. It is the last release before 1.0.0 ([decision: the npx release is 0.9.9](decisions/09-2026.md#2026-09-26-npx-release-is-0-9-9)).
-- **1.0.0**, right after it, is the release that completes V4 (live staging).
+- **0.6.1, isolated by default:** the test browser gets an allowlisted environment and a home folder of its own, and never saves a download; Bedrock access keys can be saved in Settings; `~/.aws` is read only when a profile is named; AI secrets are redacted everywhere; the egress rules are written down; a footprint test proves a run touches nothing else. Contract: [Launch readiness](launch-spec.md#061-isolated-by-default).
+- **0.6.2, clean launch:** a per-launch token for the UI; Chromium's sandbox on, with a warning when it can't start; `serve --open` in Run Hound's own app window with a throwaway profile; `--no-open`; `run-hound doctor` ([decision](decisions/09-2026.md#2026-09-30-host-state-and-clean-window)).
+- **0.6.3, npx:** `npx run-hound`, published as an npm package with no Docker needed; host state moves into the project (`./.run-hound/`, `RUNHOUND_HOME`); one shared browser cache; the first browser download is announced; `run-hound clean`; CI runs on macOS and Windows too ([decision](decisions/09-2026.md#2026-09-30-host-state-and-clean-window)).
+- **0.6.4, launch prep:** hardened compose files; deleting runs; a "Send feedback" link in the UI; launch copy.
+- **0.6.5, launch:** a pre-release first, then the public launch, asking for feedback.
+- **1.0.0**, after the launch, is the release that refactors the app code so it is maintainable. V0 to V4 stay stages of what Run Hound can test, but no longer decide when 1.0.0 comes. Native desktop packages (Windows, macOS, Linux) follow, with a desktop launch of their own.
+
+Full plan and the binding 0.6.1 contract: [docs/launch-spec.md](launch-spec.md).

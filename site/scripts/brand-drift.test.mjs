@@ -45,7 +45,8 @@ function shippedAndPlanned() {
   assert.ok(text, 'Voice keeps its "- **Shipped vs planned.**" bullet');
   const at = text.indexOf(PLANNED_MARKER);
   assert.ok(at >= 0, `the Shipped vs planned bullet introduces the planned list with "${PLANNED_MARKER}"`);
-  // The list runs to the end of its sentence ("0.9.9" and "(V3)" hold no full stop followed by a space).
+  // The list runs to the end of its sentence: a parenthesized stage abbreviation such as "(V3)" or "(V4)" holds no
+  // full stop followed by a space, so the split must not stop there.
   const planned = text.slice(at + PLANNED_MARKER.length).split(/\.(?:\s|$)/)[0];
   assert.ok(planned.trim().length > 0, "the planned list is not empty");
   return { shipped: text.slice(0, at), planned };
@@ -184,5 +185,57 @@ describe("docs/brand.md", () => {
     assert.match(uppercase, /mono label of at most 3 words may be a heading/, "a short mono label may be a heading");
     // Mono labels are uppercase only when they have at most 3 words; longer ones keep their case.
     assert.match(section("Type") ?? "", /uppercase only when they have at most 3 words/, "Type limits uppercase mono labels");
+  });
+});
+
+// docs/launch-spec.md §7 ("Roadmap wording"): "0.9.9 is the npx release" and "1.0.0 completes V4" are retired wording
+// (2026-09-30-launch-at-0-6-5 supersedes 2026-09-26-npx-release-is-0-9-9 and, in part, 2026-09-21-stages-are-feature-
+// sets: npx is 0.6.3, the public launch is 0.6.5, and 1.0.0 is the release that refactors the app code so it is
+// maintainable — the V0-V4 stages no longer decide when 1.0.0 comes). A test fails if that wording comes back in any
+// page or document a reader could see it on. The decision log itself (DECISIONS.md, docs/decisions/09-2026.md) is
+// exempt: it is append-only history and describes, by name, the wording it retires.
+describe("no stale roadmap wording (docs/launch-spec.md §7)", () => {
+  const FORBIDDEN = /0\.9\.9|completes V4|release that completes V4|planned:\s*1\.0\.0/;
+
+  /** Every string in a JSON-like value (a module namespace included: its own enumerable properties are its exports). */
+  function strings(value, path = "$") {
+    if (typeof value === "string") return [[path, value]];
+    if (Array.isArray(value)) return value.flatMap((v, i) => strings(v, `${path}[${i}]`));
+    if (value && typeof value === "object") return Object.entries(value).flatMap(([k, v]) => strings(v, `${path}.${k}`));
+    return [];
+  }
+
+  /** Asserts none of `text`'s strings (or `text` itself, for a document) match FORBIDDEN. */
+  function checkNoDrift(name, text) {
+    const hits = (typeof text === "string" ? [["$", text]] : strings(text)).filter(([, s]) => FORBIDDEN.test(s));
+    assert.deepEqual(hits, [], `${name} still has the old roadmap wording (0.9.9 next / 1.0.0 completes V4): ${JSON.stringify(hits)}`);
+  }
+
+  test("README.md and docs/roadmap.md", () => {
+    checkNoDrift("README.md", readFileSync(join(repo, "README.md"), "utf8"));
+    checkNoDrift("docs/roadmap.md", readFileSync(join(repo, "docs", "roadmap.md"), "utf8"));
+  });
+
+  test("docs/brand.md", () => {
+    checkNoDrift("docs/brand.md", brand);
+  });
+
+  test("the site's roadmap note, FAQ, compare and checks data", async () => {
+    const openSource = await import("@/content/open-source");
+    const faq = await import("@/content/faq");
+    const compare = await import("@/content/compare");
+    const checksData = await import("@/content/checks/data");
+    checkNoDrift("open-source.ts roadmapNote", openSource.roadmapNote);
+    checkNoDrift("faq.ts", { ...faq });
+    checkNoDrift("compare.ts", { ...compare });
+    checkNoDrift("checks/data.ts", { ...checksData });
+  });
+
+  // Imported instead of read as source (like README.md above): route.ts imports a .tsx component (check-card, for
+  // isShipped), which node --test's lightweight loader can't compile (test-hooks.mjs doesn't handle JSX), only .ts.
+  // Its own text, including the hard-coded Roadmap section, is scanned as source instead; the data it renders from
+  // (faqGroups, categories, roadmapNote) is already covered above.
+  test("/llms-full.txt's route", () => {
+    checkNoDrift("app/llms-full.txt/route.ts", readFileSync(new URL("../src/app/llms-full.txt/route.ts", import.meta.url), "utf8"));
   });
 });
