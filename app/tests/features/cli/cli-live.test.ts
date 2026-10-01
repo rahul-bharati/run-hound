@@ -4,16 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../test-support/server.js";
-import type { Report } from "../src/core/types.js";
+import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import type { Report } from "../../../src/core/types.js";
+import type { CliResult } from "../../../src/interfaces/cli-test.js";
 
-const appDir = fileURLToPath(new URL("..", import.meta.url));
-
-interface CliResult {
-  code: number | null;
-  stdout: string;
-  stderr: string;
-}
+const appDir = fileURLToPath(new URL("../../..", import.meta.url));
 
 function runCli(args: string[], timeoutMs = 240_000): Promise<CliResult> {
   const env = { ...process.env };

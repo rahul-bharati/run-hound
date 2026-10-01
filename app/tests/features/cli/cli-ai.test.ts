@@ -4,30 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFakeLlm, type FakeLlm } from "../test-support/fake-llm.js";
-import { startFixtureServer, type FixtureServer } from "../test-support/server.js";
-import type { Plan } from "../src/core/types.js";
+import { startFakeLlm, type FakeLlm } from "../../../test-support/fake-llm.js";
+import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import type { Plan } from "../../../src/core/types.js";
+import type { CliResult } from "../../../src/interfaces/cli-test.js";
 
-/**
- * CLI surfaces of the AI layer (docs/ai-spec.md "Surfaces" → CLI).
- *
- * Interpretations pinned here:
- * - `run-hound ai status` prints the resolved status (provider, model, base URL/host, problem) on stdout, exit 0,
- *   never the key. `run-hound ai test` runs testConnection: exit 0 and "ok" on success, exit 1 on failure.
- * - `run … --ai` against a remote endpoint without --ai-allow-remote: exit 2 before anything is sent, stderr says
- *   consent is needed and names the host.
- * - `run … --plan-only --ai` prints each reviewed scenario's rationale and the "Suggested by AI" scenarios (ids
- *   ai-flow:<n>), and model warnings on stderr.
- * - The review call is made before the suggest call (the fake answers from a queue).
- */
+// CLI surfaces of the AI layer (docs/ai-spec.md "Surfaces" → CLI).
 
-const appDir = fileURLToPath(new URL("..", import.meta.url));
-
-interface CliResult {
-  code: number | null;
-  stdout: string;
-  stderr: string;
-}
+const appDir = fileURLToPath(new URL("../../..", import.meta.url));
 
 let configDir: string;
 

@@ -1,24 +1,16 @@
-/**
- * Groups and timing in the CLI (docs/v0-spec.md, "Groups and timing"). The real CLI runs end to end with the check
- * library swapped for fake checks by a test-only preload (test/fixtures/cli-groups/fake-checks-hook.mjs).
- */
+// Groups and timing in the CLI (docs/v0-spec.md, "Groups and timing").
 import { execFile } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../test-support/server.js";
-import type { Report } from "../src/core/types.js";
+import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import type { Report } from "../../../src/core/types.js";
+import type { CliResult } from "../../../src/interfaces/cli-test.js";
 
-const appDir = fileURLToPath(new URL("..", import.meta.url));
-const HOOK = fileURLToPath(new URL("./fixtures/cli-groups/fake-checks-hook.mjs", import.meta.url));
-
-interface CliResult {
-  code: number | null;
-  stdout: string;
-  stderr: string;
-}
+const appDir = fileURLToPath(new URL("../../..", import.meta.url));
+const HOOK = fileURLToPath(new URL("./fixtures-groups/fake-checks-hook.mjs", import.meta.url));
 
 function runCli(args: string[], timeoutMs = 120_000): Promise<CliResult> {
   const env: NodeJS.ProcessEnv = { ...process.env };

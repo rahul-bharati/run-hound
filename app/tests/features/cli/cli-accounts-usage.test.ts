@@ -5,16 +5,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-/**
- * `run-hound accounts …` usage and refusals that cli-accounts.test.ts leaves open. None of these contacts an app.
- * - --help prints the piped --password-stdin example on one line that can be pasted as is;
- * - options that only `accounts set` takes are refused elsewhere; `accounts set a` with nothing to save is refused;
- * - a password without a sign-in page is refused (exit 2) and nothing is saved or echoed;
- * - `accounts test` of a slot whose sign-in page the safety gate refuses fails naming the host, without a browser;
- * - `accounts clear` says when env variables still set the slot up.
- */
+// `run-hound accounts …` usage and refusals that cli-accounts.test.ts leaves open.
 
-const appDir = fileURLToPath(new URL("..", import.meta.url));
+const appDir = fileURLToPath(new URL("../../..", import.meta.url));
 let configDir: string;
 
 function runCli(args: string[], extraEnv: NodeJS.ProcessEnv = {}, input = ""): Promise<{ code: number | null; stdout: string; stderr: string }> {
@@ -43,8 +36,7 @@ afterEach(async () => {
 });
 
 describe("run-hound accounts usage", () => {
-  // The source string is a template literal: an unescaped \n in the printf example printed a real line break, so the
-  // example came out split over two lines and couldn't be pasted.
+  // The printf example must preserve its escaped newline so users can paste it.
   it("--help prints the --password-stdin example on one line that can be pasted as is", async () => {
     const example = `printf '%s\\n' "$PASSWORD" | run-hound accounts set a --password-stdin`;
     for (const args of [["--help"], ["accounts", "--help"]]) {

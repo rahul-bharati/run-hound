@@ -16,7 +16,7 @@ import { NOT_VISIBLE, renderHtml, renderMarkdown, signedInSentence } from "./rep
  * as Account B"), the line says "change or delete" ("read, change or delete" with access-control's): a run that finds
  * "Account B can delete Account A's records" never says B was only used to check that it can't change them.
  * The web UI's report view says the same (server/ui-other-account.test.ts), and so does the terminal's line after a run
- * (signedInSentence, which cli.ts prints).
+ * (signedInSentence, which the CLI prints after a run).
  */
 
 const A: AccountRef = { id: "a", label: "Account A" };
@@ -189,7 +189,7 @@ describe("the report's other-account line when write-access sent the app's DELET
   });
 });
 
-describe("signedInSentence: the terminal's line after a run (cli.ts)", () => {
+describe("signedInSentence: the terminal's line after a run", () => {
   it("names what Account B was used for, as the reports do, never 'the access checks'", () => {
     expect(signedInSentence(report(["write-access:other-account"]))).toBe("Signed in as Account A; Account B was used to check that it can't change Account A's data.");
     expect(signedInSentence(report(["access-control:other-account"]))).toBe("Signed in as Account A; Account B was used to check that it can't read Account A's data.");
@@ -203,10 +203,10 @@ describe("signedInSentence: the terminal's line after a run (cli.ts)", () => {
     expect(signedInSentence({ ...report([]), accounts: { signedInAs: null, other: null } })).toBeNull();
   });
 
-  it("is what cli.ts prints after a run", async () => {
+  it("is what the CLI prints after a run", async () => {
     const { readFile } = await import("node:fs/promises");
-    const cli = await readFile(new URL("../cli.ts", import.meta.url), "utf8");
-    expect(cli).toMatch(/signedInSentence\(report\)/);
-    expect(cli).not.toMatch(/was used for the access checks/);
+    const presenter = await readFile(new URL("../cli/presenters/run.ts", import.meta.url), "utf8");
+    expect(presenter).toMatch(/signedInSentence\(report\)/);
+    expect(presenter).not.toMatch(/was used for the access checks/);
   });
 });

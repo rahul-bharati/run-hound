@@ -4,7 +4,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Browser, LaunchOptions, Page } from "playwright";
 import { groupOf } from "../core/format.js";
-import { resolveAccounts } from "../accounts/config.js";
+import { resolveAccounts } from "../config/accounts.js";
 import type { AccountsConfig, TestAccount } from "../interfaces/accounts.js";
 import {
   CHECK_GROUPS,
@@ -239,7 +239,7 @@ export async function discoverAndPlan(rawUrl: string, options: RunOptions = {}):
   }
 }
 
-/** The run's accounts: the injected ones, else accounts.json and RUNHOUND_ACCOUNT_* (accounts/config.ts). */
+/** The run's accounts: the injected ones, else accounts.json and RUNHOUND_ACCOUNT_* (config/accounts.ts). */
 async function accountsConfig(options: RunOptions): Promise<AccountsConfig> {
   return options.accounts ?? (await resolveAccounts()).config;
 }

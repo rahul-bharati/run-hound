@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 import { configDir } from "../ai/config.js";
 import {
   ACCOUNT_IDS,
+  type AccountField,
   type AccountSource,
   type AccountId,
 } from "../types/accounts.js";
@@ -25,7 +26,11 @@ import {
   type AccountStatus,
   type AccountsConfig,
   type AccountsPatch,
+  type AccountsResolution,
   type AccountsStatus,
+  type ReadResult,
+  type SavedFile,
+  type SavedSlot,
   type TestAccount,
 } from "../interfaces/accounts.js";
 
@@ -46,31 +51,10 @@ export const DEFAULT_LABELS: Record<AccountId, string> = {
 /** Longest label accepted: it is shown in plan headers, reports and the runs list. */
 export const MAX_LABEL_LENGTH = 60;
 
-type Field = "label" | "loginUrl" | "username" | "password";
-const FIELDS: readonly Field[] = ["label", "loginUrl", "username", "password"];
-
-/** One slot as the file holds it (only well-typed, non-empty values). */
-interface SavedSlot {
-  label?: string;
-  loginUrl?: string;
-  username?: string;
-  password?: string;
-  passwordOrigin?: string;
-}
-
-interface SavedFile {
-  isolated?: boolean;
-  accounts: Partial<Record<AccountId, SavedSlot>>;
-}
-
-/** The file as read: `problem` is set when it exists but can't be used. */
-interface ReadResult {
-  saved: SavedFile;
-  problem: string | null;
-}
+const FIELDS: readonly AccountField[] = ["label", "loginUrl", "username", "password"];
 
 /** The env variable behind a field of a slot, e.g. RUNHOUND_ACCOUNT_A_LOGIN_URL. */
-export function accountEnvName(id: AccountId, field: Field): string {
+export function accountEnvName(id: AccountId, field: AccountField): string {
   const suffix = {
     label: "LABEL",
     loginUrl: "LOGIN_URL",
@@ -229,16 +213,11 @@ export function isCommonPassword(password: string): boolean {
 const COMMON_PASSWORD_PROBLEM =
   "The saved credential is a very common word or number. Reports hide it everywhere it appears, which gives it away: choose a longer, unusual one for this account.";
 
-interface Resolution {
-  config: AccountsConfig;
-  status: AccountsStatus;
-}
-
 function resolveWith(
   env: NodeJS.ProcessEnv,
   file: string,
   read: ReadResult,
-): Resolution {
+): AccountsResolution {
   const accounts = {} as Record<AccountId, TestAccount>;
   const statuses = {} as Record<AccountId, AccountStatus>;
   for (const id of ACCOUNT_IDS) {
@@ -249,7 +228,7 @@ function resolveWith(
       username: "default",
       password: "default",
     };
-    const pick = (field: Field): string | undefined => {
+    const pick = (field: AccountField): string | undefined => {
       const fromEnv = envValue(
         env,
         accountEnvName(id, field),

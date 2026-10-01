@@ -1,33 +1,18 @@
-/**
- * Tester release (0.1.0) exit codes for `run-hound run` (docs/v0-spec.md, "Tester release"):
- *   0  no confirmed findings (advisory findings are reported but don't fail the run)
- *   1  at least one confirmed finding
- *   2  an error or a refused target, and a run that tested nothing (every approved scenario errored or was skipped)
- *
- * The real CLI runs end to end. The check library is swapped for fake checks by a test-only preload
- * (test/fixtures/cli-exit/fake-checks-hook.mjs, loaded through NODE_OPTIONS=--import), so each case controls exactly
- * which findings the run produces. RH_FAKE_FINDINGS picks them: none | advisory | confirmed | mixed | skipped | errored |
- * partly-errored.
- */
+// Tester release (0.1.0) exit codes for `run-hound run` (docs/v0-spec.md, "Tester release").
 import { execFile } from "node:child_process";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../test-support/server.js";
-import type { Report } from "../src/core/types.js";
+import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import type { Report } from "../../../src/core/types.js";
+import type { CliResult } from "../../../src/interfaces/cli-test.js";
 
-const appDir = fileURLToPath(new URL("..", import.meta.url));
-const HOOK = fileURLToPath(new URL("./fixtures/cli-exit/fake-checks-hook.mjs", import.meta.url));
+const appDir = fileURLToPath(new URL("../../..", import.meta.url));
+const HOOK = fileURLToPath(new URL("./fixtures-exit/fake-checks-hook.mjs", import.meta.url));
 
-type FakeMode = "none" | "advisory" | "confirmed" | "mixed" | "skipped" | "errored" | "partly-errored";
-
-interface CliResult {
-  code: number | null;
-  stdout: string;
-  stderr: string;
-}
+import type { FakeMode } from "../../../src/types/cli-test.js";
 
 function runCli(args: string[], fake: FakeMode | null, timeoutMs = 120_000): Promise<CliResult> {
   const env: NodeJS.ProcessEnv = { ...process.env };

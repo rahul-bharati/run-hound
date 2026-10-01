@@ -1,14 +1,4 @@
-/**
- * Tester release (0.1.0): one version everywhere (docs/v0-spec.md, "Tester release").
- * `run-hound --version` and `run-hound run --version` print the version from app/package.json, the report's
- * runHoundVersion matches it, and the web UI shows it.
- * Since 2026-09-29 (docs/decisions/09-2026.md#2026-09-29-images-latest-no-version-pins) a release is
- * app/package.json's version, site.ts's version and released date, and the CHANGELOG section for that version:
- * nothing else in the repo is pinned to it, so this file reads app/package.json's version instead of a hard-coded
- * one. The "site.ts's released and releasedIso" test (below) checks site.ts's version against it too, since
- * release-images.yml's check-version job (also mirrored below) no longer does: it checks only the tag against
- * app/package.json and the CHANGELOG section, plus that neither compose file pins an image to a version.
- */
+// Tester release (0.1.0): one version everywhere (docs/v0-spec.md, "Tester release").
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -16,12 +6,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../test-support/server.js";
-import type { Check, Report } from "../src/core/types.js";
-import { discoverAndPlan, runPlan } from "../src/engine/runner.js";
-import { createApp } from "../src/server/app.js";
+import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import type { Check, Report } from "../../../src/core/types.js";
+import { discoverAndPlan, runPlan } from "../../../src/engine/runner.js";
+import { createApp } from "../../../src/server/app.js";
 
-const appDir = fileURLToPath(new URL("..", import.meta.url));
+const appDir = fileURLToPath(new URL("../../..", import.meta.url));
 const PKG_VERSION = (JSON.parse(await readFile(join(appDir, "package.json"), "utf8")) as { version: string }).version;
 
 function runCli(args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> {
@@ -95,14 +85,7 @@ describe("version (tester release)", () => {
   });
 });
 
-/**
- * The same checks as the check-version job of .github/workflows/release-images.yml: the tag must match
- * app/package.json, and CHANGELOG.md has a section for it (a pushed tag only, since it becomes the GitHub Release's
- * notes); every image: line in run-hound.compose.yml is exactly one of the four
- * ghcr.io/rahul-bharati/<name>:${RUNHOUND_TAG:-latest} values, and every one in docker-compose.yml is exactly one of
- * the four ghcr.io/rahul-bharati/<name>:local values, all four present in each. The first test reads the job's text
- * back from release-images.yml, so a change to the job fails here until this mirror follows it.
- */
+// Mirror of .github/workflows/release-images.yml check-version job.
 describe("release-images.yml's check-version, mirrored locally", () => {
   /** The check-version job's text in release-images.yml (from its key to the next job's), or "" when not found. */
   const CHECK_VERSION = (() => {
@@ -146,12 +129,7 @@ describe("release-images.yml's check-version, mirrored locally", () => {
     }
   });
 
-  /**
-   * docs/development.md ("Releasing") says a release renames CHANGELOG.md's "## Unreleased" to "## <version> (…),
-   * <date>" in the same commit that bumps app/package.json and site.ts, so package.json's current version either
-   * already has that dated section (this branch ships it, or already shipped it) or, between releases, "##
-   * Unreleased" holds what will become the next one's section.
-   */
+  // Between releases, Unreleased holds the next version's changes.
   it('CHANGELOG.md documents app/package.json\'s version: a dated "## <version>" section, or "## Unreleased" when it has none yet', () => {
     const changelog = repoFile("CHANGELOG.md");
     const heading = changelog.split("\n").find((l) => l.startsWith(`## ${PKG_VERSION} `));

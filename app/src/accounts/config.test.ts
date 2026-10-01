@@ -18,12 +18,12 @@ import {
   isReady,
   resolveAccounts,
   saveAccounts,
-} from "./config.js";
+} from "../config/accounts.js";
 import type { AccountStatus, TestAccount } from "../interfaces/accounts.js";
 import type { AccountId, AccountSource } from "../types/accounts.js";
 
 /**
- * Saved test accounts (docs/v2-spec.md "Test accounts"; contract in accounts/config.ts and accounts/types.ts).
+ * Saved test accounts (docs/v2-spec.md "Test accounts"; contract in config/accounts.ts and interfaces/accounts.ts).
  *
  * Interpretations pinned here (marked * where the spec leaves room):
  * - accounts.json lives next to ai.json (same configDir rules). Its shape is the spec's

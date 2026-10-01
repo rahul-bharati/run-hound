@@ -1,13 +1,4 @@
-/**
- * The container entrypoint (app/docker-entrypoint.sh) picks the user the CLI runs as. Reports and the AI settings
- * (runs/.config, which both compose files point RUNHOUND_CONFIG_DIR at) must belong to the user who owns the runs
- * folder, and nothing may be written world-writable.
- *
- * Runs the published image with this checkout's entrypoint mounted over its own, under rootless Podman (or Docker).
- * A rootful engine is simulated by pointing the script's /proc/self/uid_map at a file saying "0 0 4294967295"; the
- * container's root can still chown to any uid the rootless user namespace maps. Skipped when no engine or no Run Hound
- * image is available.
- */
+// Container entrypoint user: reports and AI settings must belong to that user.
 import { execFile, execFileSync } from "node:child_process";
 import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-const ENTRYPOINT = fileURLToPath(new URL("../docker-entrypoint.sh", import.meta.url));
+const ENTRYPOINT = fileURLToPath(new URL("../../../docker-entrypoint.sh", import.meta.url));
 
 function find(): { engine: string; image: string } | null {
   for (const engine of ["podman", "docker"]) {

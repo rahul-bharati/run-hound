@@ -4,36 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startAccountsApp, type AccountsApp } from "../test-support/accounts-app.js";
-import type { Plan } from "../src/core/types.js";
+import { startAccountsApp, type AccountsApp } from "../../../test-support/accounts-app.js";
+import type { Plan } from "../../../src/core/types.js";
+import type { CliResult } from "../../../src/interfaces/cli-test.js";
 
-/**
- * CLI surfaces of test accounts (docs/v2-spec.md "Test accounts" → CLI), against the shared accounts app.
- *
- * Interpretations pinned here (marked * where the spec leaves room):
- * - `accounts status`: exit 0; shows each slot's label, login URL, username, whether a password is saved, where the
- *   values come from (the words "file" / "env" / "default"), `isolated` and the accounts.json path. Never a password.
- * - `accounts set a|b --login-url <url> --username <name> [--label <text>] [--password-stdin]`: exit 0; the password is
- *   the first line of stdin. Without --password-stdin the saved password is kept (same origin) or dropped (new origin).
- *   * The login URL goes through the safety gate: a public address is exit 2 naming the host, and nothing is saved.
- * - `accounts test [a|b]`: exit 0 when every tested slot signed in, printing the page it landed on (its path);
- *   exit 2 otherwise, with the page's own error text ("Email or password is incorrect") or the reason. * A slot that
- *   isn't set up fails without opening its page, naming it by label ("Account B").
- * - `accounts clear a|b`: exit 0; the slot is gone from accounts.json.
- * - `run <url> --as a|b`: signs in before discovery (the plan is the signed-in page; plan.account = { id, label }).
- *   An unknown slot is a usage error (exit 2, the message names --as); * an unconfigured slot is exit 2 naming the
- *   account by label, before anything is sent to the app; a failed sign-in is exit 2 with the page's reason.
- * - * `run --as … --plan-only` (text) names the account the plan was made as ("Signed in as <label>").
- * - Nothing the CLI prints ever contains a password.
- */
+// CLI surfaces of test accounts (docs/v2-spec.md "Test accounts" → CLI).
 
-const appDir = fileURLToPath(new URL("..", import.meta.url));
-
-interface CliResult {
-  code: number | null;
-  stdout: string;
-  stderr: string;
-}
+const appDir = fileURLToPath(new URL("../../..", import.meta.url));
 
 let configDir: string;
 let app: AccountsApp;

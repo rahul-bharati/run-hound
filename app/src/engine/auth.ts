@@ -39,7 +39,7 @@
  */
 import { domainToUnicode } from "node:url";
 import type { Browser, BrowserContext, ElementHandle, Page, Request, Route } from "playwright";
-import { DEFAULT_LABELS } from "../accounts/config.js";
+import { DEFAULT_LABELS } from "../config/accounts.js";
 import type { TestAccount } from "../interfaces/accounts.js";
 import { originOf } from "../core/saves.js";
 import type { DiscoveredForm, FormControl, FormField } from "../core/types.js";

@@ -119,3 +119,8 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-10-01: [MiniMax M3 handles the app CLI regression fix when Sonnet is unavailable](docs/decisions/10-2026.md#2026-10-01-minimax-cli-fix-delegation)
 - 2026-10-01: [Delegate according to the maintainer's OpenCode configuration](docs/decisions/10-2026.md#2026-10-01-opencode-config-delegation-policy) (supersedes 2026-09-28-subagent-work-matched-to-cost and the policy framing of 2026-10-01-minimax-cli-fix-delegation)
 - 2026-10-01: [Complete account imports against the refactor's new types and interfaces modules](docs/decisions/10-2026.md#2026-10-01-account-import-migration)
+- 2026-10-01: [Refactor one app feature at a time into feature-named config, interfaces and types modules](docs/decisions/10-2026.md#2026-10-01-feature-config-interfaces-types)
+- 2026-10-01: [Refactor the CLI around command responsibilities and explicit dependencies before server MVC](docs/decisions/10-2026.md#2026-10-01-cli-solid-refactor)
+- 2026-10-02: [Keep CLI error classes in errors and retain only necessary one-line comments](docs/decisions/10-2026.md#2026-10-02-cli-comments-and-errors)
+- 2026-10-02: [Bind each CLI command's dependencies at composition and preserve terminal lifecycle behavior](docs/decisions/10-2026.md#2026-10-02-cli-command-boundaries)
+- 2026-10-02: [Use Oxlint as the app's lint runner](docs/decisions/10-2026.md#2026-10-02-app-oxlint)

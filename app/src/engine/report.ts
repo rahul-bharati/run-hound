@@ -271,9 +271,9 @@ export function otherAccountUse(report: Report): string {
 }
 
 /**
- * The terminal's line after a signed-in run (cli.ts): "Signed in as Account A; Account B was used to check that it
- * can't change Account A's data." (otherAccountUse), or "Signed in as Account A." when no other account was used. Null
- * for a signed-out run. Not redacted here: the caller redacts it.
+ * The terminal's line after a signed-in run (cli/presenters/run.ts): "Signed in as Account A; Account B was used to
+ * check that it can't change Account A's data." (otherAccountUse), or "Signed in as Account A." when no other account
+ * was used. Null for a signed-out run. Not redacted here: the caller redacts it.
  */
 export function signedInSentence(report: Report): string | null {
   const { signedInAs, other } = reportAccounts(report);

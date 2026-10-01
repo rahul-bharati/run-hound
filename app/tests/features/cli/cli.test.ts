@@ -4,17 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../test-support/server.js";
-import type { Report } from "../src/core/types.js";
+import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import type { Report } from "../../../src/core/types.js";
+import type { CliTimedResult as CliResult } from "../../../src/interfaces/cli-test.js";
 
-const appDir = fileURLToPath(new URL("..", import.meta.url));
+const appDir = fileURLToPath(new URL("../../..", import.meta.url));
 
-interface CliResult {
-  code: number | null;
-  stdout: string;
-  stderr: string;
-  ms: number;
-}
 
 /** Runs `pnpm exec tsx src/cli.ts ...args` asynchronously (the fixture server lives in this process). */
 function runCli(args: string[], timeoutMs = 240_000, extraEnv: NodeJS.ProcessEnv = {}): Promise<CliResult> {
@@ -174,7 +169,8 @@ describe("run-hound help, version and bad input", () => {
     const res = await runCli(["run", target, "--runs-dir", runsDir], 120_000);
     expect(res.code).toBe(2);
     expect(res.stderr).toMatch(/Nothing is answering at http:\/\/127\.0\.0\.1:\d+/);
-    expect(res.stderr).not.toMatch(/\u001b|Call log/);
+    // oxlint: the ANSI escape (\u001b) is intentional; Playwright's call log is the other thing we forbid.
+    expect(res.stderr).not.toMatch(/[]|Call log/);
   });
 });
 

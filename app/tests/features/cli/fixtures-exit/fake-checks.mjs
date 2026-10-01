@@ -1,14 +1,4 @@
-/**
- * Fake check library for test/cli-exit.test.ts. RH_FAKE_FINDINGS picks what the run finds:
- *   none       - two passing scenarios
- *   advisory   - one advisory finding (dead-control), nothing confirmed
- *   confirmed  - one confirmed finding (silent-failure), nothing advisory
- *   mixed      - one advisory and one confirmed finding
- *   skipped    - both scenarios skip, with a note that starts "Skipped: " like the real checks' notes
- *   errored    - both scenarios throw (as when the app stops answering after discovery), so both error
- *   partly-errored - dead-control passes, silent-failure throws
- * No page is opened, so the run is fast and depends only on the target passing the safety gate and having a form.
- */
+// Fake checks exercise exit codes without opening pages after discovery.
 const mode = process.env.RH_FAKE_FINDINGS ?? "none";
 
 function scenario(checkId, id) {

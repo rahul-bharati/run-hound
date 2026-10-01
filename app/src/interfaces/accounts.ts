@@ -46,3 +46,30 @@ export interface TestAccount {
   password: string | null;
 }
 
+/** One slot as the saved accounts file holds it (only well-typed, non-empty values). config/accounts.ts. */
+export interface SavedSlot {
+  label?: string;
+  loginUrl?: string;
+  username?: string;
+  password?: string;
+  passwordOrigin?: string;
+}
+
+/** The saved accounts file: `isolated` when set, the slots by id. config/accounts.ts. */
+export interface SavedFile {
+  isolated?: boolean;
+  accounts: Partial<Record<AccountId, SavedSlot>>;
+}
+
+/** The file as read: `problem` is set when it exists but can't be used. config/accounts.ts. */
+export interface ReadResult {
+  saved: SavedFile;
+  problem: string | null;
+}
+
+/** The resolved accounts: the config that callers see and the status that explains it. config/accounts.ts. */
+export interface AccountsResolution {
+  config: AccountsConfig;
+  status: AccountsStatus;
+}
+

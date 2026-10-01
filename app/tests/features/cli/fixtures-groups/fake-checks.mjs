@@ -1,10 +1,4 @@
-/**
- * Fake check library for test/cli-groups.test.ts: five passing scenarios across the three groups, listed out of
- * order on purpose. No page is opened. Each result reports a fixed duration.
- *   Accessibility: axe-states "axe:fake" (1200 ms), focus-visible "fv:fake" (2500 ms)
- *   Features: dead-control "dc:fake" (1500 ms), client-only-validation "cov:fake" (42000 ms)
- *   Security: bundle-secrets "bs:fake" (72000 ms)
- */
+// Checks deliberately arrive out of group order and return fixed durations without opening pages.
 function fakeCheck(checkId, category, scenarioId, durationMs) {
   return {
     id: checkId,

@@ -1,7 +1,4 @@
-/**
- * `run-hound serve` start-up: a port that is already taken is one plain line and exit 2 (like every other CLI error),
- * never Node's unhandled 'error' stack trace.
- */
+// `run-hound serve` start-up: a taken port is one plain line, exit 2.
 import { execFile } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type AddressInfo, type Server } from "node:net";
@@ -10,7 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-const appDir = fileURLToPath(new URL("..", import.meta.url));
+const appDir = fileURLToPath(new URL("../../..", import.meta.url));
 
 function runCli(args: string[], timeoutMs = 60_000): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve) => {

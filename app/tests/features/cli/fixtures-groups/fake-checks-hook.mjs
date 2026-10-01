@@ -1,7 +1,4 @@
-/**
- * Test-only preload for test/cli-groups.test.ts, loaded with `node --import`: swaps the registered check library
- * (src/checks/index.ts, imported lazily by the runner) for fake-checks.mjs. Nothing in src/ knows about it.
- */
+// Test-only preload: swaps the registered check library for fake-checks.mjs.
 import { registerHooks } from "node:module";
 
 const FAKE = new URL("./fake-checks.mjs", import.meta.url).href;

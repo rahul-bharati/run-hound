@@ -2,7 +2,7 @@
  * Test-account helpers shared by the web server (GET/PUT /api/accounts, POST /api/accounts/test, POST /api/plan
  * signInAs) and the CLI (`accounts …`, `run --as`). docs/v2-spec.md "Test accounts". Nothing here returns a password.
  */
-import { notReadyMessage } from "../accounts/config.js";
+import { notReadyMessage } from "../config/accounts.js";
 import {
   type AccountsConfig,
   type AccountsPatch,

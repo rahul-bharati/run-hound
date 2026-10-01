@@ -19,7 +19,7 @@ import { chromium, type BrowserContextOptions, type LaunchOptions } from "playwr
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { startAccountsApp, type AccountsApp } from "../../test-support/accounts-app.js";
 import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { accountEnvName, resolveAccounts } from "../accounts/config.js";
+import { accountEnvName, resolveAccounts } from "../config/accounts.js";
 import type { Check, CheckResult, Scenario } from "../core/types.js";
 import { testSignIn } from "../server/accounts.js";
 import { discoverAndPlan, runPlan } from "./runner.js";
