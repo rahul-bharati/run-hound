@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { FlowStep, Scenario } from "../core/types.js";
-import { formLabel } from "../engine/plan.js";
-import { describePage } from "./payload.js";
+import type { FlowStep, Scenario } from "../../../src/core/types.js";
+import { formLabel } from "../../../src/engine/plan.js";
+import { describePage } from "../../../src/ai/payload.js";
 import {
   MAX_FLOW_STEPS,
   MAX_SUGGESTIONS,
@@ -13,9 +13,9 @@ import {
   suggestionsToScenarios,
   validateSuggest,
   type SuggestAnswer,
-} from "./suggest.js";
-import { AiError } from "./types.js";
-import { FakeClient, bookingForm, control, discoveredPage, field, makePlan, newsletterForm, scenario, schemaProblems } from "./test-fixtures.js";
+} from "../../../src/ai/suggest.js";
+import { AiError } from "../../../src/ai/types.js";
+import { FakeClient, bookingForm, control, discoveredPage, field, makePlan, newsletterForm, scenario, schemaProblems } from "../../../src/ai/test-fixtures.js";
 
 const expectOk: FlowStep = { action: "expect", expect: "request-ok", text: null };
 

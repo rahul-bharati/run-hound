@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { DiscoveredForm } from "../core/types.js";
-import { describePage } from "./payload.js";
+import type { DiscoveredForm } from "../../../src/core/types.js";
+import { describePage } from "../../../src/ai/payload.js";
 import {
   FAKE_AWS_KEY,
   PAGE_URL,
@@ -15,7 +15,7 @@ import {
   makePlan,
   newsletterForm,
   scenario,
-} from "./test-fixtures.js";
+} from "../../../src/ai/test-fixtures.js";
 
 describe("describePage: page URL", () => {
   it("keeps the origin for a local endpoint", () => {

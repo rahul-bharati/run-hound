@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { checkAccountsPatch, MAX_LABEL_LENGTH, notReadyMessage, resolveAccounts, saveAccounts } from "../config/accounts.js";
+import { checkAccountsPatch, MAX_LABEL_LENGTH, notReadyMessage, resolveAccounts, saveAccounts } from "../../../src/config/accounts.js";
 
 /**
  * Rules of the saved accounts that config.test.ts leaves open (docs/v2-spec.md "Test accounts"):

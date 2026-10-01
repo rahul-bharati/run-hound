@@ -13,12 +13,12 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { Check, CheckResult } from "../core/types.js";
-import { redactSecrets } from "../engine/redact.js";
-import { discoverAndPlan, runPlan } from "../engine/runner.js";
-import { clearAwsCredentialCache, resolveAwsCredentials } from "./aws-credentials.js";
-import { aiStatus, resolveAiConfig, saveAiConfig } from "./config.js";
+import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import type { Check, CheckResult } from "../../../src/core/types.js";
+import { redactSecrets } from "../../../src/engine/redact.js";
+import { discoverAndPlan, runPlan } from "../../../src/engine/runner.js";
+import { clearAwsCredentialCache, resolveAwsCredentials } from "../../../src/ai/aws-credentials.js";
+import { aiStatus, resolveAiConfig, saveAiConfig } from "../../../src/ai/config.js";
 
 const MARK = "[REDACTED:account-secret]";
 /** Shapes no pattern knows: only registration can hide them. */

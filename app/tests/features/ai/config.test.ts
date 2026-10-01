@@ -14,8 +14,8 @@ import {
   resolveAiConfig,
   saveAiConfig,
   type ResolvedAiConfig,
-} from "./config.js";
-import type { AiConfig, AiStatus } from "./types.js";
+} from "../../../src/ai/config.js";
+import type { AiConfig, AiStatus } from "../../../src/ai/types.js";
 
 let tmp: string;
 let dir: string;

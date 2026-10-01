@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { startFakeLlm } from "../../test-support/fake-llm.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { listModels } from "./models.js";
-import type { AiConfig } from "./types.js";
+import { startFakeLlm } from "../../../test-support/fake-llm.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import { listModels } from "../../../src/ai/models.js";
+import type { AiConfig } from "../../../src/ai/types.js";
 
 type ModelConfig = Pick<AiConfig, "provider" | "baseUrl" | "apiKey" | "region" | "allowRemote">;
 const cfg = (overrides: Partial<ModelConfig>): ModelConfig => ({

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { startFakeLlm, type FakeLlm } from "../../test-support/fake-llm.js";
-import { startFixtureServer } from "../../test-support/server.js";
-import { ollamaChatJson } from "./ollama.js";
-import type { ChatMessage } from "./openai-compatible.js";
-import { AiError } from "./types.js";
+import { startFakeLlm, type FakeLlm } from "../../../test-support/fake-llm.js";
+import { startFixtureServer } from "../../../test-support/server.js";
+import { ollamaChatJson } from "../../../src/ai/ollama.js";
+import type { ChatMessage } from "../../../src/ai/openai-compatible.js";
+import { AiError } from "../../../src/ai/types.js";
 
 const SCHEMA = {
   name: "plan_review",

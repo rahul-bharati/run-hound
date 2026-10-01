@@ -15,7 +15,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { startFakeLlm, type FakeLlm } from "../../test-support/fake-llm.js";
+import { startFakeLlm, type FakeLlm } from "../../../test-support/fake-llm.js";
 import {
   awsCredentialsAvailable,
   awsProfileName,
@@ -23,10 +23,10 @@ import {
   clearAwsCredentialCache,
   credentialProcessEnv,
   resolveAwsCredentials,
-} from "./aws-credentials.js";
-import { converseJson } from "./bedrock.js";
-import type { ChatMessage } from "./openai-compatible.js";
-import { AiError } from "./types.js";
+} from "../../../src/ai/aws-credentials.js";
+import { converseJson } from "../../../src/ai/bedrock.js";
+import type { ChatMessage } from "../../../src/ai/openai-compatible.js";
+import { AiError } from "../../../src/ai/types.js";
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();

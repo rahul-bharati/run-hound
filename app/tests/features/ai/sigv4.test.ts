@@ -1,6 +1,6 @@
 import { createHash, createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { signV4, type AwsCredentials } from "./sigv4.js";
+import { signV4, type AwsCredentials } from "../../../src/ai/sigv4.js";
 
 /** AWS's published SigV4 test-suite credentials (not real). */
 const CREDS: AwsCredentials = {

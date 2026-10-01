@@ -11,16 +11,16 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { configFile } from "../ai/config.js";
+import { configFile } from "../../../src/ai/config.js";
 import {
   accountsFile,
   clearAccount,
   isReady,
   resolveAccounts,
   saveAccounts,
-} from "../config/accounts.js";
-import type { AccountStatus, TestAccount } from "../interfaces/accounts.js";
-import type { AccountId, AccountSource } from "../types/accounts.js";
+} from "../../../src/config/accounts.js";
+import type { AccountStatus, TestAccount } from "../../../src/interfaces/accounts.js";
+import type { AccountId, AccountSource } from "../../../src/types/accounts.js";
 
 /**
  * Saved test accounts (docs/v2-spec.md "Test accounts"; contract in config/accounts.ts and interfaces/accounts.ts).

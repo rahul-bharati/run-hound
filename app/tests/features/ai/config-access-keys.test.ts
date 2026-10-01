@@ -15,8 +15,8 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { clearAwsCredentialCache } from "./aws-credentials.js";
-import { aiStatus, resolveAiConfig, saveAiConfig } from "./config.js";
+import { clearAwsCredentialCache } from "../../../src/ai/aws-credentials.js";
+import { aiStatus, resolveAiConfig, saveAiConfig } from "../../../src/ai/config.js";
 
 const ID = "AKIAIOSFODNN7SAVED01";
 const SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYSAVEDKEY01";

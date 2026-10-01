@@ -2,11 +2,11 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { startFakeLlm, type FakeLlm } from "../../test-support/fake-llm.js";
-import { clearAwsCredentialCache } from "./aws-credentials.js";
-import { converseJson } from "./bedrock.js";
-import type { ChatMessage } from "./openai-compatible.js";
-import { AiError } from "./types.js";
+import { startFakeLlm, type FakeLlm } from "../../../test-support/fake-llm.js";
+import { clearAwsCredentialCache } from "../../../src/ai/aws-credentials.js";
+import { converseJson } from "../../../src/ai/bedrock.js";
+import type { ChatMessage } from "../../../src/ai/openai-compatible.js";
+import { AiError } from "../../../src/ai/types.js";
 
 const SCHEMA = {
   name: "plan_review",

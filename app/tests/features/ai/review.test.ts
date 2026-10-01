@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { describePage } from "./payload.js";
-import { PLAN_REVIEW_SCHEMA, mergeReview, planReviewPrompt, reviewPlan, validatePlanReview, type PlanReviewAnswer } from "./review.js";
-import { AiError } from "./types.js";
-import { FakeClient, makePlan, schemaProblems } from "./test-fixtures.js";
+import { describePage } from "../../../src/ai/payload.js";
+import { PLAN_REVIEW_SCHEMA, mergeReview, planReviewPrompt, reviewPlan, validatePlanReview, type PlanReviewAnswer } from "../../../src/ai/review.js";
+import { AiError } from "../../../src/ai/types.js";
+import { FakeClient, makePlan, schemaProblems } from "../../../src/ai/test-fixtures.js";
 
 const entry = (id: string, recommended: boolean, priority: "high" | "medium" | "low" = "medium", rationale = `Why ${id}`) => ({ id, recommended, priority, rationale });
 

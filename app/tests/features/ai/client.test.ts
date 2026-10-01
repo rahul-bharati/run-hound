@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { startFakeLlm, type FakeLlm } from "../../test-support/fake-llm.js";
-import { startFixtureServer } from "../../test-support/server.js";
-import { createLlmClient, testConnection } from "./client.js";
-import { DEFAULT_AI_CONFIG } from "./config.js";
-import type { ChatMessage } from "./openai-compatible.js";
-import { AiError, type AiConfig, type JsonRequest } from "./types.js";
+import { startFakeLlm, type FakeLlm } from "../../../test-support/fake-llm.js";
+import { startFixtureServer } from "../../../test-support/server.js";
+import { createLlmClient, testConnection } from "../../../src/ai/client.js";
+import { DEFAULT_AI_CONFIG } from "../../../src/ai/config.js";
+import type { ChatMessage } from "../../../src/ai/openai-compatible.js";
+import { AiError, type AiConfig, type JsonRequest } from "../../../src/ai/types.js";
 
 let fake: FakeLlm;
 beforeEach(async () => {

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { Finding } from "../core/types.js";
-import { EXPLAIN_SCHEMA, explainFindings, explainPrompt, validateExplain } from "./explain.js";
-import { AiError } from "./types.js";
-import { FAKE_AWS_KEY, FakeClient, REDACTED_AWS, makeFinding, makeReport, schemaProblems } from "./test-fixtures.js";
+import type { Finding } from "../../../src/core/types.js";
+import { EXPLAIN_SCHEMA, explainFindings, explainPrompt, validateExplain } from "../../../src/ai/explain.js";
+import { AiError } from "../../../src/ai/types.js";
+import { FAKE_AWS_KEY, FakeClient, REDACTED_AWS, makeFinding, makeReport, schemaProblems } from "../../../src/ai/test-fixtures.js";
 
 const answer = (n = 1) => ({ summary: `Summary ${n}.`, askYourAi: `Fix prompt ${n}.` });
 

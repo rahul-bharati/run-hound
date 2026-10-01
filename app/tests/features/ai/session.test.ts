@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { boundSession, type AiSession } from "./session.js";
-import { AiError, type JsonRequest, type LlmClient } from "./types.js";
+import { boundSession, type AiSession } from "../../../src/ai/session.js";
+import { AiError, type JsonRequest, type LlmClient } from "../../../src/ai/types.js";
 
 /** A client whose calls wait `ms` (or until their signal aborts) and then answer {ok: true}. */
 function slowClient(ms: number, seen: (AbortSignal | undefined)[] = []): LlmClient {

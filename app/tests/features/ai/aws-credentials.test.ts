@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
 import {
   awsCredentialsAvailable,
   awsProfileName,
@@ -12,8 +12,8 @@ import {
   parseAwsIni,
   resolveAwsCredentials,
   splitCredentialProcess,
-} from "./aws-credentials.js";
-import { AiError } from "./types.js";
+} from "../../../src/ai/aws-credentials.js";
+import { AiError } from "../../../src/ai/types.js";
 
 /** AWS's published example credentials (not real). */
 const KEY_ID = "AKIAIOSFODNN7EXAMPLE";

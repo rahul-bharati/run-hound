@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { httpError, send } from "./http.js";
-import { ollamaChatJson } from "./ollama.js";
-import { chatJson } from "./openai-compatible.js";
-import { AiError } from "./types.js";
+import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import { httpError, send } from "../../../src/ai/http.js";
+import { ollamaChatJson } from "../../../src/ai/ollama.js";
+import { chatJson } from "../../../src/ai/openai-compatible.js";
+import { AiError } from "../../../src/ai/types.js";
 
 /** Fake credential shapes only: never valid anywhere. */
 const OPENROUTER_KEY = `sk-or-v1-${"0123456789abcdef".repeat(4)}`;
