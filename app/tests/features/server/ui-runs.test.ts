@@ -8,7 +8,7 @@
  */
 import { chromium, type Browser, type Request, type Route } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { renderUi } from "./ui/index.js";
+import { renderUi } from "../../../src/server/ui/index.js";
 
 const ORIGIN = "http://rh.test";
 const HTML = renderUi({ version: "0.4.0", canShowBrowser: false });

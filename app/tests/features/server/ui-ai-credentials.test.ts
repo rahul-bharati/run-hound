@@ -15,9 +15,9 @@
  */
 import { chromium, type Browser, type Page, type Request, type Route } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { AccountStatus, AccountsStatus } from "../interfaces/accounts.js";
-import type { AiStatus } from "../ai/types.js";
-import { renderUi } from "./ui/index.js";
+import type { AccountStatus, AccountsStatus } from "../../../src/interfaces/accounts.js";
+import type { AiStatus } from "../../../src/ai/types.js";
+import { renderUi } from "../../../src/server/ui/index.js";
 
 const ORIGIN = "http://rh.test";
 const HTML = renderUi({ version: "0.6.1", canShowBrowser: false });

@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Hono } from "hono";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFakeLlm, type FakeLlm } from "../../test-support/fake-llm.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { saveAiConfig } from "../ai/config.js";
-import type { AiModelList, AiStatus } from "../ai/types.js";
-import type { Check, CheckId, Plan, Scenario } from "../core/types.js";
-import { createApp } from "./app.js";
+import { startFakeLlm, type FakeLlm } from "../../../test-support/fake-llm.js";
+import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import { saveAiConfig } from "../../../src/ai/config.js";
+import type { AiModelList, AiStatus } from "../../../src/ai/types.js";
+import type { Check, CheckId, Plan, Scenario } from "../../../src/core/types.js";
+import { createApp } from "../../../src/server/app.js";
 
 /**
  * AI endpoints of the web server (docs/ai-spec.md "Surfaces" → API).

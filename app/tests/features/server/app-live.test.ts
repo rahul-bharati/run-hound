@@ -4,9 +4,9 @@ import { join } from "node:path";
 import type { Hono } from "hono";
 import { chromium, type Browser, type LaunchOptions } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { Check, CheckId, Scenario } from "../core/types.js";
-import { createApp } from "./app.js";
+import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import type { Check, CheckId, Scenario } from "../../../src/core/types.js";
+import { createApp } from "../../../src/server/app.js";
 
 /** A form page that keeps repainting, so the screencast keeps sending frames. */
 const FORM_PAGE = `<!doctype html><html lang="en"><head><title>Live server fixture</title>

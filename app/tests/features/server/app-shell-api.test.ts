@@ -3,10 +3,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Hono } from "hono";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { Category, Check, CheckId, CheckResult, Plan, Report, Scenario } from "../core/types.js";
-import { RUN_HOUND_VERSION } from "../engine/runner.js";
-import { createApp } from "./app.js";
+import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import type { Category, Check, CheckId, CheckResult, Plan, Report, Scenario } from "../../../src/core/types.js";
+import { RUN_HOUND_VERSION } from "../../../src/engine/runner.js";
+import { createApp } from "../../../src/server/app.js";
 
 /**
  * JSON API behind the app shell (docs/app-ui-spec.md): runs list, past runs after a restart, stop, re-run, settings.

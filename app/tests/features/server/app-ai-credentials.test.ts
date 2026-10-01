@@ -13,10 +13,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { clearAwsCredentialCache } from "../ai/aws-credentials.js";
-import type { AiStatus } from "../ai/types.js";
-import type { Check } from "../core/types.js";
-import { createApp } from "./app.js";
+import { clearAwsCredentialCache } from "../../../src/ai/aws-credentials.js";
+import type { AiStatus } from "../../../src/ai/types.js";
+import type { Check } from "../../../src/core/types.js";
+import { createApp } from "../../../src/server/app.js";
 
 const ID = "AKIAIOSFODNN7SAVED01";
 const SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYSAVEDKEY01";

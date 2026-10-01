@@ -8,8 +8,8 @@
  */
 import { chromium, type Browser, type Request, type Route } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { AccountRef, Report } from "../core/types.js";
-import { renderUi } from "./ui/index.js";
+import type { AccountRef, Report } from "../../../src/core/types.js";
+import { renderUi } from "../../../src/server/ui/index.js";
 
 const ORIGIN = "http://rh.test";
 const HTML = renderUi({ version: "0.6.0", canShowBrowser: false });

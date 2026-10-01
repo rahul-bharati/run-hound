@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Check, Plan, Report, Scenario } from "../core/types.js";
-import type { RunOptions } from "../engine/runner.js";
+import type { Check, Plan, Report, Scenario } from "../../../src/core/types.js";
+import type { RunOptions } from "../../../src/engine/runner.js";
 
 /**
  * How the server hands test accounts to the engine (docs/v2-spec.md "Test accounts" → API), with the engine replaced:
@@ -30,7 +30,7 @@ const calls = vi.hoisted(() => ({
   discoverImpl: null as null | ((url: string, options: RunOptions) => Promise<Plan>),
 }));
 
-vi.mock(import("../engine/runner.js"), async (importOriginal) => {
+vi.mock(import("../../../src/engine/runner.js"), async (importOriginal) => {
   const original = await importOriginal();
   return {
     ...original,
@@ -60,12 +60,12 @@ vi.mock(import("../engine/runner.js"), async (importOriginal) => {
   };
 });
 
-vi.mock(import("../engine/auth.js"), async (importOriginal) => {
+vi.mock(import("../../../src/engine/auth.js"), async (importOriginal) => {
   const original = await importOriginal();
   return { ...original, signIn: calls.signIn };
 });
 
-vi.mock(import("../engine/redact.js"), async (importOriginal) => {
+vi.mock(import("../../../src/engine/redact.js"), async (importOriginal) => {
   const original = await importOriginal();
   return {
     ...original,
@@ -78,8 +78,8 @@ vi.mock(import("../engine/redact.js"), async (importOriginal) => {
   };
 });
 
-const { createApp } = await import("./app.js");
-const { SignInError } = await import("../engine/auth.js");
+const { createApp } = await import("../../../src/server/app.js");
+const { SignInError } = await import("../../../src/engine/auth.js");
 
 const PASSWORD_A = "wiring-pass-A-1234";
 const PASSWORD_B = "wiring-pass-B-5678";

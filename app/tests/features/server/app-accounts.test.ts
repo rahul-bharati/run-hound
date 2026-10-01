@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Hono } from "hono";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startAccountsApp, type AccountsApp } from "../../test-support/accounts-app.js";
-import type { Check, CheckId, Plan, Report, Scenario } from "../core/types.js";
-import { createApp } from "./app.js";
+import { startAccountsApp, type AccountsApp } from "../../../test-support/accounts-app.js";
+import type { Check, CheckId, Plan, Report, Scenario } from "../../../src/core/types.js";
+import { createApp } from "../../../src/server/app.js";
 
 /**
  * Test-account endpoints of the web server (docs/v2-spec.md "Test accounts" → API), against the shared accounts app.

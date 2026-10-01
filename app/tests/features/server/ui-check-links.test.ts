@@ -13,10 +13,10 @@ import { join } from "node:path";
 import { serve, type ServerType } from "@hono/node-server";
 import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { SITE_URL, checkPageUrl } from "../core/links.js";
-import type { Finding, Report } from "../core/types.js";
-import { NOT_VISIBLE, writeReport } from "../engine/report.js";
-import { createApp } from "./app.js";
+import { SITE_URL, checkPageUrl } from "../../../src/core/links.js";
+import type { Finding, Report } from "../../../src/core/types.js";
+import { NOT_VISIBLE, writeReport } from "../../../src/engine/report.js";
+import { createApp } from "../../../src/server/app.js";
 
 const RUN_ID = "20260928-101500-b2d5f8";
 /** A hand-edited report.json whose finding names a check this version doesn't have. */

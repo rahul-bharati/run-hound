@@ -6,9 +6,9 @@ import { serve, type ServerType } from "@hono/node-server";
 import type { Hono } from "hono";
 import { chromium, type Browser, type Page } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { Category, Check, CheckId, CheckResult, Plan, Report, Scenario } from "../core/types.js";
-import { createApp } from "./app.js";
+import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import type { Category, Check, CheckId, CheckResult, Plan, Report, Scenario } from "../../../src/core/types.js";
+import { createApp } from "../../../src/server/app.js";
 
 /**
  * Groups and timing in the server and web UI (docs/v0-spec.md, "Groups and timing").

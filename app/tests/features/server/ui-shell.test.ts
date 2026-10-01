@@ -6,11 +6,11 @@ import { serve, type ServerType } from "@hono/node-server";
 import type { Hono } from "hono";
 import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { Category, Check, CheckId, Finding, Scenario } from "../core/types.js";
-import { RUN_HOUND_VERSION } from "../engine/runner.js";
-import { createApp } from "./app.js";
-import { renderUi } from "./ui/index.js";
+import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import type { Category, Check, CheckId, Finding, Scenario } from "../../../src/core/types.js";
+import { RUN_HOUND_VERSION } from "../../../src/engine/runner.js";
+import { createApp } from "../../../src/server/app.js";
+import { renderUi } from "../../../src/server/ui/index.js";
 
 /**
  * The app shell UI (docs/app-ui-spec.md, mockups site/assets/mockups/mockup-1.png and mockup-2.png), driven in real

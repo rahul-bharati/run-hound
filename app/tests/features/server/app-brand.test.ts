@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createApp } from "./app.js";
+import { createApp } from "../../../src/server/app.js";
 
 /**
  * Brand contract for the local UI (docs/brand.md): the mint accent #5EE6A3, no old amber #F5B642 except as the

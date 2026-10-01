@@ -11,9 +11,9 @@ import { join } from "node:path";
 import { serve, type ServerType } from "@hono/node-server";
 import { chromium, type Browser, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { Check, Scenario } from "../core/types.js";
-import { createApp } from "./app.js";
+import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import type { Check, Scenario } from "../../../src/core/types.js";
+import { createApp } from "../../../src/server/app.js";
 
 const FORM_PAGE = `<!doctype html><html lang="en"><head><title>CSP fixture</title></head><body>
 <form id="booking">
