@@ -14,7 +14,8 @@
     "serve": "tsx src/cli.ts serve",
     "run": "tsx src/cli.ts run",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:dev": "vitest run --watch"
   },
   "dependencies": {
     "@axe-core/playwright": "4.13.0",

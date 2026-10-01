@@ -3,17 +3,32 @@
  * signInAs) and the CLI (`accounts …`, `run --as`). docs/v2-spec.md "Test accounts". Nothing here returns a password.
  */
 import { notReadyMessage } from "../accounts/config.js";
-import { ACCOUNT_IDS, type AccountsConfig, type AccountsPatch, type AccountsStatus, type SignInCheck } from "../accounts/types.js";
+import {
+  type AccountsConfig,
+  type AccountsPatch,
+  type AccountsStatus,
+  type SignInCheck,
+} from "../interfaces/accounts.js";
+
+import { ACCOUNT_IDS } from "../types/accounts.js";
+
 import type { AccountId, AccountRef, Plan } from "../core/types.js";
 import { signIn, SignInError } from "../engine/auth.js";
 import { cleanErrorMessage, TargetNotAllowedError } from "../engine/errors.js";
 import { launchChromium } from "../engine/isolation.js";
-import { redactSecrets, registerAccountUsernames, registerSecretLiterals } from "../engine/redact.js";
+import {
+  redactSecrets,
+  registerAccountUsernames,
+  registerSecretLiterals,
+} from "../engine/redact.js";
 import { checkTarget, pinArgs, type SafetyOptions } from "../engine/safety.js";
 
 /** True for "a" and "b". */
 export function isAccountId(value: unknown): value is AccountId {
-  return typeof value === "string" && (ACCOUNT_IDS as readonly string[]).includes(value);
+  return (
+    typeof value === "string" &&
+    (ACCOUNT_IDS as readonly string[]).includes(value)
+  );
 }
 
 /**
@@ -21,8 +36,13 @@ export function isAccountId(value: unknown): value is AccountId {
  * hides them wherever they would appear; returns the function that unregisters them. The engine registers them too
  * while it signs in; this covers what the CLI and the server print around it.
  */
-export function registerPasswords(config: AccountsConfig, ids: readonly AccountId[] = ACCOUNT_IDS): () => void {
-  const values = ids.map((id) => config.accounts[id].password).filter((p): p is string => typeof p === "string" && p !== "");
+export function registerPasswords(
+  config: AccountsConfig,
+  ids: readonly AccountId[] = ACCOUNT_IDS,
+): () => void {
+  const values = ids
+    .map((id) => config.accounts[id].password)
+    .filter((p): p is string => typeof p === "string" && p !== "");
   return values.length > 0 ? registerSecretLiterals(values) : () => undefined;
 }
 
@@ -31,15 +51,23 @@ export function registerPasswords(config: AccountsConfig, ids: readonly AccountI
  * message names the account and the reason, e.g. "Account A's sign-in page can't be used: 8.8.8.8 is not a private
  * address; …". URLs that aren't http(s) are left to saveAccounts, which says so in plainer words.
  */
-export async function checkLoginUrls(patch: AccountsPatch, status: AccountsStatus, safety: SafetyOptions): Promise<void> {
+export async function checkLoginUrls(
+  patch: AccountsPatch,
+  status: AccountsStatus,
+  safety: SafetyOptions,
+): Promise<void> {
   for (const id of ACCOUNT_IDS) {
     const url = patch.accounts?.[id]?.loginUrl?.trim();
     if (!url || !/^https?:\/\//i.test(url)) continue;
-    const label = patch.accounts?.[id]?.label?.trim() || status.accounts[id].label;
+    const label =
+      patch.accounts?.[id]?.label?.trim() || status.accounts[id].label;
     try {
       await checkTarget(url, safety);
     } catch (err) {
-      if (err instanceof TargetNotAllowedError) throw new Error(`${label}'s sign-in page can't be used: ${err.reason}.`);
+      if (err instanceof TargetNotAllowedError)
+        throw new Error(
+          `${label}'s sign-in page can't be used: ${err.reason}.`,
+        );
       throw err;
     }
   }
@@ -60,7 +88,11 @@ function landedPath(landedOn: string): string {
  * on, or the plain reason it failed. A slot that isn't set up fails without contacting the app; a login URL the
  * safety gate refuses fails without opening a browser. Never throws, never names the password.
  */
-export async function testSignIn(id: AccountId, resolved: { config: AccountsConfig; status: AccountsStatus }, safety: SafetyOptions): Promise<SignInCheck> {
+export async function testSignIn(
+  id: AccountId,
+  resolved: { config: AccountsConfig; status: AccountsStatus },
+  safety: SafetyOptions,
+): Promise<SignInCheck> {
   const status = resolved.status.accounts[id];
   const account = resolved.config.accounts[id];
   const notReady = notReadyMessage(status);
@@ -74,21 +106,40 @@ export async function testSignIn(id: AccountId, resolved: { config: AccountsConf
     try {
       pinned = pinArgs(await checkTarget(account.loginUrl, safety));
     } catch (err) {
-      if (err instanceof TargetNotAllowedError) return { id, ok: false, message: redactSecrets(`${status.label}'s sign-in page can't be used: ${err.reason}.`) };
+      if (err instanceof TargetNotAllowedError)
+        return {
+          id,
+          ok: false,
+          message: redactSecrets(
+            `${status.label}'s sign-in page can't be used: ${err.reason}.`,
+          ),
+        };
       throw err;
     }
     const browser = await launchChromium({ headless: true, args: pinned });
     try {
       const signed = await signIn(browser, account, safety);
       const path = landedPath(signed.landedOn);
-      return { id, ok: true, landedOn: redactSecrets(signed.landedOn), message: `Signed in as ${status.label}; landed on ${path}.` };
+      return {
+        id,
+        ok: true,
+        landedOn: redactSecrets(signed.landedOn),
+        message: `Signed in as ${status.label}; landed on ${path}.`,
+      };
     } finally {
       await browser.close().catch(() => undefined);
     }
   } catch (err) {
-    if (err instanceof SignInError) return { id, ok: false, message: redactSecrets(err.message) };
-    const reason = redactSecrets(cleanErrorMessage(err instanceof Error ? err.message : String(err)));
-    return { id, ok: false, message: `${status.label} could not be signed in: ${reason}` };
+    if (err instanceof SignInError)
+      return { id, ok: false, message: redactSecrets(err.message) };
+    const reason = redactSecrets(
+      cleanErrorMessage(err instanceof Error ? err.message : String(err)),
+    );
+    return {
+      id,
+      ok: false,
+      message: `${status.label} could not be signed in: ${reason}`,
+    };
   } finally {
     unregister();
     unregisterName();
@@ -101,7 +152,11 @@ export async function testSignIn(id: AccountId, resolved: { config: AccountsConf
  */
 export function isSignInFailure(err: unknown): boolean {
   if (err instanceof SignInError) return true;
-  return err instanceof Error && (err.name === "SignInError" || /^Signed in as .+ still shows the sign-in page/.test(err.message));
+  return (
+    err instanceof Error &&
+    (err.name === "SignInError" ||
+      /^Signed in as .+ still shows the sign-in page/.test(err.message))
+  );
 }
 
 /** What a username is replaced with in everything but Settings and `accounts status`. */
@@ -112,8 +167,14 @@ export const USERNAME_MASK = "[REDACTED:account-username]";
  * USERNAME_MASK: a last layer for what the server and the CLI send out of a signed-in plan or run (the page can show
  * "Signed in as alex@…" in a control that discovery records). The identity when no account is configured.
  */
-export function usernameHider(config: AccountsConfig | undefined): (text: string) => string {
-  const names = config ? ACCOUNT_IDS.map((id) => config.accounts[id].username).filter((n) => n.length >= 3) : [];
+export function usernameHider(
+  config: AccountsConfig | undefined,
+): (text: string) => string {
+  const names = config
+    ? ACCOUNT_IDS.map((id) => config.accounts[id].username).filter(
+        (n) => n.length >= 3,
+      )
+    : [];
   if (names.length === 0) return (text) => text;
   const pattern = new RegExp(
     names
@@ -127,7 +188,9 @@ export function usernameHider(config: AccountsConfig | undefined): (text: string
 
 /** A deep copy of a JSON value with `hide` applied to every string in it. */
 export function hideInJson<T>(value: T, hide: (text: string) => string): T {
-  return JSON.parse(JSON.stringify(value), (_key, v: unknown) => (typeof v === "string" ? hide(v) : v)) as T;
+  return JSON.parse(JSON.stringify(value), (_key, v: unknown) =>
+    typeof v === "string" ? hide(v) : v,
+  ) as T;
 }
 
 /** The account a plan (or a report's plan) was made as, checked and redacted: only { id, label } ever leave. */

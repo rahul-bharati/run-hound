@@ -113,3 +113,9 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-09-30: [Every AI secret Run Hound reads is registered with the redactor, and a labelled AWS secret access key is a pattern of its own](docs/decisions/09-2026.md#2026-09-30-ai-secrets-redacted)
 - 2026-09-30: [The tested page's requests to other sites stay allowed and are documented; a strict mode comes after the launch](docs/decisions/09-2026.md#2026-09-30-third-party-requests-allowed)
 - 2026-09-30: [0.6.2 gets a per-launch UI token and a sandboxed browser with a warning fallback; 0.6.3 moves host state into the project](docs/decisions/09-2026.md#2026-09-30-host-state-and-clean-window)
+
+### October 2026 ([10-2026.md](docs/decisions/10-2026.md))
+
+- 2026-10-01: [MiniMax M3 handles the app CLI regression fix when Sonnet is unavailable](docs/decisions/10-2026.md#2026-10-01-minimax-cli-fix-delegation)
+- 2026-10-01: [Delegate according to the maintainer's OpenCode configuration](docs/decisions/10-2026.md#2026-10-01-opencode-config-delegation-policy) (supersedes 2026-09-28-subagent-work-matched-to-cost and the policy framing of 2026-10-01-minimax-cli-fix-delegation)
+- 2026-10-01: [Complete account imports against the refactor's new types and interfaces modules](docs/decisions/10-2026.md#2026-10-01-account-import-migration)

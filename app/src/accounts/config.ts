@@ -16,15 +16,32 @@ import { randomBytes } from "node:crypto";
 import { chmod, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { configDir } from "../ai/config.js";
-import { ACCOUNT_IDS, type AccountSource, type AccountStatus, type AccountsConfig, type AccountsPatch, type AccountsStatus, type AccountId, type TestAccount } from "./types.js";
+import {
+  ACCOUNT_IDS,
+  type AccountSource,
+  type AccountId,
+} from "../types/accounts.js";
+import {
+  type AccountStatus,
+  type AccountsConfig,
+  type AccountsPatch,
+  type AccountsStatus,
+  type TestAccount,
+} from "../interfaces/accounts.js";
 
 /** Path of the saved accounts: <configDir>/accounts.json. `env` defaults to process.env; `home` to os.homedir(). */
-export function accountsFile(env: NodeJS.ProcessEnv = process.env, home?: string): string {
+export function accountsFile(
+  env: NodeJS.ProcessEnv = process.env,
+  home?: string,
+): string {
   return join(configDir(env, home), "accounts.json");
 }
 
 /** Labels used when the user gave none. */
-export const DEFAULT_LABELS: Record<AccountId, string> = { a: "Account A", b: "Account B" };
+export const DEFAULT_LABELS: Record<AccountId, string> = {
+  a: "Account A",
+  b: "Account B",
+};
 
 /** Longest label accepted: it is shown in plan headers, reports and the runs list. */
 export const MAX_LABEL_LENGTH = 60;
@@ -54,7 +71,12 @@ interface ReadResult {
 
 /** The env variable behind a field of a slot, e.g. RUNHOUND_ACCOUNT_A_LOGIN_URL. */
 export function accountEnvName(id: AccountId, field: Field): string {
-  const suffix = { label: "LABEL", loginUrl: "LOGIN_URL", username: "USERNAME", password: "PASSWORD" }[field];
+  const suffix = {
+    label: "LABEL",
+    loginUrl: "LOGIN_URL",
+    username: "USERNAME",
+    password: "PASSWORD",
+  }[field];
   return `RUNHOUND_ACCOUNT_${id.toUpperCase()}_${suffix}`;
 }
 
@@ -63,34 +85,44 @@ function httpOrigin(url: string | undefined): string | null {
   if (!url) return null;
   try {
     const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.origin : null;
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+      ? parsed.origin
+      : null;
   } catch {
     return null;
   }
 }
 
-const nonEmpty = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
+const nonEmpty = (v: unknown): v is string =>
+  typeof v === "string" && v.trim() !== "";
 
 function slotFromFile(raw: unknown): SavedSlot | undefined {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+    return undefined;
   const r = raw as Record<string, unknown>;
   const out: SavedSlot = {};
   if (nonEmpty(r.label)) out.label = r.label.trim();
   if (nonEmpty(r.loginUrl)) out.loginUrl = r.loginUrl.trim();
   if (nonEmpty(r.username)) out.username = r.username.trim();
-  if (typeof r.password === "string" && r.password !== "") out.password = r.password;
+  if (typeof r.password === "string" && r.password !== "")
+    out.password = r.password;
   if (nonEmpty(r.passwordOrigin)) out.passwordOrigin = r.passwordOrigin.trim();
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /** Keeps only well-typed values of a parsed file; null when the file isn't an object at all. */
 function fromFile(raw: unknown): SavedFile | null {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+    return null;
   const r = raw as Record<string, unknown>;
   const out: SavedFile = { accounts: {} };
   if (typeof r.isolated === "boolean") out.isolated = r.isolated;
   const accounts = r.accounts;
-  if (typeof accounts === "object" && accounts !== null && !Array.isArray(accounts)) {
+  if (
+    typeof accounts === "object" &&
+    accounts !== null &&
+    !Array.isArray(accounts)
+  ) {
     for (const id of ACCOUNT_IDS) {
       const slot = slotFromFile((accounts as Record<string, unknown>)[id]);
       if (slot) out.accounts[id] = slot;
@@ -100,27 +132,42 @@ function fromFile(raw: unknown): SavedFile | null {
 }
 
 async function readSaved(file: string): Promise<ReadResult> {
-  const nothing = (problem: string | null): ReadResult => ({ saved: { accounts: {} }, problem });
+  const nothing = (problem: string | null): ReadResult => ({
+    saved: { accounts: {} },
+    problem,
+  });
   let text: string;
   try {
     text = await readFile(file, "utf8");
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT") return nothing(null);
-    return nothing(`${file} could not be read (${code ?? "error"}), so nothing saved in it was used.`);
+    return nothing(
+      `${file} could not be read (${code ?? "error"}), so nothing saved in it was used.`,
+    );
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return nothing(`${file} is not valid JSON, so nothing saved in it was used. Save the account again to replace it.`);
+    return nothing(
+      `${file} is not valid JSON, so nothing saved in it was used. Save the account again to replace it.`,
+    );
   }
   const saved = fromFile(parsed);
-  return saved ? { saved, problem: null } : nothing(`${file} does not hold saved accounts, so nothing in it was used. Save the account again to replace it.`);
+  return saved
+    ? { saved, problem: null }
+    : nothing(
+        `${file} does not hold saved accounts, so nothing in it was used. Save the account again to replace it.`,
+      );
 }
 
 /** A non-empty env value (trimmed, except passwords), or undefined. */
-function envValue(env: NodeJS.ProcessEnv, name: string, trim: boolean): string | undefined {
+function envValue(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  trim: boolean,
+): string | undefined {
   const value = env[name];
   if (value === undefined || value.trim() === "") return undefined;
   return trim ? value.trim() : value;
@@ -140,8 +187,30 @@ function boundOrigin(slot: SavedSlot | undefined): string | null {
 
 /** Very common passwords (with trailing digits and punctuation taken off, lowercased). */
 const COMMON_PASSWORDS = new Set([
-  "password", "passw0rd", "passwort", "pass", "admin", "administrator", "root", "test", "tester", "testing", "demo", "guest",
-  "user", "login", "secret", "letmein", "qwerty", "welcome", "changeme", "default", "hello", "example", "iloveyou", "abc",
+  "password",
+  "passw0rd",
+  "passwort",
+  "pass",
+  "admin",
+  "administrator",
+  "root",
+  "test",
+  "tester",
+  "testing",
+  "demo",
+  "guest",
+  "user",
+  "login",
+  "secret",
+  "letmein",
+  "qwerty",
+  "welcome",
+  "changeme",
+  "default",
+  "hello",
+  "example",
+  "iloveyou",
+  "abc",
 ]);
 
 /**
@@ -165,14 +234,27 @@ interface Resolution {
   status: AccountsStatus;
 }
 
-function resolveWith(env: NodeJS.ProcessEnv, file: string, read: ReadResult): Resolution {
+function resolveWith(
+  env: NodeJS.ProcessEnv,
+  file: string,
+  read: ReadResult,
+): Resolution {
   const accounts = {} as Record<AccountId, TestAccount>;
   const statuses = {} as Record<AccountId, AccountStatus>;
   for (const id of ACCOUNT_IDS) {
     const saved = read.saved.accounts[id];
-    const sources: AccountStatus["sources"] = { label: "default", loginUrl: "default", username: "default", password: "default" };
+    const sources: AccountStatus["sources"] = {
+      label: "default",
+      loginUrl: "default",
+      username: "default",
+      password: "default",
+    };
     const pick = (field: Field): string | undefined => {
-      const fromEnv = envValue(env, accountEnvName(id, field), field !== "password");
+      const fromEnv = envValue(
+        env,
+        accountEnvName(id, field),
+        field !== "password",
+      );
       if (fromEnv !== undefined) {
         sources[field] = "env";
         return fromEnv;
@@ -203,9 +285,13 @@ function resolveWith(env: NodeJS.ProcessEnv, file: string, read: ReadResult): Re
         );
       }
     }
-    if (password && isCommonPassword(password)) problems.push(COMMON_PASSWORD_PROBLEM);
+    if (password && isCommonPassword(password))
+      problems.push(COMMON_PASSWORD_PROBLEM);
     if (loginUrl !== "" && httpOrigin(loginUrl) === null) {
-      const where = sources.loginUrl === "env" ? accountEnvName(id, "loginUrl") : "The sign-in page";
+      const where =
+        sources.loginUrl === "env"
+          ? accountEnvName(id, "loginUrl")
+          : "The sign-in page";
       problems.push(`${where} is not an http:// or https:// URL.`);
     }
 
@@ -233,14 +319,19 @@ function resolveWith(env: NodeJS.ProcessEnv, file: string, read: ReadResult): Re
     isolated = read.saved.isolated;
     isolatedSource = "file";
   }
-  return { config: { isolated, accounts }, status: { isolated, isolatedSource, accounts: statuses, file } };
+  return {
+    config: { isolated, accounts },
+    status: { isolated, isolatedSource, accounts: statuses, file },
+  };
 }
 
 /**
  * Reads the file (missing or unreadable = nothing saved) and applies the env overrides. Never throws on a bad file: a
  * malformed file reads as nothing saved, with a problem on each slot.
  */
-export async function resolveAccounts(options: { env?: NodeJS.ProcessEnv; home?: string } = {}): Promise<{ config: AccountsConfig; status: AccountsStatus }> {
+export async function resolveAccounts(
+  options: { env?: NodeJS.ProcessEnv; home?: string } = {},
+): Promise<{ config: AccountsConfig; status: AccountsStatus }> {
   const env = options.env ?? process.env;
   const file = accountsFile(env, options.home);
   return resolveWith(env, file, await readSaved(file));
@@ -256,7 +347,10 @@ async function writePrivate(file: string, text: string): Promise<void> {
   await mkdir(dir, { recursive: true, mode: 0o700 });
   // mkdir's mode only applies to a folder it creates: tighten one that was already there with looser permissions.
   await chmod(dir, 0o700).catch(() => undefined);
-  const temp = join(dir, `.accounts.json.${process.pid}.${randomBytes(6).toString("hex")}.tmp`);
+  const temp = join(
+    dir,
+    `.accounts.json.${process.pid}.${randomBytes(6).toString("hex")}.tmp`,
+  );
   try {
     const handle = await open(temp, "wx", 0o600);
     try {
@@ -314,36 +408,59 @@ function checkLoginUrl(value: string, label: string): string {
   try {
     parsed = new URL(url);
   } catch {
-    throw new Error(`${label}'s sign-in page is not a URL. Enter the full address, like http://localhost:5173/login.`);
+    throw new Error(
+      `${label}'s sign-in page is not a URL. Enter the full address, like http://localhost:5173/login.`,
+    );
   }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error(`${label}'s sign-in page must start with http:// or https://.`);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
+    throw new Error(
+      `${label}'s sign-in page must start with http:// or https://.`,
+    );
   if (parsed.username || parsed.password) {
-    throw new Error(`${label}'s sign-in page must not have a user name or password in it; enter them as the username and password instead.`);
+    throw new Error(
+      `${label}'s sign-in page must not have a user name or password in it; enter them as the username and password instead.`,
+    );
   }
   return url;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
 
 /**
  * Throws a plain Error (never naming a value) unless `patch` is an AccountsPatch: an object; `isolated` a boolean;
  * `accounts` an object whose keys are "a"/"b" and whose label/loginUrl/username/password are strings (other keys
  * are ignored); labels at most MAX_LABEL_LENGTH characters. The server answers 400 with the message.
  */
-export function checkAccountsPatch(patch: unknown): asserts patch is AccountsPatch {
-  if (!isObject(patch)) throw new Error("Send the test accounts as a JSON object.");
-  if (patch.isolated !== undefined && typeof patch.isolated !== "boolean") throw new Error("isolated must be true or false.");
+export function checkAccountsPatch(
+  patch: unknown,
+): asserts patch is AccountsPatch {
+  if (!isObject(patch))
+    throw new Error("Send the test accounts as a JSON object.");
+  if (patch.isolated !== undefined && typeof patch.isolated !== "boolean")
+    throw new Error("isolated must be true or false.");
   if (patch.accounts === undefined) return;
-  if (!isObject(patch.accounts)) throw new Error('accounts must be an object like {"a": {"loginUrl": "…", "username": "…"}}.');
+  if (!isObject(patch.accounts))
+    throw new Error(
+      'accounts must be an object like {"a": {"loginUrl": "…", "username": "…"}}.',
+    );
   for (const [id, slot] of Object.entries(patch.accounts)) {
-    if (!(ACCOUNT_IDS as readonly string[]).includes(id)) throw new Error("There are two test accounts, a and b; accounts can only name those.");
+    if (!(ACCOUNT_IDS as readonly string[]).includes(id))
+      throw new Error(
+        "There are two test accounts, a and b; accounts can only name those.",
+      );
     if (slot === undefined) continue;
     if (!isObject(slot)) throw new Error(`accounts.${id} must be an object.`);
     for (const field of FIELDS) {
       const value = slot[field];
-      if (value !== undefined && typeof value !== "string") throw new Error(`accounts.${id}.${field} must be a string.`);
+      if (value !== undefined && typeof value !== "string")
+        throw new Error(`accounts.${id}.${field} must be a string.`);
     }
-    if (typeof slot.label === "string" && slot.label.trim().length > MAX_LABEL_LENGTH) throw new Error(`A label can be at most ${MAX_LABEL_LENGTH} characters.`);
+    if (
+      typeof slot.label === "string" &&
+      slot.label.trim().length > MAX_LABEL_LENGTH
+    )
+      throw new Error(`A label can be at most ${MAX_LABEL_LENGTH} characters.`);
   }
 }
 
@@ -357,14 +474,20 @@ export function checkAccountsPatch(patch: unknown): asserts patch is AccountsPat
  * to another origin without a new password removes a saved password bound elsewhere; a kept password that applied
  * before is (re)bound to its origin; one that didn't apply (env moved the login URL) keeps its binding.
  */
-export async function saveAccounts(patch: AccountsPatch, options: { env?: NodeJS.ProcessEnv; home?: string } = {}): Promise<AccountsStatus> {
+export async function saveAccounts(
+  patch: AccountsPatch,
+  options: { env?: NodeJS.ProcessEnv; home?: string } = {},
+): Promise<AccountsStatus> {
   checkAccountsPatch(patch);
   const env = options.env ?? process.env;
   const file = accountsFile(env, options.home);
   return oneAtATime(file, async () => {
     const read = await readSaved(file);
     const before = resolveWith(env, file, read);
-    const next: SavedFile = { ...read.saved, accounts: { ...read.saved.accounts } };
+    const next: SavedFile = {
+      ...read.saved,
+      accounts: { ...read.saved.accounts },
+    };
     if (patch.isolated !== undefined) next.isolated = patch.isolated;
 
     const changed: { id: AccountId; newPassword: boolean }[] = [];
@@ -373,9 +496,15 @@ export async function saveAccounts(patch: AccountsPatch, options: { env?: NodeJS
       if (!slotPatch) continue;
       const label = slotPatch.label?.trim() || before.config.accounts[id].label;
       const slot: SavedSlot = { ...next.accounts[id] };
-      if (slotPatch.label !== undefined) slot.label = slotPatch.label.trim() === DEFAULT_LABELS[id] ? "" : slotPatch.label.trim();
-      if (slotPatch.loginUrl !== undefined) slot.loginUrl = checkLoginUrl(slotPatch.loginUrl, label);
-      if (slotPatch.username !== undefined) slot.username = slotPatch.username.trim();
+      if (slotPatch.label !== undefined)
+        slot.label =
+          slotPatch.label.trim() === DEFAULT_LABELS[id]
+            ? ""
+            : slotPatch.label.trim();
+      if (slotPatch.loginUrl !== undefined)
+        slot.loginUrl = checkLoginUrl(slotPatch.loginUrl, label);
+      if (slotPatch.username !== undefined)
+        slot.username = slotPatch.username.trim();
       let newPassword = false;
       if (slotPatch.password === "") {
         delete slot.password;
@@ -395,7 +524,9 @@ export async function saveAccounts(patch: AccountsPatch, options: { env?: NodeJS
       const origin = httpOrigin(after.config.accounts[id].loginUrl);
       if (newPassword) {
         if (origin === null) {
-          throw new Error(`Enter ${after.config.accounts[id].label}'s sign-in page (an http:// or https:// URL) with the password: a saved password is only ever sent to the sign-in page it was saved for.`);
+          throw new Error(
+            `Enter ${after.config.accounts[id].label}'s sign-in page (an http:// or https:// URL) with the password: a saved password is only ever sent to the sign-in page it was saved for.`,
+          );
         }
         slot.passwordOrigin = origin;
         continue;
@@ -403,11 +534,17 @@ export async function saveAccounts(patch: AccountsPatch, options: { env?: NodeJS
       if (!slot.password) continue;
       const wasOrigin = httpOrigin(before.config.accounts[id].loginUrl);
       // Bound as read, not as patched: a hand-written slot falls back to its loginUrl, which the patch may have moved.
-      if (wasOrigin !== origin && boundOrigin(read.saved.accounts[id]) !== origin) {
+      if (
+        wasOrigin !== origin &&
+        boundOrigin(read.saved.accounts[id]) !== origin
+      ) {
         // A new sign-in origin without a new password: the saved one is not sent there.
         delete slot.password;
         delete slot.passwordOrigin;
-      } else if (before.status.accounts[id].sources.password === "file" && origin !== null) {
+      } else if (
+        before.status.accounts[id].sources.password === "file" &&
+        origin !== null
+      ) {
         slot.passwordOrigin = origin;
       }
     }
@@ -418,14 +555,21 @@ export async function saveAccounts(patch: AccountsPatch, options: { env?: NodeJS
 }
 
 /** Removes one slot from the saved file (`accounts clear a`). */
-export async function clearAccount(id: AccountId, options: { env?: NodeJS.ProcessEnv; home?: string } = {}): Promise<AccountsStatus> {
-  if (!(ACCOUNT_IDS as readonly string[]).includes(id)) throw new Error("There are two test accounts, a and b.");
+export async function clearAccount(
+  id: AccountId,
+  options: { env?: NodeJS.ProcessEnv; home?: string } = {},
+): Promise<AccountsStatus> {
+  if (!(ACCOUNT_IDS as readonly string[]).includes(id))
+    throw new Error("There are two test accounts, a and b.");
   const env = options.env ?? process.env;
   const file = accountsFile(env, options.home);
   return oneAtATime(file, async () => {
     const read = await readSaved(file);
     if (read.saved.accounts[id]) {
-      const next: SavedFile = { ...read.saved, accounts: { ...read.saved.accounts } };
+      const next: SavedFile = {
+        ...read.saved,
+        accounts: { ...read.saved.accounts },
+      };
       delete next.accounts[id];
       await writePrivate(file, serialise(next));
     }
@@ -435,7 +579,12 @@ export async function clearAccount(id: AccountId, options: { env?: NodeJS.Proces
 
 /** True when the slot has a loginUrl, a username and a usable password. */
 export function isReady(account: TestAccount): boolean {
-  return account.loginUrl !== "" && account.username !== "" && account.password !== null && account.password !== "";
+  return (
+    account.loginUrl !== "" &&
+    account.username !== "" &&
+    account.password !== null &&
+    account.password !== ""
+  );
 }
 
 /**
@@ -445,8 +594,15 @@ export function isReady(account: TestAccount): boolean {
  */
 export function notReadyMessage(status: AccountStatus): string | null {
   if (status.ready) return null;
-  const missing = [status.loginUrl ? "" : "sign-in page", status.username ? "" : "username", status.hasPassword ? "" : "password"].filter(Boolean);
-  const list = missing.length <= 1 ? missing.join("") : `${missing.slice(0, -1).join(", ")} or ${missing[missing.length - 1]!}`;
+  const missing = [
+    status.loginUrl ? "" : "sign-in page",
+    status.username ? "" : "username",
+    status.hasPassword ? "" : "password",
+  ].filter(Boolean);
+  const list =
+    missing.length <= 1
+      ? missing.join("")
+      : `${missing.slice(0, -1).join(", ")} or ${missing[missing.length - 1]!}`;
   const problem = status.problem ? ` ${status.problem}` : "";
   return `${status.label} isn't set up: it has no ${list}.${problem} Set it up in Settings → Test accounts, or with \`run-hound accounts set ${status.id}\`.`;
 }

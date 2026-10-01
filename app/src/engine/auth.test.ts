@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../test-support/accounts-app.js";
 import { closeBrowser, getBrowser } from "../../test-support/harness.js";
 import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { TestAccount } from "../accounts/types.js";
+import type { TestAccount } from "../interfaces/accounts.js";
 import { signIn, SignInError, type SessionState, type SignedIn } from "./auth.js";
 
 let browser: Browser;

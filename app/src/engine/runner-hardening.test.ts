@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountsConfig } from "../accounts/types.js";
+import type { AccountsConfig } from "../interfaces/accounts.js";
 import { check as credentialFields } from "../checks/credential-fields.js";
 import { check as deepLinks } from "../checks/deep-links.js";
 import { check as pageControls } from "../checks/page-controls.js";

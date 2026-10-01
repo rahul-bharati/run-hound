@@ -154,7 +154,7 @@
  */
 import { randomBytes } from "node:crypto";
 import type { ServerResponse } from "node:http";
-import type { AccountsConfig, TestAccount } from "../src/accounts/types.js";
+import type { AccountsConfig, TestAccount } from "../src/interfaces/accounts.js";
 import type { AccountId } from "../src/core/types.js";
 import type { SessionState, SignedIn } from "../src/engine/auth.js";
 import { startFixtureServer, type RecordedRequest } from "./server.js";

@@ -62,7 +62,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, it } from "vitest";
-import type { AccountsConfig } from "../../../app/src/accounts/types.js";
+import type { AccountsConfig } from "../../../app/src/interfaces/accounts.js";
 import { checks } from "../../../app/src/checks/index.js";
 import type { CheckId, DiscoveredForm, Plan, Report } from "../../../app/src/core/types.js";
 import { registeredLiterals } from "../../../app/src/engine/redact.js";

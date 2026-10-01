@@ -18,7 +18,7 @@ import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { AccountsConfig } from "../../../app/src/accounts/types.js";
+import type { AccountsConfig } from "../../../app/src/interfaces/accounts.js";
 import { freePort, REPO_ROOT } from "./kennel.js";
 
 const execFileAsync = promisify(execFile);

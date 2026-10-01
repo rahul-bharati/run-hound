@@ -11,7 +11,7 @@
  */
 import { chromium, type Browser, type Page, type Request, type Route } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { AccountsStatus, AccountStatus } from "../accounts/types.js";
+import type { AccountStatus, AccountsStatus } from "../interfaces/accounts.js";
 import type { AiModelList, AiStatus } from "../ai/types.js";
 import type { Finding, Plan, Report } from "../core/types.js";
 import { renderUi } from "./ui/index.js";

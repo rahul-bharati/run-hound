@@ -40,7 +40,7 @@
 import { domainToUnicode } from "node:url";
 import type { Browser, BrowserContext, ElementHandle, Page, Request, Route } from "playwright";
 import { DEFAULT_LABELS } from "../accounts/config.js";
-import type { TestAccount } from "../accounts/types.js";
+import type { TestAccount } from "../interfaces/accounts.js";
 import { originOf } from "../core/saves.js";
 import type { DiscoveredForm, FormControl, FormField } from "../core/types.js";
 import { BROWSER_LOCALE, isCredentialHeader } from "./context.js";

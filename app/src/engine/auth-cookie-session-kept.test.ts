@@ -32,7 +32,7 @@ import type { Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeBrowser, getBrowser } from "../../test-support/harness.js";
 import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { TestAccount } from "../accounts/types.js";
+import type { TestAccount } from "../interfaces/accounts.js";
 import { sessionInStorage, signIn, type SessionState, type SignedIn } from "./auth.js";
 
 const ALICE = { email: "alice@example.test", password: "alice-pass-7Q2x", id: "u1", name: "Alice Example", ws: "3f2b8c1e-4d5a-4b6c-8e9f-0a1b2c3d4e5f" };

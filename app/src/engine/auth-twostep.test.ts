@@ -42,7 +42,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../test-support/accounts-app.js";
 import { closeBrowser, getBrowser } from "../../test-support/harness.js";
 import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { TestAccount } from "../accounts/types.js";
+import type { TestAccount } from "../interfaces/accounts.js";
 import { signIn, signInForm, SignInError, type SessionState, type SignedIn } from "./auth.js";
 import { discoverPage } from "./discover.js";
 

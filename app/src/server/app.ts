@@ -5,21 +5,76 @@ import { createRequire } from "node:module";
 import { BlockList, isIP } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { Hono, type Context, type Next } from "hono";
-import { CHECK_GROUPS, type AccountId, type AccountRef, type Check, type CheckGroup, type CheckResult, type Plan, type Report } from "../core/types.js";
-import { checkAccountsPatch, notReadyMessage, resolveAccounts, saveAccounts } from "../accounts/config.js";
-import type { AccountsConfig } from "../accounts/types.js";
-import { cleanErrorMessage, NoFormFoundError, TargetNotAllowedError, TargetUnreachableError } from "../engine/errors.js";
+import {
+  CHECK_GROUPS,
+  type AccountId,
+  type AccountRef,
+  type Check,
+  type CheckGroup,
+  type CheckResult,
+  type Plan,
+  type Report,
+} from "../core/types.js";
+import {
+  checkAccountsPatch,
+  notReadyMessage,
+  resolveAccounts,
+  saveAccounts,
+} from "../accounts/config.js";
+import {
+  cleanErrorMessage,
+  NoFormFoundError,
+  TargetNotAllowedError,
+  TargetUnreachableError,
+} from "../engine/errors.js";
 import { redactSecrets } from "../engine/redact.js";
 import { renderUi } from "./ui/index.js";
 import { testConnection } from "../ai/client.js";
-import { aiStatus, DEFAULT_BASE_URLS, endpointHost, resolveAiConfig, saveAiConfig } from "../ai/config.js";
+import {
+  aiStatus,
+  DEFAULT_BASE_URLS,
+  endpointHost,
+  resolveAiConfig,
+  saveAiConfig,
+} from "../ai/config.js";
 import { listModels } from "../ai/models.js";
-import { AI_PLAN_BUDGET_MS, aiSession, boundSession, type AiSession } from "../ai/session.js";
-import { AI_PROVIDERS, type AiConfigPatch, type AiProvider } from "../ai/types.js";
-import { canShowBrowser, discoverAndPlan, newRunId, NO_DISPLAY_MESSAGE, planWarnings, RUN_HOUND_VERSION, runPlan, STOPPED_NOTE, type ProgressEvent, type RunOptions } from "../engine/runner.js";
-import { checkLoginUrls, hideInJson, isAccountId, isSignInFailure, planAccount, registerPasswords, testSignIn, usernameHider } from "./accounts.js";
+import {
+  AI_PLAN_BUDGET_MS,
+  aiSession,
+  boundSession,
+  type AiSession,
+} from "../ai/session.js";
 
-export interface ServerOptions extends Pick<RunOptions, "checks" | "runsDir" | "allowedHosts"> {
+import {
+  canShowBrowser,
+  discoverAndPlan,
+  newRunId,
+  NO_DISPLAY_MESSAGE,
+  planWarnings,
+  RUN_HOUND_VERSION,
+  runPlan,
+  STOPPED_NOTE,
+  type ProgressEvent,
+  type RunOptions,
+} from "../engine/runner.js";
+import {
+  checkLoginUrls,
+  hideInJson,
+  isAccountId,
+  isSignInFailure,
+  planAccount,
+  registerPasswords,
+  testSignIn,
+  usernameHider,
+} from "./accounts.js";
+import { AI_PROVIDERS } from "../constants/ai-constants.js";
+import type { AccountsConfig } from "../interfaces/accounts.js";
+import type { AiConfigPatch, AiProvider } from "../ai/types.js";
+
+export interface ServerOptions extends Pick<
+  RunOptions,
+  "checks" | "runsDir" | "allowedHosts"
+> {
   /** Runs allowed at the same time (each one drives its own Chromium). Default 2; more are refused with 409. */
   maxConcurrentRuns?: number;
   /** Whether a visible browser window can open on this machine. Detected (canShowBrowser) when omitted. */
@@ -70,7 +125,8 @@ interface RunState {
  */
 function subjectOf(plan: Plan): string | null {
   const forms = plan.page?.forms;
-  if (forms && forms.length > 1) return `${forms.length} forms${forms[0]!.name ? `, including "${redactSecrets(forms[0]!.name)}"` : ""}`;
+  if (forms && forms.length > 1)
+    return `${forms.length} forms${forms[0]!.name ? `, including "${redactSecrets(forms[0]!.name)}"` : ""}`;
   return plan.form?.name ? redactSecrets(plan.form.name) : null;
 }
 
@@ -107,9 +163,18 @@ interface LiveState {
   steps: { scenarioId: string; label: string; url: string; at: string }[];
   pagesVisited: string[];
   /** Scenarios that have ended, in run order, with how long each took (the UI's step log shows it). */
-  finished: { scenarioId: string; status: CheckResult["status"]; durationMs: number }[];
+  finished: {
+    scenarioId: string;
+    status: CheckResult["status"];
+    durationMs: number;
+  }[];
   /** The approved scenarios in run order, with their group, so the UI can list what is queued, running and done. */
-  scenarios: { id: string; title: string; group: CheckGroup | null; groupLabel: string | null }[];
+  scenarios: {
+    id: string;
+    title: string;
+    group: CheckGroup | null;
+    groupLabel: string | null;
+  }[];
   /** The browser the run uses, e.g. "Chromium 153.0.8010.12"; null until the report says. */
   browser: string | null;
   /** Only the latest frame is kept; it survives the end of the run so the UI can keep showing it. */
@@ -152,12 +217,14 @@ function runOrder(plan: Plan, approved: Set<string>): LiveState["scenarios"] {
     }
   }
   for (const s of plan.scenarios) {
-    if (approved.has(s.id) && !seen.has(s.id)) out.push({ id: s.id, title: s.title, group: null, groupLabel: null });
+    if (approved.has(s.id) && !seen.has(s.id))
+      out.push({ id: s.id, title: s.title, group: null, groupLabel: null });
   }
   return out;
 }
 
-const groupLabel = (id: CheckGroup): string => CHECK_GROUPS.find((g) => g.id === id)?.label ?? id;
+const groupLabel = (id: CheckGroup): string =>
+  CHECK_GROUPS.find((g) => g.id === id)?.label ?? id;
 
 /** Folds one runner progress event into the live state. URLs and labels arrive already redacted by the engine. */
 function applyProgress(live: LiveState, plan: Plan, e: ProgressEvent): void {
@@ -169,7 +236,8 @@ function applyProgress(live: LiveState, plan: Plan, e: ProgressEvent): void {
       break;
     case "scenario-start":
       live.scenarioId = e.scenarioId;
-      live.scenarioTitle = plan.scenarios.find((s) => s.id === e.scenarioId)?.title ?? null;
+      live.scenarioTitle =
+        plan.scenarios.find((s) => s.id === e.scenarioId)?.title ?? null;
       live.scenarioIndex = e.index + 1;
       if (e.group && e.group !== live.group) {
         live.group = e.group;
@@ -180,8 +248,14 @@ function applyProgress(live: LiveState, plan: Plan, e: ProgressEvent): void {
     case "step":
       live.step = e.label;
       live.url = e.url;
-      live.steps.push({ scenarioId: e.scenarioId, label: e.label, url: e.url, at: e.at });
-      if (live.steps.length > LIVE_STEPS) live.steps.splice(0, live.steps.length - LIVE_STEPS);
+      live.steps.push({
+        scenarioId: e.scenarioId,
+        label: e.label,
+        url: e.url,
+        at: e.at,
+      });
+      if (live.steps.length > LIVE_STEPS)
+        live.steps.splice(0, live.steps.length - LIVE_STEPS);
       break;
     case "page":
       live.url = e.url;
@@ -192,13 +266,20 @@ function applyProgress(live: LiveState, plan: Plan, e: ProgressEvent): void {
       live.frameSeq += 1;
       break;
     case "scenario-end":
-      live.finished.push({ scenarioId: e.scenarioId, status: e.result.status, durationMs: e.result.durationMs });
+      live.finished.push({
+        scenarioId: e.scenarioId,
+        status: e.result.status,
+        durationMs: e.result.durationMs,
+      });
       break;
   }
 }
 
 /** Evidence files served next to report.html: annotated frames and cards (PNG) and recordings (GIF). */
-const ARTIFACT_TYPES: Record<string, string> = { ".png": "image/png", ".gif": "image/gif" };
+const ARTIFACT_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".gif": "image/gif",
+};
 
 /** Spec and report file names we are willing to serve: a plain base name, never "." or ".." segments. */
 const SAFE_FILE = /^[\w-][\w.-]*$/;
@@ -217,7 +298,10 @@ const UNSPECIFIED = new Set(["0.0.0.0", "::"]);
 
 /** A host name or address as the URL parser writes it, without IPv6 brackets: "LOCALHOST" -> "localhost". */
 function hostKey(host: string): string {
-  const name = host.trim().replace(/^\[|\]$/g, "").toLowerCase();
+  const name = host
+    .trim()
+    .replace(/^\[|\]$/g, "")
+    .toLowerCase();
   if (isIP(name) !== 6) return name;
   try {
     return new URL(`http://[${name}]/`).hostname.replace(/^\[|\]$/g, "");
@@ -234,9 +318,16 @@ function hostKey(host: string): string {
  */
 function isDefaultHost(host: string): boolean {
   const name = hostKey(host);
-  if (name === "localhost" || name.endsWith(".localhost") || UNSPECIFIED.has(name)) return true;
+  if (
+    name === "localhost" ||
+    name.endsWith(".localhost") ||
+    UNSPECIFIED.has(name)
+  )
+    return true;
   const family = isIP(name);
-  return family !== 0 && THIS_MACHINE.check(name, family === 6 ? "ipv6" : "ipv4");
+  return (
+    family !== 0 && THIS_MACHINE.check(name, family === 6 ? "ipv6" : "ipv4")
+  );
 }
 
 /** The host of a URL, or null when it doesn't parse. */
@@ -253,8 +344,13 @@ function hostOf(url: string | undefined): string | null {
  * Security headers on every response: never framed (clickjacking), never MIME-sniffed, no Referer to other sites.
  * The UI and report.html get their own CSP (below); everything else gets one that allows nothing.
  */
-const BASE_HEADERS: Record<string, string> = { "x-content-type-options": "nosniff", "x-frame-options": "DENY", "referrer-policy": "no-referrer" };
-const DEFAULT_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+const BASE_HEADERS: Record<string, string> = {
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+  "referrer-policy": "no-referrer",
+};
+const DEFAULT_CSP =
+  "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 /**
  * report.html is page-derived text with no script of its own: nothing runs in it (sandbox, no script-src), and it
  * gets an opaque origin, so even an escaping slip or a tampered file can't call the API. Inline styles and images
@@ -266,7 +362,12 @@ const REPORT_CSP =
 
 /** 'sha256-…' sources for every inline <script> and <style> in the UI document. */
 function inlineHashes(html: string, tag: "script" | "style"): string {
-  const hashes = [...html.matchAll(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "g"))].map((m) => `'sha256-${createHash("sha256").update(m[1]!, "utf8").digest("base64")}'`);
+  const hashes = [
+    ...html.matchAll(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "g")),
+  ].map(
+    (m) =>
+      `'sha256-${createHash("sha256").update(m[1]!, "utf8").digest("base64")}'`,
+  );
   return hashes.join(" ") || "'none'";
 }
 
@@ -295,8 +396,18 @@ function uiCsp(html: string): string {
 function allowedDestructive(report: Report): boolean {
   const recorded: unknown = report.options?.allowDestructive;
   if (typeof recorded === "boolean") return recorded;
-  const destructive = new Set(report.plan.scenarios.filter((s) => s.destructive).map((s) => s.id));
-  return report.results.some((r) => destructive.has(r.scenarioId) && !(r.status === "skipped" && ((r.notes ?? "").startsWith(STOPPED_NOTE) || /^Destructive scenario\b/.test(r.notes ?? ""))));
+  const destructive = new Set(
+    report.plan.scenarios.filter((s) => s.destructive).map((s) => s.id),
+  );
+  return report.results.some(
+    (r) =>
+      destructive.has(r.scenarioId) &&
+      !(
+        r.status === "skipped" &&
+        ((r.notes ?? "").startsWith(STOPPED_NOTE) ||
+          /^Destructive scenario\b/.test(r.notes ?? ""))
+      ),
+  );
 }
 
 /** A redacted secret in a URL, as redactSecrets writes it: "[REDACTED:github-token]". */
@@ -332,7 +443,9 @@ interface StoredPlan {
  * The config is resolved even when AI is not wanted: resolving registers the saved AI secrets with the redactor
  * (0.6.1), so they stay out of this plan's and its run's output whatever the tested page shows.
  */
-async function aiForRequest(wanted: boolean | undefined): Promise<{ ai?: AiSession; warning?: string }> {
+async function aiForRequest(
+  wanted: boolean | undefined,
+): Promise<{ ai?: AiSession; warning?: string }> {
   const resolved = await resolveAiConfig();
   if (wanted === false) return {};
   const out = aiSession(resolved);
@@ -350,7 +463,9 @@ interface SignedInAs {
  * The accounts as they are now (saved file + RUNHOUND_ACCOUNT_* env) for signing in as `id`, or why that can't be
  * done (the slot isn't set up), naming the account by its label. Nothing is sent to the app.
  */
-async function accountsFor(id: AccountId): Promise<SignedInAs | { error: string }> {
+async function accountsFor(
+  id: AccountId,
+): Promise<SignedInAs | { error: string }> {
   const { config, status } = await resolveAccounts();
   const why = notReadyMessage(status.accounts[id]);
   return why ? { error: redactSecrets(why) } : { id, accounts: config };
@@ -369,7 +484,9 @@ function originOf(url: string): string | null {
 }
 
 /** Check titles for the plan's fieldset legends, e.g. {"dead-control": "Every button does something"}. */
-async function checkTitles(checks: Check[] | undefined): Promise<Record<string, string>> {
+async function checkTitles(
+  checks: Check[] | undefined,
+): Promise<Record<string, string>> {
   const list = checks ?? (await import("../checks/index.js")).checks;
   return Object.fromEntries(list.map((c) => [c.id, c.title]));
 }
@@ -476,16 +593,25 @@ export function createApp(options: ServerOptions = {}): Hono {
   const extraHosts = [
     ...new Set(
       [
-        ...(options.serverHosts ?? (process.env.RUNHOUND_SERVER_HOSTS ?? "").split(",")).map(hostKey),
+        ...(
+          options.serverHosts ??
+          (process.env.RUNHOUND_SERVER_HOSTS ?? "").split(",")
+        ).map(hostKey),
         hostOf(options.publicUrl ?? process.env.RUNHOUND_PUBLIC_URL) ?? "",
         UNSPECIFIED.has(bound) ? "" : bound,
       ].filter((h) => h && !isDefaultHost(h)),
     ),
   ];
-  const hostAllowed = (host: string) => isDefaultHost(host) || extraHosts.includes(hostKey(host));
+  const hostAllowed = (host: string) =>
+    isDefaultHost(host) || extraHosts.includes(hostKey(host));
   const maxRuns = options.maxConcurrentRuns ?? 2;
   const aiPlanBudgetMs = options.aiPlanBudgetMs ?? AI_PLAN_BUDGET_MS;
-  const allowedHosts = (): string[] => options.allowedHosts ?? (process.env.RUNHOUND_ALLOWED_HOSTS ?? "").split(",").map((h) => h.trim()).filter(Boolean);
+  const allowedHosts = (): string[] =>
+    options.allowedHosts ??
+    (process.env.RUNHOUND_ALLOWED_HOSTS ?? "")
+      .split(",")
+      .map((h) => h.trim())
+      .filter(Boolean);
   // Sign-in tests (POST /api/accounts/test) in progress: each drives its own Chromium.
   let signInTests = 0;
 
@@ -493,28 +619,53 @@ export function createApp(options: ServerOptions = {}): Hono {
    * discoverAndPlan with the AI steps bounded: they stop when the HTTP request is aborted and after aiPlanBudgetMs in
    * all. Either way the built-in plan comes back with the runner's warnings; a spent budget adds `warning`.
    */
-  async function planBounded(target: string, ai: AiSession | undefined, signal: AbortSignal, signedIn?: SignedInAs): Promise<{ plan: Plan; warning?: string }> {
-    const bound = ai ? boundSession(ai, { signal, budgetMs: aiPlanBudgetMs }) : undefined;
+  async function planBounded(
+    target: string,
+    ai: AiSession | undefined,
+    signal: AbortSignal,
+    signedIn?: SignedInAs,
+  ): Promise<{ plan: Plan; warning?: string }> {
+    const bound = ai
+      ? boundSession(ai, { signal, budgetMs: aiPlanBudgetMs })
+      : undefined;
     const plan = await discoverAndPlan(target, {
       checks: options.checks,
       allowedHosts: options.allowedHosts,
       ...(bound ? { ai: bound.session } : {}),
-      ...(signedIn ? { signInAs: signedIn.id, accounts: signedIn.accounts } : {}),
+      ...(signedIn
+        ? { signInAs: signedIn.id, accounts: signedIn.accounts }
+        : {}),
     });
     if (!bound?.timedOut()) return { plan };
-    const limit = aiPlanBudgetMs >= 60_000 ? `${Math.round(aiPlanBudgetMs / 60_000)} minutes` : `${Math.round(aiPlanBudgetMs / 100) / 10} s`;
-    return { plan, warning: `AI planning was stopped after ${limit}, so the plan has only what the model finished in time.` };
+    const limit =
+      aiPlanBudgetMs >= 60_000
+        ? `${Math.round(aiPlanBudgetMs / 60_000)} minutes`
+        : `${Math.round(aiPlanBudgetMs / 100) / 10} s`;
+    return {
+      plan,
+      warning: `AI planning was stopped after ${limit}, so the plan has only what the model finished in time.`,
+    };
   }
 
   /** Drops the oldest entries (Maps keep insertion order); running runs are never dropped. */
   function prune(): void {
-    for (const id of [...plans.keys()].slice(0, Math.max(0, plans.size - MAX_PLANS))) plans.delete(id);
-    const finished = [...runs].filter(([, r]) => r.status !== "running").map(([id]) => id);
-    for (const id of finished.slice(0, Math.max(0, runs.size - MAX_RUNS))) runs.delete(id);
+    for (const id of [...plans.keys()].slice(
+      0,
+      Math.max(0, plans.size - MAX_PLANS),
+    ))
+      plans.delete(id);
+    const finished = [...runs]
+      .filter(([, r]) => r.status !== "running")
+      .map(([id]) => id);
+    for (const id of finished.slice(0, Math.max(0, runs.size - MAX_RUNS)))
+      runs.delete(id);
   }
 
   /** Summaries of finished runs read from disk, by run id, with the report.json mtime and size they were read at. */
-  const diskSummaries = new Map<string, { mtimeMs: number; size: number; summary: RunSummary | null }>();
+  const diskSummaries = new Map<
+    string,
+    { mtimeMs: number; size: number; summary: RunSummary | null }
+  >();
 
   /** The run's state from memory, or a finished run read back from disk (after a restart or pruning). */
   async function runState(runId: string): Promise<RunState | undefined> {
@@ -523,14 +674,28 @@ export function createApp(options: ServerOptions = {}): Hono {
     const dir = join(runsDir, runId);
     try {
       if (!(await stat(dir)).isDirectory()) return undefined;
-      const report = JSON.parse(await readFile(join(dir, "report.json"), "utf8")) as Report;
+      const report = JSON.parse(
+        await readFile(join(dir, "report.json"), "utf8"),
+      ) as Report;
       if (report.runId !== runId) return undefined;
-      const live = newLiveState(runOrder(report.plan, new Set(report.approved ?? report.results.map((r) => r.scenarioId))));
+      const live = newLiveState(
+        runOrder(
+          report.plan,
+          new Set(report.approved ?? report.results.map((r) => r.scenarioId)),
+        ),
+      );
       live.pagesVisited = (report.pagesVisited ?? []).map((p) => p.url);
-      live.finished = report.results.map((r) => ({ scenarioId: r.scenarioId, status: r.status, durationMs: r.durationMs }));
+      live.finished = report.results.map((r) => ({
+        scenarioId: r.scenarioId,
+        status: r.status,
+        durationMs: r.durationMs,
+      }));
       live.browser = report.browser ?? null;
-      const durationMs = report.durationMs ?? Date.parse(report.finishedAt) - Date.parse(report.startedAt);
-      const approved = report.approved ?? report.results.map((r) => r.scenarioId);
+      const durationMs =
+        report.durationMs ??
+        Date.parse(report.finishedAt) - Date.parse(report.startedAt);
+      const approved =
+        report.approved ?? report.results.map((r) => r.scenarioId);
       return {
         status: "done",
         completed: report.results.length,
@@ -566,7 +731,11 @@ export function createApp(options: ServerOptions = {}): Hono {
     const account = planAccount(report?.plan ?? state.plan);
     if (account) out.account = account;
     if (state.status !== "running") {
-      out.finishedAt = report?.finishedAt ?? new Date(Date.parse(state.startedAt) + (state.durationMs ?? 0)).toISOString();
+      out.finishedAt =
+        report?.finishedAt ??
+        new Date(
+          Date.parse(state.startedAt) + (state.durationMs ?? 0),
+        ).toISOString();
       if (state.durationMs !== undefined) out.durationMs = state.durationMs;
       if (report) out.summary = report.summary;
     }
@@ -586,10 +755,15 @@ export function createApp(options: ServerOptions = {}): Hono {
       return null;
     }
     const cached = diskSummaries.get(runId);
-    if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size) return cached.summary;
+    if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size)
+      return cached.summary;
     const state = await runState(runId);
     const summary = state ? summarize(runId, state) : null;
-    diskSummaries.set(runId, { mtimeMs: info.mtimeMs, size: info.size, summary });
+    diskSummaries.set(runId, {
+      mtimeMs: info.mtimeMs,
+      size: info.size,
+      summary,
+    });
     return summary;
   }
 
@@ -598,26 +772,46 @@ export function createApp(options: ServerOptions = {}): Hono {
     const out = [...runs].map(([id, state]) => summarize(id, state));
     let names: string[] = [];
     try {
-      names = (await readdir(runsDir, { withFileTypes: true })).filter((d) => d.isDirectory() && RUN_ID.test(d.name)).map((d) => d.name);
+      names = (await readdir(runsDir, { withFileTypes: true }))
+        .filter((d) => d.isDirectory() && RUN_ID.test(d.name))
+        .map((d) => d.name);
     } catch {
       // No runs folder yet.
     }
     const present = new Set(names);
-    for (const id of diskSummaries.keys()) if (!present.has(id)) diskSummaries.delete(id);
-    const onDisk = await Promise.all(names.filter((id) => !runs.has(id)).map(diskSummary));
+    for (const id of diskSummaries.keys())
+      if (!present.has(id)) diskSummaries.delete(id);
+    const onDisk = await Promise.all(
+      names.filter((id) => !runs.has(id)).map(diskSummary),
+    );
     for (const summary of onDisk) if (summary) out.push(summary);
-    return out.sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt) || (a.runId < b.runId ? 1 : a.runId > b.runId ? -1 : 0));
+    return out.sort(
+      (a, b) =>
+        Date.parse(b.startedAt) - Date.parse(a.startedAt) ||
+        (a.runId < b.runId ? 1 : a.runId > b.runId ? -1 : 0),
+    );
   }
 
   /** Starts a run in the background; returns its id, or an error response body and status. */
   function startRun(
     plan: Plan,
     approved: string[],
-    flags: { allowDestructive: boolean; headed: boolean; ai: boolean; session?: AiSession; accounts?: AccountsConfig },
+    flags: {
+      allowDestructive: boolean;
+      headed: boolean;
+      ai: boolean;
+      session?: AiSession;
+      accounts?: AccountsConfig;
+    },
   ): { runId: string } | { error: string; code: 409 } {
-    const running = [...runs.values()].filter((r) => r.status === "running").length;
+    const running = [...runs.values()].filter(
+      (r) => r.status === "running",
+    ).length;
     if (running >= maxRuns) {
-      return { error: `${running} run${running === 1 ? " is" : "s are"} already in progress. Wait for ${running === 1 ? "it" : "one"} to finish.`, code: 409 };
+      return {
+        error: `${running} run${running === 1 ? " is" : "s are"} already in progress. Wait for ${running === 1 ? "it" : "one"} to finish.`,
+        code: 409,
+      };
     }
     const approvedSet = new Set(approved);
     const runId = newRunId();
@@ -643,7 +837,9 @@ export function createApp(options: ServerOptions = {}): Hono {
     prune();
 
     // The accounts' passwords stay redacted from everything the run reports until it has ended.
-    const unregister = flags.accounts ? registerPasswords(flags.accounts) : () => undefined;
+    const unregister = flags.accounts
+      ? registerPasswords(flags.accounts)
+      : () => undefined;
     runPlan(plan, {
       checks: options.checks,
       allowedHosts: options.allowedHosts,
@@ -662,17 +858,32 @@ export function createApp(options: ServerOptions = {}): Hono {
         // The runner reports the browser it really launched; until then (and for runners that don't), the build the
         // installed Playwright ships.
         if (e.type === "browser") state.live.browser = e.name;
-        if (e.type === "scenario-start" && state.live.browser === null) state.live.browser = bundledChromium();
-        const event = e.type === "step" ? { ...e, label: hide(e.label), url: hide(e.url) } : e.type === "page" ? { ...e, url: hide(e.url) } : e;
+        if (e.type === "scenario-start" && state.live.browser === null)
+          state.live.browser = bundledChromium();
+        const event =
+          e.type === "step"
+            ? { ...e, label: hide(e.label), url: hide(e.url) }
+            : e.type === "page"
+              ? { ...e, url: hide(e.url) }
+              : e;
         applyProgress(state.live, shown, event);
       },
     }).then(
       ({ report: raw, dir }) => {
         const report = flags.accounts ? hideInJson(raw, hide) : raw;
-        const durationMs = report.durationMs ?? Date.parse(report.finishedAt) - Date.parse(report.startedAt);
-        Object.assign(state, { status: "done", report, dir, durationMs, controller: undefined });
+        const durationMs =
+          report.durationMs ??
+          Date.parse(report.finishedAt) - Date.parse(report.startedAt);
+        Object.assign(state, {
+          status: "done",
+          report,
+          dir,
+          durationMs,
+          controller: undefined,
+        });
         // The report is authoritative once written (it also covers pages seen before a frame or step).
-        if (report.pagesVisited) state.live.pagesVisited = report.pagesVisited.map((p) => p.url);
+        if (report.pagesVisited)
+          state.live.pagesVisited = report.pagesVisited.map((p) => p.url);
         state.live.browser = report.browser ?? null;
         state.live.updatedAt = new Date().toISOString();
         unregister();
@@ -682,7 +893,13 @@ export function createApp(options: ServerOptions = {}): Hono {
           status: "error",
           controller: undefined,
           durationMs: Date.now() - Date.parse(state.startedAt),
-          error: hide(redactSecrets(cleanErrorMessage(err instanceof Error ? err.message : String(err)))),
+          error: hide(
+            redactSecrets(
+              cleanErrorMessage(
+                err instanceof Error ? err.message : String(err),
+              ),
+            ),
+          ),
         });
         state.live.updatedAt = new Date().toISOString();
         unregister();
@@ -694,8 +911,12 @@ export function createApp(options: ServerOptions = {}): Hono {
   // Security headers on every response, refusals included (see BASE_HEADERS); images need no CSP.
   app.use("*", async (c, next) => {
     await next();
-    for (const [name, value] of Object.entries(BASE_HEADERS)) c.header(name, value);
-    if (!c.res.headers.has("content-security-policy") && !(c.res.headers.get("content-type") ?? "").startsWith("image/")) {
+    for (const [name, value] of Object.entries(BASE_HEADERS))
+      c.header(name, value);
+    if (
+      !c.res.headers.has("content-security-policy") &&
+      !(c.res.headers.get("content-type") ?? "").startsWith("image/")
+    ) {
       c.header("content-security-policy", DEFAULT_CSP);
     }
   });
@@ -705,26 +926,46 @@ export function createApp(options: ServerOptions = {}): Hono {
     const { hostname, origin } = new URL(c.req.url);
     if (!hostAllowed(hostname)) {
       return c.json(
-        { error: `Run Hound does not answer to the host name "${hostname}". Set RUNHOUND_SERVER_HOSTS=${hostname} if you meant to use it.` },
+        {
+          error: `Run Hound does not answer to the host name "${hostname}". Set RUNHOUND_SERVER_HOSTS=${hostname} if you meant to use it.`,
+        },
         403,
       );
     }
     const sent = c.req.header("origin");
-    if (sent && sent !== origin && c.req.method !== "GET" && c.req.method !== "HEAD") {
+    if (
+      sent &&
+      sent !== origin &&
+      c.req.method !== "GET" &&
+      c.req.method !== "HEAD"
+    ) {
       return c.json({ error: "Cross-site requests are not allowed." }, 403);
     }
     await next();
   });
 
   const headedAvailable = options.canShowBrowser ?? canShowBrowser();
-  const uiHtml = renderUi({ version: RUN_HOUND_VERSION, canShowBrowser: headedAvailable });
+  const uiHtml = renderUi({
+    version: RUN_HOUND_VERSION,
+    canShowBrowser: headedAvailable,
+  });
   const uiPolicy = uiCsp(uiHtml);
-  app.get("/", (c) => c.html(uiHtml, 200, { "content-security-policy": uiPolicy }));
+  app.get("/", (c) =>
+    c.html(uiHtml, 200, { "content-security-policy": uiPolicy }),
+  );
 
   // Only accept JSON posts: a cross-site page can send text/plain without a CORS preflight, but not application/json.
   app.use("/api/*", async (c, next) => {
-    if ((c.req.method === "POST" || c.req.method === "PUT") && !(c.req.header("content-type") ?? "").toLowerCase().startsWith("application/json")) {
-      return c.json({ error: "Send the request body as application/json." }, 415);
+    if (
+      (c.req.method === "POST" || c.req.method === "PUT") &&
+      !(c.req.header("content-type") ?? "")
+        .toLowerCase()
+        .startsWith("application/json")
+    ) {
+      return c.json(
+        { error: "Send the request body as application/json." },
+        415,
+      );
     }
     await next();
   });
@@ -734,15 +975,32 @@ export function createApp(options: ServerOptions = {}): Hono {
     try {
       body = await c.req.json();
     } catch {
-      return c.json({ error: "The request body must be JSON like {\"url\": \"http://localhost:3000/\"}." }, 400);
+      return c.json(
+        {
+          error:
+            'The request body must be JSON like {"url": "http://localhost:3000/"}.',
+        },
+        400,
+      );
     }
     const url = (body as { url?: unknown } | null)?.url;
-    if (typeof url !== "string" || url.trim() === "") return c.json({ error: "Enter the URL of the page with your form." }, 400);
+    if (typeof url !== "string" || url.trim() === "")
+      return c.json(
+        { error: "Enter the URL of the page with your form." },
+        400,
+      );
     const wantAi = (body as { ai?: unknown }).ai;
-    if (wantAi !== undefined && typeof wantAi !== "boolean") return c.json({ error: "ai must be true or false." }, 400);
+    if (wantAi !== undefined && typeof wantAi !== "boolean")
+      return c.json({ error: "ai must be true or false." }, 400);
     const signInAs = (body as { signInAs?: unknown }).signInAs;
     if (signInAs !== undefined && signInAs !== null && !isAccountId(signInAs)) {
-      return c.json({ error: 'signInAs must be "a" (Account A), "b" (Account B) or null (not signed in).' }, 400);
+      return c.json(
+        {
+          error:
+            'signInAs must be "a" (Account A), "b" (Account B) or null (not signed in).',
+        },
+        400,
+      );
     }
     // An account that isn't set up is refused before anything is sent to the app.
     let signedIn: SignedInAs | undefined;
@@ -752,19 +1010,42 @@ export function createApp(options: ServerOptions = {}): Hono {
       signedIn = found;
     }
 
-    const unregister = signedIn ? registerPasswords(signedIn.accounts, [signedIn.id]) : () => undefined;
+    const unregister = signedIn
+      ? registerPasswords(signedIn.accounts, [signedIn.id])
+      : () => undefined;
     const hide = usernameHider(signedIn?.accounts);
     try {
       const { ai, warning } = await aiForRequest(wantAi);
-      const { plan, warning: budgetWarning } = await planBounded(url.trim(), ai, c.req.raw.signal, signedIn);
+      const { plan, warning: budgetWarning } = await planBounded(
+        url.trim(),
+        ai,
+        c.req.raw.signal,
+        signedIn,
+      );
       const planId = randomUUID();
       plans.set(planId, { plan, ai: ai !== undefined });
       prune();
       // The stored plan keeps the real target; what leaves the process is redacted (and names no username).
-      const warnings = [...planWarnings(plan), ...(warning ? [warning] : []), ...(budgetWarning ? [budgetWarning] : [])].map((w) => hide(redactSecrets(w)));
-      return c.json({ planId, plan: hideInJson(redactPlan(plan), hide), checks: await checkTitles(options.checks), warnings }, 200);
+      const warnings = [
+        ...planWarnings(plan),
+        ...(warning ? [warning] : []),
+        ...(budgetWarning ? [budgetWarning] : []),
+      ].map((w) => hide(redactSecrets(w)));
+      return c.json(
+        {
+          planId,
+          plan: hideInJson(redactPlan(plan), hide),
+          checks: await checkTitles(options.checks),
+          warnings,
+        },
+        200,
+      );
     } catch (err) {
-      const message = hide(redactSecrets(cleanErrorMessage(err instanceof Error ? err.message : String(err))));
+      const message = hide(
+        redactSecrets(
+          cleanErrorMessage(err instanceof Error ? err.message : String(err)),
+        ),
+      );
       if (isUserError(err)) return c.json({ error: message }, 400);
       return c.json({ error: `Could not plan a run: ${message}` }, 500);
     } finally {
@@ -773,29 +1054,55 @@ export function createApp(options: ServerOptions = {}): Hono {
   });
 
   app.post("/api/runs", async (c) => {
-    let body: { planId?: unknown; approved?: unknown; allowDestructive?: unknown; headed?: unknown };
+    let body: {
+      planId?: unknown;
+      approved?: unknown;
+      allowDestructive?: unknown;
+      headed?: unknown;
+    };
     try {
       body = ((await c.req.json()) ?? {}) as typeof body;
     } catch {
       return c.json({ error: "The request body must be JSON." }, 400);
     }
-    const stored = typeof body.planId === "string" ? plans.get(body.planId) : undefined;
-    if (!stored) return c.json({ error: "Unknown plan. Create a plan first." }, 404);
+    const stored =
+      typeof body.planId === "string" ? plans.get(body.planId) : undefined;
+    if (!stored)
+      return c.json({ error: "Unknown plan. Create a plan first." }, 404);
     const plan = stored.plan;
-    if (body.approved !== undefined && !(Array.isArray(body.approved) && body.approved.every((a) => typeof a === "string"))) {
+    if (
+      body.approved !== undefined &&
+      !(
+        Array.isArray(body.approved) &&
+        body.approved.every((a) => typeof a === "string")
+      )
+    ) {
       return c.json({ error: "approved must be a list of scenario ids." }, 400);
     }
     for (const flag of ["allowDestructive", "headed"] as const) {
-      if (body[flag] !== undefined && typeof body[flag] !== "boolean") return c.json({ error: `${flag} must be true or false.` }, 400);
+      if (body[flag] !== undefined && typeof body[flag] !== "boolean")
+        return c.json({ error: `${flag} must be true or false.` }, 400);
     }
-    if (body.headed === true && !headedAvailable) return c.json({ error: NO_DISPLAY_MESSAGE }, 400);
+    if (body.headed === true && !headedAvailable)
+      return c.json({ error: NO_DISPLAY_MESSAGE }, 400);
 
     const approved = body.approved as string[] | undefined;
-    const unknown = (approved ?? []).filter((id) => !plan.scenarios.some((s) => s.id === id));
-    if (unknown.length > 0) return c.json({ error: `Unknown scenario id(s): ${redactSecrets(unknown.join(", "))}.` }, 400);
-    const approvedIds = approved ?? plan.scenarios.filter((s) => s.defaultSelected).map((s) => s.id);
+    const unknown = (approved ?? []).filter(
+      (id) => !plan.scenarios.some((s) => s.id === id),
+    );
+    if (unknown.length > 0)
+      return c.json(
+        {
+          error: `Unknown scenario id(s): ${redactSecrets(unknown.join(", "))}.`,
+        },
+        400,
+      );
+    const approvedIds =
+      approved ??
+      plan.scenarios.filter((s) => s.defaultSelected).map((s) => s.id);
     // An empty run would report "0 findings" and look like a clean pass.
-    if (approvedIds.length === 0) return c.json({ error: "Select at least one scenario to run." }, 400);
+    if (approvedIds.length === 0)
+      return c.json({ error: "Select at least one scenario to run." }, 400);
     // A run signs in again as the account its plan was made as, with the accounts as they are now.
     let accounts: AccountsConfig | undefined;
     if (plan.account) {
@@ -804,12 +1111,21 @@ export function createApp(options: ServerOptions = {}): Hono {
       accounts = found.accounts;
     }
     const session = stored.ai ? (await aiForRequest(true)).ai : undefined;
-    const started = startRun(plan, approvedIds, { allowDestructive: body.allowDestructive === true, headed: body.headed === true, ai: stored.ai, session, ...(accounts ? { accounts } : {}) });
-    if ("error" in started) return c.json({ error: started.error }, started.code);
+    const started = startRun(plan, approvedIds, {
+      allowDestructive: body.allowDestructive === true,
+      headed: body.headed === true,
+      ai: stored.ai,
+      session,
+      ...(accounts ? { accounts } : {}),
+    });
+    if ("error" in started)
+      return c.json({ error: started.error }, started.code);
     return c.json({ runId: started.runId }, 202);
   });
 
-  app.get("/api/runs", async (c) => c.json({ runs: await listRuns() }, 200, { "cache-control": "no-store" }));
+  app.get("/api/runs", async (c) =>
+    c.json({ runs: await listRuns() }, 200, { "cache-control": "no-store" }),
+  );
 
   app.get("/api/settings", async (c) =>
     c.json({
@@ -828,8 +1144,13 @@ export function createApp(options: ServerOptions = {}): Hono {
   // The test accounts hold passwords and make the server sign in to the app: the same guard.
   const headerGuard = (path: string) => async (c: Context, next: Next) => {
     const site = (c.req.header("sec-fetch-site") ?? "").toLowerCase();
-    if (site === "cross-site" || site === "same-site") return c.json({ error: "Cross-site requests are not allowed." }, 403);
-    if (c.req.header("x-run-hound") !== "1") return c.json({ error: `Requests to ${path} must send the header X-Run-Hound: 1.` }, 403);
+    if (site === "cross-site" || site === "same-site")
+      return c.json({ error: "Cross-site requests are not allowed." }, 403);
+    if (c.req.header("x-run-hound") !== "1")
+      return c.json(
+        { error: `Requests to ${path} must send the header X-Run-Hound: 1.` },
+        403,
+      );
     await next();
   };
   const aiGuard = headerGuard("/api/ai");
@@ -839,7 +1160,11 @@ export function createApp(options: ServerOptions = {}): Hono {
   app.use("/api/accounts", accountsGuard);
   app.use("/api/accounts/*", accountsGuard);
 
-  app.get("/api/ai", async (c) => c.json(aiStatus(await resolveAiConfig()), 200, { "cache-control": "no-store" }));
+  app.get("/api/ai", async (c) =>
+    c.json(aiStatus(await resolveAiConfig()), 200, {
+      "cache-control": "no-store",
+    }),
+  );
 
   app.put("/api/ai", async (c) => {
     let body: unknown;
@@ -848,41 +1173,90 @@ export function createApp(options: ServerOptions = {}): Hono {
     } catch {
       return c.json({ error: "The request body must be JSON." }, 400);
     }
-    if (typeof body !== "object" || body === null || Array.isArray(body)) return c.json({ error: "Send the AI settings as a JSON object." }, 400);
+    if (typeof body !== "object" || body === null || Array.isArray(body))
+      return c.json({ error: "Send the AI settings as a JSON object." }, 400);
     const features = (body as { features?: unknown }).features;
-    if (features !== undefined && (typeof features !== "object" || features === null || Array.isArray(features) || Object.values(features).some((v) => typeof v !== "boolean"))) {
-      return c.json({ error: "features must be an object like {\"review\": true, \"suggest\": true, \"explain\": false}." }, 400);
+    if (
+      features !== undefined &&
+      (typeof features !== "object" ||
+        features === null ||
+        Array.isArray(features) ||
+        Object.values(features).some((v) => typeof v !== "boolean"))
+    ) {
+      return c.json(
+        {
+          error:
+            'features must be an object like {"review": true, "suggest": true, "explain": false}.',
+        },
+        400,
+      );
     }
     try {
       const { notice, ...resolved } = await saveAiConfig(body as AiConfigPatch);
-      return c.json({ ...aiStatus(resolved), ...(notice ? { notice } : {}) }, 200, { "cache-control": "no-store" });
+      return c.json(
+        { ...aiStatus(resolved), ...(notice ? { notice } : {}) },
+        200,
+        { "cache-control": "no-store" },
+      );
     } catch (err) {
-      return c.json({ error: redactSecrets(err instanceof Error ? err.message : String(err)) }, 400);
+      return c.json(
+        {
+          error: redactSecrets(
+            err instanceof Error ? err.message : String(err),
+          ),
+        },
+        400,
+      );
     }
   });
 
   app.post("/api/ai/test", async (c) => {
     const { config } = await resolveAiConfig();
     const result = await testConnection({ ...config, enabled: true });
-    return c.json(result.ok ? result : { ok: false, error: redactSecrets(result.error) }, 200, { "cache-control": "no-store" });
+    return c.json(
+      result.ok ? result : { ok: false, error: redactSecrets(result.error) },
+      200,
+      { "cache-control": "no-store" },
+    );
   });
 
   app.get("/api/ai/models", async (c) => {
     const { config } = await resolveAiConfig();
     const asked = c.req.query("provider");
-    if (asked && !(AI_PROVIDERS as readonly string[]).includes(asked)) return c.json({ error: `Unknown provider "${redactSecrets(asked)}".` }, 400);
+    if (asked && !(AI_PROVIDERS as readonly string[]).includes(asked))
+      return c.json(
+        { error: `Unknown provider "${redactSecrets(asked)}".` },
+        400,
+      );
     const provider = (asked || config.provider) as AiProvider;
-    const baseUrl = c.req.query("baseUrl") || (provider === config.provider ? config.baseUrl : DEFAULT_BASE_URLS[provider]);
+    const baseUrl =
+      c.req.query("baseUrl") ||
+      (provider === config.provider
+        ? config.baseUrl
+        : DEFAULT_BASE_URLS[provider]);
     const target = { provider, baseUrl, region: config.region };
     const savedOrigin = originOf(config.baseUrl);
     // The saved key only ever goes to the endpoint it was saved for.
-    const apiKey = savedOrigin !== null && originOf(baseUrl) === savedOrigin ? config.apiKey : null;
-    const consent = /^(1|true|on)$/i.test(c.req.query("allowRemote") ?? "") || (config.allowRemote && endpointHost(target) === endpointHost(config));
+    const apiKey =
+      savedOrigin !== null && originOf(baseUrl) === savedOrigin
+        ? config.apiKey
+        : null;
+    const consent =
+      /^(1|true|on)$/i.test(c.req.query("allowRemote") ?? "") ||
+      (config.allowRemote && endpointHost(target) === endpointHost(config));
     const list = await listModels({ ...target, apiKey, allowRemote: consent });
-    return c.json(list.error ? { ...list, error: redactSecrets(list.error) } : list, 200, { "cache-control": "no-store" });
+    return c.json(
+      list.error ? { ...list, error: redactSecrets(list.error) } : list,
+      200,
+      { "cache-control": "no-store" },
+    );
   });
 
-  app.get("/api/accounts", async (c) => c.json((await resolveAccounts()).status, 200, { "cache-control": "no-store" }));
+  app.get("/api/accounts", async (c) =>
+    c.json((await resolveAccounts()).status, 200, {
+      "cache-control": "no-store",
+    }),
+  );
 
   app.put("/api/accounts", async (c) => {
     let body: unknown;
@@ -893,16 +1267,33 @@ export function createApp(options: ServerOptions = {}): Hono {
     }
     try {
       checkAccountsPatch(body);
-      await checkLoginUrls(body, (await resolveAccounts()).status, { allowedHosts: allowedHosts() });
+      await checkLoginUrls(body, (await resolveAccounts()).status, {
+        allowedHosts: allowedHosts(),
+      });
     } catch (err) {
-      return c.json({ error: redactSecrets(err instanceof Error ? err.message : String(err)) }, 400);
+      return c.json(
+        {
+          error: redactSecrets(
+            err instanceof Error ? err.message : String(err),
+          ),
+        },
+        400,
+      );
     }
     try {
-      return c.json(await saveAccounts(body), 200, { "cache-control": "no-store" });
+      return c.json(await saveAccounts(body), 200, {
+        "cache-control": "no-store",
+      });
     } catch (err) {
-      const message = redactSecrets(err instanceof Error ? err.message : String(err));
+      const message = redactSecrets(
+        err instanceof Error ? err.message : String(err),
+      );
       // A file system error (the folder can't be written) is Run Hound's problem, not the request's.
-      if ((err as NodeJS.ErrnoException).code) return c.json({ error: `Could not save the test accounts: ${message}` }, 500);
+      if ((err as NodeJS.ErrnoException).code)
+        return c.json(
+          { error: `Could not save the test accounts: ${message}` },
+          500,
+        );
       return c.json({ error: message }, 400);
     }
   });
@@ -912,14 +1303,34 @@ export function createApp(options: ServerOptions = {}): Hono {
     try {
       body = await c.req.json();
     } catch {
-      return c.json({ error: "The request body must be JSON like {\"id\": \"a\"}." }, 400);
+      return c.json(
+        { error: 'The request body must be JSON like {"id": "a"}.' },
+        400,
+      );
     }
     const id = (body as { id?: unknown } | null)?.id;
-    if (!isAccountId(id)) return c.json({ error: 'id must be "a" (Account A) or "b" (Account B).' }, 400);
-    if (signInTests >= MAX_SIGN_IN_TESTS) return c.json({ error: "Another sign-in test is still running. Wait for it to finish." }, 409);
+    if (!isAccountId(id))
+      return c.json(
+        { error: 'id must be "a" (Account A) or "b" (Account B).' },
+        400,
+      );
+    if (signInTests >= MAX_SIGN_IN_TESTS)
+      return c.json(
+        {
+          error:
+            "Another sign-in test is still running. Wait for it to finish.",
+        },
+        409,
+      );
     signInTests += 1;
     try {
-      return c.json(await testSignIn(id, await resolveAccounts(), { allowedHosts: allowedHosts() }), 200, { "cache-control": "no-store" });
+      return c.json(
+        await testSignIn(id, await resolveAccounts(), {
+          allowedHosts: allowedHosts(),
+        }),
+        200,
+        { "cache-control": "no-store" },
+      );
     } finally {
       signInTests -= 1;
     }
@@ -928,8 +1339,10 @@ export function createApp(options: ServerOptions = {}): Hono {
   app.post("/api/runs/:runId/stop", async (c) => {
     const state = await runState(c.req.param("runId"));
     if (!state) return c.json({ error: "Unknown run." }, 404);
-    if (state.status !== "running" || !state.controller) return c.json({ error: "This run has already ended." }, 409);
-    if (state.controller.signal.aborted) return c.json({ error: "This run is already stopping." }, 409);
+    if (state.status !== "running" || !state.controller)
+      return c.json({ error: "This run has already ended." }, 409);
+    if (state.controller.signal.aborted)
+      return c.json({ error: "This run is already stopping." }, 409);
     state.controller.abort();
     state.live.updatedAt = new Date().toISOString();
     return c.json({ runId: c.req.param("runId") }, 202);
@@ -940,11 +1353,25 @@ export function createApp(options: ServerOptions = {}): Hono {
     if (!state) return c.json({ error: "Unknown run." }, 404);
     // A run read back from disk has the redacted target: planning it would test the wrong address.
     if (REDACTED.test(state.plan.target)) {
-      return c.json({ error: "This run's address had a secret in it (a token or key), which is hidden in saved reports, so the run can't be planned again from here. Start a new run with the full address." }, 400);
+      return c.json(
+        {
+          error:
+            "This run's address had a secret in it (a token or key), which is hidden in saved reports, so the run can't be planned again from here. Start a new run with the full address.",
+        },
+        400,
+      );
     }
     // Don't open a browser to plan when the run couldn't start anyway (startRun checks again after planning).
-    const running = [...runs.values()].filter((r) => r.status === "running").length;
-    if (running >= maxRuns) return c.json({ error: `${running} run${running === 1 ? " is" : "s are"} already in progress. Wait for ${running === 1 ? "it" : "one"} to finish.` }, 409);
+    const running = [...runs.values()].filter(
+      (r) => r.status === "running",
+    ).length;
+    if (running >= maxRuns)
+      return c.json(
+        {
+          error: `${running} run${running === 1 ? " is" : "s are"} already in progress. Wait for ${running === 1 ? "it" : "one"} to finish.`,
+        },
+        409,
+      );
     // Signed in as the same account as before, with the accounts as they are now.
     const account = planAccount(state.plan);
     let signedIn: SignedInAs | undefined;
@@ -957,11 +1384,24 @@ export function createApp(options: ServerOptions = {}): Hono {
     let plan: Plan;
     // Whether AI was used carries over; it can't be used now (turned off since) → the rerun goes without it.
     const { ai: session } = await aiForRequest(state.ai);
-    const unregister = signedIn ? registerPasswords(signedIn.accounts, [signedIn.id]) : () => undefined;
+    const unregister = signedIn
+      ? registerPasswords(signedIn.accounts, [signedIn.id])
+      : () => undefined;
     try {
-      plan = (await planBounded(state.plan.target, session, c.req.raw.signal, signedIn)).plan;
+      plan = (
+        await planBounded(
+          state.plan.target,
+          session,
+          c.req.raw.signal,
+          signedIn,
+        )
+      ).plan;
     } catch (err) {
-      const message = usernameHider(signedIn?.accounts)(redactSecrets(cleanErrorMessage(err instanceof Error ? err.message : String(err))));
+      const message = usernameHider(signedIn?.accounts)(
+        redactSecrets(
+          cleanErrorMessage(err instanceof Error ? err.message : String(err)),
+        ),
+      );
       if (isUserError(err)) return c.json({ error: message }, 400);
       return c.json({ error: `Could not plan the run again: ${message}` }, 500);
     } finally {
@@ -970,7 +1410,13 @@ export function createApp(options: ServerOptions = {}): Hono {
     const known = new Set(plan.scenarios.map((s) => s.id));
     const approved = state.approved.filter((id) => known.has(id));
     if (approved.length === 0) {
-      return c.json({ error: "None of this run's scenarios are in the new plan (the page has changed). Start a new run instead." }, 400);
+      return c.json(
+        {
+          error:
+            "None of this run's scenarios are in the new plan (the page has changed). Start a new run instead.",
+        },
+        400,
+      );
     }
     const started = startRun(plan, approved, {
       allowDestructive: state.allowDestructive,
@@ -979,14 +1425,25 @@ export function createApp(options: ServerOptions = {}): Hono {
       session,
       ...(signedIn ? { accounts: signedIn.accounts } : {}),
     });
-    if ("error" in started) return c.json({ error: started.error }, started.code);
+    if ("error" in started)
+      return c.json({ error: started.error }, started.code);
     return c.json({ runId: started.runId }, 202);
   });
 
   app.get("/api/runs/:runId", async (c) => {
     const state = await runState(c.req.param("runId"));
     if (!state) return c.json({ error: "Unknown run." }, 404);
-    const { dir: _dir, live: _live, plan: _plan, approved: _approved, allowDestructive: _d, headed: _h, ai: _ai, controller: _c, ...status } = state;
+    const {
+      dir: _dir,
+      live: _live,
+      plan: _plan,
+      approved: _approved,
+      allowDestructive: _d,
+      headed: _h,
+      ai: _ai,
+      controller: _c,
+      ...status
+    } = state;
     return c.json(status);
   });
 
@@ -994,33 +1451,51 @@ export function createApp(options: ServerOptions = {}): Hono {
     const state = await runState(c.req.param("runId"));
     if (!state) return c.json({ error: "Unknown run." }, 404);
     const { frame: _frame, ...live } = state.live;
-    const elapsedMs = state.durationMs ?? Math.max(0, Date.now() - Date.parse(state.startedAt));
-    return c.json({ status: state.status, startedAt: state.startedAt, elapsedMs, ...live }, 200, { "cache-control": "no-store" });
+    const elapsedMs =
+      state.durationMs ?? Math.max(0, Date.now() - Date.parse(state.startedAt));
+    return c.json(
+      { status: state.status, startedAt: state.startedAt, elapsedMs, ...live },
+      200,
+      { "cache-control": "no-store" },
+    );
   });
 
   // The latest screencast frame. Pixels can't be redacted, which is why this is only served on loopback-guarded hosts.
   app.get("/api/runs/:runId/live.jpg", (c) => {
     const frame = runs.get(c.req.param("runId"))?.live.frame;
     if (!frame) return c.json({ error: "No frame yet." }, 404);
-    return c.body(new Uint8Array(frame), 200, { "content-type": "image/jpeg", "cache-control": "no-store" });
+    return c.body(new Uint8Array(frame), 200, {
+      "content-type": "image/jpeg",
+      "cache-control": "no-store",
+    });
   });
 
   app.get("/api/runs/:runId/:file{report\\.(?:json|md|html)}", async (c) => {
     const state = await runState(c.req.param("runId"));
     const file = c.req.param("file");
     const type = REPORT_FILES[file];
-    if (!state || state.status !== "done" || !type) return c.json({ error: "Not found." }, 404);
-    return c.body(await readFile(join(state.dir, file), "utf8"), 200, { "content-type": type, ...(file === "report.html" ? { "content-security-policy": REPORT_CSP } : {}) });
+    if (!state || state.status !== "done" || !type)
+      return c.json({ error: "Not found." }, 404);
+    return c.body(await readFile(join(state.dir, file), "utf8"), 200, {
+      "content-type": type,
+      ...(file === "report.html"
+        ? { "content-security-policy": REPORT_CSP }
+        : {}),
+    });
   });
 
   app.get("/api/runs/:runId/specs/:file", async (c) => {
     const state = await runState(c.req.param("runId"));
-    if (!state || state.status !== "done") return c.json({ error: "Not found." }, 404);
+    if (!state || state.status !== "done")
+      return c.json({ error: "Not found." }, 404);
     const file = c.req.param("file");
-    if (!SAFE_FILE.test(file)) return c.json({ error: "Invalid file name." }, 400);
+    if (!SAFE_FILE.test(file))
+      return c.json({ error: "Invalid file name." }, 400);
     try {
       const source = await readFile(join(state.dir, "specs", file), "utf8");
-      return c.body(source, 200, { "content-type": "text/plain; charset=utf-8" });
+      return c.body(source, 200, {
+        "content-type": "text/plain; charset=utf-8",
+      });
     } catch {
       return c.json({ error: "Not found." }, 404);
     }
@@ -1030,9 +1505,12 @@ export function createApp(options: ServerOptions = {}): Hono {
   app.get("/api/runs/:runId/artifacts/:file", async (c) => {
     const state = await runState(c.req.param("runId"));
     const file = c.req.param("file");
-    if (!state || state.status !== "done") return c.json({ error: "Not found." }, 404);
-    const type = ARTIFACT_TYPES[file.slice(file.lastIndexOf(".")).toLowerCase()];
-    if (!SAFE_FILE.test(file) || !type) return c.json({ error: "Invalid file name." }, 400);
+    if (!state || state.status !== "done")
+      return c.json({ error: "Not found." }, 404);
+    const type =
+      ARTIFACT_TYPES[file.slice(file.lastIndexOf(".")).toLowerCase()];
+    if (!SAFE_FILE.test(file) || !type)
+      return c.json({ error: "Invalid file name." }, 400);
     try {
       const bytes = await readFile(join(state.dir, "artifacts", file));
       return c.body(new Uint8Array(bytes), 200, { "content-type": type });
@@ -1057,10 +1535,19 @@ function bundledChromium(): string | null {
   bundledChromiumName = null;
   try {
     const require = createRequire(import.meta.url);
-    const dir = dirname(require.resolve("playwright-core/package.json", { paths: [dirname(require.resolve("playwright"))] }));
-    const data = JSON.parse(readFileSync(join(dir, "browsers.json"), "utf8")) as { browsers?: { name: string; browserVersion?: string }[] };
-    const version = data.browsers?.find((b) => b.name === "chromium")?.browserVersion;
-    if (version && /^[\d.]+$/.test(version)) bundledChromiumName = `Chromium ${version}`;
+    const dir = dirname(
+      require.resolve("playwright-core/package.json", {
+        paths: [dirname(require.resolve("playwright"))],
+      }),
+    );
+    const data = JSON.parse(
+      readFileSync(join(dir, "browsers.json"), "utf8"),
+    ) as { browsers?: { name: string; browserVersion?: string }[] };
+    const version = data.browsers?.find(
+      (b) => b.name === "chromium",
+    )?.browserVersion;
+    if (version && /^[\d.]+$/.test(version))
+      bundledChromiumName = `Chromium ${version}`;
   } catch {
     // Unknown layout: the browser shows up when the report is written.
   }

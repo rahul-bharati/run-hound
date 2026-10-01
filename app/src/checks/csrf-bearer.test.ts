@@ -27,7 +27,7 @@ import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { closeBrowser, getBrowser } from "../../test-support/harness.js";
 import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountsConfig } from "../accounts/types.js";
+import type { AccountsConfig } from "../interfaces/accounts.js";
 import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
 import type { SessionState } from "../engine/auth.js";
 import { createCheckContext, seedSessionStorage, type RunningCheckContext, type SessionStorageItems } from "../engine/context.js";

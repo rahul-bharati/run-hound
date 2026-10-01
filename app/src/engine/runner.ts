@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import type { Browser, LaunchOptions, Page } from "playwright";
 import { groupOf } from "../core/format.js";
 import { resolveAccounts } from "../accounts/config.js";
-import type { AccountsConfig, TestAccount } from "../accounts/types.js";
+import type { AccountsConfig, TestAccount } from "../interfaces/accounts.js";
 import {
   CHECK_GROUPS,
   type AccountId,

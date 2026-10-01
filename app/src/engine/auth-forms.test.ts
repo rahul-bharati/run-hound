@@ -14,7 +14,7 @@ import type { Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeBrowser, getBrowser } from "../../test-support/harness.js";
 import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { TestAccount } from "../accounts/types.js";
+import type { TestAccount } from "../interfaces/accounts.js";
 import type { DiscoveredForm } from "../core/types.js";
 import { sessionSecrets, signIn, signInForm, SignInError, type SessionState } from "./auth.js";
 import { discoverPage } from "./discover.js";

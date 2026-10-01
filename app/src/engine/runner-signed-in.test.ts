@@ -21,7 +21,7 @@ import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { startAccountsApp, type AccountsApp } from "../../test-support/accounts-app.js";
 import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { AccountsConfig } from "../accounts/types.js";
+import type { AccountsConfig } from "../interfaces/accounts.js";
 import type { AccountRef, Check, CheckId, CheckResult, Plan, Scenario } from "../core/types.js";
 import { SignInError } from "./auth.js";
 import { planSummary } from "./plan.js";

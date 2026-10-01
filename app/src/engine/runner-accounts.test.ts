@@ -20,7 +20,7 @@ import { join, relative, sep } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { startAccountsApp, type AccountsApp } from "../../test-support/accounts-app.js";
 import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { AccountsConfig } from "../accounts/types.js";
+import type { AccountsConfig } from "../interfaces/accounts.js";
 import { check as pageControls } from "../checks/page-controls.js";
 import { check as persistence } from "../checks/persistence.js";
 import type { AccountRef, Check, CheckContext, CheckId, CheckResult, Finding, Identity, Plan, PlanEnv, Report, Scenario } from "../core/types.js";
