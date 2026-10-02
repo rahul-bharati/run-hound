@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { formatDuration, groupOf } from "./format.js";
-import { CHECK_GROUPS, type Category } from "./types.js";
+import { formatDuration, groupOf } from "../../../src/core/format.js";
+import { CHECK_GROUPS, type Category } from "../../../src/core/types.js";
 
 describe("groupOf", () => {
   it.each([

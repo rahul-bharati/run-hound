@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { findSecrets, redactSecrets, secretSpans } from "./redact.js";
+import { findSecrets, redactSecrets, secretSpans } from "../../../../src/engine/redact.js";
 
-/** All values below are fake: they only match the shape of real credentials. */
+// FAKE-prefixed values below only match the shape of real credentials.
 const b64url = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
 const jwt = (payload: Record<string, unknown>) =>
   `${b64url({ alg: "HS256", typ: "JWT" })}.${b64url(payload)}.FAKEsignatureFAKEsignatureFAKEsig_-0123456789`;

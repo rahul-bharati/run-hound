@@ -1,10 +1,6 @@
-/**
- * One definition of "the form's save request" for every check and the engine (docs/v0-spec.md, "Tester release":
- * unfamiliar apps). A classic form post that redirects, a same-origin JSON API and an API on another origin are all
- * save requests; analytics beacons and preflights are not.
- */
+// One definition of "the form's save request" for every check and the engine (docs/v0-spec.md "Tester release": unfamiliar apps): a classic form post, a same-origin JSON API and an API on another origin; analytics beacons and preflights do not.
 import { describe, expect, it } from "vitest";
-import { carriesTestValues, isAcceptedStatus, isGraphQlDocument, isGraphQlRead, isLocalOrigin, isPagePost, isSameOrigin, isSaveRequest, isWrite, tokenKey } from "./saves.js";
+import { carriesTestValues, isAcceptedStatus, isGraphQlDocument, isGraphQlRead, isLocalOrigin, isPagePost, isSameOrigin, isSaveRequest, isWrite, tokenKey } from "../../../src/core/saves.js";
 
 const TARGET = "http://localhost:5173/signup";
 const TOKEN = "ab12cd34";
@@ -79,12 +75,7 @@ describe("helpers", () => {
   });
 });
 
-/**
- * A GraphQL read sent as a POST (0.6.0 close-out round 2): every operation of the body holds nothing but GraphQL request
- * keys (query, variables, operationName, extensions), and its query text, with comments left out, starts a GraphQL
- * document that holds no mutation. A REST body with a "query" field (a saved search, a default-search setting) is a
- * write, never a read: the existing-record hold judges it, and the test-record count counts it.
- */
+// A GraphQL read sent as a POST (0.6.0 close-out round 2): every body operation holds only GraphQL request keys (query, variables, operationName, extensions), and its query text with comments stripped starts a GraphQL document with no mutation; a REST body with a "query" field (a saved search, a default-search setting) is a write.
 describe("isGraphQlRead: only a GraphQL request body whose query is a GraphQL document with no mutation", () => {
   const body = (o: unknown) => JSON.stringify(o);
 

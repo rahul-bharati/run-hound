@@ -1,15 +1,7 @@
-/**
- * A labelled AWS secret access key (0.6.1, docs/launch-spec.md "Redaction"): an AWS secret access key has no prefix
- * of its own (40 characters of A-Z, a-z, 0-9, "/" and "+"), so the pattern "aws-secret-key" only matches one that
- * follows its label: aws_secret_access_key, AWS_SECRET_ACCESS_KEY, aws-secret-access-key, SecretAccessKey or
- * secretAccessKey, then optional quotes (JSON-escaped too), ":" or "=", and optional quotes. Only the value is
- * replaced; the label stays readable. An unlabelled 40-character string, a shorter or a longer value is not flagged.
- * Saved and resolved secrets are hidden whatever their shape by literal registration (ai-secrets-redacted.test.ts).
- */
 import { describe, expect, it } from "vitest";
-import { findSecrets, redactSecrets } from "./redact.js";
+import { findSecrets, redactSecrets } from "../../../../src/engine/redact.js";
 
-/** AWS's documented example secret access key (40 characters; not real). */
+// AWS's documented example secret access key (40 characters; not real).
 const KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
 const MARK = "[REDACTED:aws-secret-key]";
 

@@ -1,6 +1,6 @@
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
-import { exitQuietlyOnClosedPipe } from "./stdio.js";
+import { exitQuietlyOnClosedPipe } from "../../../../src/engine/stdio.js";
 
 describe("exitQuietlyOnClosedPipe", () => {
   afterEach(() => {

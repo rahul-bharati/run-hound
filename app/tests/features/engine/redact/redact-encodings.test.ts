@@ -1,14 +1,5 @@
-/**
- * Literal secrets in every form a page or a request carries them (round-2 review), and account usernames:
- * - a registered password is also hidden form-URL-encoded (application/x-www-form-urlencoded writes ! ' ( ) ~ as
- *   %21 %27 %28 %29 %7E, which encodeURIComponent leaves alone), with upper- or lowercase hex;
- * - registerAccountUsernames hides configured usernames of 3 characters or more in any letter case, as
- *   "[REDACTED:account-username]" (the same rule as the server's usernameHider), until unregistered;
- * - redactAccountSecrets replaces only the registered passwords and session values: it is what a plan's address
- *   fields (selectors, URLs, link targets) get, where hiding a username or a pattern would break the plan.
- */
 import { afterEach, describe, expect, it } from "vitest";
-import { redactAccountSecrets, redactSecrets, registerAccountUsernames, registerSecretLiterals } from "./redact.js";
+import { redactAccountSecrets, redactSecrets, registerAccountUsernames, registerSecretLiterals } from "../../../../src/engine/redact.js";
 
 const SECRET = "[REDACTED:account-secret]";
 const USERNAME = "[REDACTED:account-username]";
@@ -22,7 +13,7 @@ afterEach(() => {
   for (const unregister of held.splice(0)) unregister();
 });
 
-/** How a browser form (and URLSearchParams) encodes a value in a query string or a urlencoded body. */
+// How a browser form (and URLSearchParams) encodes a value in a query string or a urlencoded body.
 const formEncoded = (value: string) => new URLSearchParams({ x: value }).toString().slice(2);
 const lowerHex = (text: string) => text.replace(/%[0-9A-F]{2}/g, (m) => m.toLowerCase());
 

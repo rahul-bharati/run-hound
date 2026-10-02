@@ -1,12 +1,7 @@
-/**
- * The address of each check's page on Run Hound's public site (DESIGN.md §5.5): every built-in check links to
- * /checks/<id>/, the optional ai-flow to its card on the checks hub (/checks/#ai-flow). A link is built from the check id
- * alone, so it never carries run data. The site tests the same mapping against its route registry
- * (site/src/lib/app-links.test.ts), so a renamed route or check fails CI on both sides.
- */
+// Each built-in check links to /checks/<id>/ on the public site; ai-flow links to /checks/#ai-flow. The site tests pin the same mapping, so a renamed route or check fails CI here and there.
 import { describe, expect, it } from "vitest";
-import { CHECK_IDS } from "./types.js";
-import { SITE_URL, checkPageUrl } from "./links.js";
+import { CHECK_IDS } from "../../../src/core/types.js";
+import { SITE_URL, checkPageUrl } from "../../../src/core/links.js";
 
 describe("SITE_URL", () => {
   it("is the public site's https origin, with no trailing slash, path, query or fragment", () => {
@@ -55,8 +50,7 @@ describe("checkPageUrl", () => {
   });
 
   it("lets the dot segments '.' and '..' resolve like paths, so callers link only ids in CHECK_IDS", () => {
-    // encodeURIComponent leaves dots alone: "." lands on the checks hub and ".." on the site's root. report.ts and the
-    // web UI (client.ts) link a finding only when its check id is in CHECK_IDS, and no check id is made of dots.
+    // encodeURIComponent leaves dots alone ("." lands on the checks hub, ".." on the site root), so report.ts and client.ts only link findings whose check id is in CHECK_IDS, and no check id is made of dots.
     expect(new URL(checkPageUrl(".")).href).toBe(`${SITE_URL}/checks/`);
     expect(new URL(checkPageUrl("..")).href).toBe(`${SITE_URL}/`);
     for (const id of CHECK_IDS) expect(id).not.toMatch(/^\.+$/);

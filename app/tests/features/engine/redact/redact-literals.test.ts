@@ -1,19 +1,13 @@
-/**
- * Literal secrets (0.4.0, docs/v2-spec.md "Test accounts"): the engine registers each configured test-account
- * password, and the session cookie values and bearer tokens sign-in produces, so redactSecrets replaces them wherever
- * they appear with "[REDACTED:account-secret]", until the function registerSecretLiterals returned unregisters them.
- * Values shorter than 4 characters are ignored.
- */
 import { afterEach, describe, expect, it } from "vitest";
-import { redactSecrets, registerSecretLiterals } from "./redact.js";
+import { redactSecrets, registerSecretLiterals } from "../../../../src/engine/redact.js";
 
 const MARK = "[REDACTED:account-secret]";
 
-/** Fake values only; the Stripe key matches the built-in "stripe-secret" pattern. */
+// Fake values only; the Stripe key matches the built-in "stripe-secret" pattern.
 const PASSWORD = "alice-pass-1234";
 const STRIPE = "sk_live_FAKEFAKEFAKE1234567890abcdEFGH";
 
-/** Every registration a test made, unregistered after it so no test leaks literals into the next. */
+// Every registration a test made, unregistered after it so no test leaks literals into the next.
 const registered: (() => void)[] = [];
 
 function register(values: string[]): () => void {
