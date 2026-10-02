@@ -1,16 +1,12 @@
-/**
- * 0.4.0: selectors never use framework-generated ids (LOV-7). React's useId (":r1:", "«r1»", "_r_1_"), Radix, Headless
- * UI and MUI number their ids in mount order, so an id can point at a different field on the next load.
- */
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Page } from "playwright";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { DiscoveredForm } from "../core/types.js";
-import { discoverForm, discoverPage } from "./discover.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { DiscoveredForm } from "../../../../src/core/types.js";
+import { discoverForm, discoverPage } from "../../../../src/engine/discover.js";
 
-const root = fileURLToPath(new URL("../../test/fixtures/discover/", import.meta.url));
+const root = fileURLToPath(new URL("../../../../test/fixtures/discover/", import.meta.url));
 
 let server: FixtureServer;
 
@@ -31,7 +27,7 @@ async function open(file: string): Promise<Page> {
 
 const GENERATED = /:r|«r|_r_|radix-|headlessui-|mui-/;
 
-/** Every selector discovery wrote for the form (form, fields, options, bubble inputs, controls). */
+// Every selector discovery wrote for the form (form, fields, options, bubble inputs, controls).
 function selectors(form: DiscoveredForm): string[] {
   return [
     form.selector,

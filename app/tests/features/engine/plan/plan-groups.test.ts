@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CHECK_GROUPS, type Category, type Check, type CheckId, type DiscoveredForm, type Scenario } from "../core/types.js";
-import { buildPlan } from "./plan.js";
+import { CHECK_GROUPS, type Category, type Check, type CheckId, type DiscoveredForm, type Scenario } from "../../../../src/core/types.js";
+import { buildPlan } from "../../../../src/engine/plan.js";
 
 const FORM: DiscoveredForm = { url: "http://127.0.0.1:5173/book", selector: "form", name: "Book a sitter", fields: [], controls: [] };
 
@@ -20,7 +20,7 @@ function fakeCheck(id: CheckId, category: Category, ids: string[]): Check {
   };
 }
 
-/** Mixed categories, deliberately scrambled (neither CHECK_IDS nor group order). */
+// Mixed categories, deliberately scrambled (neither CHECK_IDS nor group order).
 const SCRAMBLED: Check[] = [
   fakeCheck("verbose-errors", "security", ["ve:1"]),
   fakeCheck("reflow-320", "accessibility", ["rf:1"]),

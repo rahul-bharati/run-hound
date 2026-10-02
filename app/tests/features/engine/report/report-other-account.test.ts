@@ -1,23 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { AccountRef, Report, Scenario } from "../core/types.js";
-import { NOT_VISIBLE, renderHtml, renderMarkdown, signedInSentence } from "./report.js";
+import type { AccountRef, Report, Scenario } from "../../../../src/core/types.js";
+import { NOT_VISIBLE, renderHtml, renderMarkdown, signedInSentence } from "../../../../src/engine/report.js";
 
-/**
- * The report header's "other account" line (0.6.0 close-out): Account B signs in for access-control's other-account
- * scenario (can it read Account A's data) and for write-access's (can it change it), so the line says what the run
- * used it for, from the approved scenarios:
- * - access-control:other-account only: "used to check that it can't read Account A's data" (as in 0.4.0);
- * - write-access:other-account only (on any form, under any collision suffix): "… can't change …";
- * - both: "… can't read or change …";
- * - a report that names the other account with neither approved (written before 0.6.0): "… can't read …".
- * Only the other-account scenarios that ran count (close-out round 1): one that was skipped sent nothing as Account B,
- * so it doesn't name what B was used for; when every one was skipped, the approved ones do.
- * When a write-access other-account scenario that ran sent the app's DELETE as Account B (its step "Sending DELETE <url>
- * as Account B"), the line says "change or delete" ("read, change or delete" with access-control's): a run that finds
- * "Account B can delete Account A's records" never says B was only used to check that it can't change them.
- * The web UI's report view says the same (server/ui-other-account.test.ts), and so does the terminal's line after a run
- * (signedInSentence, which the CLI prints after a run).
- */
+// The report header's "other-account" line (0.6.0 close-out): Account B was used for access-control's other-account scenario (can it read Account A's data) and write-access's (can it change or delete it). Only other-account scenarios that ran count; a skipped one sent nothing as Account B, so it doesn't name what B was used for; when every one was skipped, the approved ones do. A DELETE sent as Account B turns "change" into "change or delete" ("read, change or delete" with access-control's). The web UI's report view and signedInSentence (which the CLI prints after a run) say the same.
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const B: AccountRef = { id: "b", label: "Account B" };
@@ -76,7 +61,7 @@ function report(approved: string[], skipped: string[] = [], steps: Record<string
   } as unknown as Report;
 }
 
-/** The phrase both renderers use after the other account's label. */
+// The phrase both renderers use after the other account's label.
 const used = (what: string) => `used to check that it can't ${what} Account A's data`;
 
 describe("the report's other-account line", () => {
@@ -205,7 +190,7 @@ describe("signedInSentence: the terminal's line after a run", () => {
 
   it("is what the CLI prints after a run", async () => {
     const { readFile } = await import("node:fs/promises");
-    const presenter = await readFile(new URL("../cli/presenters/run.ts", import.meta.url), "utf8");
+    const presenter = await readFile(new URL("../../../../src/cli/presenters/run.ts", import.meta.url), "utf8");
     expect(presenter).toMatch(/signedInSentence\(report\)/);
     expect(presenter).not.toMatch(/was used for the access checks/);
   });

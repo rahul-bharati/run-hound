@@ -1,16 +1,12 @@
-/**
- * Report rendering of visual evidence (docs/v0-spec.md, "Evidence" and "Live view and pages tested"):
- * frames, GIFs and cards shown inline as <figure> with alt text, a caption (step, URL, capture time) and the facts;
- * non-visual evidence still in a <details>; a "Pages tested" section; everything escaped; no path leaves the run folder.
- */
+// Report rendering of visual evidence (docs/v0-spec.md "Evidence" and "Live view and pages tested"): frames, GIFs and cards inline as <figure> with a caption (step, URL, capture time) and the facts; non-visual evidence inside a <details>; "Pages tested" section; everything escaped; no path leaves the run folder.
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { MARK_DATA_URI } from "../core/brand.js";
-import { checkPageUrl } from "../core/links.js";
-import { CHECK_IDS, type Evidence, type Finding, type Report } from "../core/types.js";
-import { NOT_VISIBLE, renderHtml, renderMarkdown, writeReport } from "./report.js";
+import { MARK_DATA_URI } from "../../../../src/core/brand.js";
+import { checkPageUrl } from "../../../../src/core/links.js";
+import { CHECK_IDS, type Evidence, type Finding, type Report } from "../../../../src/core/types.js";
+import { NOT_VISIBLE, renderHtml, renderMarkdown, writeReport } from "../../../../src/engine/report.js";
 
 const FRAME: Evidence = {
   kind: "frame",
@@ -111,17 +107,17 @@ function makeReport(findings: Finding[], pagesVisited: Report["pagesVisited"] = 
   };
 }
 
-/** Removes every <details>...</details> block (non-nested is enough for these reports). */
+// Removes every <details>...</details> block (non-nested is enough for these reports).
 function withoutDetails(html: string): string {
   return html.replace(/<details[\s\S]*?<\/details>/gi, "");
 }
 
-/** Each <figure>...</figure> block. */
+// Each <figure>...</figure> block.
 function figures(html: string): string[] {
   return html.match(/<figure[\s\S]*?<\/figure>/gi) ?? [];
 }
 
-/** Decodes the few entities the renderer uses, for attribute values. */
+// Decodes the few entities the renderer uses, for attribute values.
 function unescape(text: string): string {
   return text.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 }
@@ -135,7 +131,6 @@ function imgTags(html: string): { src: string; alt: string | null }[] {
   });
 }
 
-/** Every local src/href value in the document. */
 function localRefs(html: string): string[] {
   return [...html.matchAll(/\s(?:src|href)=("([^"]*)"|'([^']*)')/gi)]
     .map((m) => unescape(m[2] ?? m[3] ?? ""))
@@ -146,10 +141,10 @@ function localRefs(html: string): string[] {
     .filter((v) => !CHECK_PAGE_URLS.has(v));
 }
 
-/** The public check-page links a report may carry (core/links.ts), one per check id. */
+// The public check-page links a report may carry (core/links.ts), one per check id.
 const CHECK_PAGE_URLS = new Set<string>(CHECK_IDS.map((id) => checkPageUrl(id)));
 
-/** True when the fact appears as <dt>label</dt><dd>value</dd> or as a table row with label and value cells. */
+// True when the fact appears as <dt>label</dt><dd>value</dd> or as a table row with label and value cells.
 function hasFactMarkup(html: string, label: string, value: string): boolean {
   const l = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const v = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

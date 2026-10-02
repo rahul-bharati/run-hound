@@ -1,71 +1,30 @@
-/**
- * signIn on two-step sign-in pages (0.6.0, docs/v2-spec.md "Sign-in: two-step and sessionStorage"): the sign-in page
- * has no form with a password field, but a sign-in form with an identifier field and a "Continue"/"Next" control.
- * signIn fills the identifier, continues, waits for the password field (on the same page, or on the next page when
- * that page is on the sign-in origin), then finishes as a one-step sign-in. Every guarantee of "Signing in" holds:
- * - the password is typed only on the sign-in page's origin: a second step on another origin fails with "The sign-in
- *   continued on another site (<host>), so Run Hound won't type the password there." (<host> is URL.host, with the
- *   port), whether that origin is one the safety gate allows (the page lands there) or refuses (the page's own
- *   navigation there is blocked, or the first step's POST is answered with a redirect there and the guard stops it);
- *   a two-step sign-in page reached by a redirect to another origin gets nothing typed, not even the email;
- * - a code or a captcha after the first step fails with the existing messages, whether it replaces the password step
- *   or comes with it or after it (a code after the password, a reCAPTCHA widget beside the password);
- * - a sign-up form is never filled, even when it sits before the sign-in form and also says "Continue", or when the
- *   first step turns into one;
- * - no password field after the first step (a sign-in link was emailed instead) fails and says so;
- * - a password step that would send the password in the address (a GET form) or to another origin is stopped with the
- *   existing messages, and one in a frame from another origin is never typed into;
- * - the first step's control may be a plain "Next"/"Continue" button (not a submit control) or sit outside any <form>;
- *   a "Continue with Google" button beside it is never clicked; a password-reset form before it is never filled;
- * - the password field may appear seconds after Continue, with the network idle meanwhile.
- *
- * Where the first step's sign-in words may come from (a decision, see the lead's log): the form's name or submit
- * control, document.title, the text just before the form, or the sign-in URL's path. A page with none of them (the
- * newsletter) is still refused, and so is a form whose own words say it does something else (Subscribe, a newsletter,
- * search, a password reset), even on a page whose address says login.
- *
- * Regression guards that pass before two-step exists (they don't show that two-step works): the page whose only form
- * creates an account, the newsletter page, the newsletter form at a /login-… address, and the first step with a
- * visually hidden autofill password field (the one-step path fills that field and signs in).
- *
- * Runs against the accounts app's two-step variants (test-support/accounts-app.ts: "two-step" reveals the password in
- * the same form, "two-step-page" asks for it on /login/password) and one-off pages served below: the password row
- * pre-rendered but hidden, or added to the form only after Continue; a single-page app that replaces the form and moves
- * the address with history.pushState (Clerk's shape, with and without the email repeated read-only); a first step with
- * a visually hidden autofill password field; and a classic server-rendered POST-and-redirect pair of pages whose
- * sign-in words are only in the title, the text and the address (Auth0 Universal Login's shape).
- */
+// signIn on two-step sign-in pages (0.6.0, docs/v2-spec.md "Sign-in: two-step and sessionStorage"): the sign-in page has no form with a password field, but a sign-in form with an identifier field and a "Continue"/"Next" control. signIn fills the identifier, continues, waits for the password field (on the same page, or on the next page when that page is on the sign-in origin), then finishes as a one-step sign-in. Every guarantee of "Signing in" holds: password typed only on the sign-in page's origin (a second step on another origin fails with "The sign-in continued on another site (<host>), so Run Hound won't type the password there." — <host> is URL.host with the port — whether the gate allows the origin or refuses it; a two-step page reached by a redirect to another origin gets nothing typed, not even the email); a code or a captcha after the first step fails with the existing messages, whether it replaces the password step or comes with it or after it; a sign-up form is never filled, even before the sign-in form with "Continue", or when the first step turns into one; no password field after the first step (a sign-in link was emailed instead) fails and says so; a password step that would send the password in the address (a GET form) or to another origin is stopped, and one in a frame from another origin is never typed into; the first step's control may be a plain "Next"/"Continue" button or sit outside any <form>; a "Continue with Google" button beside it is never clicked; a password-reset form before it is never filled; the password field may appear seconds after Continue, with the network idle meanwhile. Where the first step's sign-in words may come from: the form's name or submit control, document.title, the text just before the form, or the sign-in URL's path. A page with none of them (the newsletter) is still refused, and so is a form whose own words say it does something else (Subscribe, a newsletter, search, a password reset), even on a page whose address says login. Regression guards that pass before two-step exists: the page whose only form creates an account, the newsletter page, the newsletter form at a /login-… address, and the first step with a visually hidden autofill password field (the one-step path fills that field and signs in). Runs against the accounts app's two-step variants ("two-step" reveals the password in the same form, "two-step-page" asks for it on /login/password) and one-off pages: the password row pre-rendered but hidden, or added to the form only after Continue; a SPA that uses history.pushState (Clerk's shape, with and without the email repeated read-only); a first step with a visually hidden autofill password field; and a classic server-rendered POST-and-redirect pair of pages whose sign-in words are only in the title, the text and the address (Auth0 Universal Login's shape).
 import { randomBytes } from "node:crypto";
 import type { ServerResponse } from "node:http";
 import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../test-support/accounts-app.js";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { TestAccount } from "../interfaces/accounts.js";
-import { signIn, signInForm, SignInError, type SessionState, type SignedIn } from "./auth.js";
-import { discoverPage } from "./discover.js";
+import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../../../test-support/accounts-app.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { TestAccount } from "../../../../src/interfaces/accounts.js";
+import { signIn, signInForm, SignInError, type SessionState, type SignedIn } from "../../../../src/engine/auth.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
 
 const EMAIL = "someone@example.test";
 const PASSWORD = "tw0-step(pass)~9753";
 
 let browser: Browser;
-/** The one-off two-step pages (127.0.0.1). */
+// The one-off two-step pages (127.0.0.1).
 let pages: FixtureServer;
-/** Another site: a password page reached as http://localhost:<its port>, where the password must never be typed. */
+// Another site: a password page reached as http://localhost:<its port>, where the password must never be typed.
 let away: FixtureServer;
 let awayOrigin: string;
-/**
- * A host the safety gate refuses (it stands in for an identity provider on the internet): the gate's injected DNS
- * (REFUSED_SSO) says it is public. A browser launched with --host-resolver-rules maps it to 127.0.0.1, so a request
- * that got through would reach `away` and be recorded there; the shared browser has no such rule, and its tests stop
- * the navigation before it leaves the browser.
- */
+// A host the safety gate refuses (it stands in for an identity provider on the internet): the gate's injected DNS (REFUSED_SSO) says it is public. A browser launched with --host-resolver-rules maps it to 127.0.0.1, so a request that got through would reach `away` and be recorded there; the shared browser has no such rule, and its tests stop the navigation before it leaves the browser.
 const SSO_HOST = "sso.example.test";
 const REFUSED_SSO = { lookup: async (host: string) => (host === SSO_HOST ? ["93.184.216.34"] : ["127.0.0.1"]) };
 const apps = new Map<string, AccountsApp>();
 
-/** One accounts app per option set, started once for the file. */
+// One accounts app per option set, started once for the file.
 async function app(options: AccountsAppOptions): Promise<AccountsApp> {
   const key = JSON.stringify({ tokenMode: options.tokenMode ?? "cookie", loginVariant: options.loginVariant ?? "email" });
   let found = apps.get(key);
@@ -78,12 +37,12 @@ async function app(options: AccountsAppOptions): Promise<AccountsApp> {
   return found;
 }
 
-/** A test account for a one-off page. */
+// A test account for a one-off page.
 function account(path: string): TestAccount {
   return { id: "a", label: "Account A", loginUrl: `${pages.url}${path}`, username: EMAIL, password: PASSWORD };
 }
 
-/** The error signIn rejected with; fails the test when it resolved or threw anything but a SignInError. */
+// The error signIn rejected with; fails the test when it resolved or threw anything but a SignInError.
 async function failure(promise: Promise<SignedIn>): Promise<SignInError> {
   const outcome = await promise.then(
     () => "resolved" as const,
@@ -93,7 +52,7 @@ async function failure(promise: Promise<SignedIn>): Promise<SignInError> {
   return outcome as SignInError;
 }
 
-/** Who the accounts app says is signed in when a new browser context opens /settings with `state`. */
+// Who the accounts app says is signed in when a new browser context opens /settings with `state`.
 async function signedInEmail(target: AccountsApp, state: SessionState): Promise<string | null> {
   const context = await browser.newContext({ storageState: state });
   try {
@@ -106,7 +65,7 @@ async function signedInEmail(target: AccountsApp, state: SessionState): Promise<
   }
 }
 
-/** GET /api/me with a raw credential header, outside any browser. */
+// GET /api/me with a raw credential header, outside any browser.
 async function me(target: AccountsApp, headers: Record<string, string>): Promise<{ status: number; email?: string }> {
   const res = await fetch(`${target.url}/api/me`, { headers });
   const body = (await res.json().catch(() => ({}))) as { email?: string };
@@ -121,12 +80,12 @@ function decoded(text: string): string {
   }
 }
 
-/** True when the request carries `secret` anywhere: its address or its body, as sent or URL-decoded. */
+// True when the request carries `secret` anywhere: its address or its body, as sent or URL-decoded.
 function carries(r: RecordedRequest, secret: string): boolean {
   return [r.url, r.body].some((part) => part.includes(secret) || decoded(part).includes(secret));
 }
 
-/** The typing the one-off pages reported (see reportTyping), as "<form>/<field id>", in order. */
+// The typing the one-off pages reported (see reportTyping), as "<form>/<field id>", in order.
 function typed(): string[] {
   return pages.requests
     .filter((r) => r.method === "GET" && r.url.startsWith("/api/typed?"))
@@ -146,11 +105,7 @@ function sendHtml(res: ServerResponse, status: number, body: string): void {
 
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-/**
- * In-page helpers for the one-off pages: report typing into a form's fields (the field's length only, never its value),
- * and run a two-step sign-in form: the first submit calls `onFirst(email)`, the next one posts the email and the
- * password to /api/login and goes to /home.
- */
+// In-page helpers for the one-off pages: report typing into a form's fields (the field's length only, never its value), and run a two-step sign-in form: the first submit calls `onFirst(email)`, the next one posts the email and the password to /api/login and goes to /home.
 const HELPERS = `<script>
 function reportTyping(form, name) {
   form.querySelectorAll("input").forEach(function (input) {
@@ -170,21 +125,13 @@ function twoStep(form, onFirst) {
 function reveal(id) { return function () { var row = document.getElementById(id); row.hidden = false; row.querySelector("input").focus(); }; }
 </script>`;
 
-/**
- * A two-step sign-in form: email, a hidden password row (unless `passwordRow` is false: then the page adds the field
- * after Continue) and a submit control named `control`.
- */
+// A two-step sign-in form: email, a hidden password row (unless `passwordRow` is false: then the page adds the field after Continue) and a submit control named `control`.
 const signInStep = (control: string, passwordRow = true) => `<form id="signin" aria-label="Sign in">
 <label for="li-email">Email</label><input id="li-email" type="email" name="email" autocomplete="username">
 ${passwordRow ? `<p id="li-pass-row" hidden><label for="li-pass">Password</label><input id="li-pass" type="password" name="password" autocomplete="current-password"></p>` : ""}
 <button type="submit">${control}</button><p role="alert" id="li-error" hidden></p></form>`;
 
-/**
- * A single-page sign-in (Clerk's shape) at `base`: step one is an unnamed form (named by the page's heading) with the
- * email and "Continue". Its submit removes that form, moves the address to <base>/factor-one with history.pushState and
- * inserts a new form: the email shown as text with an "Edit" link (or, with `keepEmail`, repeated in a read-only email
- * field before the password), the password (#pw) and "Continue", which posts both to /api/login and goes to /home.
- */
+// A single-page sign-in (Clerk's shape) at `base`: step one is an unnamed form (named by the page's heading) with the email and "Continue". Its submit removes that form, moves the address to <base>/factor-one with history.pushState and inserts a new form: the email shown as text with an "Edit" link (or, with `keepEmail`, repeated in a read-only email field before the password), the password (#pw) and "Continue", which posts both to /api/login and goes to /home.
 const spaSignIn = (base: string, keepEmail: boolean) =>
   shell(
     "Sign in",
@@ -224,13 +171,9 @@ stepOne();
 </script>`,
   );
 
-/**
- * The classic two-step pages (Auth0 Universal Login's shape): server-rendered forms, a POST and a redirect per step.
- * The first form is unnamed and says only "Continue"; the sign-in words are in the title, the text before the form and
- * the address. `classicStates` maps each first step's state to its email.
- */
+// The classic two-step pages (Auth0 Universal Login's shape): server-rendered forms, a POST and a redirect per step. The first form is unnamed and says only "Continue"; the sign-in words are in the title, the text before the form and the address. `classicStates` maps each first step's state to its email.
 const classicStates = new Map<string, string>();
-/** The session id the classic password page set last. */
+// The session id the classic password page set last.
 let classicSid = "";
 const classicIdentifier = () =>
   shell(
@@ -897,7 +840,7 @@ describe.each(VARIANTS)("signIn: $loginVariant sign-in page, $tokenMode sessions
 });
 
 describe("the one-off two-step pages (driven by hand, so the signIn tests below fail only for signIn's reasons)", () => {
-  /** Opens `path`, types the email into the sign-in form and activates its control; returns the page. */
+  // Opens `path`, types the email into the sign-in form and activates its control; returns the page.
   async function firstStep(path: string) {
     const page = await browser.newPage();
     await page.goto(`${pages.url}${path}`);
@@ -1553,7 +1496,7 @@ describe("signIn: two-step pages that can't be signed in", () => {
 });
 
 describe("signIn: the first step's POST is answered with a redirect to a host the safety gate refuses", () => {
-  /** A browser that sends SSO_HOST to 127.0.0.1, so whatever reached it is recorded by `away`. */
+  // A browser that sends SSO_HOST to 127.0.0.1, so whatever reached it is recorded by `away`.
   let ssoBrowser: Browser;
   let ssoHost: string;
 

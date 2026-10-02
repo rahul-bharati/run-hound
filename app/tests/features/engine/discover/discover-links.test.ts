@@ -1,13 +1,8 @@
-/**
- * DiscoveredPage.linkTargets (0.4.0, for deep-links): where the page's own links go. Absolute same-origin URLs of
- * a[href] links, without the hash, one per path and query, in page order, at most 50; never an in-page anchor, a
- * download, another origin, or a link whose name or path says it acts (log out, delete, unsubscribe…).
- */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { DiscoveredPage } from "../core/types.js";
-import { discoverPage, MAX_LINK_TARGETS } from "./discover.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { DiscoveredPage } from "../../../../src/core/types.js";
+import { discoverPage, MAX_LINK_TARGETS } from "../../../../src/engine/discover.js";
 
 let site: FixtureServer;
 let other: FixtureServer;

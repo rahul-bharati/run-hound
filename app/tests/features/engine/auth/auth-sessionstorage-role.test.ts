@@ -1,32 +1,4 @@
-/**
- * signIn returns an app's sessionStorage, and registers its values as session secrets, only when the session lives
- * there (0.6.0, round 1 of the release review; docs/v2-spec.md "Sign-in: two-step and sessionStorage").
- *
- * What went wrong: signIn returned the landing page's whole sessionStorage for every app, and every browser context of
- * the identity was seeded with it. A cookie-session app that caches its reads in sessionStorage (a persisted query
- * cache: the session summary, the signed-in user) then loaded every page from that copy and sent no data GET for the
- * access checks to replay, so access-control missed a critical IDOR that 0.5.0 caught. And every random-looking value
- * in sessionStorage was registered as a secret, whatever its key: a workspace UUID the app keeps there and puts in its
- * own addresses showed as [REDACTED:account-secret] in report locations, the Target line and exported specs.
- *
- * The contract now:
- * - The session lives in sessionStorage when the app sent one of its values as a credential after the password was
- *   typed (an Authorization header, x-api-key, a session-named header; never a CSRF header), or when the storage state
- *   holds no session at all (no session cookie, no localStorage or IndexedDB token). Then SignedIn.sessionStorage holds
- *   every item, as before, and a random-looking value counts whatever its key, except one the app's own requests
- *   carried as a path segment or a query value (an id, not a secret) and never in a credential header.
- * - Otherwise (a cookie or localStorage session) SignedIn.sessionStorage is absent, so nothing is seeded, and its values
- *   are registered by localStorage's rules only (a value under a session-like key, a JWT, a JSON value's token fields).
- *
- * Three small apps, each on its own server:
- * - `cookieApp`: a cookie session (sid); the landing page /app?workspace=<uuid> caches GET /api/session and
- *   GET /api/users/<id> in sessionStorage (cache-first), keeps the workspace UUID there and lists
- *   GET /api/workspaces/<uuid>/tasks. /api/users/<id> answers any signed-in user (the IDOR the access checks find).
- * - `bearerApp`: the session is an opaque token the app keeps in sessionStorage["app-state"] = { v: <token>, ws: <uuid> }
- *   (both under neutral keys) and sends as Authorization: Bearer; it also sets a csrf_token cookie it never reads.
- * - `quietApp`: an opaque token in sessionStorage["app-state"] = { v: <token> }, no cookie, and a landing page that sends
- *   nothing with it until a button is clicked.
- */
+// signIn returns an app's sessionStorage, and registers its values as session secrets, only when the session lives there (0.6.0, round 1 of the release review; docs/v2-spec.md "Sign-in: two-step and sessionStorage"). Session in sessionStorage when the app sent one of its values as a credential after the password was typed (Authorization, x-api-key, a session-named header — never a CSRF header), or when the storage state holds no session at all (no session cookie, no localStorage / IndexedDB token); then SignedIn.sessionStorage holds every item, and a random-looking value counts whatever its key, except one the app's own requests carried as a path segment or query value (an id, not a secret) and never in a credential header. Otherwise (cookie or localStorage session) SignedIn.sessionStorage is absent, so nothing is seeded, and its values are registered by localStorage's rules only. Three small apps, each on its own server: `cookieApp` (sid session, landing page caches GET /api/session and GET /api/users/<id> in sessionStorage cache-first, keeps the workspace UUID there, lists GET /api/workspaces/<uuid>/tasks; /api/users/<id> answers any signed-in user — the IDOR the access checks find), `bearerApp` (opaque token in sessionStorage["app-state"] = { v, ws }, sends as Authorization: Bearer; sets a csrf_token cookie it never reads), `quietApp` (opaque token in sessionStorage["app-state"] = { v }, no cookie, landing page sends nothing until a button click).
 import { mkdtemp, rm } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { randomBytes } from "node:crypto";
@@ -34,12 +6,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { TestAccount } from "../interfaces/accounts.js";
-import { sessionSecrets, signIn, type SessionState, type SignedIn } from "./auth.js";
-import { createCheckContext } from "./context.js";
-import { emptyForm } from "./discover.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { TestAccount } from "../../../../src/interfaces/accounts.js";
+import { sessionSecrets, signIn, type SessionState, type SignedIn } from "../../../../src/engine/auth.js";
+import { createCheckContext } from "../../../../src/engine/context.js";
+import { emptyForm } from "../../../../src/engine/discover.js";
 
 const ALICE = { email: "alice@example.test", password: "alice-pass-7Q2x", id: "u1", name: "Alice Example", ws: "3f2b8c1e-4d5a-4b6c-8e9f-0a1b2c3d4e5f" };
 const BOB = { email: "bob@example.test", password: "bob-pass-9W4z", id: "u2", name: "Bob Example", ws: "7a6b5c4d-3e2f-4a1b-9c8d-7e6f5a4b3c2d" };
@@ -49,7 +21,7 @@ let browser: Browser;
 let cookieApp: FixtureServer;
 let bearerApp: FixtureServer;
 let quietApp: FixtureServer;
-/** Sessions of each app: the cookie app's sid values, the token apps' tokens, per email. */
+// Sessions of each app: the cookie app's sid values, the token apps' tokens, per email.
 const sids = new Map<string, string>();
 const tokens = new Map<string, string>();
 
@@ -71,7 +43,7 @@ const bearerOf = (req: RecordedRequest) => /^Bearer\s+(\S+)$/.exec(String(req.he
 const userBySid = (req: RecordedRequest) => USERS.find((u) => sids.get(u.email) === cookieOf(req, "sid") && cookieOf(req, "sid") !== undefined);
 const userByToken = (req: RecordedRequest) => USERS.find((u) => tokens.get(u.email) === bearerOf(req) && bearerOf(req) !== undefined);
 
-/** A plain sign-in form that posts to /login (the cookie app). */
+// A plain sign-in form that posts to /login (the cookie app).
 const FORM_LOGIN = shell(
   "Sign in",
   `<h1>Sign in</h1><form method="post" action="/login" aria-label="Sign in">
@@ -80,7 +52,7 @@ const FORM_LOGIN = shell(
 <button type="submit">Sign in</button></form>`,
 );
 
-/** A sign-in form that posts JSON to /api/login and, on a 200, keeps `d` (the answer) as `keep` says, then goes to /app. */
+// A sign-in form that posts JSON to /api/login and, on a 200, keeps `d` (the answer) as `keep` says, then goes to /app.
 const scriptLogin = (keep: string) =>
   shell(
     "Sign in",
@@ -263,7 +235,7 @@ afterAll(async () => {
 
 const account = (app: FixtureServer, user = ALICE): TestAccount => ({ id: "a", label: "Account A", loginUrl: `${app.url}/login`, username: user.email, password: user.password });
 
-/** Every string a SignedIn's sessionStorage holds: its whole values, and the strings of the JSON they hold. */
+// Every string a SignedIn's sessionStorage holds: its whole values, and the strings of the JSON they hold.
 function storedStrings(items: { value: string }[]): string[] {
   const out: string[] = [];
   for (const { value } of items) {
@@ -369,26 +341,16 @@ describe("signIn: a cookie session whose pages keep cached reads and ids in sess
   });
 });
 
-/**
- * Round 2 of the release review: the cookie session was found only by its cookie's name (SESSION_NAME: sess, sid,
- * auth, token …). ASP.NET Core's ".AspNetCore.Cookies", an "app_user" cookie or a custom iron-session name says
- * nothing of a session, so the same cache-first app was taken for a sessionStorage session: its read cache was seeded
- * into every context and the IDOR went unseen again. The submit that signs in sets (or changes) the session cookie,
- * whatever its name: that is what says the session lives in a cookie. A session cookie set before the password (a
- * PHPSESSID the app doesn't renew) is still found by its name.
- */
+// Round 2 of the release review: the cookie session was found only by its cookie's name (SESSION_NAME: sess, sid, auth, token …). ASP.NET Core's ".AspNetCore.Cookies", an "app_user" cookie or a custom iron-session name says nothing of a session, so the same cache-first app was taken for a sessionStorage session: its read cache was seeded into every context and the IDOR went unseen again. The submit that signs in sets (or changes) the session cookie, whatever its name: that is what says the session lives in a cookie. A session cookie set before the password (a PHPSESSID the app doesn't renew) is still found by its name.
 describe("signIn: a cookie session whose cookie's name says nothing of a session", () => {
-  /** Per cookie name: that app's session values, per email. */
+  // Per cookie name: that app's session values, per email.
   const jars = new Map<string, Map<string, string>>();
   const apps = new Map<string, FixtureServer>();
 
-  /**
-   * The cookie app of the describe above with its session in `cookie`. `early`: the cookie is set when the sign-in page
-   * loads (not yet signed in) and the submit signs that same session in without renewing it (a PHPSESSID).
-   */
+  // The cookie app of the describe above with its session in `cookie`. `early`: the cookie is set when the sign-in page loads (not yet signed in) and the submit signs that same session in without renewing it (a PHPSESSID).
   async function cachingApp(cookie: string, early = false): Promise<FixtureServer> {
     const jar = new Map<string, string>();
-    /** Session value → the signed-in email, or "" while signed out. */
+    // Session value → the signed-in email, or "" while signed out.
     const sessions = new Map<string, string>();
     jars.set(cookie, jar);
     const escaped = cookie.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -521,12 +483,7 @@ async function cached(key, url) {
   });
 });
 
-/**
- * Round 2 of the release review: an app whose session lives in sessionStorage and sends nothing with it while signing
- * in, but whose sign-in answer also sets an XSRF-TOKEN cookie (Laravel, Angular) and an analytics cookie. "No session
- * anywhere else" read that cookie as a session (its name says token), so nothing was seeded and the run was signed out.
- * A CSRF cookie and an analytics cookie never hold the session.
- */
+// Round 2 of the release review: an app whose session lives in sessionStorage and sends nothing with it while signing in, but whose sign-in answer also sets an XSRF-TOKEN cookie (Laravel, Angular) and an analytics cookie. "No session anywhere else" read that cookie as a session (its name says token), so nothing was seeded and the run was signed out. A CSRF cookie and an analytics cookie never hold the session.
 describe("signIn: a sessionStorage session next to an XSRF-TOKEN cookie, with nothing sent with it while signing in", () => {
   let xsrfApp: FixtureServer;
 

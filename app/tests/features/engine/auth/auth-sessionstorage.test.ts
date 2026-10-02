@@ -1,29 +1,12 @@
-/**
- * signIn with a session kept in sessionStorage (0.6.0, docs/v2-spec.md "Sign-in: two-step and sessionStorage"): after a
- * successful sign-in, signIn reads sessionStorage for the sign-in origin and the landing origin and returns it as
- * SignedIn.sessionStorage ([{ origin, items: [{ name, value }] }], absent when the app keeps nothing there). Token-like
- * values are in `secrets`, so they are redacted. A storageState can't carry sessionStorage, so a new browser context is
- * signed in only when those items are seeded before the app's scripts run (context-sessionstorage.test.ts covers
- * Run Hound's own contexts; here the test seeds them itself).
- *
- * Runs against the accounts app in tokenMode "session-storage" (the SPA keeps its token in sessionStorage["token"] and
- * sends it as Authorization: Bearer; no cookie, no localStorage), and a one-off app whose sign-in page lands on
- * another origin that keeps the token. That app also covers:
- * - an item the sign-in page keeps on its own origin just before it moves on to the landing origin (the contract reads
- *   both origins, so it is returned even though the tab has left the sign-in origin);
- * - a JSON value holding the tokens (oidc-client-ts's "oidc.user:<authority>:<client>" entry; MSAL.js also keeps JSON
- *   in sessionStorage): its token fields are secrets, its plain fields are not;
- * - an implicit-flow landing address that carries the token in its hash (#access_token=…, left in place by the app):
- *   `landedOn` must not show it, so sessionStorage values are registered before the address is redacted.
- */
+// signIn with a session kept in sessionStorage (0.6.0, docs/v2-spec.md "Sign-in: two-step and sessionStorage"): after a successful sign-in, signIn reads sessionStorage for the sign-in origin and the landing origin and returns it as SignedIn.sessionStorage ([{ origin, items: [{ name, value }] }], absent when the app keeps nothing there). Token-like values are in `secrets`, so they are redacted. A storageState can't carry sessionStorage, so a new browser context is signed in only when those items are seeded before the app's scripts run (context-sessionstorage.test.ts covers Run Hound's own contexts; here the test seeds them itself). Runs against the accounts app in tokenMode "session-storage" (the SPA keeps its token in sessionStorage["token"] and sends it as Authorization: Bearer; no cookie, no localStorage), and a one-off app whose sign-in page lands on another origin that keeps the token — that app also covers: an item the sign-in page keeps on its own origin just before it moves on to the landing origin (the contract reads both origins); a JSON value holding the tokens (oidc-client-ts's "oidc.user:<authority>:<client>" entry; MSAL.js): its token fields are secrets, its plain fields are not; an implicit-flow landing address that carries the token in its hash (#access_token=…, left in place by the app) — `landedOn` must not show it, so sessionStorage values are registered before the address is redacted.
 import type { ServerResponse } from "node:http";
 import type { Browser, BrowserContext } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../test-support/accounts-app.js";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { TestAccount } from "../interfaces/accounts.js";
-import { signIn, type SessionState, type SignedIn } from "./auth.js";
+import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../../../test-support/accounts-app.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { TestAccount } from "../../../../src/interfaces/accounts.js";
+import { signIn, type SessionState, type SignedIn } from "../../../../src/engine/auth.js";
 
 type SessionStorageItems = NonNullable<SignedIn["sessionStorage"]>;
 
@@ -32,19 +15,16 @@ const PASSWORD = "ss-landing(pass)~4821";
 
 let browser: Browser;
 const apps = new Map<string, AccountsApp>();
-/**
- * Signs in on http://127.0.0.1:<port>/login and lands on http://localhost:<port>/app, which keeps the token (or on
- * /login-implicit, landing on /app-implicit#access_token=…).
- */
+// Signs in on http://127.0.0.1:<port>/login and lands on http://localhost:<port>/app, which keeps the token (or on /login-implicit, landing on /app-implicit#access_token=…).
 let crossApp: FixtureServer;
 let landingOrigin: string;
 const codes = new Set<string>();
-/** Access tokens the app issued (both flows); refresh tokens; the values the sign-in page keeps as "login_session". */
+// Access tokens the app issued (both flows); refresh tokens; the values the sign-in page keeps as "login_session".
 const tokens = new Set<string>();
 const refreshes = new Set<string>();
 const loginSessions = new Set<string>();
 
-/** One accounts app per option set, started once for the file. */
+// One accounts app per option set, started once for the file.
 async function app(options: AccountsAppOptions): Promise<AccountsApp> {
   const key = JSON.stringify({ tokenMode: options.tokenMode ?? "cookie", loginVariant: options.loginVariant ?? "email" });
   let found = apps.get(key);
@@ -57,10 +37,7 @@ async function app(options: AccountsAppOptions): Promise<AccountsApp> {
   return found;
 }
 
-/**
- * A new browser context with `state` that seeds `items` into sessionStorage, for their own origin only and before any
- * page script runs (an init script), the way the contract says Run Hound's contexts do.
- */
+// A new browser context with `state` that seeds `items` into sessionStorage, for their own origin only and before any page script runs (an init script), the way the contract says Run Hound's contexts do.
 async function seededContext(state: SessionState, items: SessionStorageItems): Promise<BrowserContext> {
   const context = await browser.newContext({ storageState: state });
   await context.addInitScript((entries) => {
@@ -72,7 +49,7 @@ async function seededContext(state: SessionState, items: SessionStorageItems): P
   return context;
 }
 
-/** Who the accounts app's /settings says is signed in for a new context (seeded with `items`), or null when it shows the sign-in page. */
+// Who the accounts app's /settings says is signed in for a new context (seeded with `items`), or null when it shows the sign-in page.
 async function signedInEmail(target: AccountsApp, state: SessionState, items: SessionStorageItems = []): Promise<string | null> {
   const context = await seededContext(state, items);
   try {
@@ -85,14 +62,14 @@ async function signedInEmail(target: AccountsApp, state: SessionState, items: Se
   }
 }
 
-/** GET /api/me with a raw credential header, outside any browser. */
+// GET /api/me with a raw credential header, outside any browser.
 async function me(target: AccountsApp, headers: Record<string, string>): Promise<{ status: number; email?: string }> {
   const res = await fetch(`${target.url}/api/me`, { headers });
   const body = (await res.json().catch(() => ({}))) as { email?: string };
   return { status: res.status, email: body.email };
 }
 
-/** The items signIn returned for `origin` (every entry for it, merged). */
+// The items signIn returned for `origin` (every entry for it, merged).
 function itemsFor(result: SignedIn, origin: string): { name: string; value: string }[] {
   return (result.sessionStorage ?? []).filter((e) => e.origin === origin).flatMap((e) => e.items);
 }
@@ -102,10 +79,7 @@ const shell = (title: string, body: string) =>
 
 const randomValue = () => `${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}${Date.now().toString(16)}`;
 
-/**
- * A sign-in page (reached as 127.0.0.1): posts the email and password as JSON to `api` on its own origin; on a 200 it
- * runs `onSuccess` (plain JS, with the answer as `d`), else shows the error in an alert.
- */
+// A sign-in page (reached as 127.0.0.1): posts the email and password as JSON to `api` on its own origin; on a 200 it runs `onSuccess` (plain JS, with the answer as `d`), else shows the error in an alert.
 const loginPage = (api: string, onSuccess: string) =>
   shell(
     "Sign in",
@@ -125,7 +99,7 @@ document.getElementById("f").addEventListener("submit", function (e) {
 </script>`,
   );
 
-/** In-page: show(token) asks /api/whoami with the token and puts "Signed in as <email>" or "Signed out" in #who. */
+// In-page: show(token) asks /api/whoami with the token and puts "Signed in as <email>" or "Signed out" in #who.
 const WHO = `var who = document.getElementById("who");
 function show(token) {
   fetch("/api/whoami", { headers: { authorization: "Bearer " + token } })
@@ -138,7 +112,7 @@ function sendHtml(res: ServerResponse, body: string): void {
   res.end(body);
 }
 
-/** The body is { email, password } for the one-off account. */
+// The body is { email, password } for the one-off account.
 function rightPassword(body: string): boolean {
   const parsed = JSON.parse(body || "{}") as { email?: string; password?: string };
   return parsed.email === EMAIL && parsed.password === PASSWORD;
@@ -355,7 +329,7 @@ describe("signIn: a sessionStorage session on the landing origin", () => {
     return { id: "a", label: "Account A", loginUrl: `${crossApp.url}${path}`, username: EMAIL, password: PASSWORD };
   }
 
-  /** Signs in by hand on `path` (the one-off app's sign-in page) and waits until the landing page says who is signed in. */
+  // Signs in by hand on `path` (the one-off app's sign-in page) and waits until the landing page says who is signed in.
   async function byHand(context: BrowserContext, path: string) {
     const page = await context.newPage();
     await page.goto(`${crossApp.url}${path}`);

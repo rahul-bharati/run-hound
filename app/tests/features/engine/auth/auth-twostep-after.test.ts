@@ -1,18 +1,10 @@
-/**
- * signIn on two-step sign-in pages (0.6.0, docs/v2-spec.md "Sign-in: two-step and sessionStorage") that ask for more
- * after the password step: codes and captchas aren't supported, so signing in fails with their messages ("Signing in"
- * step 6) instead of being judged a success because the password field went away.
- * - a code on the next page, on the sign-in origin (autocomplete=one-time-code);
- * - a captcha challenge that replaces the password step at the same address (the password field is gone);
- * - a password step whose answer asks for a captcha, with the password field still shown and the page's message.
- * The password is typed and sent once, to the password step's own request, and nothing is typed into the code field.
- */
+// signIn on two-step sign-in pages (0.6.0, docs/v2-spec.md "Sign-in: two-step and sessionStorage") that ask for more after the password step: codes and captchas aren't supported, so signing in fails with their messages ("Signing in" step 6) instead of being judged a success because the password field went away. A code on the next page, on the sign-in origin (autocomplete=one-time-code); a captcha challenge that replaces the password step at the same address (the password field is gone); a password step whose answer asks for a captcha, with the password field still shown and the page's message. The password is typed and sent once, to the password step's own request, and nothing is typed into the code field.
 import type { Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { TestAccount } from "../interfaces/accounts.js";
-import { signIn, SignInError, type SignedIn } from "./auth.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { TestAccount } from "../../../../src/interfaces/accounts.js";
+import { signIn, SignInError, type SignedIn } from "../../../../src/engine/auth.js";
 
 const EMAIL = "someone@example.test";
 const PASSWORD = "after-step(pw)~4821";
@@ -22,10 +14,7 @@ let server: FixtureServer;
 
 const shell = (title: string, body: string) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title></head><body><main>${body}</main></body></html>`;
 
-/**
- * A two-step sign-in form: the email and Continue; the first submit shows the password row, the second posts both to
- * `endpoint` as JSON and calls `then(response body)` in the page when it answers 2xx, or shows its error otherwise.
- */
+// A two-step sign-in form: the email and Continue; the first submit shows the password row, the second posts both to `endpoint` as JSON and calls `then(response body)` in the page when it answers 2xx, or shows its error otherwise.
 function twoStep(endpoint: string, then: string): string {
   return shell(
     "Sign in",
@@ -52,7 +41,7 @@ form.addEventListener("submit", function (e) {
   );
 }
 
-/** A reCAPTCHA-style widget (what showsCaptcha recognises): its container, with a site key. */
+// A reCAPTCHA-style widget (what showsCaptcha recognises): its container, with a site key.
 const WIDGET = `var w = document.createElement("div"); w.className = "g-recaptcha"; w.setAttribute("data-sitekey", "test-site-key"); w.style.cssText = "width:304px;height:78px;border:1px solid #ccc";`;
 
 beforeAll(async () => {
@@ -108,7 +97,7 @@ afterAll(async () => {
 
 const account = (path: string): TestAccount => ({ id: "a", label: "Account A", loginUrl: `${server.url}${path}`, username: EMAIL, password: PASSWORD });
 
-/** The error signIn rejected with; fails the test when it resolved or threw anything but a SignInError. */
+// The error signIn rejected with; fails the test when it resolved or threw anything but a SignInError.
 async function failure(promise: Promise<SignedIn>): Promise<SignInError> {
   const outcome = await promise.then(
     () => "resolved" as const,
@@ -118,9 +107,9 @@ async function failure(promise: Promise<SignedIn>): Promise<SignInError> {
   return outcome as SignInError;
 }
 
-/** The fields the page reported typing into, in order. */
+// The fields the page reported typing into, in order.
 const typed = () => server.requests.filter((r) => r.url.startsWith("/api/typed?")).map((r) => new URL(r.url, "http://x").searchParams.get("field"));
-/** Requests whose body carries the password, as "<method> <path>". */
+// Requests whose body carries the password, as "<method> <path>".
 const carrying = () => server.requests.filter((r) => r.body.includes(PASSWORD) || r.url.includes(encodeURIComponent(PASSWORD))).map((r) => `${r.method} ${r.url}`);
 
 describe("the pages by hand (so the signIn tests below fail only for signIn's reasons)", () => {

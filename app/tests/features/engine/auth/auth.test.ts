@@ -1,24 +1,17 @@
-/**
- * signIn (0.4.0, docs/v2-spec.md "Signing in"): signs a test account in with a fresh, guarded browser context and
- * returns the session (Playwright storageState, in memory only), where the browser landed (redacted) and the session
- * values to redact. Failures are SignInError with one or two plain sentences that never hold the password.
- *
- * Runs against the shared accounts app (test-support/accounts-app.ts) in every sign-in variant and token mode, plus a
- * few one-off sign-in pages served below.
- */
+// signIn (0.4.0, docs/v2-spec.md "Signing in"): signs a test account in with a fresh, guarded browser context and returns the session (Playwright storageState, in memory only), where the browser landed (redacted) and the session values to redact. Failures are SignInError with one or two plain sentences that never hold the password. Runs against the shared accounts app (test-support/accounts-app.ts) in every sign-in variant and token mode, plus a few one-off sign-in pages served below.
 import type { Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../test-support/accounts-app.js";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { TestAccount } from "../interfaces/accounts.js";
-import { signIn, SignInError, type SessionState, type SignedIn } from "./auth.js";
+import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../../../test-support/accounts-app.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { TestAccount } from "../../../../src/interfaces/accounts.js";
+import { signIn, SignInError, type SessionState, type SignedIn } from "../../../../src/engine/auth.js";
 
 let browser: Browser;
 let pages: FixtureServer;
 const apps = new Map<string, AccountsApp>();
 
-/** One accounts app per option set, started once for the file. */
+// One accounts app per option set, started once for the file.
 async function app(options: AccountsAppOptions = {}): Promise<AccountsApp> {
   const key = JSON.stringify({ tokenMode: options.tokenMode ?? "cookie", loginVariant: options.loginVariant ?? "email" });
   let found = apps.get(key);
@@ -31,12 +24,12 @@ async function app(options: AccountsAppOptions = {}): Promise<AccountsApp> {
   return found;
 }
 
-/** A test account for a one-off page (not the accounts app). */
+// A test account for a one-off page (not the accounts app).
 function accountFor(loginUrl: string, extra: Partial<TestAccount> = {}): TestAccount {
   return { id: "a", label: "Account A", loginUrl, username: "someone@example.test", password: "fixture-pass-2468", ...extra };
 }
 
-/** The error signIn rejected with; fails the test when it resolved or threw anything but a SignInError. */
+// The error signIn rejected with; fails the test when it resolved or threw anything but a SignInError.
 async function failure(promise: Promise<SignedIn>): Promise<SignInError> {
   const outcome = await promise.then(
     () => "resolved" as const,
@@ -46,7 +39,7 @@ async function failure(promise: Promise<SignedIn>): Promise<SignInError> {
   return outcome as SignInError;
 }
 
-/** Who the accounts app says is signed in when a new browser context opens /settings with `state`. */
+// Who the accounts app says is signed in when a new browser context opens /settings with `state`.
 async function signedInEmail(target: AccountsApp, state: SessionState): Promise<string | null> {
   const context = await browser.newContext({ storageState: state });
   try {
@@ -59,14 +52,14 @@ async function signedInEmail(target: AccountsApp, state: SessionState): Promise<
   }
 }
 
-/** GET /api/me with a raw credential header, outside any browser. */
+// GET /api/me with a raw credential header, outside any browser.
 async function me(target: AccountsApp, headers: Record<string, string>): Promise<{ status: number; email?: string }> {
   const res = await fetch(`${target.url}/api/me`, { headers });
   const body = (await res.json().catch(() => ({}))) as { email?: string };
   return { status: res.status, email: body.email };
 }
 
-/** The session value signIn's state carries: the sid cookie (cookie mode) or the localStorage token (bearer). */
+// The session value signIn's state carries: the sid cookie (cookie mode) or the localStorage token (bearer).
 function sessionValue(target: AccountsApp, state: SessionState): string | undefined {
   if (target.options.tokenMode === "cookie") return state.cookies.find((c) => c.name === "sid")?.value;
   return state.origins.find((o) => o.origin === target.url)?.localStorage.find((i) => i.name === "token")?.value;

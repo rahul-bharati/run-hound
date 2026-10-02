@@ -1,35 +1,11 @@
-/**
- * signIn never types the account's password into a sign-up form beside a two-step sign-in's first step (0.6.0, round 2
- * of the release review; docs/v2-spec.md "Signing in" step 2: "never one that creates an account", and "Sign-in:
- * two-step and sessionStorage": "sign-in words, never a sign-up form").
- *
- * What went wrong: a sign-in page with an email-first sign-in form ("Sign in", Continue) and, beside it, a free-trial
- * sign-up form (Full name, Work email, Password, "Start free trial"). The one-step search ran first and took any form
- * with a password field whose words didn't say sign up, and "Start free trial" didn't: the account's email and
- * password were typed into the trial form and submitted, a new trial account was created on the user's app, and the
- * run went on as that account.
- *
- * The contract now:
- * - Trial wording (free trial, start your trial, try it free) says sign up, and a password form with a field for the
- *   person's name (Name, Full name, First name) is a sign-up form.
- * - When the page has a first step with sign-in words of its own, a password form is taken for the sign-in only when
- *   it gives a sign-in signal of its own (autocomplete=current-password, or sign-in words in its name or its submit
- *   control); otherwise the sign-in goes through the first step.
- *
- * Round 3: the rule above was still a word list. A sign-up form saying "Start for free" or "Create workspace" beside a
- * "Welcome back" first step (only the page's title said Log in) got the email and password. Now any first step
- * (firstStepForm: sign-in words of its own, before it, in the page's title or its address) beside a password form
- * without a sign-in signal of its own takes the sign-in. And a name field is a sign-up signal only beside another
- * identifier field: an admin panel's Name, Password, "Submit" is a sign-in form. When every password form on the page
- * is a sign-up form, the message says so.
- */
+// signIn never types the account's password into a sign-up form beside a two-step sign-in's first step (0.6.0, round 2 of the release review; docs/v2-spec.md "Signing in" step 2: "never one that creates an account", "Sign-in: two-step and sessionStorage": "sign-in words, never a sign-up form"). Trial wording (free trial, start your trial, try it free) says sign up; a password form with a field for the person's name (Name, Full name, First name) is a sign-up form. When the page has a first step with sign-in words of its own, a password form is taken for the sign-in only when it gives a sign-in signal of its own (autocomplete=current-password, or sign-in words in its name or its submit control); otherwise the sign-in goes through the first step. Round 3: any first step (firstStepForm: sign-in words of its own, before it, in the page's title or its address) beside a password form without a sign-in signal of its own takes the sign-in. A name field is a sign-up signal only beside another identifier field: an admin panel's Name, Password, "Submit" is a sign-in form. When every password form on the page is a sign-up form, the message says so.
 import type { ServerResponse } from "node:http";
 import type { Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { TestAccount } from "../interfaces/accounts.js";
-import { signIn, SignInError } from "./auth.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { TestAccount } from "../../../../src/interfaces/accounts.js";
+import { signIn, SignInError } from "../../../../src/engine/auth.js";
 
 const EMAIL = "someone@example.test";
 const PASSWORD = "hunter2correcthorse91";
@@ -46,30 +22,27 @@ function sendHtml(res: ServerResponse, body: string): void {
   res.end(body);
 }
 
-/** The email-first sign-in step (it says Sign in), posting to /login/identifier. */
+// The email-first sign-in step (it says Sign in), posting to /login/identifier.
 const FIRST_STEP = `<section><h2>Sign in</h2>
 <form method="post" action="/login/identifier" aria-label="Sign in"><label for="e">Email</label><input id="e" name="email" type="email" autocomplete="username"><button type="submit">Continue</button></form></section>`;
 
-/**
- * An email-first step whose own words don't say sign in (round 3 of the release review): a "Welcome back" heading and
- * "Continue"; only the page's title ("Log in") says it.
- */
+// An email-first step whose own words don't say sign in (round 3 of the release review): a "Welcome back" heading and "Continue"; only the page's title ("Log in") says it.
 const PLAIN_FIRST_STEP = `<section><h1>Welcome back</h1>
 <form method="post" action="/login/identifier"><label for="e">Email</label><input id="e" name="email" type="email" autocomplete="username"><button type="submit">Continue</button></form></section>`;
 
-/** A page with the first step and, beside it, `signup` (a form with a password field that posts to /trial). */
+// A page with the first step and, beside it, `signup` (a form with a password field that posts to /trial).
 const page = (signup: string, before = false, plain = false) =>
   plain
     ? shell("Log in – Acme", before ? signup + PLAIN_FIRST_STEP : PLAIN_FIRST_STEP + signup)
     : shell("Sign in · Acme", `<h1>Welcome to Acme</h1>${before ? signup + FIRST_STEP : FIRST_STEP + signup}`);
 
-/** A sign-up form with a password field and no name field, saying `cta` (words no sign-up word list knows). */
+// A sign-up form with a password field and no name field, saying `cta` (words no sign-up word list knows).
 const plainSignup = (cta: string) => `<section><h2>New to Acme?</h2>
 <form method="post" action="/trial"><label for="te">Work email</label><input id="te" name="email" type="email">
 <label for="tp">Password</label><input id="tp" name="password" type="password">
 <button type="submit">${cta}</button></form></section>`;
 
-/** The sign-up forms beside the first step (`plain`: beside PLAIN_FIRST_STEP, on a page titled "Log in"). */
+// The sign-up forms beside the first step (`plain`: beside PLAIN_FIRST_STEP, on a page titled "Log in").
 const SIGNUPS: Record<string, { what: string; html: string; before?: boolean; plain?: boolean }> = {
   "/login-start-free": {
     what: 'a "Start for free" form (Work email, Password) beside a "Welcome back" first step whose own words don\'t say sign in',

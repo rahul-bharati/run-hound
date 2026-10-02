@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { Report } from "../core/types.js";
-import { NOT_VISIBLE, renderHtml } from "./report.js";
+import type { Report } from "../../../../src/core/types.js";
+import { NOT_VISIBLE, renderHtml } from "../../../../src/engine/report.js";
 
-/** A small report with a high and a medium finding, so both severity colours are in play. */
+// A small report with a high and a medium finding, so both severity colours are in play.
 function report(): Report {
   const finding = (severity: "high" | "medium", n: number) => ({
     checkId: "double-submit" as const,

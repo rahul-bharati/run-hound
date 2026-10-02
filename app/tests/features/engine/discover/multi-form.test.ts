@@ -1,17 +1,13 @@
-/**
- * V1: a page with several forms. A problem in a secondary form is reported once, in that form's scenario, and the
- * main form's scenarios stay clean; a search form is planned without the checks that need a saved record.
- */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { check as axeStates } from "../checks/axe-states.js";
-import { check as errorAnnouncement } from "../checks/error-announcement.js";
-import { check as persistence } from "../checks/persistence.js";
-import { check as doubleSubmit } from "../checks/double-submit.js";
-import { discoverAndPlan, runPlan } from "./runner.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { check as axeStates } from "../../../../src/checks/axe-states.js";
+import { check as errorAnnouncement } from "../../../../src/checks/error-announcement.js";
+import { check as persistence } from "../../../../src/checks/persistence.js";
+import { check as doubleSubmit } from "../../../../src/checks/double-submit.js";
+import { discoverAndPlan, runPlan } from "../../../../src/engine/runner.js";
 
 const servers: FixtureServer[] = [];
 const dirs: string[] = [];
@@ -20,8 +16,8 @@ afterAll(async () => {
   await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })));
 });
 
-/** Main contact form: labelled, errors announced, saved messages listed. Newsletter: its field has no label and
- *  its error is red text only. Header search: a GET form. */
+// Main contact form: labelled, errors announced, saved messages listed. Newsletter: its field has no label and
+//  its error is red text only. Header search: a GET form.
 const PAGE = `<!doctype html><html lang="en"><head><title>Shop</title></head><body>
 <header><form role="search" action="/search" method="get"><label for="q">Search</label><input id="q" name="q" type="search"><button>Search</button></form></header>
 <main><h1 id="t">Contact us</h1>

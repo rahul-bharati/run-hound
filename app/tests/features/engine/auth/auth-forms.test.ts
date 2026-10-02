@@ -1,23 +1,12 @@
-/**
- * signIn on sign-in pages that are harder than the accounts app (round-2 review):
- * - a sign-up form placed before the sign-in form is never used: the account's email and password only go to the
- *   sign-in form (signInForm ranks forms: sign-in words and autocomplete=current-password win; a form that says
- *   sign up / create / register, or whose password is a new-password, is never picked);
- * - a form that would put the password in the page address (a GET form) is refused before the request leaves the
- *   browser, with a plain message: the password never reaches the app's access log;
- * - a session kept in IndexedDB (Firebase Auth does) is part of the session: the storage state carries it, and the
- *   token is one of the values to redact.
- * - the password is only typed on, and only sent to, the sign-in page's own origin: a sign-in page that redirects to
- *   another origin, or a form that posts the password to one, fails with a plain message and nothing is sent there.
- */
+// signIn on sign-in pages harder than the accounts app (round-2 review): a sign-up form before the sign-in form is never used (signInForm ranks: sign-in words and autocomplete=current-password win; a sign-up / new-password form is never picked); a GET form is refused before the request leaves the browser; an IndexedDB session (Firebase Auth) is part of the session and its token is a redaction value; the password is typed and sent only on the sign-in page's own origin.
 import type { Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { TestAccount } from "../interfaces/accounts.js";
-import type { DiscoveredForm } from "../core/types.js";
-import { sessionSecrets, signIn, signInForm, SignInError, type SessionState } from "./auth.js";
-import { discoverPage } from "./discover.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { TestAccount } from "../../../../src/interfaces/accounts.js";
+import type { DiscoveredForm } from "../../../../src/core/types.js";
+import { sessionSecrets, signIn, signInForm, SignInError, type SessionState } from "../../../../src/engine/auth.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
 
 const EMAIL = "someone@example.test";
 const PASSWORD = "horse(battery)!~staple";
@@ -25,7 +14,7 @@ const TOKEN = "idb-token-7f3a9c21e4b84d0f";
 
 let browser: Browser;
 let server: FixtureServer;
-/** Another origin (another port on the same machine): where the password must never go. */
+// Another origin (another port on the same machine): where the password must never go.
 let elsewhere: FixtureServer;
 
 const shell = (title: string, body: string) => `<!doctype html><html lang="en"><head><title>${title}</title></head><body><main>${body}</main></body></html>`;

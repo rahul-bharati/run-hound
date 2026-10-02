@@ -1,13 +1,13 @@
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Page } from "playwright";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { DiscoveredForm, FormField } from "../core/types.js";
-import { discoverForm } from "./discover.js";
-import { NoFormFoundError } from "./errors.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { DiscoveredForm, FormField } from "../../../../src/core/types.js";
+import { discoverForm } from "../../../../src/engine/discover.js";
+import { NoFormFoundError } from "../../../../src/engine/errors.js";
 
-const root = fileURLToPath(new URL("../../test/fixtures/discover/", import.meta.url));
+const root = fileURLToPath(new URL("../../../../test/fixtures/discover/", import.meta.url));
 
 let server: FixtureServer;
 

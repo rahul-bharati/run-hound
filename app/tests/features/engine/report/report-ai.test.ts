@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { Finding, Report } from "../core/types.js";
-import { NOT_VISIBLE, renderHtml, renderMarkdown } from "./report.js";
+import type { Finding, Report } from "../../../../src/core/types.js";
+import { NOT_VISIBLE, renderHtml, renderMarkdown } from "../../../../src/engine/report.js";
 
-/** Report rendering of the AI fields (docs/ai-spec.md "Surfaces" → Reports). */
+// Report rendering of the AI fields (docs/ai-spec.md "Surfaces" → Reports).
 
 const FORM = {
   url: "http://127.0.0.1:3000/book",

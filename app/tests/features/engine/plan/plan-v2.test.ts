@@ -1,32 +1,28 @@
-/**
- * Planning the 0.4.0 (V2) checks: access-control, mass-assignment and deep-links (docs/v2-spec.md "Checks"), and the
- * sign-in hint a signed-out plan shows instead of the access scenarios. buildPlan passes PlanEnv to every check.
- */
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser } from "playwright";
-import { startAccountsApp, type AccountsApp } from "../../test-support/accounts-app.js";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { check as accessControl } from "../checks/access-control.js";
-import { check as deepLinks } from "../checks/deep-links.js";
-import { checks as allChecks } from "../checks/index.js";
-import { check as massAssignment } from "../checks/mass-assignment.js";
-import { CHECK_IDS, V2_CHECK_IDS, type AccountRef, type CheckGroup, type CheckId, type DiscoveredForm, type DiscoveredPage, type FormControl, type FormField, type Plan, type PlanEnv, type Scenario } from "../core/types.js";
-import { discoverPage } from "./discover.js";
-import { buildPlan, WHOLE_PAGE } from "./plan.js";
-import { planWarnings } from "./runner.js";
+import { startAccountsApp, type AccountsApp } from "../../../../test-support/accounts-app.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { check as accessControl } from "../../../../src/checks/access-control.js";
+import { check as deepLinks } from "../../../../src/checks/deep-links.js";
+import { checks as allChecks } from "../../../../src/checks/index.js";
+import { check as massAssignment } from "../../../../src/checks/mass-assignment.js";
+import { CHECK_IDS, V2_CHECK_IDS, type AccountRef, type CheckGroup, type CheckId, type DiscoveredForm, type DiscoveredPage, type FormControl, type FormField, type Plan, type PlanEnv, type Scenario } from "../../../../src/core/types.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { buildPlan, WHOLE_PAGE } from "../../../../src/engine/plan.js";
+import { planWarnings } from "../../../../src/engine/runner.js";
 
 const V2 = [accessControl, massAssignment, deepLinks];
 const A: AccountRef = { id: "a", label: "Account A" };
 const SIGNED_OUT: PlanEnv = { signedIn: false, otherAccount: false };
 const SIGNED_IN_ALONE: PlanEnv = { signedIn: true, otherAccount: false };
 const SIGNED_IN_WITH_B: PlanEnv = { signedIn: true, otherAccount: true };
-/** The hint a signed-out plan shows instead of the access scenarios (docs/v2-spec.md "Checks"). */
+// The hint a signed-out plan shows instead of the access scenarios (docs/v2-spec.md "Checks").
 const HINT = /Sign in as a test account to run the access checks/;
 
 let browser: Browser;
 let app: AccountsApp;
-/** /notes discovered as alice: forms "New note" and "Profile" (both save), links to /notes, /settings and /help. */
+// /notes discovered as alice: forms "New note" and "Profile" (both save), links to /notes, /settings and /help.
 let notes: DiscoveredPage;
 let target: string;
 const servers: FixtureServer[] = [];
@@ -67,7 +63,7 @@ function hints(plan: Plan): string[] {
   return planWarnings(plan).filter((w) => HINT.test(w));
 }
 
-/** A plan as discoverAndPlan returns it when signed in: it records the account it was discovered as. */
+// A plan as discoverAndPlan returns it when signed in: it records the account it was discovered as.
 function signedIn(plan: Plan): Plan {
   return { ...plan, account: A };
 }

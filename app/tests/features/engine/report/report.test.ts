@@ -2,10 +2,10 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Finding, Report } from "../core/types.js";
-import { NOT_VISIBLE, renderHtml, renderMarkdown, writeReport } from "./report.js";
+import type { Finding, Report } from "../../../../src/core/types.js";
+import { NOT_VISIBLE, renderHtml, renderMarkdown, writeReport } from "../../../../src/engine/report.js";
 
-/** Obviously fake, but shaped like a real OpenAI project key so the redactor must catch it. */
+// Shaped like a real OpenAI project key so the redactor must catch it.
 const FAKE_SECRET = "sk-proj-FAKEFAKEfake1234567890abcdefghijklmnopqrstuvwxyzABCDEFGH";
 
 function makeFinding(overrides: Partial<Finding> = {}): Finding {

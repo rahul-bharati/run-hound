@@ -1,31 +1,16 @@
-/**
- * signIn never hands the run a session that holds the password (0.6.0, round 2 of the release review; docs/v2-spec.md
- * "Sign-in: two-step and sessionStorage": "a request carrying it to another origin or in a URL is stopped").
- *
- * What went wrong: a sign-in page whose script keeps the password it can read in its own field (a "remember me" hint
- * cookie, a login draft in localStorage) sent nothing anywhere while Run Hound signed in, so no sign-in leak layer had
- * anything to stop. But SignedIn.state carried the cookie and the localStorage item, every check context was seeded
- * with them, and the app's first page carried them to another origin: the cookie on an image from another port (a dev
- * asset server), the draft in a beacon to an analytics host.
- *
- * The contract now: before signIn returns, the session it would return (cookie values, localStorage and IndexedDB
- * records, and the sessionStorage it keeps) is read for the password, raw and in its encoded forms, the way a request
- * is. When it is there, the sign-in fails and says where, and nothing of that session reaches a check context. A weak
- * password ("demo") counts only as a whole value under a key that names a password, and a password equal to the
- * username never counts (an app keeps the username it signed in with).
- */
+// signIn never hands the run a session that holds the password (0.6.0, round 2 of the release review; docs/v2-spec.md "Sign-in: two-step and sessionStorage": "a request carrying it to another origin or in a URL is stopped"). Before signIn returns, the session it would return (cookie values, localStorage and IndexedDB records, and the sessionStorage it keeps) is read for the password, raw and in its encoded forms, the way a request is. When it is there, the sign-in fails and says where, and nothing of that session reaches a check context. A weak password ("demo") counts only as a whole value under a key that names a password, and a password equal to the username never counts (an app keeps the username it signed in with).
 import { mkdtemp, rm } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { TestAccount } from "../interfaces/accounts.js";
-import { signIn, SignInError, type SignedIn } from "./auth.js";
-import { createCheckContext } from "./context.js";
-import { emptyForm } from "./discover.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { TestAccount } from "../../../../src/interfaces/accounts.js";
+import { signIn, SignInError, type SignedIn } from "../../../../src/engine/auth.js";
+import { createCheckContext } from "../../../../src/engine/context.js";
+import { emptyForm } from "../../../../src/engine/discover.js";
 
 const PASSWORD = "hunter2correcthorse91";
 const USERS = [
@@ -46,7 +31,7 @@ function sendHtml(res: ServerResponse, body: string): void {
   res.end(body);
 }
 
-/** A sign-in page whose script posts JSON to /api/login and, once signed in, runs `keep` (pw: the password) and goes to /home. */
+// A sign-in page whose script posts JSON to /api/login and, once signed in, runs `keep` (pw: the password) and goes to /home.
 const loginPage = (keep: string) =>
   shell(
     "Sign in",
@@ -62,7 +47,7 @@ document.getElementById("f").addEventListener("submit", function (e) {
 </script>`,
   );
 
-/** What each sign-in page keeps once signed in. */
+// What each sign-in page keeps once signed in.
 const KEEP: Record<string, string> = {
   cookie: `document.cookie = "pw_hint=" + encodeURIComponent(pw) + "; path=/";`,
   base64: `document.cookie = "remember=" + btoa("v1:" + user + ":" + pw) + "; path=/";`,
@@ -113,7 +98,7 @@ afterAll(async () => {
 
 const account = (path: string, user = USERS[0]!): TestAccount => ({ id: "a", label: "Account A", loginUrl: `${site.url}${path}`, ...user });
 
-/** Opens the app's page in a check context seeded with `signed`, as the runner opens every scenario. */
+// Opens the app's page in a check context seeded with `signed`, as the runner opens every scenario.
 async function openApp(signed: SignedIn): Promise<void> {
   const artifactsDir = await mkdtemp(join(tmpdir(), "rh-stored-password-"));
   const target = `${site.url}/app`;

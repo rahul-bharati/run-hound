@@ -1,35 +1,15 @@
-/**
- * signIn fails only for a reason (0.6.0, round 1 of the release review; docs/v2-spec.md "Signing in" and "Sign-in:
- * two-step and sessionStorage"). Three sign-ins that 0.5.0 handled and 0.6.0 got wrong:
- *
- * - **A common-word password in an ordinary address.** With the password "password" (Laravel's seeds), a landing page
- *   that loads /api/account/password-status failed with "sends the password in the page address"; so did a username
- *   equal to the password ("testuser1") in /api/users/testuser1. On the sign-in origin, only an address's query, hash
- *   and user info count (a GET form puts the password in the query, never in the path), and when the password equals
- *   the username only under a query key that names a password (?password=, &pwd=): a page that sends it there still
- *   fails.
- * - **A passwordless ("magic link") form.** An email field and "Send magic link" was taken for a two-step sign-in's
- *   first step and submitted, so the app e-mailed the test account on every sign-in, before failing. A form whose own
- *   words (its name, its control) say it sends something (send, e-mail me, a magic or sign-in link, a code, one-time)
- *   is never a first step: nothing is submitted, and the message says the page signs in with what it sends. A control
- *   whose name and text are the same word is named once in a message ("Continue", not "Continue Continue").
- * - **A captcha in the signed-in view of a same-address app.** An SPA that shows its sign-in form at "/" and the app in
- *   its place once signed in, with a Turnstile widget in the app's feedback form, failed with "the sign-in form has a
- *   captcha". A captcha that shows after the submit at the same address counts only when the submit started no
- *   session (no new or changed session cookie, and no new session value in localStorage or sessionStorage): the same
- *   page answering with a captcha challenge instead of a session still fails.
- */
+// signIn fails only for a reason (0.6.0, round 1; docs/v2-spec.md "Signing in", "Sign-in: two-step and sessionStorage"): a common-word password in an ordinary address counts only in the query / hash / user info (and equal to the username only under a password-named key); a "magic link" form (its own words say send, code, link, one-time) is never a first step; a captcha after the submit on the same address fails only when no new session was started.
 import type { ServerResponse } from "node:http";
 import type { Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { TestAccount } from "../interfaces/accounts.js";
-import { signIn, SignInError, type SignedIn } from "./auth.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { TestAccount } from "../../../../src/interfaces/accounts.js";
+import { signIn, SignInError, type SignedIn } from "../../../../src/engine/auth.js";
 
 const EMAIL = "alice@example.test";
 const ALICE_PASSWORD = "alice-pass-7Q2x";
-/** Account pairs the form-post app accepts: a common-word password, and a username equal to its password. */
+// Account pairs the form-post app accepts: a common-word password, and a username equal to its password.
 const COMMON = { username: EMAIL, password: "password" };
 const SAME = { username: "testuser1", password: "testuser1" };
 const SID = "s3ss10nT0kenValue1234567890";
@@ -47,7 +27,7 @@ function sendHtml(res: ServerResponse, body: string): void {
 
 const signedInUser = (req: RecordedRequest) => /(?:^|;\s*)who=([^;]+)/.exec(String(req.headers.cookie ?? ""))?.[1];
 
-/** A plain sign-in form (POST /pw/login) that goes on to `next` once signed in. */
+// A plain sign-in form (POST /pw/login) that goes on to `next` once signed in.
 const formLogin = (next: string) =>
   shell(
     "Sign in",
@@ -57,7 +37,7 @@ const formLogin = (next: string) =>
 <button type="submit">Sign in</button></form>`,
   );
 
-/** A landing page that loads `urls` (script requests, `U` the signed-in username) and then says it is ready. */
+// A landing page that loads `urls` (script requests, `U` the signed-in username) and then says it is ready.
 const landing = (user: string, urls: string) =>
   shell(
     "App",
@@ -69,7 +49,7 @@ Promise.all(${urls}.map(function (u) { return fetch(u).then(function (r) { retur
 </script>`,
   );
 
-/** A one-step SPA at /spa (or /spa-challenge): its sign-in form in place while signed out, the app in place once signed in. */
+// A one-step SPA at /spa (or /spa-challenge): its sign-in form in place while signed out, the app in place once signed in.
 const spa = (api: string) =>
   shell(
     "Notes",
@@ -96,7 +76,7 @@ fetch("/api/me").then(function (r) { if (r.ok) signedIn(); else signedOut(); });
 </script>`,
   );
 
-/** A passwordless sign-in page: an email field and `control`, in a form named `name`; its submit asks the app to send. */
+// A passwordless sign-in page: an email field and `control`, in a form named `name`; its submit asks the app to send.
 const sendsPage = (name: string, control: string) =>
   shell(
     "Sign in · Notes",

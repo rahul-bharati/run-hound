@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CHECK_IDS, type Check, type CheckId, type DiscoveredForm, type Scenario } from "../core/types.js";
-import { buildPlan } from "./plan.js";
+import { CHECK_IDS, type Check, type CheckId, type DiscoveredForm, type Scenario } from "../../../../src/core/types.js";
+import { buildPlan } from "../../../../src/engine/plan.js";
 
 const form: DiscoveredForm = {
   url: "http://127.0.0.1:1/book",

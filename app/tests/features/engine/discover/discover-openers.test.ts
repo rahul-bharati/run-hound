@@ -1,8 +1,3 @@
-/**
- * 0.4.0: forms behind a trigger (LOV-8). A form in a dialog, sheet or popover only exists after a click; discovery
- * tries a few controls that look like they open one, each on a freshly loaded page, and records the form with its
- * opener. CheckContext.openPage then clicks the opener after every load (openForm).
- */
 import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -12,16 +7,16 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Page } from "playwright";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { Check, CheckId, DiscoveredForm, DiscoveredPage } from "../core/types.js";
-import { check as persistence } from "../checks/persistence.js";
-import { isDestructiveControl } from "../checks/dead-control.js";
-import { discoverPage, safeToProbe } from "./discover.js";
-import { OPEN_FORM_TIMEOUT_MS, openForm } from "./open-form.js";
-import { discoverAndPlan, runPlan } from "./runner.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { Check, CheckId, DiscoveredForm, DiscoveredPage } from "../../../../src/core/types.js";
+import { check as persistence } from "../../../../src/checks/persistence.js";
+import { isDestructiveControl } from "../../../../src/checks/dead-control.js";
+import { discoverPage, safeToProbe } from "../../../../src/engine/discover.js";
+import { OPEN_FORM_TIMEOUT_MS, openForm } from "../../../../src/engine/open-form.js";
+import { discoverAndPlan, runPlan } from "../../../../src/engine/runner.js";
 
-const root = fileURLToPath(new URL("../../test/fixtures/discover/", import.meta.url));
+const root = fileURLToPath(new URL("../../../../test/fixtures/discover/", import.meta.url));
 
 const servers: FixtureServer[] = [];
 const dirs: string[] = [];
@@ -31,7 +26,7 @@ afterAll(async () => {
   await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })));
 });
 
-/** The dialog fixture with a members API; `clicked` lists the openers each page load clicked (GET beacons). */
+// The dialog fixture with a members API; `clicked` lists the openers each page load clicked (GET beacons).
 async function team() {
   const members: { name: string; email: string }[] = [];
   const s = await startFixtureServer({
@@ -118,7 +113,7 @@ describe("discoverPage with openers (LOV-8)", () => {
   });
 });
 
-/** A page with `onLoad` forms and one opener button per name, each showing a dialog with a one-field form. */
+// A page with `onLoad` forms and one opener button per name, each showing a dialog with a one-field form.
 function openersPage(onLoad: number, names: string[]): string {
   const forms = Array.from({ length: onLoad }, (_, i) => `<form id="f${i}"><label for="i${i}">Field ${i}</label><input id="i${i}" name="i${i}"><button>Go</button></form>`).join("");
   const buttons = names.map((n, i) => `<button type="button" id="b${i}">${n}</button>`).join("");
@@ -266,11 +261,6 @@ describe("openPage opens a dialog form only for the form's own scenarios", () =>
   }, 120_000);
 });
 
-/**
- * A LiveView-style page on a tiny server with a WebSocket: the page says "join" when the socket opens and shows its
- * form once the server answers "ready"; "Add item" sends "add" over the socket (a write, with no HTTP request). The
- * server counts the messages it gets. A "Join team" link (role=button) changes something with a GET.
- */
 async function socketApp(): Promise<{ url: string; messages: string[]; gets: string[]; close(): Promise<void> }> {
   const messages: string[] = [];
   const gets: string[] = [];

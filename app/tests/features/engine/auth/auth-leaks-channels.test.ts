@@ -1,51 +1,33 @@
-/**
- * signIn keeps the password on the sign-in page's origin through channels a hostile sign-in page could still use (0.6.0,
- * round 1 of the release review; docs/v2-spec.md "Sign-in: two-step and sessionStorage": "a request carrying it to
- * another origin or in a URL is stopped"):
- * - **The host name of a request.** A script that puts the password in a subdomain (fetch or an image to
- *   http://<password>.localhost:<port>/) sent it to another origin unstopped: the address's query, hash, path and user
- *   info were read, never its host name. A password that isn't weak is now looked for in the host name too (host names
- *   are lower-case, so compared so), and the request is stopped before it leaves the browser. The message never shows
- *   the address (it would show the password, lower-cased, which the redaction doesn't know).
- * - **WebRTC.** A page that hands the password to a TURN server as the ICE username (RTCPeerConnection) sends it over
- *   UDP, which no interception layer sees. SIGN_IN_HARDENING replaces RTCPeerConnection and webkitRTCPeerConnection
- *   in every frame with constructors that throw, before any page script runs; a frame the page makes itself (an
- *   about:blank iframe) gets them too.
- * - **WebTransport**, the other API that opens a connection no interception layer sees (HTTP/3), is blocked the same
- *   way: the page can't construct one during sign-in.
- *
- * Each channel is first driven by hand in a plain browser (no signIn), which shows it carries the password out: so each
- * signIn test fails only for signIn's reasons. What must not happen gets a set time to show up (SETTLE_MS).
- */
+// signIn keeps the password on the sign-in origin through channels a hostile page could still use (0.6.0, round 1; docs/v2-spec.md "Sign-in: two-step and sessionStorage"): a non-weak password is looked for in the request's host name (lower-case) too, and the request is stopped; SIGN_IN_HARDENING replaces RTCPeerConnection / webkitRTCPeerConnection / WebTransport in every frame with constructors that throw, before any page script runs (an about:blank iframe the page makes itself gets them too). Each channel is first driven by hand in a plain browser, so each signIn test fails only for signIn's reasons; SETTLE_MS times what must not happen.
 import { createSocket, type Socket as UdpSocket } from "node:dgram";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { TestAccount } from "../interfaces/accounts.js";
-import { signIn, SignInError, type SignedIn } from "./auth.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { TestAccount } from "../../../../src/interfaces/accounts.js";
+import { signIn, SignInError, type SignedIn } from "../../../../src/engine/auth.js";
 
 const EMAIL = "someone@example.test";
-/** Lower-case letters and digits: a valid host name label as it is. */
+// Lower-case letters and digits: a valid host name label as it is.
 const PASSWORD = "hunter2correcthorse91";
-/** Mixed case: a host name holds it lower-cased. */
+// Mixed case: a host name holds it lower-cased.
 const MIXED = "Hunter2CorrectHorse91";
 const SETTLE_MS = 1_500;
 
 let browser: Browser;
 let site: FixtureServer;
-/** What the collector (another origin: any *.localhost host name on its port) saw: each request's Host header and path. */
+// What the collector (another origin: any *.localhost host name on its port) saw: each request's Host header and path.
 let collector: Server;
 let collectorPort: number;
 const seen: { host: string; url: string }[] = [];
-/** The TURN server (UDP on 127.0.0.1): the USERNAME attribute of every STUN message it got. */
+// The TURN server (UDP on 127.0.0.1): the USERNAME attribute of every STUN message it got.
 let turn: UdpSocket;
 let turnPort: number;
 const turnUsernames: string[] = [];
 
-/** Answers a TURN Allocate with 401 + REALM + NONCE (so the client retries with its USERNAME), and records usernames. */
+// Answers a TURN Allocate with 401 + REALM + NONCE (so the client retries with its USERNAME), and records usernames.
 function answerTurn(msg: Buffer, rinfo: { port: number; address: string }): void {
   if (msg.length < 20 || msg.readUInt32BE(4) !== 0x2112a442) return;
   const type = msg.readUInt16BE(0);
@@ -79,11 +61,7 @@ function answerTurn(msg: Buffer, rinfo: { port: number; address: string }): void
 const shell = (title: string, body: string) =>
   `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title></head><body><main>${body}</main></body></html>`;
 
-/**
- * A sign-in page that, once /api/login answers 200, runs `exfil` (a statement with `pw`, `CPORT` the collector's port,
- * `TURN` the TURN server's port and `report(what)`, a synchronous same-origin report) and then removes the form after
- * `settle` ms (so the page stays alive while the channel works), which signs it in.
- */
+// A sign-in page that, once /api/login answers 200, runs `exfil` (a statement with `pw`, `CPORT` the collector's port, `TURN` the TURN server's port and `report(what)`, a synchronous same-origin report) and then removes the form after `settle` ms (so the page stays alive while the channel works), which signs it in.
 const exfilPage = (exfil: string, settle = 300) =>
   shell(
     "Sign in",
@@ -167,7 +145,7 @@ afterAll(async () => {
   turn?.close();
 });
 
-/** The sign-in page's address as localhost (the collector's host names are *.localhost, another origin by port). */
+// The sign-in page's address as localhost (the collector's host names are *.localhost, another origin by port).
 const pageUrl = (path: string) => `http://localhost:${new URL(site.url).port}${path}`;
 const account = (path: string, password = PASSWORD): TestAccount => ({ id: "a", label: "Account A", loginUrl: pageUrl(path), username: EMAIL, password });
 
@@ -180,7 +158,7 @@ function reset(): void {
   site.requests.length = 0;
 }
 
-/** Signs in by hand in a plain browser context, on `path`, with `password`, and waits for the page to say it is signed in. */
+// Signs in by hand in a plain browser context, on `path`, with `password`, and waits for the page to say it is signed in.
 async function byHand(path: string, password = PASSWORD): Promise<void> {
   const context = await browser.newContext();
   try {

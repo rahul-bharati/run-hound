@@ -1,10 +1,7 @@
-/**
- * The pure parts of signIn (0.4.0, docs/v2-spec.md "Signing in"): which values of a session are secrets to redact
- * (sessionSecrets), which form is the sign-in form and which field takes the username (steps 2 and 3).
- */
+// The pure parts of signIn (0.4.0, docs/v2-spec.md "Signing in"): which values of a session are secrets to redact (sessionSecrets), which form is the sign-in form and which field takes the username (steps 2 and 3).
 import { describe, expect, it } from "vitest";
-import type { DiscoveredForm, FormField } from "../core/types.js";
-import { accountLabel, identifierField, sessionSecrets, signInForm, type SessionState } from "./auth.js";
+import type { DiscoveredForm, FormField } from "../../../../src/core/types.js";
+import { accountLabel, identifierField, sessionSecrets, signInForm, type SessionState } from "../../../../src/engine/auth.js";
 
 const cookie = (name: string, value: string) => ({ name, value, domain: "127.0.0.1", path: "/", expires: -1, httpOnly: true, secure: false, sameSite: "Lax" as const });
 const b64url = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");

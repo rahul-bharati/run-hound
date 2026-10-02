@@ -2,21 +2,11 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { AccountRef, Finding, Report } from "../core/types.js";
-import { registerSecretLiterals } from "./redact.js";
-import { NOT_VISIBLE, renderHtml, renderMarkdown, testDataSentence, writeReport } from "./report.js";
+import type { AccountRef, Finding, Report } from "../../../../src/core/types.js";
+import { registerSecretLiterals } from "../../../../src/engine/redact.js";
+import { NOT_VISIBLE, renderHtml, renderMarkdown, testDataSentence, writeReport } from "../../../../src/engine/report.js";
 
-/**
- * Reports of signed-in runs (docs/v2-spec.md "Test accounts", "Signed-in runs"; Report.accounts).
- *
- * Interpretations pinned here (marked * where the spec leaves room):
- * - HTML and Markdown say "Signed in as <label>" (* a colon, or markup around the label, is accepted) and, when a scenario used
- *   the other account, name it by label. Labels are escaped in HTML like every other value.
- * - Reports never hold a username or a password: accounts appear by label only, and the passwords and session values
- *   the engine registered with registerSecretLiterals are "[REDACTED:account-secret]" in every file writeReport writes.
- * - * The test-data note says which account the test records belong to (the "Signed-in runs" rule), by label.
- * - A report without `accounts` (0.3.0) or with nobody signed in renders exactly as before: no "Signed in as".
- */
+// Signed-in run reports (docs/v2-spec.md "Test accounts", "Signed-in runs"; Report.accounts): the "*" interpretations are pinned here because the spec leaves room — "Signed in as <label>" with a colon or markup, accounts shown by label only, registerSecretLiterals values become "[REDACTED:account-secret]" in every file, test-data note names the account by label, and a report without accounts (0.3.0) or with nobody signed in renders exactly as before.
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const B: AccountRef = { id: "b", label: "Account B" };
@@ -90,7 +80,7 @@ function report(accounts?: Report["accounts"], extra: Partial<Report> = {}): Rep
   };
 }
 
-/** "Signed in as <label>", allowing a colon and markup around the label (HTML tags, Markdown bold). */
+// "Signed in as <label>", allowing a colon and markup around the label (HTML tags, Markdown bold).
 const SIGNED_IN_AS = (label: string) => new RegExp(`Signed in as:?\\s*(?:<[^>]+>\\s*|\\*\\*|_)*${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`);
 
 describe("reports of a signed-in run", () => {
@@ -186,7 +176,7 @@ describe("reports without accounts (0.3.0, or signed out)", () => {
 });
 
 describe("checks that need a test account (added with the V2 checks)", () => {
-  /** The report's "Checks with nothing to test on this page" list, from the Markdown. */
+  // The report's "Checks with nothing to test on this page" list, from the Markdown.
   const unplanned = (r: Report) => /## Checks with nothing to test on this page\n\n((?:- .*\n)*)/.exec(renderMarkdown(r))?.[1] ?? "";
 
   it("are not listed as having nothing to test on a signed-out run: they need an account, not a different page", () => {

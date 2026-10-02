@@ -1,16 +1,12 @@
-/**
- * 0.4.0: discovery of non-native widgets (Radix/shadcn, Headless UI, cmdk) as fields (LOV-1), and fields that only
- * their label marks as required (LOV-6).
- */
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Page } from "playwright";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { DiscoveredForm, DiscoveredPage, FormField } from "../core/types.js";
-import { discoverForm, discoverPage } from "./discover.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { DiscoveredForm, DiscoveredPage, FormField } from "../../../../src/core/types.js";
+import { discoverForm, discoverPage } from "../../../../src/engine/discover.js";
 
-const root = fileURLToPath(new URL("../../test/fixtures/discover/", import.meta.url));
+const root = fileURLToPath(new URL("../../../../test/fixtures/discover/", import.meta.url));
 
 let server: FixtureServer;
 
@@ -35,7 +31,7 @@ function field(form: DiscoveredForm, key: string): FormField {
   return found[0]!;
 }
 
-/** What the element a selector finds is: tag, role and type, e.g. "button[role=combobox]" or "select". */
+// What the element a selector finds is: tag, role and type, e.g. "button[role=combobox]" or "select".
 async function what(page: Page, selector: string): Promise<string> {
   expect(await page.locator(selector).count(), selector).toBe(1);
   return page.locator(selector).evaluate((el) => {

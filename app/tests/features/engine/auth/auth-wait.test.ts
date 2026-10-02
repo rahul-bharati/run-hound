@@ -1,15 +1,10 @@
-/**
- * signIn waits for a settled outcome after submitting (CI failure on PR #4): a page that briefly hides its form, or
- * changes its address, while the sign-in is still going must not end the wait early and be judged "still shown".
- * And when sign-in does fail with the form still shown, the message says what the page did: whether a request was
- * sent after submitting, and what it answered.
- */
+// signIn waits for a settled outcome after submitting (CI failure on PR #4): a page that briefly hides its form, or changes its address, while the sign-in is still going must not end the wait early and be judged "still shown"; the error message when it does fail with the form still shown names the request that went out and what it answered.
 import type { Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { TestAccount } from "../interfaces/accounts.js";
-import { signIn, SignInError } from "./auth.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { TestAccount } from "../../../../src/interfaces/accounts.js";
+import { signIn, SignInError } from "../../../../src/engine/auth.js";
 
 const EMAIL = "someone@example.test";
 const PASSWORD = "kettle-lantern-7";

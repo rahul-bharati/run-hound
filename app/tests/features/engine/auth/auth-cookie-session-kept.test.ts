@@ -1,39 +1,12 @@
-/**
- * Which session signIn reads when nothing of sessionStorage was sent as a credential and the submit set or changed no
- * cookie (0.6.0 release close-out, the rest of round 2's cookie-name item; docs/v2-spec.md "Sign-in: two-step and
- * sessionStorage").
- *
- * What went wrong: a cookie session was found either by a cookie the submit set or changed, or by its cookie's name
- * (SESSION_NAME: sess, sid, auth, token …). An app whose session cookie is set when the sign-in page loads and kept by
- * the submit (express-session with a custom `name` and no regenerate, a PHP app with its own session_name), under a
- * name that says nothing of a session ("app_user", "acme"), was still taken for a sessionStorage session: its
- * pages' cached reads were seeded into every context, and access-control skipped the IDOR a cookie-session run catches
- * ("Account A has no data on this page that Run Hound can recognise").
- *
- * The contract now: an HttpOnly cookie with a token-like value on the app's own site (the site of the sign-in page's or
- * the landing page's host: the same last two labels, api.example.com beside app.example.com, or the same IP address or
- * one-label host) is a cookie session too, whatever its name: no page script can set or read one, so it is the
- * server's session. Never a CSRF, analytics or bot-check cookie, nor a load balancer's or a
- * bot manager's (ARRAffinity, AWSALB, ak_bmsc, visid_incap_ …: NOT_SESSION_COOKIE), nor another site's cookie (a
- * reCAPTCHA iframe's _GRECAPTCHA on www.google.com). A cookie a page script set (not HttpOnly) still counts only by its
- * name.
- *
- * Close-out review, round 1: Cloudflare's load balancer cookie (__cflb, HttpOnly) and ASP.NET's antiforgery cookies
- * (ASP.NET Core's ".AspNetCore.Antiforgery.<id>", HttpOnly by default; ASP.NET MVC's "__RequestVerificationToken", whose
- * name said token) were taken for the session, so a sessionStorage session next to one wasn't seeded and the plan
- * failed with "still shows the sign-in page". Neither is ever the session now (NOT_SESSION_COOKIE).
- *
- * Close-out review, round 2: the same for Heroku's router cookie (heroku-session-affinity, HttpOnly, a name that says
- * session) and AWS WAF's challenge token (aws-waf-token, not HttpOnly, a name that says token).
- */
+// Which session signIn reads when nothing of sessionStorage was sent as a credential and the submit set or changed no cookie (0.6.0 release close-out, the rest of round 2's cookie-name item; docs/v2-spec.md "Sign-in: two-step and sessionStorage"). An HttpOnly cookie with a token-like value on the app's own site (same last two labels, or same IP / one-label host) is a cookie session too, whatever its name — never a CSRF / analytics / bot-check / load-balancer / bot-manager cookie (NOT_SESSION_COOKIE: __cflb, ARRAffinity, AWSALB, ak_bmsc, visid_incap_, ".AspNetCore.Antiforgery.<id>", "__RequestVerificationToken", heroku-session-affinity, aws-waf-token), never another site's cookie. A page-script-set (not HttpOnly) cookie still counts only by its name.
 import { randomBytes } from "node:crypto";
 import type { ServerResponse } from "node:http";
 import type { Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { TestAccount } from "../interfaces/accounts.js";
-import { sessionInStorage, signIn, type SessionState, type SignedIn } from "./auth.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { TestAccount } from "../../../../src/interfaces/accounts.js";
+import { sessionInStorage, signIn, type SessionState, type SignedIn } from "../../../../src/engine/auth.js";
 
 const ALICE = { email: "alice@example.test", password: "alice-pass-7Q2x", id: "u1", name: "Alice Example", ws: "3f2b8c1e-4d5a-4b6c-8e9f-0a1b2c3d4e5f" };
 
@@ -55,7 +28,7 @@ const FORM_LOGIN = shell(
 <button type="submit">Sign in</button></form>`,
 );
 
-/** A sign-in form that posts JSON to /api/login and keeps the token in sessionStorage["app-state"], then goes to /app. */
+// A sign-in form that posts JSON to /api/login and keeps the token in sessionStorage["app-state"], then goes to /app.
 const SCRIPT_LOGIN = shell(
   "Sign in",
   `<h1>Sign in</h1><form id="f" aria-label="Sign in"><label for="email">Email</label><input id="email" type="email" autocomplete="username">
@@ -72,11 +45,7 @@ document.getElementById("f").addEventListener("submit", function (e) {
 
 const cookieOf = (req: RecordedRequest, name: string) => new RegExp(`(?:^|;\\s*)${name}=([^;]+)`).exec(String(req.headers.cookie ?? ""))?.[1];
 
-/**
- * A cookie-session app whose session cookie `name` (HttpOnly) is set when the sign-in page loads, not yet signed in,
- * and signed in by the submit without being renewed. Its landing page caches GET /api/session and GET /api/users/<id>
- * in sessionStorage (cache-first) and keeps the workspace id there.
- */
+// A cookie-session app whose session cookie `name` (HttpOnly) is set when the sign-in page loads, not yet signed in, and signed in by the submit without being renewed. Its landing page caches GET /api/session and GET /api/users/<id> in sessionStorage (cache-first) and keeps the workspace id there.
 async function keptCookieApp(name: string, session: Map<string, string>): Promise<FixtureServer> {
   return startFixtureServer({
     routes: {
@@ -143,10 +112,7 @@ async function cached(key, url) {
   });
 }
 
-/**
- * A sessionStorage-session app that sends nothing with its token while signing in (its landing page reads nothing
- * until a click), whose sign-in page gets `cookie` (a Set-Cookie value) from the server as it loads.
- */
+// A sessionStorage-session app that sends nothing with its token while signing in (its landing page reads nothing until a click), whose sign-in page gets `cookie` (a Set-Cookie value) from the server as it loads.
 async function quietStorageApp(cookie: string, tokens: Map<string, string>): Promise<FixtureServer> {
   return startFixtureServer({
     routes: {
@@ -180,7 +146,7 @@ if (!state) location.replace("/login");
 
 const account = (app: FixtureServer): TestAccount => ({ id: "a", label: "Account A", loginUrl: `${app.url}/login`, username: ALICE.email, password: ALICE.password });
 
-/** Every string a SignedIn's sessionStorage holds: its whole values, and the strings of the JSON they hold. */
+// Every string a SignedIn's sessionStorage holds: its whole values, and the strings of the JSON they hold.
 function storedStrings(entries: NonNullable<SignedIn["sessionStorage"]>): string[] {
   const out: string[] = [];
   for (const { value } of entries.flatMap((e) => e.items)) {

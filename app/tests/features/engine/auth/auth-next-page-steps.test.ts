@@ -1,61 +1,11 @@
-/**
- * signIn fails with the contract's messages when the page the password led to asks for a verification code or a
- * captcha (0.6.0, round 2 of the release review; docs/v2-spec.md "Signing in" step 6: "the message says so when the
- * page shows a code or captcha field", and "Sign-in: two-step and sessionStorage": "a code or captcha after either step
- * fails with the existing messages").
- *
- * What went wrong: off the sign-in page's own address, a code step was recognised only by autocomplete=one-time-code,
- * and a captcha only at the same address. A code step at /verify with a field named "code", Devise's
- * user[otp_attempt] (autocomplete=off), an authenticator code after a two-step sign-in, and a Turnstile challenge page
- * each set only a pre-session cookie, had no password field, and were taken for a successful sign-in: the run went on
- * as a signed-in Account A that wasn't signed in.
- *
- * The contract now, on the page the password submit led to:
- * - a code step: its only field to fill in (a search box aside) says code, one-time, verification, two-factor, 2FA or
- *   authenticator in its name, id, label, placeholder or aria-label (a promo, coupon, gift, referral, invite, zip or
- *   postal code doesn't count);
- * - a captcha: a captcha widget shows (a reCAPTCHA v3 badge doesn't count) and the page has no other field to fill
- *   in: the challenge is all the page asks for.
- * A landing page with a promo-code field, or a captcha widget in a form next to other fields, is still a success.
- *
- * Round 3: a bare "code" no longer says it's a sign-in's code (a code explainer's "Code" textarea and a "Room code"
- * field on a signed-in page failed the sign-in): the field (an input, never a textarea) or the page's heading or title
- * must say one-time, verification, two-step, authenticator … A split code step swapped in at the sign-in page's own
- * address once the password field is gone fails too. A captcha widget alone counts only in a form whose submit moves
- * on, or under a heading or title that says it is a check (a signed-in page's widget outside any form is a success).
- *
- * Close-out of round 3: a heading or title alone (verify, verification, two-factor) no longer makes any single field a
- * code step (an unconfirmed account's "Please verify your email address" banner over a "New task" field failed the
- * sign-in): when only the page's words name a sign-in code, the field must look like a code's itself (it says code,
- * OTP, PIN, token or digit, has inputmode=numeric, a maxlength of 4 to 8, or is one of split one-character boxes).
- *
- * Close-out review, round 1: the field's own words were read as they are written, so a camel-case name
- * ("verificationCode", "otpCode") and a label given by aria-labelledby said nothing, and a type=number field or one whose
- * pattern allows digits only didn't look like a code's: real code pages signed in. A camel-case name is now read word by
- * word, the text of the elements aria-labelledby names is the field's label too, and type=number or a digits-only
- * pattern ("[0-9]*", "\d{6}") looks like a code's, as inputmode=numeric does. The other way round, a field that can't
- * hold a sign-in code is never one: type=email, or own words that say email, phone, mobile or name without a code word
- * (an unconfirmed account's "Send the verification email to" field, a maxlength=8 "Team short name"), or say API (a
- * "Paste your API token" field under "Please verify your email address").
- *
- * Close-out review, round 2: that rule read "Mobile verification", "Phone verification" and "Email verification" as
- * fields that can't hold a code (verification wasn't a code word to it), so real code steps signed in, one of them with
- * inputmode=numeric and maxlength=6. Own words that say email, phone or mobile beside verify or verification hold a code
- * now unless they also say send, resend, address or number (an address field), and so does a numeric one (it goes on
- * to the heading's test). The other way round, type=number, a digits-only pattern or inputmode=numeric alone no longer
- * make a field under a heading that only says verify look like a code's: the heading or title must name a code step
- * outright (two-step, two-factor, 2FA, MFA, authenticator, one-time, OTP, passcode, a verification or security code),
- * or the field must say code itself, be split boxes, or be code-sized (a maxlength of 4 to 8, a pattern of 4 to 8
- * digits). A code word that only a camel-case split finds in a name or id ("verificationSearch") needs a field that
- * looks like a code's too.
- */
+// signIn fails with the contract's messages when the page the password led to asks for a verification code or a captcha (0.6.0, round 2 of the release review; docs/v2-spec.md "Signing in" step 6, "Sign-in: two-step and sessionStorage"). A code step: only field says code / one-time / verification / two-factor / 2FA / authenticator in name / id / label / placeholder / aria-label (a promo, coupon, gift, referral, invite, zip or postal code doesn't count). A captcha: a widget shows (a reCAPTCHA v3 badge doesn't count) and the page has no other field to fill in. Round 3: a bare "code" no longer makes it a sign-in code (field or heading/title must say one-time / verification / two-step / authenticator …); a captcha widget alone counts only in a form whose submit moves on, or under a heading/title that says it is a check. Close-out 3: a heading/title alone (verify, verification, two-factor) no longer makes any single field a code step — when only the page's words name a sign-in code, the field must look like a code's itself (says code, OTP, PIN, token or digit, has inputmode=numeric, maxlength 4–8, or split one-character boxes). Round 1: camel-case names are read word by word; aria-labelledby text is the field's label; type=number / a digits-only pattern / inputmode=numeric looks like a code's. A field that can't hold a sign-in code is never one: type=email, or own words that say email / phone / mobile / name without a code word (Send the verification email to, maxlength=8 Team short name), or API (Paste your API token). Round 2: email / phone / mobile beside verify or verification hold a code now unless they also say send / resend / address / number; type=number / digits-only / inputmode=numeric alone no longer makes a field under a heading that only says verify look like a code's — the heading/title must name a code step outright (two-step / two-factor / 2FA / MFA / authenticator / one-time / OTP / passcode / a verification or security code), or the field must say code / be split boxes / be code-sized (maxlength 4–8 / pattern of 4–8 digits).
 import type { ServerResponse } from "node:http";
 import type { Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { TestAccount } from "../interfaces/accounts.js";
-import { signIn, SignInError, type SignedIn } from "./auth.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { TestAccount } from "../../../../src/interfaces/accounts.js";
+import { signIn, SignInError, type SignedIn } from "../../../../src/engine/auth.js";
 
 const EMAIL = "someone@example.test";
 const PASSWORD = "hunter2correcthorse91";
@@ -71,7 +21,7 @@ function sendHtml(res: ServerResponse, body: string): void {
   res.end(body);
 }
 
-/** A one-step sign-in form posting to `action`. */
+// A one-step sign-in form posting to `action`.
 const oneStep = (action: string) =>
   shell(
     "Sign in",
@@ -79,12 +29,12 @@ const oneStep = (action: string) =>
 <label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password"><button type="submit">Sign in</button></form>`,
   );
 
-/** A code step split over six one-character boxes, swapped in at the sign-in page's own address (round 3). */
+// A code step split over six one-character boxes, swapped in at the sign-in page's own address (round 3).
 const SPLIT_STEP = `<h1>Two-step verification</h1><p>Enter the 6-digit code from your authenticator app.</p>
 <form id="code" aria-label="Verify">${[1, 2, 3, 4, 5, 6].map((i) => `<input inputmode="numeric" maxlength="1" aria-label="Digit ${i}" style="width:2em">`).join("")}
 <button type="submit">Verify</button></form>`;
 
-/** The page each sign-in lands on (after `POST /session/<name>`), with a pre-session (or a session) cookie. */
+// The page each sign-in lands on (after `POST /session/<name>`), with a pre-session (or a session) cookie.
 const NEXT: Record<string, string> = {
   code: shell(
     "Verify",
@@ -261,7 +211,7 @@ const NEXT: Record<string, string> = {
   ),
 };
 
-/** The pre-session cookie a code or captcha step sets, and the session cookie a landing page's sign-in sets. */
+// The pre-session cookie a code or captcha step sets, and the session cookie a landing page's sign-in sets.
 const COOKIE: Record<string, string> = {
   code: "mfa_pending=pend1ngT0ken1234567890abc",
   devise: "_app_session=r0tatedPreSess10n1234567890",
