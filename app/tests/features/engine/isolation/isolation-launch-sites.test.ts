@@ -1,15 +1,4 @@
-/**
- * Every browser Run Hound launches, and every context it opens, as they really run (0.6.1, docs/launch-spec.md
- * "0.6.1: isolated by default", items 1 and 2):
- * - the launch sites: runner discovery (discoverAndPlan), the run (runPlan) and the sign-in test (server/accounts.ts
- *   testSignIn) each launch with an explicit env (browserEnv: none of the planted variables below), HOME in a
- *   run-hound-browser-* folder under os.tmpdir(), an artifactsDir in that folder, and the folder is gone once the flow
- *   has finished;
- * - the contexts: discovery's, CheckContext.openPage's, sign-in's (auth.ts) and the evidence renderer's are all opened
- *   with acceptDownloads: false, and a download link clicked in a scenario is refused (Download.failure() is set).
- * chromium.launch is spied on and still launches a real headless Chromium; each browser's newContext is spied on too,
- * so the options are read exactly as Run Hound passed them to Playwright.
- */
+// Every browser Run Hound launches, and every context it opens, as they really run (0.6.1, docs/launch-spec.md "0.6.1: isolated by default", items 1 and 2): runner discovery (discoverAndPlan), the run (runPlan) and the sign-in test (server/accounts.ts testSignIn) each launch with browserEnv (none of the planted variables), HOME in a run-hound-browser-* folder under os.tmpdir() with an artifactsDir in it, and the folder is gone once the flow has finished; the contexts are all opened with acceptDownloads: false and a download link clicked in a scenario is refused (Download.failure() is set); chromium.launch and each browser's newContext are spied on so options are read exactly as Run Hound passed them to Playwright.
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -17,12 +6,12 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { chromium, type BrowserContextOptions, type LaunchOptions } from "playwright";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { startAccountsApp, type AccountsApp } from "../../test-support/accounts-app.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { accountEnvName, resolveAccounts } from "../config/accounts.js";
-import type { Check, CheckResult, Scenario } from "../core/types.js";
-import { testSignIn } from "../server/accounts.js";
-import { discoverAndPlan, runPlan } from "./runner.js";
+import { startAccountsApp, type AccountsApp } from "../../../../test-support/accounts-app.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { accountEnvName, resolveAccounts } from "../../../../src/config/accounts.js";
+import type { Check, CheckResult, Scenario } from "../../../../src/core/types.js";
+import { testSignIn } from "../../../../src/server/accounts.js";
+import { discoverAndPlan, runPlan } from "../../../../src/engine/runner.js";
 
 const MARK = `rh-planted-${randomBytes(4).toString("hex")}`;
 /** Planted in process.env for the whole file: a developer's shell holds such things. */

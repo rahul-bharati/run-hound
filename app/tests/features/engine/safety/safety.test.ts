@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { TargetNotAllowedError } from "./errors.js";
-import { assertAllowedTarget, checkTarget, isAllowedUrl, isPrivateAddress, pinArgs } from "./safety.js";
+import { TargetNotAllowedError } from "../../../../src/engine/errors.js";
+import { assertAllowedTarget, checkTarget, isAllowedUrl, isPrivateAddress, pinArgs } from "../../../../src/engine/safety.js";
 
 describe("isPrivateAddress", () => {
   const privateAddresses = [

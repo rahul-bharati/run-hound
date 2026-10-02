@@ -1,9 +1,9 @@
 import { PNG } from "pngjs";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import type { Box, Highlight } from "../core/types.js";
-import { FRAME, composeFrame, encodeGif, renderCard, resolveHighlights } from "./evidence.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import type { Box, Highlight } from "../../../../src/core/types.js";
+import { FRAME, composeFrame, encodeGif, renderCard, resolveHighlights } from "../../../../src/engine/evidence.js";
 
 const FAIL_RGB = [0xff, 0x5a, 0x4f] as const;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -18,7 +18,7 @@ afterAll(async () => {
   await closeBrowser();
 });
 
-/** A solid-colour PNG of the given size. */
+// A solid-colour PNG of the given size.
 function solidPng(width: number, height: number, rgb: readonly [number, number, number] = [255, 255, 255]): Buffer {
   const png = new PNG({ width, height });
   for (let i = 0; i < width * height; i++) {
@@ -50,7 +50,7 @@ function expectBoxClose(actual: Box, expected: Box, tolerance = 1) {
   expect(Math.abs(actual.height - expected.height)).toBeLessThanOrEqual(tolerance);
 }
 
-/** Parses a GIF's structure: logical screen size, frame count, per-frame delays (ms) and whether it loops. */
+// Parses a GIF's structure: logical screen size, frame count, per-frame delays (ms) and whether it loops.
 function parseGif(buf: Buffer): { header: string; width: number; height: number; frames: number; delaysMs: number[]; loops: boolean } {
   const header = buf.subarray(0, 6).toString("latin1");
   const width = buf.readUInt16LE(6);
@@ -98,7 +98,7 @@ function parseGif(buf: Buffer): { header: string; width: number; height: number;
   return { header, width, height, frames, delaysMs, loops };
 }
 
-/** Wraps a browser so every request made by pages it creates is recorded. */
+// Wraps a browser so every request made by pages it creates is recorded.
 function spyBrowser(real: Browser): { browser: Browser; requests: string[] } {
   const requests: string[] = [];
   const watchPage = (page: Page) => page.on("request", (r) => requests.push(r.url()));

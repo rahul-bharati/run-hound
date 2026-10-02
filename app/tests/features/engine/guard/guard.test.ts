@@ -1,15 +1,9 @@
 import { chromium, type Browser, type BrowserContext } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer, type RouteHandler } from "../../test-support/server.js";
-import { guardContext, guardSummary, rememberCredentials } from "./guard.js";
+import { startFixtureServer, type FixtureServer, type RouteHandler } from "../../../../test-support/server.js";
+import { guardContext, guardSummary, rememberCredentials } from "../../../../src/engine/guard.js";
 
-/**
- * "blocked.test" stands in for a public site. Chromium is told it lives on 127.0.0.1 (so a request that
- * slips through would reach the local fixture server and be recorded), while the safety gate's injected
- * DNS says it is public, so the gate refuses it.
- * "rebind.test" stands in for DNS rebinding: the gate's DNS says it is private (10.0.0.9), but when Chromium looks it
- * up it gets 0.0.0.0, which is not a private address (on Linux a connection to it still reaches this machine).
- */
+// "blocked.test" stands in for a public site (Chromium is told it lives on 127.0.0.1 while the gate's DNS says it is public); "rebind.test" stands for DNS rebinding (the gate's DNS says private 10.0.0.9, Chromium gets 0.0.0.0).
 const lookup = async (host: string) => (host === "blocked.test" ? ["93.184.216.34"] : ["10.0.0.9"]);
 
 let browser: Browser;

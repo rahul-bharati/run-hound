@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Page } from "playwright";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { Capture } from "../core/types.js";
-import { attachCapture } from "./capture.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { Capture } from "../../../../src/core/types.js";
+import { attachCapture } from "../../../../src/engine/capture.js";
 
 let site: FixtureServer;
 let thirdParty: FixtureServer;

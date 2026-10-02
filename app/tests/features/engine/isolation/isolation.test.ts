@@ -1,18 +1,4 @@
-/**
- * Isolated by default (0.6.1, docs/launch-spec.md "0.6.1: isolated by default", items 1 and 2), unit level:
- * - browserEnv is the whole environment a Chromium that Run Hound launches gets: per platform, an allowlist of the
- *   caller's variables plus HOME and the XDG folders (and TMPDIR on Linux; USERPROFILE, APPDATA, LOCALAPPDATA, TEMP and
- *   TMP on Windows) pointed into the per-launch folder. Display variables only for a headed launch. Nothing else: no
- *   secret, proxy, NODE_OPTIONS, session bus or SSH agent reaches the browser.
- * - launchChromium creates the per-launch folder (run-hound-browser-*, with home, config, cache, data, state, tmp and
- *   artifacts), launches with browserEnv's environment and an artifactsDir inside it, and removes the folder when the
- *   browser closes, disconnects on its own, or fails to start.
- * - ISOLATED_CONTEXT is { acceptDownloads: false } (Playwright 1.63 sends it to Chromium as "deny").
- * - engine/isolation.ts is the only module in app/src that imports a browser type from "playwright" or calls its launch,
- *   so no later launch site can skip the isolation (tests are exempt).
- * The launch sites and contexts as they run are pinned by isolation-launch-sites.test.ts; the whole footprint of a
- * real run by footprint.test.ts.
- */
+// Isolated by default (0.6.1, docs/launch-spec.md "0.6.1: isolated by default", items 1 and 2), unit level: browserEnv keeps only what Chromium needs and points HOME, the XDG folders, and TMPDIR/USERPROFILE/APPDATA/LOCALAPPDATA/TEMP/TMP into a per-launch folder; launchChromium creates that folder (run-hound-browser-*) and tears it down on close/disconnect/failure; ISOLATED_CONTEXT is { acceptDownloads: false }; engine/isolation.ts is the only module in app/src that imports a browser type or calls its launch, so no later launch site can skip isolation (tests are exempt).
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
@@ -21,7 +7,7 @@ import { basename, dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Browser, BrowserType, LaunchOptions } from "playwright";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BROWSER_FOLDER_PREFIX, browserEnv, ISOLATED_CONTEXT, launchChromium } from "./isolation.js";
+import { BROWSER_FOLDER_PREFIX, browserEnv, ISOLATED_CONTEXT, launchChromium } from "../../../../src/engine/isolation.js";
 
 const MARK = "rh-planted-4f1c9e";
 
@@ -392,8 +378,8 @@ describe("launchChromium", () => {
 });
 
 describe("the only launch site", () => {
-  /** app/src, from app/src/engine. */
-  const SRC = fileURLToPath(new URL("..", import.meta.url));
+  /** app/src, from app/tests/features/engine/isolation/. */
+  const SRC = fileURLToPath(new URL("../../../../src", import.meta.url));
 
   async function sourceFiles(): Promise<{ file: string; text: string }[]> {
     const files = (await readdir(SRC, { recursive: true })).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
