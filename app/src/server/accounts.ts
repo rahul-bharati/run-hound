@@ -3,6 +3,7 @@
  * signInAs) and the CLI (`accounts …`, `run --as`). docs/v2-spec.md "Test accounts". Nothing here returns a password.
  */
 import { notReadyMessage } from "../config/accounts.js";
+import { USERNAME_MASK } from "../constants/server-constants.js";
 import {
   type AccountsConfig,
   type AccountsPatch,
@@ -159,13 +160,9 @@ export function isSignInFailure(err: unknown): boolean {
   );
 }
 
-/** What a username is replaced with in everything but Settings and `accounts status`. */
-export const USERNAME_MASK = "[REDACTED:account-username]";
-
 /**
  * A function that replaces the configured usernames (usually emails; case-insensitive, 3+ characters) with
- * USERNAME_MASK: a last layer for what the server and the CLI send out of a signed-in plan or run (the page can show
- * "Signed in as alex@…" in a control that discovery records). The identity when no account is configured.
+ * USERNAME_MASK: a last layer for what the server and the CLI send out of a signed-in plan or run.
  */
 export function usernameHider(
   config: AccountsConfig | undefined,

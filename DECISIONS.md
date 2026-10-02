@@ -126,3 +126,4 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-10-02: [Use Oxlint as the app's lint runner](docs/decisions/10-2026.md#2026-10-02-app-oxlint)
 - 2026-10-02: [Server MVC: thin controllers, narrow orchestrations, composition in app.ts](docs/decisions/10-2026.md#2026-10-02-server-flow-boundaries)
 - 2026-10-02: [Server: replace Services bag with per-controller flow ports](docs/decisions/10-2026.md#2026-10-02-server-narrow-ports)
+- 2026-10-02: [Server: route shared limits through config/ and constants/; types/ holds types only](docs/decisions/10-2026.md#2026-10-02-server-config-constants)

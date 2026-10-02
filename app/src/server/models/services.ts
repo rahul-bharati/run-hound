@@ -4,6 +4,7 @@
  */
 import { canShowBrowser, discoverAndPlan, RUN_HOUND_VERSION } from "../../engine/runner.js";
 import type { ServerOptions } from "../../interfaces/server.js";
+import { DEFAULT_MAX_CONCURRENT_RUNS } from "../../config/server.js";
 import { HostState, hostStateFromOptions } from "./host-state.js";
 import { PlansModel } from "./plans.js";
 import { RunsModel } from "./runs.js";
@@ -24,7 +25,7 @@ export function buildServerModels(options: ServerOptions): ServerModels {
   const host = hostStateFromOptions(options);
   const runs = new RunsModel({
     runsDir: host.runsDir,
-    maxConcurrentRuns: options.maxConcurrentRuns ?? 2,
+    maxConcurrentRuns: options.maxConcurrentRuns ?? DEFAULT_MAX_CONCURRENT_RUNS,
     allowedHosts: options.allowedHosts,
     checks: options.checks,
   });

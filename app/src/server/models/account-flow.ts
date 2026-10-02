@@ -9,7 +9,7 @@ import {
 } from "../../config/accounts.js";
 import { checkLoginUrls, isAccountId, testSignIn } from "../accounts.js";
 import { redactSecrets } from "../../engine/redact.js";
-import { MAX_SIGN_IN_TESTS } from "./sign-in-tests.js";
+import { MAX_SIGN_IN_TESTS } from "../../config/server.js";
 import type { AccountId } from "../../types/accounts.js";
 import type {
   AccountsConfig,

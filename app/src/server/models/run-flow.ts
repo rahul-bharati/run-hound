@@ -12,8 +12,7 @@ import { redactSecrets } from "../../engine/redact.js";
 import { isUserError } from "./plan-flow.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ARTIFACT_TYPES, REPORT_FILES, SAFE_FILE } from "./runs.js";
-import { REPORT_CSP } from "../middleware/security.js";
+import { ARTIFACT_TYPES, REPORT_CSP, REPORT_FILES, SAFE_FILE } from "../../constants/server-constants.js";
 import type { Plan } from "../../core/types.js";
 import type { RunState, RunSummary } from "../../types/server.js";
 import type {

@@ -16,7 +16,7 @@ import { checks as defaultChecks } from "../../checks/index.js";
 import { aiForRequest, planBounded, type SignedInForPlanning } from "./ai-session.js";
 import { neutralRedactor, redactorFor, type Redactor } from "./redact-text.js";
 import { isAccountId } from "./account-flow.js";
-import { REDACTED } from "../../types/server.js";
+import { REDACTED } from "../../constants/server-constants.js";
 import type { Plan, Check } from "../../core/types.js";
 import type { AccountsConfig } from "../../interfaces/accounts.js";
 import type {

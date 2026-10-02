@@ -1,9 +1,10 @@
 /**
- * Models barrel: every model exports the small surface controllers use.
+ * Models barrel: every model exports the small surface controllers use. Server limits and shared constants live in
+ * config/server.ts and constants/server-constants.ts and are imported directly where used.
  */
-export { PlansModel, MAX_PLANS } from "./plans.js";
-export { RunsModel, MAX_RUNS, RUN_ID, LIVE_STEPS, ARTIFACT_TYPES, SAFE_FILE, REPORT_FILES, summarize } from "./runs.js";
-export { SignInTestsCounter, MAX_SIGN_IN_TESTS } from "./sign-in-tests.js";
+export { PlansModel } from "./plans.js";
+export { RunsModel, summarize } from "./runs.js";
+export { SignInTestsCounter } from "./sign-in-tests.js";
 export { HostState, hostStateFromOptions } from "./host-state.js";
 export { aiForRequest, planBounded, AI_PLAN_BUDGET_MS } from "./ai-session.js";
 export type { AiSession } from "./ai-session.js";
