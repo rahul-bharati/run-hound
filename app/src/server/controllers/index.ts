@@ -3,7 +3,7 @@
  * a Hono app. The composition root calls them in the same order as the pre-refactor app.ts to keep observable
  * behaviour identical.
  */
-export { registerUiRoutes, buildUi } from "./ui-controller.js";
+export { registerUiRoutes } from "./ui-controller.js";
 export { registerPlanRoutes } from "./plan-controller.js";
 export { registerRunsRoutes } from "./runs-controller.js";
 export { registerAiRoutes } from "./ai-controller.js";

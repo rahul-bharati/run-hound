@@ -5,7 +5,7 @@
  */
 import { resolve } from "node:path";
 import { AI_PLAN_BUDGET_MS } from "../../ai/session.js";
-import type { ServerOptions } from "../interfaces/server.js";
+import type { ServerOptions } from "../../interfaces/server.js";
 import { extraHostsOf, hostAllowedOf } from "../middleware/host.js";
 
 export interface HostStateOptions {
