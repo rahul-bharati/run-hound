@@ -1,20 +1,17 @@
-/**
- * csrf (0.6.0 close-out): a save whose JSON body is an array ([{title}]) has no fields a cross-site form can carry, and
- * Run Hound doesn't rebuild it; the skip says so, never that the body "isn't JSON".
- */
+// csrf (0.6.0 close-out): a JSON-array body has no fields a cross-site form can carry; the skip says so, never that the body "isn't JSON".
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerResponse } from "node:http";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./csrf.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/csrf.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const RUN_TOKEN = "cf7e57a1";

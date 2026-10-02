@@ -1,31 +1,17 @@
-/**
- * csrf (0.6.0 round 1): what is forged and how the answer is read, driven through createCheckContext against small task
- * apps built in this file (docs/v2-spec.md "`csrf`": "form-encoded, multipart or text/plain bodies … Nothing is added to
- * them (no token …)"; "A rejected request, or no change on re-read, is a pass").
- *   - the text/plain forge's answer is seen (a no-cors fetch), so a stored one names the cookie it carried, and a
- *     refused one on a single-record read passes, also for a bearer session;
- *   - Account A's anti-CSRF token under a framework's own field name (task[_token], _wpnonce, form_key, form_token,
- *     token, nonce) is never replayed;
- *   - every run-token value is forged, at any depth: a field the app drops, nested JSON, a multipart body;
- *   - a 3xx is an answer (a redirect to the sign-in page is a refusal), a 400 on a forge that carried the cookie is a
- *     validation answer, not a defence, a 2xx with nothing changed is a pass that says so, and a new record carrying
- *     the run's values after an accepted forge is a stored forge;
- *   - the forged value keeps the length of the value the app accepted (a maxlength the server enforces);
- *   - a CORS allowlist of loopback origins only is never "any site".
- */
+// csrf (0.6.0 round 1): what is forged and how the answer is read — framework tokens never replayed, run-token values forged at any depth, a CORS allowlist of loopback origins only is never "any site".
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerResponse } from "node:http";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, seedSessionStorage, type RunningCheckContext, type SessionStorageItems } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./csrf.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, seedSessionStorage, type RunningCheckContext, type SessionStorageItems } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/csrf.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 /** Lowercase letters and digits, so canary values keep it verbatim; must not contain "csrf" (the forged marker suffix). */
@@ -110,11 +96,7 @@ type Task = { id: string; title: string };
 /** What POST /api/tasks does with a signed-in request: the title to store, or a refusal. */
 type SaveAnswer = { title: string } | { status: number };
 
-/**
- * A task app: GET /app is `page`; GET /api/tasks answers {tasks}, GET /api/tasks/:id one task; POST /api/tasks stores
- * what `save` returns (201 {task}) or refuses with its status. Every API call needs `auth` (the SameSite cookie sid by
- * default); `cors` gives the CORS headers for a request's Origin (the preflight and the answer).
- */
+// A task app: GET /app is `page`; GET /api/tasks answers {tasks}, GET /api/tasks/:id one task; POST /api/tasks stores what `save` returns (201 {task}) or refuses with its status; every API call needs `auth`; `cors` sets CORS headers per Origin.
 async function taskServer(o: {
   page: string;
   save: (req: RecordedRequest) => SaveAnswer;
@@ -380,11 +362,7 @@ describe("csrf: every run-token value is forged, at any depth", () => {
   }, 60_000);
 });
 
-/**
- * A Post/Redirect/Get app: a plain <form method="post" action="/tasks">; the server answers a signed-in post 303 to
- * /app?created=<id> and a signed-out one 303 to /login; the page reads the one task it was sent to (GET
- * /api/tasks/:id). No token and no Origin check.
- */
+// A Post/Redirect/Get app: plain <form method="post" action="/tasks">; server 303s a signed-in post to /app?created=<id>, a signed-out one to /login; page reads the one task via GET /api/tasks/:id. No token, no Origin check.
 async function prgApp(): Promise<FixtureServer & { tasks: Task[] }> {
   const tasks: Task[] = [];
   const server = await startFixtureServer({

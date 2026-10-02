@@ -1,23 +1,17 @@
-/**
- * Evidence contract for every check (docs/v0-spec.md, "Evidence" and "Required evidence per check").
- * Each test reuses the BAD fixture from that check's own test file and asserts that the finding carries
- * credible evidence: an annotated frame, card or GIF on disk, with the URL, capture time, the highlighted
- * element and the facts behind the finding, and no secret in any evidence text.
- */
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import type { Finding } from "../core/types.js";
-import { closeBrowser, overallStatus } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { bookingApp, type BookingVariant } from "../../test/fixtures/checks/booking-page.js";
-import { startBookingApp, type ApiOptions, type ClientOptions } from "../../test/fixtures/checks/_behavior/booking-app.js";
-import * as axeFixtures from "../../test/fixtures/checks/axe-states/variants.js";
-import * as bundleFixtures from "../../test/fixtures/checks/bundle-secrets/variants.js";
-import * as credentialFixtures from "../../test/fixtures/checks/credential-fields/variants.js";
-import * as errorFixtures from "../../test/fixtures/checks/error-announcement/variants.js";
-import * as focusFixtures from "../../test/fixtures/checks/focus-visible/variants.js";
-import * as keyboardFixtures from "../../test/fixtures/checks/keyboard-completion/variants.js";
-import * as piiFixtures from "../../test/fixtures/checks/pii-leak/variants.js";
-import * as reflowFixtures from "../../test/fixtures/checks/reflow-320/variants.js";
+import type { Finding } from "../../../../src/core/types.js";
+import { closeBrowser, overallStatus } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { bookingApp, type BookingVariant } from "../../../../test/fixtures/checks/booking-page.js";
+import { startBookingApp, type ApiOptions, type ClientOptions } from "../../../../test/fixtures/checks/_behavior/booking-app.js";
+import * as axeFixtures from "../../../../test/fixtures/checks/axe-states/variants.js";
+import * as bundleFixtures from "../../../../test/fixtures/checks/bundle-secrets/variants.js";
+import * as credentialFixtures from "../../../../test/fixtures/checks/credential-fields/variants.js";
+import * as errorFixtures from "../../../../test/fixtures/checks/error-announcement/variants.js";
+import * as focusFixtures from "../../../../test/fixtures/checks/focus-visible/variants.js";
+import * as keyboardFixtures from "../../../../test/fixtures/checks/keyboard-completion/variants.js";
+import * as piiFixtures from "../../../../test/fixtures/checks/pii-leak/variants.js";
+import * as reflowFixtures from "../../../../test/fixtures/checks/reflow-320/variants.js";
 import {
   DEAD_CONTROL_BUTTONS,
   DEAD_CONTROL_HANDLERS,
@@ -31,23 +25,23 @@ import {
   expectNoSecretsInEvidence,
   runCheckKeepingArtifacts,
   type KeptRun,
-} from "../../test/fixtures/checks/evidence/support.js";
-import { check as axeStates } from "./axe-states.js";
-import { check as bundleSecrets } from "./bundle-secrets.js";
-import { check as clientOnlyValidation } from "./client-only-validation.js";
-import { check as consoleNetworkErrors } from "./console-network-errors.js";
-import { check as credentialFields } from "./credential-fields.js";
-import { check as deadControl } from "./dead-control.js";
-import { check as doubleSubmit } from "./double-submit.js";
-import { check as errorAnnouncement } from "./error-announcement.js";
-import { check as focusVisible } from "./focus-visible.js";
-import { check as keyboardCompletion } from "./keyboard-completion.js";
-import { check as persistence } from "./persistence.js";
-import { check as piiLeak } from "./pii-leak.js";
-import { check as reflow320 } from "./reflow-320.js";
-import { check as silentFailure } from "./silent-failure.js";
-import { check as verboseErrors } from "./verbose-errors.js";
-import type { Check } from "../core/types.js";
+} from "../../../../test/fixtures/checks/evidence/support.js";
+import { check as axeStates } from "../../../../src/checks/axe-states.js";
+import { check as bundleSecrets } from "../../../../src/checks/bundle-secrets.js";
+import { check as clientOnlyValidation } from "../../../../src/checks/client-only-validation.js";
+import { check as consoleNetworkErrors } from "../../../../src/checks/console-network-errors.js";
+import { check as credentialFields } from "../../../../src/checks/credential-fields.js";
+import { check as deadControl } from "../../../../src/checks/dead-control.js";
+import { check as doubleSubmit } from "../../../../src/checks/double-submit.js";
+import { check as errorAnnouncement } from "../../../../src/checks/error-announcement.js";
+import { check as focusVisible } from "../../../../src/checks/focus-visible.js";
+import { check as keyboardCompletion } from "../../../../src/checks/keyboard-completion.js";
+import { check as persistence } from "../../../../src/checks/persistence.js";
+import { check as piiLeak } from "../../../../src/checks/pii-leak.js";
+import { check as reflow320 } from "../../../../src/checks/reflow-320.js";
+import { check as silentFailure } from "../../../../src/checks/silent-failure.js";
+import { check as verboseErrors } from "../../../../src/checks/verbose-errors.js";
+import type { Check } from "../../../../src/core/types.js";
 
 const servers: FixtureServer[] = [];
 afterEach(async () => {
@@ -55,14 +49,12 @@ afterEach(async () => {
 });
 afterAll(closeBrowser);
 
-/** Serves a booking-page.ts variant (the accessibility/security check fixtures) and returns its /book URL. */
 async function servePage(variant: BookingVariant): Promise<{ url: string; origin: string }> {
   const server = await startFixtureServer(bookingApp(variant).options);
   servers.push(server);
   return { url: `${server.url}/book`, origin: server.url };
 }
 
-/** Serves a _behavior/booking-app.ts variant (the behaviour check fixtures) and returns its /book URL. */
 async function serveBehavior(
   client: ClientOptions = {},
   api: ApiOptions = {},
@@ -73,10 +65,6 @@ async function serveBehavior(
   return { url: app.url, origin: app.server.url };
 }
 
-/**
- * Runs the check on a BAD fixture and checks what every finding must have (a failing result, at least one
- * finding, credible visual evidence, no secrets), then hands the findings to `more` for the per-check table row.
- */
 async function expectEvidence(
   check: Check,
   target: { url: string; origin: string },
@@ -93,7 +81,6 @@ async function expectEvidence(
   });
 }
 
-/** Every fact whose label matches has a value that says "nothing": 0, none or no. */
 function expectZeroFact(f: Finding, keyword: RegExp) {
   const fact = expectFact(f, keyword);
   expect(fact.value, `${f.id}: "${fact.label}" should be 0`).toMatch(/^\s*(0\b|none\b|no\b)/i);

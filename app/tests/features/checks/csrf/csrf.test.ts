@@ -1,19 +1,4 @@
-/**
- * csrf (0.5.0, docs/v2-spec.md "`csrf`"): a real page on a different site (localhost vs 127.0.0.1) submits the form's
- * save in Account A's browser, and the verdict comes from re-reading the record as A. Driven through
- * createCheckContext against small fixture servers built in this file, each a task app with a different CSRF posture:
- *   - SameSite=Lax cookie: the browser keeps it home, so the forged post is unauthenticated (pass);
- *   - SameSite=None; Secure and no token/Origin check: the forged form post is stored (finding);
- *   - a CSRF token in a custom header: the cross-site post can't add it (pass);
- *   - an Origin check: the attacker origin is rejected (pass);
- *   - a JSON-only save: the cross-site post can't send JSON without a preflight (pass, "needs a preflight");
- *   - a CSRF token in a hidden body field: the forged body leaves it out (pass);
- *   - a JSON save parsed whatever its content-type, or a CORS config reflecting the other site: finding;
- *   - an array-shaped list read (Fernway's) and a localhost target: finding;
- *   - a failed re-read, or a 2xx forge a single-record read can't show: inconclusive, never pass;
- *   - an upsert that changes the test record: put back through the app's own PATCH only;
- *   - a target with no cross-site twin: inconclusive, never confirmed or pass.
- */
+// csrf (0.5.0): each CSRF posture (SameSite=Lax/None, header/body token, Origin, JSON-only, JSON-any-type, array-shape read, upsert, no twin) drives a verdict from the forged post + re-read; failed re-read or no twin is inconclusive.
 import { createServer, type Server } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
@@ -21,14 +6,14 @@ import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { crossSitePage } from "./lib/cross-site.js";
-import { check } from "./csrf.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { crossSitePage } from "../../../../src/checks/lib/cross-site.js";
+import { check } from "../../../../src/checks/csrf.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 /** Lowercase letters and digits, so canary values keep it verbatim; must not contain "csrf" (the forged marker suffix). */
@@ -84,10 +69,7 @@ interface TaskAppOptions {
 
 type Task = { id: string; title: string; updatedAt?: string };
 
-/**
- * A task app: GET /app shows a "New task" form; the page loads the tasks and POSTs the form to /api/tasks. Every API
- * call needs the session cookie; `o` picks the defense and the shapes (see TaskAppOptions).
- */
+// A task app: GET /app shows a "New task" form; the page loads the tasks and POSTs the form to /api/tasks. Every API call needs the session cookie; `o` picks the defense and the shapes (see TaskAppOptions).
 async function taskApp(o: TaskAppOptions = {}): Promise<FixtureServer & { tasks: Task[] }> {
   const tasks: Task[] = [];
   let saves = 0;
@@ -252,10 +234,7 @@ async function run(o: { targetUrl: string; page: DiscoveredPage; self: SessionSt
   return check.run(ctx, scenarioFor(o.page));
 }
 
-/**
- * Runs the check against a task app, reached on 127.0.0.1 (so the cross-site twin is localhost) or, with `host:
- * "localhost"`, on localhost (the twin is 127.0.0.1, Fernway's direction).
- */
+// Runs the check against a task app, reached on 127.0.0.1 (so the cross-site twin is localhost) or, with `host: "localhost"`, on localhost (the twin is 127.0.0.1, Fernway's direction).
 async function runApp(server: FixtureServer, sameSite: "Lax" | "Strict" | "None", host: "127.0.0.1" | "localhost" = "127.0.0.1"): Promise<CheckResult> {
   const base = server.url.replace("127.0.0.1", host);
   const self = session(host, sameSite);
@@ -456,13 +435,7 @@ describe("csrf: the cross-site page and its verdict", () => {
   }, 60_000);
 });
 
-/**
- * Account A's own task t1 ("Groceries") is there before the run; the page lists A's tasks (GET /api/tasks) and its form
- * changes t1, never creating a task: "rename" POSTs {title} as JSON to /api/tasks/t1 (the reviewer's probe), and
- * "today" POSTs {title} to /api/today, a URL and a body that name no record (only a re-read after the save shows it
- * changed t1); with `resave` the page then saves t1 again through the app's own update (PATCH /api/tasks/t1). The server
- * takes a JSON body whatever its content-type (as `await req.json()` does), so a forged text/plain body would be stored.
- */
+// A's own t1 ("Groceries") is there before the run; the page lists A's tasks (GET /api/tasks) and the form changes t1, never creates one: "rename" POSTs {title} as JSON to /api/tasks/t1, "today" POSTs {title} to /api/today (URL/body name no record); with `resave` the page then PATCHes t1 again. Server takes JSON whatever its content-type (as `await req.json()` does).
 async function editApp(form: "rename" | "today", o: { resave?: boolean } = {}): Promise<FixtureServer & { tasks: Task[]; titles: string[] }> {
   const tasks: Task[] = [{ id: "t1", title: "Groceries" }];
   /** Every title t1 was ever given, in order. */
@@ -581,13 +554,7 @@ describe("csrf: a record Account A already had", () => {
   }, 60_000);
 });
 
-/**
- * Account A's own task t1 ("Groceries") is there before the run, and the page lists A's tasks (GET /api/tasks). The
- * form renames it, naming it under a key other than id (0.6.0 round 1): the list is keyed `taskId` (a DynamoDB-style
- * API) and the save POSTs taskId=t1 form-encoded to /api/tasks/rename ("keyed"), or the list is keyed `id` and the
- * save names t1 as {taskId} in its JSON body ("body"), as ?taskId=t1 ("query") or as task_id=t1 ("form"). SameSite=None
- * cookie and no CSRF defence, so a forge at t1 would be stored.
- */
+// A's own t1 ("Groceries") is there; the form renames it under a key other than id (0.6.0 round 1): list keyed `taskId` (DynamoDB-style) and save POSTs taskId=t1 form-encoded to /api/tasks/rename ("keyed"), or list keyed `id` and save names t1 as {taskId} in JSON ("body"), as ?taskId=t1 ("query"), or as task_id=t1 ("form"). SameSite=None cookie, no CSRF defence.
 async function renameApp(where: "keyed" | "body" | "query" | "form"): Promise<FixtureServer & { tasks: Record<string, string>[]; titles: string[] }> {
   const key = where === "keyed" ? "taskId" : "id";
   const tasks: Record<string, string>[] = [{ [key]: "t1", title: "Groceries" }];
@@ -669,7 +636,7 @@ describe("csrf: the cross-site origin", () => {
       targetUrl: "https://localhost:9/app",
       openPage: async () => ({ context, page: await context.newPage() }),
       step: () => undefined,
-    } as unknown as import("../core/types.js").CheckContext;
+    } as unknown as import("../../../../src/core/types.js").CheckContext;
     try {
       const out = await crossSitePage(stub, "https://localhost:9/app");
       if ("inconclusive" in out) throw new Error(out.inconclusive);
@@ -684,7 +651,7 @@ describe("csrf: the cross-site origin", () => {
 describe("csrf: no cross-site origin can be set up", () => {
   it("crossSitePage maps localhost <-> 127.0.0.1 and refuses hosts with no twin", async () => {
     // Host logic only: openPage is never reached for the inconclusive branch (it returns before opening a page).
-    const stub = { targetUrl: "http://10.1.2.3:8080/app" } as unknown as import("../core/types.js").CheckContext;
+    const stub = { targetUrl: "http://10.1.2.3:8080/app" } as unknown as import("../../../../src/core/types.js").CheckContext;
     const out = await crossSitePage(stub, "http://10.1.2.3:8080/app");
     expect("inconclusive" in out).toBe(true);
     if ("inconclusive" in out) expect(out.inconclusive).toMatch(/no cross-site twin|can't be tested/);

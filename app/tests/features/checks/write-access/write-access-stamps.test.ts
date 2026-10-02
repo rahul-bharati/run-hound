@@ -1,48 +1,17 @@
-/**
- * write-access (0.6.0 close-out): optimistic locking the record's reads don't show. The app's own update carries
- * lock_version, but the read Run Hound re-reads the record with ({id, title}) doesn't show it, so the replay can only
- * carry the value the app's own update sent, which the app's own save made stale. An app that refuses a stale version
- * with 409, 412 or 428 is inconclusive (write-access-shapes.test.ts); these apps refuse it another way, a validation
- * error (422, 400) or an unhandled StaleObjectError (500). The update has no ownership check (a planted IDOR), so the
- * refusal says nothing about who may change the record: inconclusive, never a pass. A refusal of Account B itself
- * (403, 404) still passes, and a version the read does show is replayed at its current value, so the IDOR is found.
- *
- * Round 1 of the close-out review:
- * - A 404 is a common way to refuse a stale version too (UPDATE … WHERE id = $1 AND lock_version = $2 matches no row;
- *   Prisma's P2025 mapped to 404). A 404 to an attempt that carried a stamp the read doesn't show is compared with the
- *   same write sent as Account A (the app's own update, with the same stale stamp): refused the same way, B's 404
- *   proves nothing (inconclusive); answered otherwise (a 422 for the stale version, or accepted), B's 404 was a refusal
- *   of B (a pass).
- * - A version the app's update sends in its URL's query (PATCH /api/tasks/2?lock_version=0) is refreshed like one in
- *   the body when the read shows it, and named as stale when it doesn't.
- *
- * Round 2 of the close-out review:
- * - Account A's comparison is the same attempt as Account B's, with a test value of its own in the same field (never a
- *   write that changes nothing: an app may answer that 200 at once, or refuse it with 422, before it looks at the
- *   version), judged by a re-read as Account A. It passes B's 404 only when the re-read shows A's value (the app took the
- *   stale version from its owner) or the app answers A with a conflict (409, 412, 428). A 404, a 2xx that left the
- *   record unchanged, a 400, 422 or 5xx, or no answer is inconclusive.
- * - A 2xx that left the record unchanged while the attempt carried a version the read doesn't show (UPDATE … WHERE
- *   lock_version = $2 matched no row, answered 200 or 204) is compared the same way: it is never a pass on its own.
- * - A query parameter by a stamp's name is refreshed only when its value is one the record showed before the app's
- *   update was sent (the save's answer, a read of the record, or the snapshot): ?version=2, an API version, on a record
- *   whose own version is 5, is left as the app sent it and named as stale.
- * - Known limit, pinned: when the app applies Account A's comparison and its reads show updated_at, the put-back leaves
- *   updated_at changed, so the scenario is inconclusive ("check Account A"), never a pass.
- */
+// write-access (0.6.0 close-out): optimistic locking the record's reads don't show. The app's own update carries lock_version, but the read Run Hound re-reads the record with ({id, title}) doesn't show it, so the replay can only carry the value the app's own update sent, which the app's own save made stale. An app that refuses a stale version with 409, 412 or 428 is inconclusive (write-access-shapes.test.ts); these apps refuse it another way, a validation error (422, 400) or an unhandled StaleObjectError (500). The update has no ownership check (a planted IDOR), so the refusal says nothing about who may change the record: inconclusive, never a pass. A refusal of Account B itself (403, 404) still passes, and a version the read does show is replayed at its current value, so the IDOR is found.
 import { mkdtemp, rm } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./write-access.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/write-access.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const B: AccountRef = { id: "b", label: "Account B" };
@@ -65,7 +34,7 @@ afterAll(closeBrowser);
 
 type Who = "a" | "b";
 
-/** A session: sid, plus any `extra` cookies (a csrftoken). */
+// A session: sid, plus any `extra` cookies (a csrftoken).
 function session(who: Who, extra: Record<string, string> = {}): SessionState {
   const cookie = (name: string, value: string) => ({ name, value, domain: "127.0.0.1", path: "/", expires: -1, httpOnly: name === "sid", secure: false, sameSite: "Lax" as const });
   return { cookies: [cookie("sid", `${who}-session`), ...Object.entries(extra).map(([n, v]) => cookie(n, v))], origins: [] };
@@ -149,20 +118,7 @@ async function run(server: FixtureServer, which: "other-account" | "signed-out",
 
 const writesBy = (server: FixtureServer, who: Who | null) => server.requests.filter((r) => !["GET", "HEAD", "OPTIONS"].includes(r.method) && callerOf(r) === who);
 
-/**
- * A task app with optimistic locking: each update sends the lock_version it last had (from the create's or the last
- * update's answer); a stale one is refused with `stale`, or answered 200 (the task as it is) or 204 without being
- * applied ("noop200", "noop204": UPDATE … WHERE lock_version = $2 matched no row). `read`: whether the list read shows
- * lock_version. `owner`: whether the update checks who owns the task before its version: true answers anyone else 404,
- * a number answers that status, "noop200" answers 200 without applying the write; without it, the planted IDOR.
- * `where`: the update sends lock_version in its JSON body (the default) or in its URL's query
- * (PATCH /api/tasks/2?lock_version=0); "api-version" sends ?version=2, an API version the app insists on, while the
- * record has a `version` of its own (from 5, shown when `read` is "shown") that the app never checks.
- * `checks: false`: the app never looks at the version it is sent. `earlyNoop`: a PATCH whose title is the task's own
- * is answered 200 at once, before the version check; `refuseNoChange`: refused 422 at once ("nothing to change").
- * `pageEdits`: the page's own update renames the task (appends " edited"), so it changes the record and its version.
- * `updatedAt`: the read shows updated_at, set on every applied save.
- */
+// A task app with optimistic locking: each update sends the lock_version it last had (from the create's or the last update's answer); a stale one is refused with `stale`, or answered 200 (the task as it is) or 204 without being applied ("noop200", "noop204": UPDATE … WHERE lock_version = $2 matched no row). `read`: whether the list read shows lock_version. `owner`: whether the update checks who owns the task before its version: true answers anyone else 404, a number answers that status, "noop200" answers 200 without applying the write; without it, the planted IDOR. `where`: the update sends lock_version in its JSON body (the default) or in its URL's query (PATCH /api/tasks/2?lock_version=0); "api-version" sends ?version=2, an API version the app insists on, while the record has a `version` of its own (from 5, shown when `read` is "shown") that the app never checks. `checks: false`: the app never looks at the version it is sent. `earlyNoop`: a PATCH whose title is the task's own is answered 200 at once, before the version check; `refuseNoChange`: refused 422 at once ("nothing to change"). `pageEdits`: the page's own update renames the task (appends " edited"), so it changes the record and its version. `updatedAt`: the read shows updated_at, set on every applied save.
 async function lockApp(o: {
   read: "shown" | "hidden";
   stale: number | "noop200" | "noop204";
@@ -300,7 +256,7 @@ describe("write-access: a version the record's reads don't show, refused another
   });
 });
 
-/** Account A's PATCHes sent after Account B's first one: the write Run Hound compares B's refusal with. */
+// Account A's PATCHes sent after Account B's first one: the write Run Hound compares B's refusal with.
 function aAfterB(server: FixtureServer) {
   const firstB = server.requests.findIndex((r) => r.method === "PATCH" && callerOf(r) === "b");
   return firstB < 0 ? [] : server.requests.slice(firstB + 1).filter((r) => r.method === "PATCH" && callerOf(r) === "a");
@@ -316,8 +272,7 @@ describe("write-access: a 404 to an attempt that carried a version the record's 
     expect(result.notes).toContain("PATCH /api/tasks/2 (404)");
     expect(result.notes).toMatch(/lock_version/);
     expect(result.notes).toMatch(/Account A/);
-    // The comparison is the same attempt as Account A: the same stale version, and a test value of its own in the same
-    // field (never Account B's marker, never the created value).
+    // The comparison is the same attempt as Account A: the same stale version, and a test value of its own in the same field (never Account B's marker, never the created value).
     const control = aAfterB(server);
     expect(control).toHaveLength(1);
     expect(parse(control[0]!.body).lock_version).toBe(0);
@@ -373,8 +328,7 @@ describe("write-access: a 404 to an attempt that carried a version the record's 
   });
 
   it("is not a pass when the app answers a write that changes nothing at once (200) and a stale version with 404", async () => {
-    // The page's own update renames the task, so the replay's lock_version is stale; a copy that set the values the task
-    // already has would be answered 200 before the version check and read as "the app takes a stale version".
+    // The page's own update renames the task, so the replay's lock_version is stale; a copy that set the values the task already has would be answered 200 before the version check and read as "the app takes a stale version".
     const server = await lockApp({ read: "hidden", stale: 404, earlyNoop: true, pageEdits: true });
     const result = await run(server, "other-account");
     expect(result.findings).toEqual([]);

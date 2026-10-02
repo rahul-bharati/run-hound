@@ -2,25 +2,22 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser, runCheck } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { startBookingApp, sampleForm, type BookingServer, type ClientOptions } from "../../test/fixtures/checks/_behavior/booking-app.js";
-import { expectCheckShape, expectCleanPass, expectFailure, expectPlan } from "../../test/fixtures/checks/_behavior/expectations.js";
-import { startModernApp } from "../../test/fixtures/checks/modern-apps.js";
-import { projectForm, startWidgetApp } from "../../test/fixtures/widgets/widget-app.js";
-import type { DiscoveredForm } from "../core/types.js";
-import { createCheckContext } from "../engine/context.js";
-import { MULTI_STEP_NOTE } from "./lib/functional-form.js";
-import { check } from "./silent-failure.js";
-import { startSchemaFormApp } from "../../test/fixtures/checks/schema-form.js";
+import { closeBrowser, getBrowser, runCheck } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { startBookingApp, sampleForm, type BookingServer, type ClientOptions } from "../../../../test/fixtures/checks/_behavior/booking-app.js";
+import { expectCheckShape, expectCleanPass, expectFailure, expectPlan } from "../../../../test/fixtures/checks/_behavior/expectations.js";
+import { startModernApp } from "../../../../test/fixtures/checks/modern-apps.js";
+import { projectForm, startWidgetApp } from "../../../../test/fixtures/widgets/widget-app.js";
+import type { DiscoveredForm } from "../../../../src/core/types.js";
+import { createCheckContext } from "../../../../src/engine/context.js";
+import { MULTI_STEP_NOTE } from "../../../../src/checks/lib/functional-form.js";
+import { check } from "../../../../src/checks/silent-failure.js";
+import { startSchemaFormApp } from "../../../../test/fixtures/checks/schema-form.js";
 
 const ID = "silent-failure" as const;
 const servers: BookingServer[] = [];
 
-/**
- * The fixture server itself always accepts valid bookings (201). A finding on a BAD page therefore
- * proves the check answered the submit request with a 500 by interception, as the spec requires.
- */
+// The fixture server always accepts valid bookings (201): a finding on a BAD page proves the check intercepted the submit and answered 500 itself.
 async function app(client: ClientOptions) {
   const s = await startBookingApp(client);
   servers.push(s);
@@ -94,11 +91,7 @@ describe("silent-failure: BAD", () => {
   });
 });
 
-/**
- * A contact form whose errors appear only as a toast, the way sonner renders them: a <section aria-live="polite">
- * that exists from page load, holding a fixed-position <ol> (zero height, since its toasts are absolutely positioned)
- * with one <li> per toast. The live region itself measures 0 px high while the toast text is plainly on screen.
- */
+// A contact form whose errors appear only as a toast, the way sonner renders them: a <section aria-live="polite"> from page load holding a fixed-position <ol> (0 px tall) with one <li> per toast — the live region measures 0 px high while the toast text is plainly on screen.
 function toastPage(toaster: "sonner" | "none") {
   const region =
     toaster === "sonner"
@@ -224,10 +217,7 @@ describe("silent-failure: skip notes never blame the app for what Run Hound didn
   });
 });
 
-/**
- * A form whose fields are found by position (a widget with no id or name, as discovery reports Radix controls), and
- * whose error message is inserted at the top of the form: every position below it shifts by one.
- */
+// A form whose fields are found by position (a widget with no id or name, as discovery reports Radix controls), and whose error message is inserted at the top of the form: every position below it shifts by one.
 const SHIFTING = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Settings</title><link rel="icon" href="data:,"></head><body><main>
 <h1>Settings</h1>
 <form id="f" novalidate>

@@ -1,12 +1,8 @@
-/**
- * Paywall-trust test: paywall-trust: the restore clicks only Account A's own plan control
- * Split from app/src/checks/paywall-trust.test.ts for parallel execution
- * Shared fixtures: test-support/paywall-app.ts
- */
+// The restore clicks only Account A's own plan control: never a teammate's or add-on's "Downgrade" / "Cancel subscription" in a list, table, card, or hidden tab.
 
 import type { Browser } from "playwright";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
 import {
   A,
   ALEX,
@@ -38,8 +34,8 @@ import {
   sinkPort,
   SUCCESS_LINK,
   usePaywallApp,
-} from "../../test-support/paywall-app.js";
-import type { BillingApp, CancelControl, BillingAppOptions } from "../../test-support/paywall-app.js";
+} from "../../../../test-support/paywall-app.js";
+import type { BillingApp, CancelControl, BillingAppOptions } from "../../../../test-support/paywall-app.js";
 
 usePaywallApp();
 
@@ -122,8 +118,7 @@ describe("paywall-trust: the restore clicks only Account A's own plan control", 
   }, 90_000);
 
   it('clicks neither a teammate card\'s bare "Downgrade" nor another control when nothing says which is Account A\'s plan', async () => {
-    // "Downgrade" (a teammate's card) and "Cancel subscription" (Account A's): neither names the plan or a free tier, and
-    // no heading says which is Account A's plan.
+    // "Downgrade" (teammate's card) and "Cancel subscription" (A's): neither names the plan or a free tier, no heading says which is A's plan.
     const server = await billingApp({ grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "team-card-sub" });
     const result = await runOn(server);
     expectGrantFinding(result, "/app/upgraded");

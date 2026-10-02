@@ -1,27 +1,18 @@
-/**
- * csrf (0.6.0 round 2): which save is forged, and what its URL carries (docs/v2-spec.md "`csrf`": "only the save
- * request this form already makes for the run's test record … Nothing is added to them (no token, no credential
- * header)"; "Evidence redacts … CSRF tokens").
- *   - an anti-CSRF token or a credential in the save's query string (Spring's ?_csrf=, ?access_token=) is never sent
- *     from the other site, and neither the finding nor the exported spec holds it;
- *   - a stored forge after a credential was left out of the URL is inconclusive, never "the save needs no session";
- *   - a POST the form sends before its save (a validation call that stores nothing) is never the one forged, and when
- *     several POSTs carry the typed values and none can be tied to the record, the result is never a pass.
- */
+// csrf (0.6.0 round 2): which save is forged and what its URL carries — a token/credential in the save's query string is never sent, a stored forge after one was left is inconclusive, a pre-save POST is never the one forged.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerResponse } from "node:http";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./csrf.js";
-import { queryParamKind, withoutQueryCredentials } from "./lib/cross-site-query.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/csrf.js";
+import { queryParamKind, withoutQueryCredentials } from "../../../../src/checks/lib/cross-site-query.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 /** Lowercase letters and digits, so canary values keep it verbatim; must not contain "csrf" (the forged marker suffix). */

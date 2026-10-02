@@ -1,17 +1,7 @@
-/**
- * paywall-trust against other app shapes (0.6.0 review, round 1): the loads a page makes outside its frame — a
- * speculation rule or a link rel=prefetch that names the app's own billing portal start, and a SharedWorker — must
- * never reach a payment provider. Driven through createCheckContext like paywall-trust.test.ts, against small
- * fixture apps built per test.
- *
- * Split out of paywall-trust-shapes.test.ts: this file and paywall-trust-frames-rules.test.ts share the same
- * describe title and the same it.each body (byte-identical, including the MANAGE const), each covering half of the
- * original's speculation-rule shapes, to keep both files under the suite's per-file time budget. See that file,
- * paywall-trust-shapes.test.ts and paywall-trust-shapes-trial.test.ts for the rest of the original file's coverage.
- * Shares test-support/paywall-harness.ts's fixture-app, discovery and browser/sink setup.
- */
+// Loads a page makes outside its frame (speculation rule, prefetch link, SharedWorker) must never reach a payment provider.
+
 import { describe, expect, it } from "vitest";
-import { app, CONFIRM_ON_LOAD, page, pathOf, runOn, send, SHOW, signedIn, sinkHits, SUCCESS_LINK, usePaywallHarness, WHO } from "../../test-support/paywall-harness.js";
+import { app, CONFIRM_ON_LOAD, page, pathOf, runOn, send, SHOW, signedIn, sinkHits, SUCCESS_LINK, usePaywallHarness, WHO } from "../../../../test-support/paywall-harness.js";
 
 usePaywallHarness({ tmpPrefix: "rh-paywall-shapes-" });
 

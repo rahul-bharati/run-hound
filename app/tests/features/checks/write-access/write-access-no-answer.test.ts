@@ -1,22 +1,17 @@
-/**
- * write-access (0.6.0 close-out review, round 1): an attempt that got no answer (the connection dropped, or it timed
- * out) and left Account A's test record unchanged says nothing about who may change the record: inconclusive, never a
- * pass ("a pass has to mean the app refused the sender"). The verdict still comes from the re-read: an attempt with no
- * answer that did change the record is a confirmed finding.
- */
+// write-access (0.6.0 close-out review, round 1): an attempt that got no answer (the connection dropped, or it timed out) and left Account A's test record unchanged says nothing about who may change the record: inconclusive, never a pass ("a pass has to mean the app refused the sender"). The verdict still comes from the re-read: an attempt with no answer that did change the record is a confirmed finding.
 import { mkdtemp, rm } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./write-access.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/write-access.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const B: AccountRef = { id: "b", label: "Account B" };
@@ -62,10 +57,7 @@ function parse(body: string): Record<string, unknown> {
   }
 }
 
-/**
- * A task app whose update has no ownership check (the planted IDOR). Account B's PATCH gets no answer: the server
- * drops the connection, before it applies the write (`drop: "before"`) or after (`drop: "after"`).
- */
+// A task app whose update has no ownership check (the planted IDOR). Account B's PATCH gets no answer: the server drops the connection, before it applies the write (`drop: "before"`) or after (`drop: "after"`).
 async function dropApp(drop: "before" | "after") {
   const tasks: { id: number; owner: Who; title: string }[] = [{ id: 1, owner: "a", title: "Groceries" }];
   let next = 2;

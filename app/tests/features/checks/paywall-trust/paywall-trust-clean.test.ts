@@ -1,12 +1,8 @@
-/**
- * Paywall-trust test: paywall-trust: a clean app
- * Split from app/src/checks/paywall-trust.test.ts for parallel execution
- * Shared fixtures: test-support/paywall-app.ts
- */
+// A clean app: pass on grants, skip on no plan or no success route, and never open non-billing "success" links.
 
 import type { Browser } from "playwright";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
 import {
   A,
   ALEX,
@@ -39,8 +35,8 @@ import {
   sinkPort,
   SUCCESS_LINK,
   usePaywallApp,
-} from "../../test-support/paywall-app.js";
-import type { BillingApp, CancelControl, BillingAppOptions, Link } from "../../test-support/paywall-app.js";
+} from "../../../../test-support/paywall-app.js";
+import type { BillingApp, CancelControl, BillingAppOptions, Link } from "../../../../test-support/paywall-app.js";
 
 usePaywallApp();
 
@@ -103,8 +99,7 @@ describe("paywall-trust: a clean app", () => {
   }, 90_000);
 
   it("opens only links that name a success or upgrade result together with a billing word, never other welcome or success pages", async () => {
-    // On the Billing page (a page the page under test links to): a product tour and a blog post. Neither is about a
-    // plan, and each marks onboarding done as soon as it loads.
+    // On the Billing page (a page the page under test links to): a product tour and a blog post. Neither is about a plan; each marks onboarding done on load.
     const tour: Link = { href: "/welcome", text: "Take the product tour" };
     const stories: Link = { href: "/blog/customer-success-stories", text: "Customer success stories" };
     const server = await billingApp({

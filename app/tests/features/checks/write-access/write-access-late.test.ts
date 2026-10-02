@@ -1,30 +1,17 @@
-/**
- * write-access, 0.6.0 round 3, driven through createCheckContext against small apps built in this file (sid=a-session
- * is Account A, sid=b-session Account B):
- *
- * - A tRPC edit form (httpBatchLink: POST /api/trpc/task.update?batch=1 with {"0": {"json": {id, title}}}) that
- *   renames Account A's own task t1: the save is stopped before it reaches the app, however deep the id sits.
- * - A profile form that checks the values first (POST /api/profile/check) and then saves Account A's own profile
- *   (POST /api/profile): the check going through no longer opens the gate, so the save is stopped.
- * - A queued update (202 Accepted, applied by a background job a moment later) with no ownership check: Account B's
- *   write is a finding, found by a later look, and the record is put back; never a pass with B's marker left in it.
- * - An update the app sends without a run-token field ({position: 0}) to an endpoint with no ownership check that stores
- *   only position: Account B's accepted write proves nothing, so the scenario is inconclusive, never a pass. A refusal
- *   (404) still passes.
- */
+// write-access, 0.6.0 round 3, driven through createCheckContext against small apps built in this file (sid=a-session is Account A, sid=b-session Account B).
 import { mkdtemp, rm } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./write-access.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/write-access.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const B: AccountRef = { id: "b", label: "Account B" };
@@ -223,12 +210,7 @@ document.getElementById('p').addEventListener('submit', function (e) {
   });
 });
 
-/**
- * A task app whose page creates a task (POST /api/tasks) and then sends its own update for it, PATCH /api/tasks/<id>
- * with `update` (built from `t`, the created task). The PATCH has no ownership check. `queued`: it answers 202 and a
- * background job applies it `delayMs` later. `ignoresTitle`: it answers 200 and stores only position (a strict schema).
- * `refuseOthers`: a caller who doesn't own the task gets 404 (a clean app).
- */
+// A task app whose page creates a task (POST /api/tasks) and then sends its own update for it, PATCH /api/tasks/<id> with `update` (built from `t`, the created task). The PATCH has no ownership check. `queued`: it answers 202 and a background job applies it `delayMs` later. `ignoresTitle`: it answers 200 and stores only position (a strict schema). `refuseOthers`: a caller who doesn't own the task gets 404 (a clean app).
 async function createThenUpdateApp(o: { update: string; queued?: boolean; ignoresTitle?: boolean; refuseOthers?: boolean; delayMs?: number }) {
   const tasks: Task[] = [
     { id: 1, owner: "a", title: "Groceries", done: false, position: 0 },

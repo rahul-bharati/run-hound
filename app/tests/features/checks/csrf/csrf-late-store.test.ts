@@ -1,25 +1,17 @@
-/**
- * csrf (0.6.0 close-out, review round 1): a forge the app answers late, or never. A form or multipart forge is posted
- * into a frame and waited on for the app's answer, as the text/plain and JSON forges are (cross-site.ts FORGE_WAIT_MS),
- * so a slow save that stores the forge and answers 7 s later is seen: a confirmed finding, and the forged record is
- * named with "check Account A". A forge the app never answers (the connection closes with no answer) says nothing:
- * with nothing stored yet the scenario is inconclusive, never a pass, never names a defence, and says the app may
- * still store it ("check Account A"), since it may be stored after Run Hound's re-read (docs/v2-spec.md "`csrf`":
- * "Restore, then confirm / anything that could not be restored is named").
- */
+// csrf (0.6.0 close-out, review round 1): a forge the app answers late (or never) — form/multipart forge waited on for the app's answer; late-stored is a finding, never-answered is inconclusive and never names a defence.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerResponse } from "node:http";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./csrf.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/csrf.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const RUN_TOKEN = "cf7e57a1";
@@ -73,10 +65,7 @@ form.addEventListener('submit', function (e) {
 load();
 </script></body></html>`;
 
-/**
- * A task app with no CSRF defence and a SameSite=None cookie; a request from another site is handled by `crossSiteSave`
- * (it gets the store function and the response), every other one is stored and answered at once.
- */
+// A task app with no CSRF defence, SameSite=None cookie; a request from another site is handled by `crossSiteSave` (gets the store function and the response), every other one is stored and answered at once.
 async function app(
   crossSiteSave: (store: () => { id: string; title: string }, res: ServerResponse) => void,
 ): Promise<FixtureServer & { tasks: { id: string; title: string }[] }> {

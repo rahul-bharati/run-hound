@@ -3,24 +3,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser, overallStatus, runCheck } from "../../test-support/harness.js";
-import { startBookingApp, sampleForm, type BookingServer } from "../../test/fixtures/checks/_behavior/booking-app.js";
-import { allFindings } from "../../test/fixtures/checks/assert-finding.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { expectCheckShape, expectCleanPass, expectFailure, expectPlan, findingText } from "../../test/fixtures/checks/_behavior/expectations.js";
-import type { DiscoveredForm } from "../core/types.js";
-import { createCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check, isDestructiveControl } from "./dead-control.js";
+import { closeBrowser, getBrowser, overallStatus, runCheck } from "../../../../test-support/harness.js";
+import { startBookingApp, sampleForm, type BookingServer } from "../../../../test/fixtures/checks/_behavior/booking-app.js";
+import { allFindings } from "../../../../test/fixtures/checks/assert-finding.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { expectCheckShape, expectCleanPass, expectFailure, expectPlan, findingText } from "../../../../test/fixtures/checks/_behavior/expectations.js";
+import type { DiscoveredForm } from "../../../../src/core/types.js";
+import { createCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check, isDestructiveControl } from "../../../../src/checks/dead-control.js";
 
 const ID = "dead-control" as const;
 const servers: BookingServer[] = [];
 const fixtureServers: FixtureServer[] = [];
 
-/**
- * Non-submit buttons, each proving a different kind of "it did something":
- * storage only, value + focus, focus only, request only, delayed DOM change, sessionStorage only, navigation.
- */
+// Non-submit buttons, each proving a different kind of "it did something": storage only, value + focus, focus only, request only, delayed DOM change, sessionStorage only, navigation.
 const BUTTONS = `
   <button type="button" id="saveDraft">Save draft</button>
   <button type="button" id="clearPetName" aria-label="Clear pet name">&#x2715;</button>
@@ -283,7 +280,6 @@ describe("isDestructiveControl: sending, paying, ordering and trashing (CHK-3)",
   });
 });
 
-/** A page with the controls an AI-built list and form typically has, next to their handlers. */
 function modernPage(options: { form?: string; outside?: string; script?: string }) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Items</title><link rel="icon" href="data:,">
 <style>
@@ -486,7 +482,7 @@ describe("dead-control: a form in a dialog (LOV-8)", () => {
   it("opens the dialog on every fresh page before clicking, and the spec opens it too", async () => {
     const members: unknown[] = [];
     const server = await startFixtureServer({
-      root: fileURLToPath(new URL("../../test/fixtures/discover/", import.meta.url)),
+      root: fileURLToPath(new URL("../../../../test/fixtures/discover/", import.meta.url)),
       routes: {
         "GET /api/members": (_req, res) => json(res, 200, members),
         "POST /api/members": (req, res) => {

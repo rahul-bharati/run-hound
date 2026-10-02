@@ -1,12 +1,8 @@
-/**
- * Paywall-trust test: paywall-trust: only a gain is a grant
- * Split from app/src/checks/paywall-trust.test.ts for parallel execution
- * Shared fixtures: test-support/paywall-app.ts
- */
+// Only a gain is a grant: spent credits, trials, refills, and SPA catch-alls must not be confirmed; paid-plan gain alongside a spend still is.
 
 import type { Browser } from "playwright";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
 import {
   A,
   ALEX,
@@ -40,8 +36,8 @@ import {
   sinkPort,
   SUCCESS_LINK,
   usePaywallApp,
-} from "../../test-support/paywall-app.js";
-import type { BillingApp, CancelControl, BillingAppOptions, SuccessPage } from "../../test-support/paywall-app.js";
+} from "../../../../test-support/paywall-app.js";
+import type { BillingApp, CancelControl, BillingAppOptions, SuccessPage } from "../../../../test-support/paywall-app.js";
 
 usePaywallApp();
 
@@ -91,8 +87,7 @@ describe("paywall-trust: only a gain is a grant", () => {
   }, 90_000);
 
   it("never confirms a finding when A's credits refill on a timer while the success page does nothing", async () => {
-    // +1 credit every 1.5 s, starting after Run Hound's two baseline reads (so they can't see it): whichever route is
-    // open when it ticks looks like it granted a credit, unless the change is confirmed while nothing is opened.
+    // +1 credit every 1.5 s, starting after Run Hound's two baseline reads (so they can't see it).
     const server = await billingApp({ grants: false, credits: 5, refillEveryMs: 1_500, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} }, cancel: "button" });
     const result = await runOn(server);
     expect(confirmed(result)).toEqual([]);
@@ -109,9 +104,7 @@ describe("paywall-trust: only a gain is a grant", () => {
   }, 120_000);
 
   it("never confirms a finding when A's credits refill every 40 s, slower than any pause with nothing opened (0.6.0 review, round 3)", async () => {
-    // Every success page is clean but keeps the network busy for about 5 s (an analytics beacon every 400 ms), so the
-    // probing lasts long enough for the refill to tick once while a route is open; the next tick comes 40 s later,
-    // after any quiet pause.
+    // Every success page keeps the network busy for ~5 s (beacon every 400 ms), so the refill can tick once while a route is open.
     const busy: SuccessPage = {
       confirms: false,
       extra: `<script>var n = 0, t = setInterval(function () { fetch('/api/team'); if (++n >= 12) clearInterval(t); }, 400);</script>`,

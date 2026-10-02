@@ -1,16 +1,7 @@
-/**
- * paywall-trust against other app shapes (0.6.0 review, round 1): where Account A's plan is read from, a grant that
- * lands late, and a teammate's card with a heading of its own. Driven through createCheckContext like
- * paywall-trust.test.ts, against small fixture apps built per test.
- *
- * Split from the original paywall-trust-shapes.test.ts (which also covered a clean success page that changes the
- * plan without a grant, and the loads a page makes outside its frame) to keep each file under the suite's per-file
- * time budget: see paywall-trust-shapes-trial.test.ts, paywall-trust-frames.test.ts and
- * paywall-trust-frames-rules.test.ts. All four share test-support/paywall-harness.ts's fixture-app, discovery and
- * browser/sink setup.
- */
+// paywall-trust against other app shapes (review round 1): where Account A's plan is read from, a grant that lands late, and a teammate's card with a heading of its own.
+
 import { describe, expect, it } from "vitest";
-import type { FixtureServer } from "../../test-support/server.js";
+import type { FixtureServer } from "../../../../test-support/server.js";
 import {
   ALEX,
   app,
@@ -30,7 +21,7 @@ import {
   SUCCESS_LINK,
   usePaywallHarness,
   WHO,
-} from "../../test-support/paywall-harness.js";
+} from "../../../../test-support/paywall-harness.js";
 
 usePaywallHarness({ tmpPrefix: "rh-paywall-shapes-" });
 
@@ -141,10 +132,7 @@ describe("paywall-trust: where Account A's plan is read from", () => {
   }, 120_000);
 });
 
-/**
- * The exported spec's wait for a late change (review round 1): SETTLE_MS, a poll loop that reads the plan until then and
- * stops at the first change, and a test timeout that covers it. Returns SETTLE_MS.
- */
+// expectSettles: the exported spec's wait for a late change — SETTLE_MS, a poll loop until then that stops at the first change, and a test timeout covering it.
 function expectSettles(source: string): number {
   const settle = /const SETTLE_MS = ([\d_]+);/.exec(source);
   expect(settle).not.toBeNull();
@@ -157,11 +145,7 @@ function expectSettles(source: string): number {
   return Number(settle![1]!.replace(/_/g, ""));
 }
 
-/**
- * Replays the exported spec's steps against the fixture as Account A (signed in with its session cookie instead of the
- * sign-in page): the plan before, the route opened and the network idle, then the plan read until `settleMs` have passed
- * or it changed. Returns the plan before and the last one read.
- */
+// replaysSpec: replays the exported spec's steps against the fixture as Account A — plan before, route opened, network idle, then read until settleMs or a change.
 async function replaysSpec(server: FixtureServer, route: string, settleMs: number): Promise<{ before: unknown; after: unknown }> {
   const context = await browser.newContext({ storageState: SELF, serviceWorkers: "block" });
   try {
@@ -199,9 +183,7 @@ describe("paywall-trust: a grant that lands late", () => {
           return send(res, 200, {});
         },
       },
-      // A slow 404 for every other path (a server-rendered not-found page). The queued upgrade lands while the first
-      // of them loads: after the quiet read that follows /app/upgraded (0.6.0 closeout), so the change is first read
-      // after a route that answered 404.
+      // A slow 404 for every other path; the queued upgrade lands while the first of them loads, after the quiet read that follows /app/upgraded.
       fallback: (_req, res) => {
         if (state.queued) {
           state.queued = false;
@@ -257,9 +239,7 @@ describe("paywall-trust: a grant that lands late", () => {
     expect(result.notes).not.toMatch(/[\s:,]\/upgraded \(answered\)/);
     expect(server.requests.filter((r) => pathOf(r) === "/upgraded")).toEqual([]);
     expect(state.plan).toBe("free");
-    // The exported spec waits for a change that lands late (review round 1): it reads the plan until SETTLE_MS have
-    // passed (at least as long as Run Hound waited, plus the quiet pause) and fails on any change. Replayed as the spec
-    // does, it fails on this app, where a read right after the network went idle still shows the free plan.
+    // The exported spec waits for a late change until SETTLE_MS (≥ Run Hound's wait + quiet pause); replayed, it fails on this app where the read after networkidle still shows free.
     const source = finding.spec!.source;
     const lateS = Number(/opened nothing for (\d+) s after/.exec(result.notes ?? "")?.[1]);
     const settleMs = expectSettles(source);

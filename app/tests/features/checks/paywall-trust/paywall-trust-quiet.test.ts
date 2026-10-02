@@ -1,19 +1,7 @@
-/**
- * paywall-trust's quiet waits (0.6.0 closeout, review round 1): what a Billing tab's script still sends while Run
- * Hound waits with nothing opened after it (a timer, a write after a slow GET) is held as it is while the tab is
- * clicked; a change the page under test's own load makes late is never credited to a later route; a run that ran out
- * of time with routes left unopened is never a pass; and a late change put down to a tab names what came between it
- * and the route after which the change was read. Driven through createCheckContext like paywall-trust.test.ts,
- * against small fixture apps built per test.
- *
- * Split from the original paywall-trust-quiet.test.ts (which also covered a Billing tab's page being left under the
- * tab's hold before the next page loads) to keep each file under the suite's per-file time budget: see
- * paywall-trust-quiet-hold.test.ts. Both share test-support/paywall-harness.ts's fixture-app, discovery and
- * browser/sink setup; restoreMocks: true reproduces this family's original afterEach, which called
- * vi.restoreAllMocks() first.
- */
+// Quiet waits (review round 1): the Billing tab holds what its script still sends; late page-Load change isn't credited to a later route; time-out with unopened routes is never a pass; late change put down to a tab names what came between.
+
 import { describe, expect, it, vi } from "vitest";
-import { app, BILLING, confirmed, loads, notFound, page, posts, runOn, send, settings, SHOW, signedIn, sinkHits, usePaywallHarness, WHO } from "../../test-support/paywall-harness.js";
+import { app, BILLING, confirmed, loads, notFound, page, posts, runOn, send, settings, SHOW, signedIn, sinkHits, usePaywallHarness, WHO } from "../../../../test-support/paywall-harness.js";
 
 usePaywallHarness({ tmpPrefix: "rh-paywall-quiet-", restoreMocks: true });
 
@@ -27,9 +15,7 @@ describe("paywall-trust: the quiet wait after a Billing tab holds what the tab's
             { id: "t-billing", name: "Billing" },
             { id: "t-payments", name: "Payments" },
           ],
-          // Billing: 2 s after it is chosen, the usual Stripe customer-portal button's script (POST to the app, which
-          // creates the session at the provider, then off to the URL it answers). Payments: 2 s after it is chosen, off to
-          // a page of the app whose path names no start, which creates the portal session and redirects to Stripe.
+          // Billing: 2 s after chosen, the usual Stripe portal POST then off to the URL it answers. Payments: 2 s after chosen, off to a page that creates the session and redirects to Stripe.
           `document.getElementById('t-billing').addEventListener('click', () => setTimeout(() => fetch('/api/billing/portal-session', { method: 'POST' }).then(r => r.json()).then(j => { location.href = j.url; }), 2000));
 document.getElementById('t-payments').addEventListener('click', () => setTimeout(() => { location.href = '/go/manage'; }, 2000));`,
         ),
@@ -149,8 +135,7 @@ fetch('/api/billing/refresh', { method: 'POST' });`),
 
 describe("paywall-trust: running out of time (0.6.0 closeout, review round 1)", () => {
   it("is never a pass when it stopped for time with routes left unopened: inconclusive, naming them", async () => {
-    // The clock jumps 250 s ahead when the first route loads, as on a slow app whose pages and quiet waits used up the
-    // probing time: the conventional paths after it are never opened.
+    // Clock jumps 250 s ahead when the first route loads, as on a slow app whose pages and quiet waits used up the probing time.
     const realNow = Date.now.bind(Date);
     let shift = 0;
     vi.spyOn(Date, "now").mockImplementation(() => realNow() + shift);

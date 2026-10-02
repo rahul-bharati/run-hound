@@ -1,26 +1,17 @@
-/**
- * write-access on a GraphQL app (0.6.0 close-out round 1; docs/v2-spec.md "Safety contract": "A's pre-existing records
- * are never written to"). Reads and writes are POST /graphql (Apollo Client's default), so no GET reads a record back.
- *   - An edit form whose mutation renames a task Account A already had (t1): the hold learns t1 from the page's POST
- *     query and stops the mutation before it reaches the app; t1 is never written to, and the note says the save was
- *     stopped.
- *   - A create form (createTask): the save reaches the app, and no GET reads the record back, so the scenario is
- *     skipped; the note names the save, says it reached the app and asks to check Account A, never letting it pass for
- *     "nothing was changed".
- */
+// write-access on a GraphQL app (0.6.0 close-out round 1; docs/v2-spec.md "Safety contract": "A's pre-existing records are never written to"). Reads and writes are POST /graphql (Apollo Client's default), so no GET reads a record back.
 import { mkdtemp, rm } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./write-access.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/write-access.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const B: AccountRef = { id: "b", label: "Account B" };
@@ -61,11 +52,7 @@ function send(res: ServerResponse, status: number, body: unknown): void {
 
 type Task = { id: string; owner: Who; title: string };
 
-/**
- * A GraphQL task app. The page reads Account A's tasks with a POST query on load; its form sends `mutation` with the
- * typed title as $title, and the first task's id as $id when the mutation declares one. updateTask renames a task its
- * caller owns; createTask adds one.
- */
+// A GraphQL task app. The page reads Account A's tasks with a POST query on load; its form sends `mutation` with the typed title as $title, and the first task's id as $id when the mutation declares one. updateTask renames a task its caller owns; createTask adds one.
 async function gqlApp(mutation: string): Promise<FixtureServer & { tasks: Task[] }> {
   const tasks: Task[] = [
     { id: "t1", owner: "a", title: "Groceries" },

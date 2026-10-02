@@ -1,23 +1,17 @@
-/**
- * csrf (0.6.0 close-out): a plain HTML form posted natively (no script), whose anti-CSRF token is a hidden input under a
- * name no framework list knows (a home-made formToken). The post leaves the page: the app answers 303 to a page with no
- * form, so the token is no longer in the page once the save was sent. It is read before the submit, so the forged body
- * still leaves it out (docs/v2-spec.md "`csrf`": "Nothing is added to them (no token …)"), and the app's refusal is a
- * pass, never a confirmed "no CSRF protection" on a token-protected app.
- */
+// csrf (0.6.0 close-out): a native form post whose home-made token is read before submit; the forged body still leaves it out and the app's refusal is a pass, never a confirmed "no CSRF protection" on a token-protected app.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerResponse } from "node:http";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./csrf.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/csrf.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const RUN_TOKEN = "cf7e57a1";
@@ -57,11 +51,7 @@ fetch('/api/tasks').then(function (r) { return r.ok ? r.json() : { tasks: [] }; 
   document.getElementById('list').innerHTML = d.tasks.map(function (x) { return '<li>' + String(x.title).replace(/</g, '&lt;') + '</li>'; }).join(''); });
 </script>`;
 
-/**
- * GET /app: a native form (POST /tasks, form-encoded) with the token in a hidden `field`. POST /tasks refuses a body
- * without the token (403), else stores the task and answers 303 to /done, a page with the list and no form or token.
- * No other defence, and a SameSite=None cookie: only the token stops a page on another site.
- */
+// GET /app: a native form (POST /tasks, form-encoded) with the token in a hidden `field`. POST /tasks refuses a body without the token (403), else stores the task and 303s to /done (a page with the list and no form or token). SameSite=None cookie; only the token stops a page on another site.
 async function nativeApp(field: string): Promise<FixtureServer & { tasks: { id: string; title: string }[] }> {
   const tasks: { id: string; title: string }[] = [];
   const server = await startFixtureServer({

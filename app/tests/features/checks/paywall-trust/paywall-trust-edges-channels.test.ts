@@ -1,15 +1,7 @@
-/**
- * paywall-trust against the shapes the 0.6.0 review's round 2 found (docs/v2-spec.md "`paywall-trust` amendments"):
- * a WebSocket or a new window that heads for a payment provider, and a cancel flow's retention offer the restore
- * must never accept. Driven through createCheckContext like paywall-trust.test.ts, against small fixture apps built
- * per test.
- *
- * Split out of paywall-trust-edges.test.ts to keep each file under the suite's per-file time budget; see that file
- * for the rest of the original file's coverage. Shares test-support/paywall-harness.ts's fixture-app, discovery and
- * browser/sink setup.
- */
+// Channels that head for a payment provider (WebSocket, new window) and the cancel flow's retention offer the restore must never accept.
+
 import { describe, expect, it } from "vitest";
-import { app, CONFIRM_ON_LOAD, DASHBOARD, me, page, runOn, send, SHOW, sinkHits, usePaywallHarness } from "../../test-support/paywall-harness.js";
+import { app, CONFIRM_ON_LOAD, DASHBOARD, me, page, runOn, send, SHOW, sinkHits, usePaywallHarness } from "../../../../test-support/paywall-harness.js";
 
 usePaywallHarness({ tmpPrefix: "rh-paywall-edges-" });
 

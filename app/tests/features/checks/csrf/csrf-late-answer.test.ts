@@ -1,26 +1,18 @@
-/**
- * csrf (0.6.0 close-out, review round 2): a forge the app answers only after the forge's wait (cross-site.ts
- * FORGE_WAIT_MS, shortened here to 2 s with setForgeWaitMs so the "late" branch runs in seconds). The app's JSON save is
- * forged form-encoded first, and then as text/plain; no second encoding is sent on top of a forge with no answer.
- *   - Refused late and nothing stored: inconclusive, never a pass and never a defence named ("none came within 2
- *     seconds", "check Account A"), since the app may still store it.
- *   - Stored at once and answered late: a confirmed finding that says the cookies it carried aren't known (never "the
- *     save needs no session"), and the forged record is named with "check Account A".
- */
+// csrf (0.6.0 close-out, review round 2): a forge answered after the wait — refused-late is inconclusive (no defence named), stored-then-late-answer is a finding whose cookies aren't named "no cookie".
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerResponse } from "node:http";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./csrf.js";
-import { setForgeWaitMs } from "./lib/cross-site.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/csrf.js";
+import { setForgeWaitMs } from "../../../../src/checks/lib/cross-site.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const RUN_TOKEN = "cf7e57a1";
@@ -93,11 +85,7 @@ form.addEventListener('submit', function (e) {
 load();
 </script></body></html>`;
 
-/**
- * A task app with no CSRF defence and a SameSite=None cookie, whose JSON save also takes a form-encoded or text/plain
- * body. A request from another site is answered only after LATE_MS: refused with 403 (`store` false) or stored at once
- * and answered 201 (`store` true).
- */
+// A task app with no CSRF defence, SameSite=None cookie; JSON save also takes form-encoded or text/plain. A request from another site is answered only after LATE_MS: refused with 403 (`store` false) or stored at once and answered 201 (`store` true).
 async function slowApp(store: boolean): Promise<FixtureServer & { tasks: { id: string; title: string }[] }> {
   const tasks: { id: string; title: string }[] = [];
   const server = await startFixtureServer({

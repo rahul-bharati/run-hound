@@ -1,23 +1,17 @@
-/**
- * csrf (0.6.0 close-out): a forge whose answer Run Hound never sees. The app stores the forged save and never answers
- * it (the connection closes, as behind a proxy that gave up; an answer later than the forge's wait, cross-site.ts
- * FORGE_WAIT_MS, looks the same). Nothing about the cookies the browser attached is known then, so "no answer seen" is never read as "no cookie attached": a stored forge that carried
- * Account A's session cookie is never titled "(the save needs no session)" (docs/v2-spec.md "`csrf`", Verdict: that
- * title is for a stored forge that carried no cookie at all).
- */
+// csrf (0.6.0 close-out): a forge whose answer Run Hound never sees — "no answer seen" is never read as "no cookie attached"; a stored forge that carried A's session is never titled "(the save needs no session)".
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerResponse } from "node:http";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./csrf.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/csrf.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const RUN_TOKEN = "cf7e57a1";
@@ -68,10 +62,7 @@ form.addEventListener('submit', function (e) {
 load();
 </script></body></html>`;
 
-/**
- * A task app with no CSRF defence and a SameSite=None cookie: POST /api/tasks stores the title, and a request from
- * another site gets no answer at all after it was stored (its connection is closed).
- */
+// A task app with no CSRF defence, SameSite=None cookie: POST /api/tasks stores the title; a request from another site gets no answer at all after it was stored (its connection is closed).
 async function lateApp(): Promise<FixtureServer & { tasks: { id: string; title: string }[] }> {
   const tasks: { id: string; title: string }[] = [];
   const server = await startFixtureServer({

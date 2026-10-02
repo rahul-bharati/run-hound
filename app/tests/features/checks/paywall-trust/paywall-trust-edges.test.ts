@@ -1,16 +1,7 @@
-/**
- * paywall-trust against the shapes the 0.6.0 review's round 2 found (docs/v2-spec.md "`paywall-trust` amendments"):
- * never a pass while a change could still land — a grant that lands after the last route's re-read, a plan read only
- * from a session endpoint, a snake_case plan flag, and a clean trial kept as an object. Driven through
- * createCheckContext like paywall-trust.test.ts, against small fixture apps built per test.
- *
- * Split from the original paywall-trust-edges.test.ts (which also covered a WebSocket or a new window that heads for
- * a payment provider, and a cancel flow's retention offer) to keep each file under the suite's per-file time budget:
- * see paywall-trust-edges-channels.test.ts. Both share test-support/paywall-harness.ts's fixture-app, discovery and
- * browser/sink setup.
- */
+// paywall-trust against the shapes the 0.6.0 review's round 2 found: never a pass while a change could still land — late grant, session-endpoint plan, snake_case flag, trial object.
+
 import { describe, expect, it } from "vitest";
-import { ALEX, app, BILLING, confirmed, CONFIRM_ON_LOAD, me, page, runOn, send, SHOW, signedIn, SUCCESS_LINK, usePaywallHarness, WHO } from "../../test-support/paywall-harness.js";
+import { ALEX, app, BILLING, confirmed, CONFIRM_ON_LOAD, me, page, runOn, send, SHOW, signedIn, SUCCESS_LINK, usePaywallHarness, WHO } from "../../../../test-support/paywall-harness.js";
 
 usePaywallHarness({ tmpPrefix: "rh-paywall-edges-" });
 

@@ -1,18 +1,8 @@
-/**
- * paywall-trust's quiet waits (0.6.0 closeout, review round 2): a Billing tab's page must be left under the tab's
- * hold before the next page loads — a slow subscription GET that answers while the next page is still loading, a
- * pagehide beacon, a late write during the restore's first page load, a late write while a page is opened again for
- * a gain, and a change put down to every tab chosen on the page when it may come from an earlier one's script.
- * Driven through createCheckContext like paywall-trust.test.ts, against small fixture apps built per test.
- *
- * Split out of paywall-trust-quiet.test.ts to keep each file under the suite's per-file time budget; see that file
- * for the rest of the original file's coverage. Shares test-support/paywall-harness.ts's fixture-app, discovery and
- * browser/sink setup; restoreMocks: true reproduces this family's original afterEach, which called
- * vi.restoreAllMocks() first.
- */
+// Quiet waits (review round 2): a Billing tab's page must be left under the tab's hold before the next page loads — slow GET, pagehide beacon, late writes, and changes put down to every tab chosen.
+
 import type { ServerResponse } from "node:http";
 import { describe, expect, it } from "vitest";
-import { app, BILLING, confirmed, loads, posts, runOn, send, settings, signedIn, sinkHits, usePaywallHarness, WHO } from "../../test-support/paywall-harness.js";
+import { app, BILLING, confirmed, loads, posts, runOn, send, settings, signedIn, sinkHits, usePaywallHarness, WHO } from "../../../../test-support/paywall-harness.js";
 
 usePaywallHarness({ tmpPrefix: "rh-paywall-quiet-", restoreMocks: true });
 
@@ -23,8 +13,7 @@ const html = (res: ServerResponse, body: string) => {
 
 describe("paywall-trust: a Billing tab's page is left under the tab's hold before the next page loads (0.6.0 closeout, review round 2)", () => {
   it("never lets a Billing tab that reads a slow subscription GET, then POSTs to the portal start, reach it while the next page is still loading", async () => {
-    // The tab's GET takes 6.5 s, longer than the quiet wait after the tab (5 s); /app/billing then takes 4 s to answer.
-    // The tab's page must not still be running (with nothing held) when its GET answers.
+    // Tab's GET takes 6.5 s, longer than the quiet wait after the tab (5 s); /app/billing then takes 4 s to answer — tab's page must not still be running when its GET answers.
     const t0 = Date.now();
     const state = { plan: "free", portal: 0, clickAt: [] as number[], billingAt: [] as number[] };
     const server = await app({

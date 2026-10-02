@@ -1,12 +1,8 @@
-/**
- * Paywall-trust test: paywall-trust: a success page that sends the browser on to a payment provider
- * Split from app/src/checks/paywall-trust.test.ts for parallel execution
- * Shared fixtures: test-support/paywall-app.ts
- */
+// A success page that sends the browser on to a payment provider: hold navigation, server redirects, and new windows; still report the grant.
 
 import type { Browser } from "playwright";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
 import {
   A,
   ALEX,
@@ -38,8 +34,8 @@ import {
   sinkPort,
   SUCCESS_LINK,
   usePaywallApp,
-} from "../../test-support/paywall-app.js";
-import type { BillingApp, CancelControl, BillingAppOptions } from "../../test-support/paywall-app.js";
+} from "../../../../test-support/paywall-app.js";
+import type { BillingApp, CancelControl, BillingAppOptions } from "../../../../test-support/paywall-app.js";
 
 usePaywallApp();
 

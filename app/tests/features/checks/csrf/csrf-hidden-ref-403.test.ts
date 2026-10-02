@@ -1,31 +1,17 @@
-/**
- * csrf (0.6.0 close-out, review round 2): a random value in a hidden input that Run Hound can't place is left out of the
- * forged body (it may be Account A's token), and the app refuses the forge with 403.
- *   - When the value looks like a reference (its name says id, as list_id or listId does, or it is a UUID or an
- *     ObjectId), a 403 is what an authorization check (Pundit, CanCanCan, a Laravel Gate) answers for a missing or
- *     foreign reference as readily as a CSRF defence answers a request from another site: inconclusive, never a pass,
- *     and the notes say why. A 419 (Laravel's answer to a missing CSRF token, never to a missing value) still passes.
- *   - When nothing says it is a reference (a home-made formToken of hex), the 403 still passes (csrf-forge.test.ts,
- *     csrf-native-post.test.ts), but the pass note never names a defence Run Hound didn't see: it says it can't rule out
- *     that the app refused a missing value.
- *   - A body field whose value only the save's URL held (no hidden input holds it) is named as the URL's value, never
- *     as "a random value in a hidden input".
- * (docs/v2-spec.md "`csrf`"; the decision record "csrf reads the answer to every forge": "a pass must mean a defence
- * refused the forge".)
- */
+// csrf (0.6.0 close-out, review round 2): a 403 on a hidden value Run Hound left out is inconclusive when the value looks like a reference (authorization check), a pass when it doesn't (and the note never names a defence Run Hound didn't see).
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerResponse } from "node:http";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./csrf.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/csrf.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const RUN_TOKEN = "cf7e57a1";
@@ -80,10 +66,7 @@ interface AppOptions {
   refuse: number;
 }
 
-/**
- * A task app with no CSRF defence at all (a SameSite=None cookie, no token, no Origin check): only the hidden value,
- * which a page on another site may know (a reference) or may not (a token), stands between it and a forged save.
- */
+// A task app with no CSRF defence (SameSite=None cookie, no token, no Origin check): only the hidden value (a reference a page may know, or a token it may not) stands between it and a forged save.
 async function hiddenApp(o: AppOptions): Promise<FixtureServer & { tasks: { id: string; title: string }[] }> {
   const tasks: { id: string; title: string }[] = [];
   const form = o.native ? `<form method="post" action="/tasks" aria-label="New task">` : `<form id="new" aria-label="New task">`;

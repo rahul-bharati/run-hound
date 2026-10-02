@@ -1,12 +1,8 @@
-/**
- * Paywall-trust test: paywall-trust: a success page that grants a paid plan on load
- * Split from app/src/checks/paywall-trust.test.ts for parallel execution
- * Shared fixtures: test-support/paywall-app.ts
- */
+// A success page that grants a paid plan on load: discover via links, conventional paths, nested pages; named exactly once per grant; re-read failures stay inconclusive.
 
 import type { Browser } from "playwright";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
 import {
   A,
   ALEX,
@@ -40,8 +36,8 @@ import {
   sinkPort,
   SUCCESS_LINK,
   usePaywallApp,
-} from "../../test-support/paywall-app.js";
-import type { BillingApp, CancelControl, BillingAppOptions, Link } from "../../test-support/paywall-app.js";
+} from "../../../../test-support/paywall-app.js";
+import type { BillingApp, CancelControl, BillingAppOptions, Link } from "../../../../test-support/paywall-app.js";
 
 usePaywallApp();
 
@@ -96,8 +92,7 @@ describe("paywall-trust: a success page that grants a paid plan on load", () => 
   }, 90_000);
 
   it("names only the route that granted when a candidate that answers without granting comes after it", async () => {
-    // The grant comes first; the later page changes nothing, though a re-read after it still differs from the snapshot
-    // until the plan is put back. Naming it too would blame a route that didn't grant.
+    // Grant comes first; the later page changes nothing, but a re-read after it still differs until the plan is put back — naming it would blame a non-granter.
     const server = await billingApp({
       grants: true,
       links: [SUCCESS_LINK, { href: "/billing/thanks", text: "Thanks from the billing team" }],

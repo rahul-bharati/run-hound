@@ -1,12 +1,6 @@
-/**
- * Paywall-trust test: paywall-trust: planning
- * Split from app/src/checks/paywall-trust.test.ts for parallel execution
- * Shared fixtures: test-support/paywall-app.ts
- */
-
 import type { Browser } from "playwright";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
 import {
   A,
   ALEX,
@@ -40,8 +34,10 @@ import {
   sinkPort,
   SUCCESS_LINK,
   usePaywallApp,
-} from "../../test-support/paywall-app.js";
-import type { BillingApp, CancelControl, BillingAppOptions, DiscoveredPage } from "../../test-support/paywall-app.js";
+} from "../../../../test-support/paywall-app.js";
+import type { BillingApp, CancelControl, BillingAppOptions, DiscoveredPage } from "../../../../test-support/paywall-app.js";
+
+// Planning: the check's identity, plan shape, and time budget for the candidate page and quick-scan.
 
 usePaywallApp();
 
@@ -83,9 +79,7 @@ describe("paywall-trust: planning", () => {
       // Unticked, the plan says what it would do: it may change Account A's plan.
       expect(s.description).toMatch(/Account A/);
       expect(s.description).toMatch(/plan/i);
-      // Up to 10 candidates, the linked pages read for links, and a restore, each load waiting up to 5 s for the network
-      // to go quiet: more than the runner's default 3 minutes on a slow app, and a scenario stopped between a grant and
-      // its restore leaves Account A on the paid plan.
+      // Time budget: up to 10 candidates + linked pages + a restore, each load waiting up to 5 s for quiet: > runner's default 3 minutes.
       expect(check.timeLimitMs?.(s, form, page) ?? 180_000).toBeGreaterThanOrEqual(300_000);
     }
   });
@@ -107,8 +101,7 @@ describe("paywall-trust: skipped before any probe", () => {
   }, 90_000);
 
   it("takes the entitlement only from a GET the app makes while loading the page under test, never a guessed or linked page's", async () => {
-    // GET /api/me holds A's plan, but /app never requests it (only /api/team, other users). /app/billing, which /app links
-    // to, does: reading the plan from that page's load, or from a guessed /api/me, isn't what the contract allows.
+    // GET /api/me holds A's plan, but /app never requests it (only /api/team, other users); /app/billing, which /app links to, does.
     const server = await billingApp({ pageReadsPlan: false, grants: true, links: [SUCCESS_LINK], successPages: { "/app/upgraded": {} } });
     const result = await runOn(server);
     expect(result.status).toBe("skipped");

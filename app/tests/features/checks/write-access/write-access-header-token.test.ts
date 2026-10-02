@@ -1,35 +1,17 @@
-/**
- * write-access (0.6.0 close-out round 1): an app whose writes carry an anti-CSRF token in a header, the way Django
- * (X-CSRFToken from the csrftoken cookie), Laravel and Angular with axios (X-XSRF-TOKEN from the URL-encoded XSRF-TOKEN
- * cookie) and Rails (X-CSRF-Token from <meta name="csrf-token">) apps send it from their scripts. The update has no
- * ownership check (a planted IDOR) unless `owner` is set.
- *
- * - Account B's replay carries B's own token in the same header, read where Account A's came from (the same cookie or
- *   <meta> on a page opened as B), never Account A's: so the IDOR is found, and a clean app still passes.
- * - When no token of B's own can be read (the page keeps it in memory from GET /api/csrf), the replay goes without
- *   the header, and a refusal (403) is inconclusive, never a pass: it may be the app's CSRF check, not an ownership
- *   check.
- * - Signed out, the replay never carries a token. An app that checks the token before the session (Django's middleware
- *   does) answers 403, which is inconclusive; one that answers 401 asked for a session, and passes.
- * - 0.6.0 close-out round 2: a refusal of a replay that left the header out is inconclusive when it is a 422 (Rails'
- *   InvalidAuthenticityToken) or a 400 (ASP.NET Core's antiforgery) too, not only a 403 or 419. And Laravel's
- *   XSRF-TOKEN cookie, which the app encrypts again on every answer, no longer holds the value Account A's update
- *   carried by the time Run Hound reads it: the header is paired with its usual source by name (X-XSRF-TOKEN with the
- *   XSRF-TOKEN cookie, X-CSRFToken with csrftoken, X-CSRF-Token with <meta name="csrf-token">), and B's current value goes.
- */
+// write-access (0.6.0 close-out round 1): an app whose writes carry an anti-CSRF token in a header, the way Django (X-CSRFToken from the csrftoken cookie), Laravel and Angular with axios (X-XSRF-TOKEN from the URL-encoded XSRF-TOKEN cookie) and Rails (X-CSRF-Token from <meta name="csrf-token">) apps send it from their scripts. The update has no ownership check (a planted IDOR) unless `owner` is set.
 import { mkdtemp, rm } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./write-access.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/write-access.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const B: AccountRef = { id: "b", label: "Account B" };
@@ -51,10 +33,10 @@ afterEach(async () => {
 afterAll(closeBrowser);
 
 type Who = "a" | "b";
-/** Where the page reads its token: a cookie (Django), a URL-encoded cookie (Laravel, axios), a <meta> (Rails), or a JSON endpoint it keeps in memory. */
+// Where the page reads its token: a cookie (Django), a URL-encoded cookie (Laravel, axios), a <meta> (Rails), or a JSON endpoint it keeps in memory.
 type Source = "cookie" | "encoded-cookie" | "meta" | "memory";
 
-/** Each account's anti-CSRF token, as the header carries it. */
+// Each account's anti-CSRF token, as the header carries it.
 const TOKEN: Record<Who, string> = { a: "acsrf7Hq2Lm9Xc4Pz81==", b: "bcsrf3Zr8Wn1Pk6Qy52==" };
 const HEADER: Record<Source, string> = { cookie: "x-csrftoken", "encoded-cookie": "x-xsrf-token", meta: "x-csrf-token", memory: "x-csrf-token" };
 const COOKIE: Partial<Record<Source, { name: string; value: (who: Who) => string }>> = {
@@ -68,7 +50,7 @@ function session(who: Who, source: Source, withToken = true): SessionState {
   return { cookies: [cookie("sid", `${who}-session`, true), ...(token ? [cookie(token.name, token.value(who), false)] : [])], origins: [] };
 }
 
-/** The value of cookie `name` a request carried, or "" when it carried none. */
+// The value of cookie `name` a request carried, or "" when it carried none.
 function cookieOf(req: RecordedRequest, name: string): string {
   return new RegExp(`(?:^|;\\s*)${name}=([^;]*)`).exec(String(req.headers.cookie ?? ""))?.[1] ?? "";
 }
@@ -85,7 +67,7 @@ function send(res: ServerResponse, status: number, body: unknown): void {
 
 const pathOf = (url: string) => new URL(url, "http://x").pathname;
 
-/** The page's script for reading its token, by source. */
+// The page's script for reading its token, by source.
 const READ_TOKEN: Record<Source, string> = {
   cookie: "function token() { var m = /(?:^|;\\s*)csrftoken=([^;]*)/.exec(document.cookie); return Promise.resolve(m ? m[1] : ''); }",
   "encoded-cookie": "function token() { var m = /(?:^|;\\s*)XSRF-TOKEN=([^;]*)/.exec(document.cookie); return Promise.resolve(m ? decodeURIComponent(m[1]) : ''); }",
@@ -93,29 +75,21 @@ const READ_TOKEN: Record<Source, string> = {
   memory: "var KEPT = null; function token() { return KEPT ? Promise.resolve(KEPT) : fetch('/api/csrf').then(function (r) { return r.json(); }).then(function (d) { KEPT = d.token; return KEPT; }); }",
 };
 
-/**
- * A task app whose every write carries the caller's token in HEADER[source]. The form creates a task (POST /api/tasks)
- * and then saves it again (POST /api/tasks/<id>): the app's own update. `order`: whether the update checks the token
- * before the session (Django's middleware, "csrf-first") or after it. `owner`: whether it checks who owns the task.
- */
+// A task app whose every write carries the caller's token in HEADER[source]. The form creates a task (POST /api/tasks) and then saves it again (POST /api/tasks/<id>): the app's own update. `order`: whether the update checks the token before the session (Django's middleware, "csrf-first") or after it. `owner`: whether it checks who owns the task.
 async function headerApp(o: {
   source: Source;
   owner?: boolean;
   order?: "csrf-first" | "session-first";
   refuse?: number;
   rotate?: boolean;
-  /**
-   * A double-submit app (Django's csrftoken, csrf-csrf): the header must equal the csrftoken cookie the same request
-   * carries. "rotate": every load of the page sets a fresh csrftoken (a token per render). "unsaved": the page sets one
-   * only when the request carries none (a saved session taken before the app issued it again).
-   */
+  // A double-submit app (Django's csrftoken, csrf-csrf): the header must equal the csrftoken cookie the same request carries. "rotate": every load of the page sets a fresh csrftoken (a token per render). "unsaved": the page sets one only when the request carries none (a saved session taken before the app issued it again).
   jar?: "rotate" | "unsaved";
 }) {
   const tasks: { id: number; owner: Who; title: string }[] = [{ id: 1, owner: "a", title: "Groceries" }];
   let next = 2;
   const header = HEADER[o.source];
   const refuse = o.refuse ?? 403;
-  /** Laravel's way (`rotate`): every answer to a signed-in caller sets XSRF-TOKEN again, encrypted anew ("<token>.<n>"). */
+  // Laravel's way (`rotate`): every answer to a signed-in caller sets XSRF-TOKEN again, encrypted anew ("<token>.<n>").
   let issued = 0;
   let minted = 0;
   const reply = (res: ServerResponse, who: Who | null, status: number, body: unknown) => {
@@ -232,7 +206,7 @@ async function run(server: FixtureServer, which: "other-account" | "signed-out",
   return check.run(ctx, { ...planned, scope: "form", formIndex: 0 } as Scenario);
 }
 
-/** The updates (POST /api/tasks/<id>) sent by `who` (null: with no session). */
+// The updates (POST /api/tasks/<id>) sent by `who` (null: with no session).
 const updatesBy = (server: FixtureServer, who: Who | null) =>
   server.requests.filter((r) => r.method === "POST" && /^\/api\/tasks\/\d+$/.test(pathOf(r.url)) && callerOf(r) === who);
 
@@ -330,10 +304,7 @@ describe("write-access: an app whose writes carry an anti-CSRF token in a header
     expect(result.findings.map((f) => `${f.severity} ${f.confidence}`)).toContain("critical confirmed");
   }, 90_000);
 
-  // 0.6.0 close-out round 3: B's token is read from a page opened as B (a browser context), but the replay goes through
-  // a request context seeded from B's saved session. When the page load set a csrftoken the saved session doesn't hold
-  // (a fresh one per render, or one the saved session never had), the header no longer matches the cookie the replay
-  // carries: the app's 403 is its CSRF check, and the update, which has no owner check, is never called a pass.
+  // 0.6.0 close-out round 3: B's token is read from a page opened as B (a browser context), but the replay goes through a request context seeded from B's saved session. When the page load set a csrftoken the saved session doesn't hold (a fresh one per render, or one the saved session never had), the header no longer matches the cookie the replay carries: the app's 403 is its CSRF check, and the update, which has no owner check, is never called a pass.
   it.each([
     ["rotate", true],
     ["unsaved", false],

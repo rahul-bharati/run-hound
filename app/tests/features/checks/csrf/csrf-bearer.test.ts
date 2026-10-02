@@ -1,39 +1,18 @@
-/**
- * csrf (0.5.0) on an app whose session is a bearer token its own scripts keep in sessionStorage and send as
- * "Authorization: Bearer <token>", with no session cookie at all (docs/v2-spec.md "Sign-in: two-step and sessionStorage
- * (0.6.0)" and "Fernway (0.6.0)": with FERNWAY_SESSION=session-storage "there is nothing for a cross-site page to ride
- * on, so csrf passes on V08 in this mode"). The task app here is V08-shaped: its save takes a form-encoded or text/plain
- * body and checks no Origin, so only the missing cookie stops a page on another site.
- *
- * The re-read as Account A can't go through a bare fetch in A's page (it carries cookies, not the header the app's
- * scripts add), so it goes through CheckContext.request, which sends the credential headers the app's own pages sent.
- *   - no CSRF defence, bearer session: pass, "no cookie" (not skipped because the re-read failed);
- *   - a save that needs no session at all: the forged value is stored and the bearer re-read shows it (finding);
- *   - a failed re-read after the forge: inconclusive, never a pass.
- * The bearer token never reaches the result, nor any file the check writes into its artifacts folder.
- *
- * Through discoverAndPlan and runPlan, signed in at the app's own sign-in page (which leaves the token in sessionStorage),
- * the same pass and finding hold, and no file in the run folder (report.json, report.md and report.html with the
- * scenario's steps, the evidence screenshot and the exported spec) holds the bearer token or the password.
- *
- * A cookie session whose reads also need a header the page's scripts add (an X-CSRF-Token from a <meta>, on every call)
- * is re-read through CheckContext.request too, but it is not a token session: the notes and the exported spec must not
- * say Account A's session is "not a cookie" (a SameSite=Lax cookie is what stops the forge; a SameSite=None one rides).
- */
+// csrf on a bearer-token session (no cookie): same passing and finding hold, and no token or password reaches the result or any run-folder file.
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountsConfig } from "../interfaces/accounts.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, seedSessionStorage, type RunningCheckContext, type SessionStorageItems } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { discoverAndPlan, runPlan } from "../engine/runner.js";
-import { check } from "./csrf.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountsConfig } from "../../../../src/interfaces/accounts.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, seedSessionStorage, type RunningCheckContext, type SessionStorageItems } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { discoverAndPlan, runPlan } from "../../../../src/engine/runner.js";
+import { check } from "../../../../src/checks/csrf.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 /** Lowercase letters and digits, so canary values keep it verbatim; must not contain "csrf" (the forged marker suffix). */
@@ -73,13 +52,7 @@ type Task = { id: string; title: string };
 /** Account A's password on the bearer app's sign-in page. Must never show in the run folder. */
 const PASSWORD = "bearer-pass-8e2d61";
 
-/**
- * A task app whose session is a bearer token: GET /login is a one-step sign-in page that, for Account A's password,
- * puts the token in sessionStorage and goes to /app; GET /app shows a "New task" form; the page reads its token from
- * sessionStorage and sends it as "Authorization: Bearer <token>" on every API call (a cookie is ignored, and none is
- * ever set). The save is JSON from the page, but like V08 it also takes a form-encoded or text/plain body and checks no
- * Origin. GET /api/tasks answers a bare array (Fernway's shape).
- */
+// A task app whose session is a bearer token in sessionStorage (Authorization: Bearer on every call), save is JSON but also takes form-encoded/text/plain, no Origin check, GET /api/tasks is a bare array (Fernway's shape).
 async function bearerApp(o: BearerAppOptions = {}): Promise<FixtureServer & { tasks: Task[] }> {
   const tasks: Task[] = [];
   let forged = false;
@@ -221,10 +194,7 @@ async function runBearer(server: FixtureServer): Promise<Run> {
   return { result: await check.run(ctx, scenarioFor(page)), dir };
 }
 
-/**
- * The forged POSTs the server got: those whose body carries the forged marker (the run token followed by "csrf"). By
- * default the token is RUN_TOKEN; runPlan makes its own (8 hex digits, so "csrf" can't be part of it).
- */
+// The forged POSTs the server got: bodies carry the forged marker (the run token followed by "csrf").
 function forgedPosts(server: FixtureServer, marker: RegExp = /b3a7e41dcsrf/i) {
   return server.requests.filter((r) => r.method === "POST" && r.url === "/api/tasks" && marker.test(decodeURIComponent(r.body.replace(/\+/g, " "))));
 }
@@ -311,11 +281,7 @@ function cookieSession(host: string, sameSite: "Lax" | "None"): SessionState {
   };
 }
 
-/**
- * A cookie-session task app whose page adds `x-csrf-token` (from a <meta>) to every API call. GET /api/tasks answers 403
- * without that header, so a bare fetch in Account A's page can't read the list; the save needs only the cookie and,
- * like V08, takes a form-encoded or text/plain body and checks no Origin.
- */
+// A cookie-session task app whose page adds `x-csrf-token` (from a <meta>) to every API call (GET /api/tasks 403s without it); the save needs only the cookie and, like V08, takes a form-encoded or text/plain body and checks no Origin.
 async function headerReadApp(): Promise<FixtureServer & { tasks: Task[] }> {
   const tasks: Task[] = [];
   const hasCookie = (req: RecordedRequest) => /(?:^|;\s*)sid=a-session(?:;|$)/.test(String(req.headers.cookie ?? ""));

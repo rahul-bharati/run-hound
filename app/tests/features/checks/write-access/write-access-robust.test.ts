@@ -1,65 +1,26 @@
-/**
- * write-access safety guarantees on the edges (docs/v2-spec.md "Safety contract" and "`write-access` amendments"). Tests
- * for an authorization check, driven through createCheckContext against a small task app built in this file (the same
- * shape as write-access.test.ts: sid=a-session is Account A, sid=b-session Account B).
- *
- * - Observed requests only: with no update or delete from the app the scenario is skipped with the contract's reason;
- *   only the methods and paths the app itself sent are ever sent; the DELETE goes last, and only when the app showed one.
- * - Never these endpoints: a sharing endpoint the app used is never replayed; a write the page sent to another site is
- *   never replayed, and every request Run Hound sends goes to the app.
- * - Distinct markers: a clean server that ignores writes and echoes the created value passes, and each scenario's marker
- *   differs from every created value and from the other scenario's marker.
- * - Restore after every attempt, a record deleted is created again, and what can't be restored is named; while such a
- *   note stands the scenario is never a pass, even with no finding.
- * - No re-read, no verdict: with no way to read the record back as Account A the scenario is skipped, sending nothing.
- * - Each request carries the scenario identity's session and nothing else; only the scenario's own record is written,
- *   and a form that edits a record Account A already had (not a new one) is skipped without a write as anyone else.
- * - Another of Account A's records that shares the test record's id (numeric ids, another table) is never written as
- *   anyone else: not the page's PATCH of it, not its DELETE, not a write naming the id in its query string, not one
- *   that carries the new record's title in its body (a note's text, a list's items) or gets it back in its answer
- *   (its title, or the whole new record beside the note), not one that copies the new record's title into it verbatim
- *   under the same key (JSON or form-encoded, at /api/notes/3 or /api/notes?id=3, answered {ok: true} or with the
- *   note), and not a create into it named by a foreign-key query (?listId=3). Nor when the page reads the new record in
- *   a list that names Account A's list by the same id (GET /api/tasks?listId=3, GET /api/lists/3): the list's own
- *   reorder (PUT /api/tasks?listId=3, PATCH /api/lists/3) and a copy into it (POST /api/tasks?listId=3) stay Account
- *   A's.
- * - An update whose body holds the record one level down ({"task": {...}}) gets its marker there, where the app reads
- *   it: an unguarded one is a finding, and the exported spec sends the same shape.
- * - The app's update at another path than its save and its read (POST /api/tasks/create, PATCH /api/task/<id>) is still
- *   found, by the record in its body or its answer and a read of its URL as Account A that is the whole record
- *   (GET /api/task/<id>), and sent.
- * - A refused write that changes another field of the record, which the put-back undoes, is inconclusive: never a pass.
- * - The exported spec reads credentials from environment variables and holds no password or session value.
- *
- * The page's DELETE is a dry run (header x-dry-run: 1, answered without deleting), so the app has shown a DELETE for
- * the test record while the record is still there to be read back; the capture keeps no request headers, so a DELETE
- * Run Hound sends is a real one. Every run test takes its scenario from check.plan() and throws when it is missing.
- */
+// write-access safety guarantees on the edges (docs/v2-spec.md "Safety contract" and "`write-access` amendments"). Tests for an authorization check, driven through createCheckContext against a small task app built in this file (the same shape as write-access.test.ts: sid=a-session is Account A, sid=b-session Account B).
 import { mkdtemp, rm } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckContext, CheckResult, DiscoveredPage, Identity, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./write-access.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckContext, CheckResult, DiscoveredPage, Identity, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/write-access.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const B: AccountRef = { id: "b", label: "Account B" };
-/** Lowercase letters and digits, so the test values Run Hound types keep it verbatim. Not the other file's token. */
+// Lowercase letters and digits, so the test values Run Hound types keep it verbatim. Not the other file's token.
 const RUN_TOKEN = "wr3b8c62";
 const SESSION_VALUES = { a: "a-session", b: "b-session" } as const;
-/** A host that isn't the app's: the page sends its own copy of the task there, and the browser answers it (see run). */
+// A host that isn't the app's: the page sends its own copy of the task there, and the browser answers it (see run).
 const OTHER_SITE = "https://sync.tasks-cloud.example";
-/**
- * The contract's reason when the app showed no update or delete ("The app showed no update or delete for its test
- * record, so there is nothing to try as <identity>."), also after a "Skipped: " that lowercases its first word.
- */
+// The contract's reason when the app showed no update or delete ("The app showed no update or delete for its test record, so there is nothing to try as <identity>."), also after a "Skipped: " that lowercases its first word.
 const NOTHING_TO_TRY = /\bthe app showed no update or delete for its test record, so there is nothing to try as /i;
 
 type Which = "other-account" | "signed-out";
@@ -86,7 +47,7 @@ function session(who: "a" | "b"): SessionState {
   };
 }
 
-/** Who sent a request, by its sid cookie: Account A, Account B, or nobody. */
+// Who sent a request, by its sid cookie: Account A, Account B, or nobody.
 function callerOf(req: RecordedRequest): "a" | "b" | null {
   const cookie = String(req.headers.cookie ?? "");
   if (/(?:^|;\s*)sid=a-session\b/.test(cookie)) return "a";
@@ -121,64 +82,46 @@ interface Task {
   owner: "a" | "b";
   title: string;
   done: boolean;
-  /** Set by a write the "stamps" rule refuses; the owner's writes never clear it. Shown only when set. */
+  // Set by a write the "stamps" rule refuses; the owner's writes never clear it. Shown only when set.
   flagged?: boolean;
 }
 
-/**
- * How PATCH and DELETE /api/tasks/<id> treat a caller who doesn't own the task (the owner is always let through):
- * "stamps" refuses the write (403) and leaves the title alone, but marks the task `flagged`, a field the owner's
- * writes can't clear, so the record can't be put back as it was. "flags" does the same, but every task shows
- * `flagged` (false until then) and the owner's own update sets it, so the put-back can undo it.
- */
+// How PATCH and DELETE /api/tasks/<id> treat a caller who doesn't own the task (the owner is always let through): "stamps" refuses the write (403) and leaves the title alone, but marks the task `flagged`, a field the owner's writes can't clear, so the record can't be put back as it was. "flags" does the same, but every task shows `flagged` (false until then) and the owner's own update sets it, so the put-back can undo it.
 type WriteRule = "owner-only" | "unguarded" | "ignored" | "stamps" | "flags";
 
-/**
- * What the page sends for the new task once its create has answered, in order: its update (PATCH), a dry-run DELETE,
- * a share with the team (POST /api/tasks/<id>/share, an endpoint no write-side check may write to), or a copy to
- * another site (a POST to OTHER_SITE naming the id).
- */
+// What the page sends for the new task once its create has answered, in order: its update (PATCH), a dry-run DELETE, a share with the team (POST /api/tasks/<id>/share, an endpoint no write-side check may write to), or a copy to another site (a POST to OTHER_SITE naming the id).
 type PageSend = "patch" | "delete" | "share" | "other-site";
 
 interface TasksAppOptions {
   writes?: WriteRule;
-  /** Default ["patch"]. */
+  // Default ["patch"].
   sends?: PageSend[];
-  /** Once a task has been deleted, POST /api/tasks answers 500: the record can't be created again. */
+  // Once a task has been deleted, POST /api/tasks answers 500: the record can't be created again.
   refuseCreateAfterDelete?: boolean;
-  /** The page at /app instead of tasksPage(sends, nested). */
+  // The page at /app instead of tasksPage(sends, nested).
   page?: string;
-  /** No way to read a task back: GET /api/tasks and GET /api/tasks/<id> answer 404 to everyone. */
+  // No way to read a task back: GET /api/tasks and GET /api/tasks/<id> answer 404 to everyone.
   noReads?: boolean;
-  /**
-   * The app's bodies hold the task one level down: the page creates with {"task": {title}} and updates with
-   * {"task": {title, done}}, and the server reads the task's fields from body.task only (a top-level title is ignored).
-   */
+  // The app's bodies hold the task one level down: the page creates with {"task": {title}} and updates with {"task": {title, done}}, and the server reads the task's fields from body.task only (a top-level title is ignored).
   nested?: boolean;
-  /**
-   * A field the app sets itself on every save and shows on every task: "rowVersion" (1, 2, 3 …, optimistic locking) or
-   * "updateTime" (a new timestamp). A create and every PATCH the app takes move it, the put-back's included.
-   */
+  // A field the app sets itself on every save and shows on every task: "rowVersion" (1, 2, 3 …, optimistic locking) or "updateTime" (a new timestamp). A create and every PATCH the app takes move it, the put-back's included.
   stamp?: "rowVersion" | "updateTime";
-  /** POST /api/tasks/<id> updates the task as PATCH does (an app whose update is a POST to the record's own URL). */
+  // POST /api/tasks/<id> updates the task as PATCH does (an app whose update is a POST to the record's own URL).
   postUpdates?: boolean;
-  /**
-   * How long the page waits, once its create has answered, before it sends `sends` (a debounced autosave; also what a
-   * busy machine does to an immediate one). Default 0.
-   */
+  // How long the page waits, once its create has answered, before it sends `sends` (a debounced autosave; also what a busy machine does to an immediate one). Default 0.
   sendDelayMs?: number;
 }
 
 interface TasksApp extends FixtureServer {
   tasks: Task[];
-  /** Every task created through POST /api/tasks, as it was created, in order. */
+  // Every task created through POST /api/tasks, as it was created, in order.
   created: Task[];
 }
 
-/** The JSON body the page sends for `fields` (a JS object literal): as is, or one level down under "task" when nested. */
+// The JSON body the page sends for `fields` (a JS object literal): as is, or one level down under "task" when nested.
 const bodyOf = (fields: string, nested: boolean) => (nested ? `JSON.stringify({ task: ${fields} })` : `JSON.stringify(${fields})`);
 
-/** What the page sends for each PageSend, its update's body nested under "task" when `nested`. */
+// What the page sends for each PageSend, its update's body nested under "task" when `nested`.
 const pageSends = (nested: boolean): Record<PageSend, string> => ({
   patch: `.then(function () { return fetch(url, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: ${bodyOf("{ title: title, done: false }", nested)} }); })`,
   delete: `.then(function () { return fetch(url, { method: 'DELETE', headers: { 'x-dry-run': '1' } }); })`,
@@ -214,7 +157,7 @@ load();
 </script></body></html>`;
 }
 
-/** The task app. t1 is Account A's own "Groceries", t2 Account B's "Reading list"; created tasks follow in order. */
+// The task app. t1 is Account A's own "Groceries", t2 Account B's "Reading list"; created tasks follow in order.
 async function tasksApp(o: TasksAppOptions = {}): Promise<TasksApp> {
   const rule = o.writes ?? "owner-only";
   const tasks: Task[] = [
@@ -224,14 +167,14 @@ async function tasksApp(o: TasksAppOptions = {}): Promise<TasksApp> {
   const created: Task[] = [];
   let next = 3;
   let deletedOne = false;
-  /** The task's fields in a request body: the body itself, or its "task" object when the app nests it. */
+  // The task's fields in a request body: the body itself, or its "task" object when the app nests it.
   const fieldsOf = (raw: string): Record<string, unknown> => {
     const body = parse(raw);
     if (!o.nested) return body;
     const task = body.task;
     return task && typeof task === "object" && !Array.isArray(task) ? (task as Record<string, unknown>) : {};
   };
-  /** How many times each task was saved, by id (the `stamp` option shows it; kept off the Task, which tests compare). */
+  // How many times each task was saved, by id (the `stamp` option shows it; kept off the Task, which tests compare).
   const saves = new Map<string, number>();
   const savesOf = (t: Task) => saves.get(t.id) ?? 1;
   const stampOf = (t: Task) =>
@@ -266,8 +209,7 @@ async function tasksApp(o: TasksAppOptions = {}): Promise<TasksApp> {
         created.push({ ...task });
         return send(res, 201, { task: view(task) });
       },
-      // "Today's focus" (todayPage): renames the caller's first task, a record the caller already had; the URL and the
-      // body name no record.
+      // "Today's focus" (todayPage): renames the caller's first task, a record the caller already had; the URL and the body name no record.
       "POST /api/today": (req, res) => {
         const caller = callerOf(req);
         if (!caller) return send(res, 401, { error: "Sign in first" });
@@ -279,7 +221,6 @@ async function tasksApp(o: TasksAppOptions = {}): Promise<TasksApp> {
       },
       "GET /favicon.ico": (_req, res) => send(res, 204),
     },
-    // GET, PATCH and DELETE /api/tasks/<id>, and POST /api/tasks/<id>/share (the owner only, whatever the rule).
     fallback: (req, res) => {
       const m = /^\/api\/tasks\/([^/]+)(\/share)?$/.exec(pathOf(req.url));
       if (!m) return send(res, 404, { error: "Not found" });
@@ -321,7 +262,7 @@ async function tasksApp(o: TasksAppOptions = {}): Promise<TasksApp> {
   return Object.assign(server, { tasks, created });
 }
 
-/** Account A's tasks, read as Account A the way the app does (GET /api/tasks with A's cookie). */
+// Account A's tasks, read as Account A the way the app does (GET /api/tasks with A's cookie).
 async function tasksOfA(app: TasksApp): Promise<{ id: string; title: string; done: boolean }[]> {
   const answer = await fetch(`${app.url}/api/tasks`, { headers: { cookie: `sid=${SESSION_VALUES.a}` } });
   return ((await answer.json()) as { tasks: { id: string; title: string; done: boolean }[] }).tasks;
@@ -348,21 +289,17 @@ function scenarioFor(page: DiscoveredPage, which: Which, withB: boolean): Scenar
 
 interface Ran {
   result: CheckResult;
-  /** The requests the app's server got during the run, in order. */
+  // The requests the app's server got during the run, in order.
   requests: RecordedRequest[];
-  /** The tasks created during the run; the first is the scenario's own test record. */
+  // The tasks created during the run; the first is the scenario's own test record.
   created: Task[];
-  /** Every CheckContext.request the check made, in order. */
+  // Every CheckContext.request the check made, in order.
   calls: { as: Identity; method: string; url: string }[];
-  /** Every request a page of the run sent to OTHER_SITE (the browser answers them 200). */
+  // Every request a page of the run sent to OTHER_SITE (the browser answers them 200).
   otherSite: string[];
 }
 
-/**
- * Runs one scenario on the task app in a fresh CheckContext. The context is watched, not changed: request() records
- * each call before sending it as usual, and every page openPage() opens answers OTHER_SITE itself (200), so a write
- * the page sends there is a 2xx write in the capture without reaching the network.
- */
+// Runs one scenario on the task app in a fresh CheckContext. The context is watched, not changed: request() records each call before sending it as usual, and every page openPage() opens answers OTHER_SITE itself (200), so a write the page sends there is a 2xx write in the capture without reaching the network.
 async function runScenario(app: Pick<TasksApp, "url" | "requests" | "created">, page: DiscoveredPage, which: Which, o: { withB?: boolean } = {}): Promise<Ran> {
   const withB = o.withB ?? true;
   const scenario = scenarioFor(page, which, withB);
@@ -412,27 +349,23 @@ async function startTasks(o: TasksAppOptions = {}): Promise<{ app: TasksApp; pag
   return { app, page };
 }
 
-/** The scenario's own test record: the first task created during the run (throws when the run created none). */
+// The scenario's own test record: the first task created during the run (throws when the run created none).
 function ownRecord(ran: Ran): Task {
   const record = ran.created[0];
   if (!record) throw new Error(`the run created no test record: ${ran.result.status} ${ran.result.notes ?? ""}`);
   return record;
 }
 
-/** The writes the server got that Account A didn't send: the scenario identity's. */
+// The writes the server got that Account A didn't send: the scenario identity's.
 const writesByOthers = (requests: RecordedRequest[]) => requests.filter((r) => isWrite(r) && callerOf(r) !== "a");
 
-/** The title a PATCH set, or null. */
+// The title a PATCH set, or null.
 const titleOf = (r: RecordedRequest) => {
   const title = parse(r.body).title;
   return typeof title === "string" ? title : null;
 };
 
-/**
- * The probes of a run, told apart by what they carry rather than by their session: a PATCH that sets a title no task
- * was created with (a marker; the page's own update and a restore carry the created title), and a real DELETE (not
- * the page's dry run).
- */
+// The probes of a run, told apart by what they carry rather than by their session: a PATCH that sets a title no task was created with (a marker; the page's own update and a restore carry the created title), and a real DELETE (not the page's dry run).
 function probesOf(ran: Ran, createdTitles: string[]): RecordedRequest[] {
   return ran.requests.filter((r) => {
     if (!/^\/api\/tasks\/[^/]+$/.test(pathOf(r.url))) return false;
@@ -462,8 +395,7 @@ describe("write-access: only the requests the app itself sent", () => {
   });
 
   it("waits for the writes the page sends a moment after its save answered, and tries them as Account B and signed out", async () => {
-    // The page's update and dry-run DELETE follow the create's answer 300 ms later. Run Hound reloads the page to read
-    // the record back only once the page has gone quiet, so the reload never cuts them off.
+    // The page's update and dry-run DELETE follow the create's answer 300 ms later. Run Hound reloads the page to read the record back only once the page has gone quiet, so the reload never cuts them off.
     const { app, page } = await startTasks({ writes: "unguarded", sends: ["patch", "delete"], sendDelayMs: 300 });
     for (const which of ["other-account", "signed-out"] as const) {
       const ran = await runScenario(app, page, which);
@@ -558,8 +490,7 @@ describe("write-access: distinct markers", () => {
         for (const title of createdTitles) {
           expect(marker, `${which}: marker vs created ${title}`).not.toBe(title);
           expect(title.includes(marker), `${which}: created value "${title}" contains the marker "${marker}"`).toBe(false);
-          // Nor may the marker contain a created value (this scenario's or the other's): a record is found by the value
-          // it holds, so a marker holding the created value would be taken for it.
+          // Nor may the marker contain a created value (this scenario's or the other's): a record is found by the value it holds, so a marker holding the created value would be taken for it.
           expect(marker.toLowerCase().includes(title.toLowerCase()), `${which}: marker "${marker}" contains the created value "${title}"`).toBe(false);
         }
       }
@@ -625,8 +556,7 @@ describe("write-access: restore after every attempt", () => {
   });
 
   it("a refused write that changes another field, which the put-back undoes, is inconclusive: never a pass, never 'unchanged'", async () => {
-    // Account B's update is refused (403) and the title stays, but the record's `flagged` turns true; Account A's own
-    // update can set it back, so the put-back leaves the record as it was.
+    // Account B's update is refused (403) and the title stays, but the record's `flagged` turns true; Account A's own update can set it back, so the put-back leaves the record as it was.
     const { app, page } = await startTasks({ writes: "flags", sends: ["patch"] });
     const ran = await runScenario(app, page, "other-account");
     const record = ownRecord(ran);
@@ -718,7 +648,7 @@ describe("write-access: sessions", () => {
   });
 });
 
-/** A form that renames Account A's own existing task t1 (PATCH /api/tasks/t1), then reloads the list: it creates nothing. */
+// A form that renames Account A's own existing task t1 (PATCH /api/tasks/t1), then reloads the list: it creates nothing.
 const EDIT_PAGE = `<!doctype html><html lang="en"><head><title>Tasks</title></head><body><main><h1>Tasks</h1>
 <form id="rename" aria-label="Rename task"><label for="title">Title</label><input id="title" name="title" required><button type="submit">Save</button></form>
 <ul id="list"></ul></main><script>
@@ -727,15 +657,10 @@ document.getElementById('rename').addEventListener('submit', function (e) { e.pr
 load();
 </script></body></html>`;
 
-/** EDIT_PAGE, with the rename sent as a POST to the task's own URL (POST /api/tasks/t1): an app whose update is a POST. */
+// EDIT_PAGE, with the rename sent as a POST to the task's own URL (POST /api/tasks/t1): an app whose update is a POST.
 const EDIT_PAGE_POST = EDIT_PAGE.replace("method: 'PATCH'", "method: 'POST'");
 
-/**
- * A "Today's focus" form that renames Account A's first task, t1, through POST /api/today {title}: its URL and its body
- * name no record, so only the re-read after the save shows that it changed a record Account A already had. With
- * `resave`, the page then saves t1 again through the app's own update (PATCH /api/tasks/t1 {title, done}), as Fernway's
- * Quick add does after its create.
- */
+// A "Today's focus" form that renames Account A's first task, t1, through POST /api/today {title}: its URL and its body name no record, so only the re-read after the save shows that it changed a record Account A already had. With `resave`, the page then saves t1 again through the app's own update (PATCH /api/tasks/t1 {title, done}), as Fernway's Quick add does after its create.
 function todayPage(resave: boolean): string {
   const then = resave
     ? `.then(function () { return fetch('/api/tasks/t1', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: title, done: false }) }); })`
@@ -750,7 +675,7 @@ load();
 }
 
 const T1 = { id: "t1", owner: "a", title: "Groceries", done: false };
-/** Every write the app's server got for Account A's own t1, whoever sent it. */
+// Every write the app's server got for Account A's own t1, whoever sent it.
 const writesToT1 = (requests: RecordedRequest[]) => requests.filter((r) => isWrite(r) && /^\/api\/tasks\/t1(\/|$)/.test(pathOf(r.url)));
 
 describe("write-access: a record Account A already had", () => {
@@ -762,8 +687,7 @@ describe("write-access: a record Account A already had", () => {
       expect(ran.calls.filter((c) => c.as !== "self" && c.method !== "GET"), which).toEqual([]);
       expect(ran.result.findings, which).toEqual([]);
       expect(ran.result.status, `${which}: ${ran.result.notes}`).toBe("skipped");
-      // Not even Account A's own form save reaches t1: Run Hound stops it before it leaves the page, so t1 still reads
-      // as it did, and the note that says so is true.
+      // Not even Account A's own form save reaches t1: Run Hound stops it before it leaves the page, so t1 still reads as it did, and the note that says so is true.
       expect(writesToT1(ran.requests).map((r) => `${r.method} ${pathOf(r.url)} as ${callerOf(r) ?? "nobody"}`), which).toEqual([]);
       expect(app.tasks.find((t) => t.id === "t1"), which).toEqual(T1);
       expect(ran.result.notes, which).toMatch(/changes a record Account A already had/);
@@ -814,31 +738,7 @@ describe("write-access: a record Account A already had", () => {
   });
 });
 
-/**
- * What the shared-id page sends for Account A's note 3 (or list 3), which has the same id as the first task the run
- * creates: "patch" marks the note seen on every load (PATCH /api/notes/3), "patch+delete" then dismisses it with a
- * dry-run DELETE, and "query" instead, after each create, logs POST /api/activity?count=<the new task's id>. The others
- * write to another of Account A's records after each create, carrying the new task's title or answered with it:
- * "titled-note" sets the note's text to "Latest task: <title>" (PATCH /api/notes/3), "list-items" adds the task to
- * Account A's list 3 (PATCH /api/lists/3 {name, items: [{title}]}), "answer-title" marks the note seen and the answer
- * names the latest task's title ({note: {id: 3, ..., latest}}), and "copy-to-list" copies the task into list 3
- * (POST /api/tasks?listId=3 {title}). The same-title modes copy the new task's title into the note verbatim, under the
- * task's own key (the note then has {id: 3, ..., title}, the test record's id and its run-token field with its value):
- * "same-title-note" sends PATCH /api/notes/3 {title} and is answered {ok: true}, "same-title-answer" the same answered
- * with the note ({note: {id: 3, ..., title}}), "same-title-form" sends the title form-encoded (title=...) and is
- * answered {ok: true}, and "same-title-query" sends PATCH /api/notes?id=3 {title} and is answered with the note. Account
- * A can read the note back (GET /api/notes/3, GET /api/notes?id=3: {note: {...}}). "answer-task" marks the note seen
- * and the note's answers (the PATCH's and a GET's) hold, beside the note, Account A's latest task in full ({note: {id:
- * 3, ...}, latest: {id: 3, title, done}}): the whole test record one level down, but beside another record with an id
- * of its own. "answer-task-only" marks the note seen and is answered with the latest task alone ({task: {id: 3, title,
- * done}}), while a GET of the note answers the note.
- *
- * The list-read modes read the new task in Account A's list 3 (its id only in a data- attribute) and create it there
- * (POST /api/tasks {title, listId: 3}), so the record read's URL names list 3 by the new task's id: "by-list-reorder"
- * reads GET /api/tasks?listId=3 and then reorders the list (PUT /api/tasks?listId=3 {order: [id]}), "by-list-copy"
- * reads the same and copies the task into the list again (POST /api/tasks?listId=3 {title}), and "list-path-reorder"
- * reads GET /api/lists/3 (answered {name, tasks}, no list id) and then reorders it (PATCH /api/lists/3 {name, order}).
- */
+// What the shared-id page sends for Account A's note 3 (or list 3), which has the same id as the first task the run creates: "patch" marks the note seen on every load (PATCH /api/notes/3), "patch+delete" then dismisses it with a dry-run DELETE, and "query" instead, after each create, logs POST /api/activity?count=<the new task's id>. The others write to another of Account A's records after each create, carrying the new task's title or answered with it: "titled-note" sets the note's text to "Latest task: <title>" (PATCH /api/notes/3), "list-items" adds the task to Account A's list 3 (PATCH /api/lists/3 {name, items: [{title}]}), "answer-title" marks the note seen and the answer names the latest task's title ({note: {id: 3, ..., latest}}), and "copy-to-list" copies the task into list 3 (POST /api/tasks?listId=3 {title}). The same-title modes copy the new task's title into the note verbatim, under the task's own key (the note then has {id: 3, ..., title}, the test record's id and its run-token field with its value): "same-title-note" sends PATCH /api/notes/3 {title} and is answered {ok: true}, "same-title-answer" the same answered with the note ({note: {id: 3, ..., title}}), "same-title-form" sends the title form-encoded (title=...) and is answered {ok: true}, and "same-title-query" sends PATCH /api/notes?id=3 {title} and is answered with the note. Account A can read the note back (GET /api/notes/3, GET /api/notes?id=3: {note: {...}}). "answer-task" marks the note seen and the note's answers (the PATCH's and a GET's) hold, beside the note, Account A's latest task in full ({note: {id: 3, ...}, latest: {id: 3, title, done}}): the whole test record one level down, but beside another record with an id of its own. "answer-task-only" marks the note seen and is answered with the latest task alone ({task: {id: 3, title, done}}), while a GET of the note answers the note. The list-read modes read the new task in Account A's list 3 (its id only in a data- attribute) and create it there (POST /api/tasks {title, listId: 3}), so the record read's URL names list 3 by the new task's id: "by-list-reorder" reads GET /api/tasks?listId=3 and then reorders the list (PUT /api/tasks?listId=3 {order: [id]}), "by-list-copy" reads the same and copies the task into the list again (POST /api/tasks?listId=3 {title}), and "list-path-reorder" reads GET /api/lists/3 (answered {name, tasks}, no list id) and then reorders it (PATCH /api/lists/3 {name, order}).
 type SharedIdMode =
   | "patch"
   | "patch+delete"
@@ -857,15 +757,15 @@ type SharedIdMode =
   | "by-list-copy"
   | "list-path-reorder";
 
-/** The modes whose page copies the new task's title verbatim into Account A's note 3, under the task's own key. */
+// The modes whose page copies the new task's title verbatim into Account A's note 3, under the task's own key.
 const SAME_TITLE_MODES: readonly SharedIdMode[] = ["same-title-note", "same-title-answer", "same-title-form", "same-title-query"];
 const copiesTitle = (mode: SharedIdMode) => SAME_TITLE_MODES.includes(mode);
 
-/** The list-read modes: the page reads and creates its tasks in Account A's list 3. */
+// The list-read modes: the page reads and creates its tasks in Account A's list 3.
 const LIST_READ_MODES: readonly SharedIdMode[] = ["by-list-reorder", "by-list-copy", "list-path-reorder"];
 const readsByList = (mode: SharedIdMode) => LIST_READ_MODES.includes(mode);
 
-/** The page's write after each create, per mode (none for "patch" and "patch+delete": theirs go on load). */
+// The page's write after each create, per mode (none for "patch" and "patch+delete": theirs go on load).
 const SHARED_ID_AFTER_CREATE: Record<SharedIdMode, string> = {
   patch: "",
   "patch+delete": "",
@@ -885,10 +785,7 @@ const SHARED_ID_AFTER_CREATE: Record<SharedIdMode, string> = {
   "list-path-reorder": `fetch('/api/lists/' + listId, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Home', order: [d.task.id] }) })`,
 };
 
-/**
- * The shared-id page: Account A's note 3 is server-rendered (its id only in a data- attribute, never in a JSON read);
- * the "New task" form creates a task (numeric ids) and PATCHes it; the note's writes follow `mode` (SharedIdMode).
- */
+// The shared-id page: Account A's note 3 is server-rendered (its id only in a data- attribute, never in a JSON read); the "New task" form creates a task (numeric ids) and PATCHes it; the note's writes follow `mode` (SharedIdMode).
 function sharedIdPage(mode: SharedIdMode): string {
   const onLoad =
     mode === "patch" || mode === "patch+delete"
@@ -927,7 +824,7 @@ interface Note {
   owner: "a";
   text: string;
   seen: boolean;
-  /** Set only by the same-title modes: the new task's title, copied in verbatim. */
+  // Set only by the same-title modes: the new task's title, copied in verbatim.
   title?: string;
 }
 
@@ -936,34 +833,26 @@ interface TaskList {
   owner: "a";
   name: string;
   items: { title: string }[];
-  /** The list's task order, set by a reorder (PUT /api/tasks?listId=3, PATCH /api/lists/3). */
+  // The list's task order, set by a reorder (PUT /api/tasks?listId=3, PATCH /api/lists/3).
   order?: number[];
 }
 
 interface SharedIdApp extends FixtureServer {
-  /** Every task created through POST /api/tasks, as it was created (its numeric id as text). */
+  // Every task created through POST /api/tasks, as it was created (its numeric id as text).
   created: Task[];
-  /** Account A's notes: note 3 shares its id with the first task the run creates. */
+  // Account A's notes: note 3 shares its id with the first task the run creates.
   notes: Note[];
-  /** Account A's lists: list 3 shares its id with the first task the run creates. */
+  // Account A's lists: list 3 shares its id with the first task the run creates.
   lists: TaskList[];
-  /** Every POST /api/activity: "<caller> <url> <body>", the caller "a", "b" or "nobody". */
+  // Every POST /api/activity: "<caller> <url> <body>", the caller "a", "b" or "nobody".
   activity: string[];
-  /** Every POST /api/tasks?listId=<n> (a create into a list): "<caller> <url> <body>". */
+  // Every POST /api/tasks?listId=<n> (a create into a list): "<caller> <url> <body>".
   intoList: string[];
-  /** Every PUT /api/tasks?listId=<n> (a list's reorder): "<caller> <url> <body>". */
+  // Every PUT /api/tasks?listId=<n> (a list's reorder): "<caller> <url> <body>".
   reorders: string[];
 }
 
-/**
- * The shared-id app. Tasks have numeric ids and check their owner (Account A's 1, Account B's 2; the run's first is 3).
- * Notes and lists (other tables, Account A's note 3 and list 3) check nothing: a write to one lands, whoever sends it,
- * and every field it sends (JSON or form-encoded) is stored, so a write sent there as anyone but Account A would change
- * Account A's data. A note is at /api/notes/<id> and at /api/notes?id=<id>; its owner can read it (GET). A
- * create into a list (POST /api/tasks?listId=3) and a list's reorder (PUT /api/tasks?listId=3) don't check that the
- * list is the caller's either. A list's read (GET /api/lists/3) is its owner's only, and names its tasks, not its id.
- * In the list-read modes Account A's task 1 is in list 3, and a task's answer names its list.
- */
+// The shared-id app. Tasks have numeric ids and check their owner (Account A's 1, Account B's 2; the run's first is 3). Notes and lists (other tables, Account A's note 3 and list 3) check nothing: a write to one lands, whoever sends it, and every field it sends (JSON or form-encoded) is stored, so a write sent there as anyone but Account A would change Account A's data. A note is at /api/notes/<id> and at /api/notes?id=<id>; its owner can read it (GET). A create into a list (POST /api/tasks?listId=3) and a list's reorder (PUT /api/tasks?listId=3) don't check that the list is the caller's either. A list's read (GET /api/lists/3) is its owner's only, and names its tasks, not its id. In the list-read modes Account A's task 1 is in list 3, and a task's answer names its list.
 async function sharedIdApp(mode: SharedIdMode): Promise<SharedIdApp> {
   const tasks: { id: number; owner: "a" | "b"; title: string; done: boolean; listId?: number }[] = [
     { id: 1, owner: "a", title: "Groceries", done: false, ...(readsByList(mode) ? { listId: 3 } : {}) },
@@ -975,9 +864,9 @@ async function sharedIdApp(mode: SharedIdMode): Promise<SharedIdApp> {
   const activity: string[] = [];
   const intoList: string[] = [];
   const reorders: string[] = [];
-  /** The title of the last task Account A created: "answer-title" names it in the note's answer. */
+  // The title of the last task Account A created: "answer-title" names it in the note's answer.
   let latest = "";
-  /** The last task Account A created: "answer-task" holds it in full in the note's answer. */
+  // The last task Account A created: "answer-task" holds it in full in the note's answer.
   let latestTask: (typeof tasks)[number] | undefined;
   let next = 3;
   const view = (t: (typeof tasks)[number]) => ({ id: t.id, title: t.title, done: t.done, ...(t.listId !== undefined ? { listId: t.listId } : {}) });
@@ -1029,7 +918,7 @@ async function sharedIdApp(mode: SharedIdMode): Promise<SharedIdApp> {
       if (noteId !== null) {
         const n = notes.find((x) => x.id === Number(noteId));
         if (!n) return send(res, 404, { error: "Not found" });
-        /** The note as its answers show it: with the latest task beside it in "answer-task". */
+        // The note as its answers show it: with the latest task beside it in "answer-task".
         const withLatest = () => ({ note: n, ...(mode === "answer-task" && latestTask ? { latest: view(latestTask) } : {}) });
         if (req.method === "GET") return callerOf(req) === n.owner ? send(res, 200, withLatest()) : send(res, 404, { error: "Not found" });
         if (req.method === "DELETE") {
@@ -1081,7 +970,7 @@ async function sharedIdApp(mode: SharedIdMode): Promise<SharedIdApp> {
   return Object.assign(server, { created, notes, lists, activity, intoList, reorders });
 }
 
-/** The page's own writes (as Account A) to another of Account A's records, or naming 3 in a query string, per mode. */
+// The page's own writes (as Account A) to another of Account A's records, or naming 3 in a query string, per mode.
 const SHARED_ID_OWN_WRITES: Record<SharedIdMode, string[]> = {
   patch: ["PATCH /api/notes/3"],
   "patch+delete": ["PATCH /api/notes/3", "DELETE /api/notes/3"],
@@ -1101,13 +990,13 @@ const SHARED_ID_OWN_WRITES: Record<SharedIdMode, string[]> = {
   "list-path-reorder": ["PATCH /api/lists/3"],
 };
 
-/** Account A's note 3 as Account A's own page leaves it after creating the task titled `title`. */
+// Account A's note 3 as Account A's own page leaves it after creating the task titled `title`.
 function noteAfter(mode: SharedIdMode, title: string): Note {
   const seen = mode === "patch" || mode === "patch+delete" || mode === "answer-title" || mode === "answer-task" || mode === "answer-task-only";
   return { id: 3, owner: "a", text: mode === "titled-note" ? `Latest task: ${title}` : "Call the plumber", seen, ...(copiesTitle(mode) ? { title } : {}) };
 }
 
-/** Account A's list 3 as Account A's own page leaves it after creating the task titled `title`. */
+// Account A's list 3 as Account A's own page leaves it after creating the task titled `title`.
 function listAfter(mode: SharedIdMode, title: string): TaskList {
   const reordered = mode === "by-list-reorder" || mode === "list-path-reorder";
   return { id: 3, owner: "a", name: "Home", items: mode === "list-items" ? [{ title }] : [], ...(reordered ? { order: [3] } : {}) };
@@ -1142,8 +1031,7 @@ describe("write-access: another of Account A's records with the test record's id
         const ran = await runScenario(app, page, which);
         const record = ownRecord(ran);
         expect(record.id).toBe("3");
-        // The page's own writes for note 3 or list 3 (or naming 3 in a query string) were in the capture, after the
-        // save; the titled ones carry the new task's title in their body, or get it back in their answer.
+        // The page's own writes for note 3 or list 3 (or naming 3 in a query string) were in the capture, after the save; the titled ones carry the new task's title in their body, or get it back in their answer.
         const own = ran.requests.filter((r) => isWrite(r) && callerOf(r) === "a").map((r) => `${r.method} ${r.url}`);
         for (const write of SHARED_ID_OWN_WRITES[mode]) expect(own, which).toContain(write);
         // It really tried, and only the test record's own PATCH went as the scenario's identity.
@@ -1151,9 +1039,7 @@ describe("write-access: another of Account A's records with the test record's id
         expect(sent, `${which}: ${ran.result.notes}`).toEqual(["PATCH /api/tasks/3"]);
         for (const r of writesByOthers(ran.requests)) expect(callerOf(r), which).toBe(which === "other-account" ? "b" : null);
         expect(ran.calls.filter((c) => c.as !== "self" && /\/api\/(notes|activity|lists)\b|[?&]listId=/.test(c.url)), which).toEqual([]);
-        // Account A's note and list are still there, as Account A's own page left them (no marker field added, and a
-        // title the page copied in is still the new task's own); the activity log, the creates into list 3 and its
-        // reorders are Account A's alone.
+        // Account A's note and list are still there, as Account A's own page left them (no marker field added, and a title the page copied in is still the new task's own); the activity log, the creates into list 3 and its reorders are Account A's alone.
         expect(app.notes, which).toEqual([noteAfter(mode, record.title)]);
         expect(app.lists, which).toEqual([listAfter(mode, record.title)]);
         for (const line of app.activity) expect(line.startsWith("a "), `${which}: ${line}`).toBe(true);
@@ -1167,18 +1053,10 @@ describe("write-access: another of Account A's records with the test record's id
   }
 });
 
-/**
- * Where the singular-path app's update holds the record: "body+answer" sends {title, done: false} and is answered with
- * the task ({task: {id, title, done}}); "body" sends the same and is answered {ok: true} only; "answer" sends
- * {done: false} only (no test value) and is answered with the task. In every mode Account A reads the task at the
- * update's own URL too (GET /api/task/<id>: {task: {id, title, done}}).
- */
+// Where the singular-path app's update holds the record: "body+answer" sends {title, done: false} and is answered with the task ({task: {id, title, done}}); "body" sends the same and is answered {ok: true} only; "answer" sends {done: false} only (no test value) and is answered with the task. In every mode Account A reads the task at the update's own URL too (GET /api/task/<id>: {task: {id, title, done}}).
 type SingularMode = "body+answer" | "body" | "answer";
 
-/**
- * A page whose app saves at one path, reads at another and updates at a third: POST /api/tasks/create, then
- * PATCH /api/task/<id> for the new task (its body per SingularMode), then GET /api/tasks (the list).
- */
+// A page whose app saves at one path, reads at another and updates at a third: POST /api/tasks/create, then PATCH /api/task/<id> for the new task (its body per SingularMode), then GET /api/tasks (the list).
 const singularPage = (mode: SingularMode) => `<!doctype html><html lang="en"><head><title>Tasks</title></head><body><main><h1>Tasks</h1>
 <form id="new" aria-label="New task"><label for="title">Title</label><input id="title" name="title" required><button type="submit">Add task</button></form><ul id="list"></ul></main>
 <script>
@@ -1196,14 +1074,11 @@ load();
 
 interface SingularApp extends FixtureServer {
   tasks: { id: number; owner: "a" | "b"; title: string; done: boolean }[];
-  /** Every task created through POST /api/tasks/create, as it was created (its numeric id as text). */
+  // Every task created through POST /api/tasks/create, as it was created (its numeric id as text).
   created: Task[];
 }
 
-/**
- * The singular-path app. Tasks have numeric ids (Account A's 1, Account B's 2; the run's first is 3); reads check the
- * owner, but PATCH /api/task/<id> checks nothing (the bug): anyone's update lands.
- */
+// The singular-path app. Tasks have numeric ids (Account A's 1, Account B's 2; the run's first is 3); reads check the owner, but PATCH /api/task/<id> checks nothing (the bug): anyone's update lands.
 async function singularApp(mode: SingularMode): Promise<SingularApp> {
   const tasks: SingularApp["tasks"] = [
     { id: 1, owner: "a", title: "Groceries", done: false },
@@ -1314,13 +1189,10 @@ describe("write-access: an update that holds the record one level down", () => {
   });
 });
 
-/** Test passwords set in the environment while the check runs, so a spec that copied them in would be caught. */
+// Test passwords set in the environment while the check runs, so a spec that copied them in would be caught.
 const PASSWORDS = { A: "Alpha-pass-7141!", B: "Bravo-pass-2718!" } as const;
 
-/**
- * True when `source` reads an account password from the environment: a literal name, a name built from the slot, or a
- * constant holding the literal name (`const PASSWORD_VAR = "RUNHOUND_ACCOUNT_B_PASSWORD"` ... `process.env[PASSWORD_VAR]`).
- */
+// True when `source` reads an account password from the environment: a literal name, a name built from the slot, or a constant holding the literal name (`const PASSWORD_VAR = "RUNHOUND_ACCOUNT_B_PASSWORD"` ... `process.env[PASSWORD_VAR]`).
 function readsPasswordFromEnv(source: string): boolean {
   return [
     /process\.env\.RUNHOUND_ACCOUNT_[AB]_PASSWORD\b/,
@@ -1331,13 +1203,10 @@ function readsPasswordFromEnv(source: string): boolean {
   ].some((re) => re.test(source));
 }
 
-/**
- * A string literal assigned to a password (`password: "..."`, `const PASSWORD = '...'`), unless the literal is an
- * environment variable's name (`"RUNHOUND_..."`) or reads one (`` `${process.env....}` ``).
- */
+// A string literal assigned to a password (`password: "..."`, `const PASSWORD = '...'`), unless the literal is an environment variable's name (`"RUNHOUND_..."`) or reads one (`` `${process.env....}` ``).
 const TYPED_PASSWORD = /password\w*["']?\s*[:=]\s*(["'`])(?!RUNHOUND_|\$\{\s*process\.env)/i;
 
-/** `source` without its block and line comments (a "//" inside a URL such as "http://" is kept). */
+// `source` without its block and line comments (a "//" inside a URL such as "http://" is kept).
 function withoutComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
 }
@@ -1360,8 +1229,7 @@ describe("write-access: the exported spec", () => {
           expect(spec, `${which}: ${f.title}`).toBeDefined();
           expect(spec!.filename).toMatch(/\.spec\.ts$/);
           expect(spec!.source).toContain("@playwright/test");
-          // No typed credential and no session: no string literal assigned to a password (comments aside, where a usage
-          // line may name the variable), no saved storage-state file, no session value.
+          // No typed credential and no session: no string literal assigned to a password (comments aside, where a usage line may name the variable), no saved storage-state file, no session value.
           expect(withoutComments(spec!.source)).not.toMatch(TYPED_PASSWORD);
           expect(spec!.source).not.toMatch(/storageState\s*:\s*["'`]/);
           expect(spec!.source).not.toMatch(/sid=|a-session|b-session/);

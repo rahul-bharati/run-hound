@@ -1,12 +1,8 @@
-/**
- * Paywall-trust test: paywall-trust: a restore that fails is never a pass
- * Split from app/src/checks/paywall-trust.test.ts for parallel execution
- * Shared fixtures: test-support/paywall-app.ts
- */
+// A restore that fails is never a pass: no cancel control, ignored cancel, failed re-read, blocked provider writes, and the exported spec's stop rules.
 
 import { chromium, type Browser } from "playwright";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
 import {
   A,
   ALEX,
@@ -39,8 +35,8 @@ import {
   sinkPort,
   SUCCESS_LINK,
   usePaywallApp,
-} from "../../test-support/paywall-app.js";
-import type { BillingApp, CancelControl, BillingAppOptions } from "../../test-support/paywall-app.js";
+} from "../../../../test-support/paywall-app.js";
+import type { BillingApp, CancelControl, BillingAppOptions } from "../../../../test-support/paywall-app.js";
 
 usePaywallApp();
 
@@ -143,8 +139,7 @@ document.getElementById('card').addEventListener('submit', function (e) { e.prev
     expect(source).toMatch(/newCDPSession\(page\)/);
     expect(source).toMatch(/Fetch\.failRequest/);
     expect(source).toMatch(/Fetch\.enable/);
-    // A redirect hop to a checkout host the provider list doesn't name is stopped too: once signed in (a sign-in page
-    // may be on another site), a page load off the target is failed at the DevTools level.
+    // Off-target redirect hops (after sign-in, when a sign-in page may be on another site) are failed at the DevTools level too.
     expect(source).toMatch(/resourceType === "Document"/);
     expect(source).toMatch(/guardOffSite = true/);
     expect(source.indexOf("guardOffSite = true")).toBeGreaterThan(source.indexOf("await signIn(page);"));
@@ -152,8 +147,7 @@ document.getElementById('card').addEventListener('submit', function (e) { e.prev
     expect(source).toMatch(/isNavigationRequest\(\)/);
     // The DevTools protocol is Chromium's: in another browser the spec is skipped, never run without that block.
     expect(source).toMatch(/test\.skip\(browserName !== "chromium"/);
-    // PATH is typed as a string: a bare `const PATH = ""` is the literal type "", which strict TypeScript narrows to
-    // never in `PATH ? PATH.split(".") : []`, so the spec wouldn't type-check in the user's project.
+    // PATH is typed as `string` so a bare `const PATH = ""` wouldn't type-check (strict TS narrows it to never in `PATH ? PATH.split(".") : []`).
     expect(source).toMatch(/const PATH: string = "";/);
     expectRestored(server, result, "/app/billing");
     expectSafe(server, result);

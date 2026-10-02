@@ -1,29 +1,17 @@
-/**
- * csrf (0.6.0 round 3): the form's own writes as Account A are judged from the first keystroke, and a note never says
- * nothing was changed when a write carrying the run's values reached the app (docs/v2-spec.md "Safety contract": "A's
- * pre-existing records are never written to"; "Records Account A already had": "No note ever says nothing was written
- * when the save went through").
- *   - a profile form that saves each field as it changes (autosave): the writes sent while Run Hound types are held
- *     and judged too, so Account A's own profile is never written to;
- *   - a form whose save is stopped and whose page then sends the same values another way that reaches the app: the
- *     note says so and asks to check Account A, never "nothing was changed";
- *   - a GraphQL edit form (reads and writes are POST /graphql) that renames a task Account A already had: the hold
- *     learns the task's id from the page's POST query and stops the mutation before it reaches the app (close-out
- *     round 1), and nothing is forged at it.
- */
+// csrf (0.6.0 round 3): Account A's own writes are judged from the first keystroke; autosave writes held and judged too, save-then-fallback notes never say "nothing was changed", and a GraphQL mutation on A's record is held and not forged.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerResponse } from "node:http";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./csrf.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/csrf.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 /** Lowercase letters and digits, so canary values keep it verbatim; must not contain "csrf" (the forged marker suffix). */
@@ -125,12 +113,7 @@ const fromOtherSite = (server: FixtureServer) =>
 
 type Profile = Record<string, string>;
 
-/**
- * Account A's own profile ({id: "u1", displayName: "Alice", bio}), read with GET /api/profile. `save` is how the page
- * saves: "autosave" POSTs each field to /api/profile as it changes (and the whole profile on submit); "fallback" PUTs
- * the profile to /api/profile on submit and, when that fails, POSTs it to /api/profile/save instead. Both writes
- * change the profile.
- */
+// Account A's profile {id: "u1", displayName: "Alice", bio} read with GET /api/profile; `save` "autosave" POSTs each field as it changes (whole profile on submit), "fallback" PUTs to /api/profile on submit and, when that fails, POSTs to /api/profile/save.
 async function profileApp(save: "autosave" | "fallback"): Promise<FixtureServer & { profile: Profile }> {
   const profile: Profile = { id: "u1", displayName: "Alice", bio: "Hello from Alice" };
   const apply = (req: RecordedRequest, res: ServerResponse) => {
@@ -211,11 +194,7 @@ describe("csrf: the form's writes are judged from the first keystroke", () => {
   }, 60_000);
 });
 
-/**
- * A GraphQL app (reads and writes are POST /graphql): the page reads Account A's tasks with a query and the form
- * renames the first one (t1, "Groceries", Account A's own) with a mutation whose variables name it. No CSRF defence
- * and a SameSite=None cookie, so a forge at t1 would be stored.
- */
+// A GraphQL app (POST /graphql for reads and writes): the page reads A's tasks with a query and the form renames t1 ("Groceries", A's own) with a mutation whose variables name it. No CSRF defence, SameSite=None cookie.
 async function graphqlApp(): Promise<FixtureServer & { tasks: { id: string; title: string }[] }> {
   const tasks = [{ id: "t1", title: "Groceries" }];
   const server = await startFixtureServer({

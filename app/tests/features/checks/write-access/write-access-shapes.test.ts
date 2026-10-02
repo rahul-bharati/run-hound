@@ -1,41 +1,17 @@
-/**
- * write-access on apps shaped the way real frameworks shape them (0.6.0 round 1), driven through createCheckContext
- * against small task apps built in this file (sid=a-session is Account A, sid=b-session Account B):
- *
- * - Records keyed `taskId` (a DynamoDB-style API): the test record's id is found under that key, so an update with no
- *   ownership check is a finding; and a form that edits Account A's own task k1 (POST /api/tasks/k1) is stopped before
- *   it reaches the app, as for an `id` key.
- * - A Rails-style form (task[title]=…, rails-ujs/Turbo): the marker goes into the key the app sent (task[title]), where
- *   the server reads it, never into a new top-level `title` the server ignores. An update that sends no run-token field
- *   is not tried.
- * - A Django-style body token (csrfmiddlewaretoken, checked against the caller's own csrftoken cookie): Account B's
- *   replay carries Account B's own token, so the ownership bug is found; with no token of B's to swap in, a 403 on a
- *   replay that carried Account A's token is inconclusive, never a pass.
- * - A thin list read ({id, title}) and Account A's note 3 in another collection that shares the test record's numeric
- *   id, into which the page copies the new title: the note's write is never adopted as the test record's own. Nor
- *   when the list read is {id, title, createdAt} and the note has each of those keys (only its createdAt differs).
- *
- * 0.6.0 round 2:
- * - An API that takes its credential in the URL (?access_token=): Account B's replay carries B's own token and the
- *   signed-out one none, never Account A's, so a clean app passes; an unguarded update is still found; neither token
- *   is ever printed.
- * - Optimistic locking (lock_version): the replay carries the version the record has now, so the unguarded update is
- *   found; a conflict (409) on a record left unchanged is inconclusive, never a pass.
- * - A search-as-you-type hint that echoes the typed value ({query, matches}) is never taken for the record endpoint.
- */
+// write-access on apps shaped the way real frameworks shape them (0.6.0 round 1), driven through createCheckContext against small task apps built in this file (sid=a-session is Account A, sid=b-session Account B).
 import { mkdtemp, rm } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./write-access.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/write-access.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const B: AccountRef = { id: "b", label: "Account B" };
@@ -58,7 +34,7 @@ afterAll(closeBrowser);
 
 type Who = "a" | "b";
 
-/** A session: sid, plus any `extra` cookies (a csrftoken). */
+// A session: sid, plus any `extra` cookies (a csrftoken).
 function session(who: Who, extra: Record<string, string> = {}): SessionState {
   const cookie = (name: string, value: string) => ({ name, value, domain: "127.0.0.1", path: "/", expires: -1, httpOnly: name === "sid", secure: false, sameSite: "Lax" as const });
   return { cookies: [cookie("sid", `${who}-session`), ...Object.entries(extra).map(([n, v]) => cookie(n, v))], origins: [] };
@@ -138,11 +114,7 @@ async function run(server: FixtureServer, which: "other-account" | "signed-out",
 const writesBy = (server: FixtureServer, who: Who | null) => server.requests.filter((r) => !["GET", "HEAD", "OPTIONS"].includes(r.method) && callerOf(r) === who);
 
 describe("write-access: records keyed taskId", () => {
-  /**
-   * Tasks keyed taskId. "create": the form creates a task (POST /api/tasks), then the page saves it again
-   * (POST /api/tasks/<taskId>), which has no ownership check. "edit": the form renames Account A's own task k1
-   * (POST /api/tasks/k1).
-   */
+  // Tasks keyed taskId. "create": the form creates a task (POST /api/tasks), then the page saves it again (POST /api/tasks/<taskId>), which has no ownership check. "edit": the form renames Account A's own task k1 (POST /api/tasks/k1).
   async function keyedApp(form: "create" | "edit") {
     const tasks = [
       { taskId: "k1", owner: "a" as Who, title: "Groceries" },
@@ -218,11 +190,7 @@ load();`;
 });
 
 describe("write-access: a Rails-style form (task[title]=…)", () => {
-  /**
-   * The page creates a task (POST /tasks task[title]=…), then saves it again with PATCH /tasks/<id> ("both":
-   * task[title]=…&task[done]=0; "done": task[done]=0 only). The server reads only task[...] keys (strong params) and has
-   * no ownership check on PATCH.
-   */
+  // The page creates a task (POST /tasks task[title]=…), then saves it again with PATCH /tasks/<id> ("both": task[title]=…&task[done]=0; "done": task[done]=0 only). The server reads only task[...] keys (strong params) and has no ownership check on PATCH.
   async function railsApp(update: "both" | "done") {
     const tasks: { id: number; owner: Who; title: string; done: boolean }[] = [{ id: 1, owner: "a", title: "Groceries", done: false }];
     let next = 2;
@@ -286,10 +254,7 @@ load();`;
 });
 
 describe("write-access: a body CSRF token (Django's csrfmiddlewaretoken)", () => {
-  /**
-   * Every write carries csrfmiddlewaretoken, which must equal the caller's own csrftoken cookie. The update
-   * (POST /api/tasks/<id>) has no ownership check.
-   */
+  // Every write carries csrfmiddlewaretoken, which must equal the caller's own csrftoken cookie. The update (POST /api/tasks/<id>) has no ownership check.
   async function djangoApp() {
     const tasks: { id: number; owner: Who; title: string }[] = [{ id: 1, owner: "a", title: "Groceries" }];
     let next = 2;
@@ -354,14 +319,9 @@ load();`;
 });
 
 describe("write-access: a thin list read and Account A's note that shares the test record's id", () => {
-  /**
-   * The list read shows only {id, title}. After the create the page saves the task (PATCH /api/tasks/<id>, owner-only)
-   * and copies its title into Account A's note 3 (PATCH /api/notes/3, which has no ownership check). The run's first
-   * task gets id 3 too.
-   */
+  // The list read shows only {id, title}. After the create the page saves the task (PATCH /api/tasks/<id>, owner-only) and copies its title into Account A's note 3 (PATCH /api/notes/3, which has no ownership check). The run's first task gets id 3 too.
   async function siblingApp(o: { createdAt?: boolean } = {}) {
-    // createdAt: every task and note also carries when it was created, so the list read is {id, title, createdAt} and
-    // the note has each of those keys too (only its createdAt, from before the run, differs from the new task's).
+    // createdAt: every task and note also carries when it was created, so the list read is {id, title, createdAt} and the note has each of those keys too (only its createdAt, from before the run, differs from the new task's).
     const stamp = (at: string) => (o.createdAt ? { createdAt: at } : {});
     const tasks: { id: number; owner: Who; title: string; createdAt?: string }[] = [
       { id: 1, owner: "a", title: "Groceries", ...stamp("2026-01-05T09:00:00.000Z") },
@@ -438,12 +398,7 @@ load();`;
 
 describe("write-access: an API that takes its credential in the URL (?access_token=)", () => {
   const TOKENS: Record<Who, string> = { a: "tokA7Hq2Lm9Xc4", b: "tokB3Zr8Wn1Pk6" };
-  /**
-   * The page gets its API token from GET /api/session (cookie session), then calls the API with ?access_token=<token>:
-   * the create (POST /api/tasks?access_token=…), then an update of the new task (PATCH /api/tasks/<id>?access_token=…).
-   * The API knows its caller only by that token. "owner-only": the update checks the task belongs to the token's
-   * account (a clean app); "unchecked": any valid token may change any task.
-   */
+  // The page gets its API token from GET /api/session (cookie session), then calls the API with ?access_token=<token>: the create (POST /api/tasks?access_token=…), then an update of the new task (PATCH /api/tasks/<id>?access_token=…). The API knows its caller only by that token. "owner-only": the update checks the task belongs to the token's account (a clean app); "unchecked": any valid token may change any task.
   async function tokenApp(update: "owner-only" | "unchecked") {
     const tasks: { id: number; owner: Who; title: string }[] = [{ id: 1, owner: "a", title: "Groceries" }];
     let next = 2;
@@ -499,7 +454,7 @@ fetch('/api/session').then(function (r) { return r.json(); }).then(function (s) 
     return server;
   }
 
-  /** Requests that carried Account A's token without Account A's session: Run Hound replaying A's credential. */
+  // Requests that carried Account A's token without Account A's session: Run Hound replaying A's credential.
   const withAsToken = (server: FixtureServer) => server.requests.filter((r) => r.url.includes(TOKENS.a) && callerOf(r) !== "a");
 
   it("sends Account B's own token as Account B, never Account A's: a clean app passes", async () => {
@@ -540,11 +495,7 @@ fetch('/api/session').then(function (r) { return r.json(); }).then(function (s) 
 });
 
 describe("write-access: optimistic locking (Rails lock_version)", () => {
-  /**
-   * Each update sends the lock_version it last read; a stale one is a conflict (409). The update (PATCH /api/tasks/<id>)
-   * has no ownership check. "shown": the list read shows lock_version; "hidden": it doesn't, so Run Hound can't know
-   * the current one.
-   */
+  // Each update sends the lock_version it last read; a stale one is a conflict (409). The update (PATCH /api/tasks/<id>) has no ownership check. "shown": the list read shows lock_version; "hidden": it doesn't, so Run Hound can't know the current one.
   async function lockApp(read: "shown" | "hidden") {
     const tasks: { id: number; owner: Who; title: string; version: number }[] = [{ id: 1, owner: "a", title: "Groceries", version: 0 }];
     let next = 2;
@@ -610,11 +561,7 @@ load();`;
 });
 
 describe("write-access: a create form with a search-as-you-type hint that echoes the typed value", () => {
-  /**
-   * As the title is typed, the page GETs /api/tasks/similar?q=<title>, which answers {query, matches} (the query echoed
-   * back). The form creates a task (POST /api/tasks), then the page saves it again (PATCH /api/tasks/<id>), which has
-   * no ownership check.
-   */
+  // As the title is typed, the page GETs /api/tasks/similar?q=<title>, which answers {query, matches} (the query echoed back). The form creates a task (POST /api/tasks), then the page saves it again (PATCH /api/tasks/<id>), which has no ownership check.
   async function similarApp() {
     const tasks: { id: number; owner: Who; title: string }[] = [{ id: 1, owner: "a", title: "Groceries" }];
     let next = 2;

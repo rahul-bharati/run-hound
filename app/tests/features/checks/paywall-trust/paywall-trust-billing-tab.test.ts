@@ -1,12 +1,8 @@
-/**
- * Paywall-trust test: paywall-trust: a billing tab that heads for a payment provider
- * Split from app/src/checks/paywall-trust.test.ts for parallel execution
- * Shared fixtures: test-support/paywall-app.ts
- */
+// A billing tab that heads for a payment provider: chosen to read links and look for the plan's control; a held portal start, write, or beacon.
 
 import type { Browser } from "playwright";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
 import {
   A,
   ALEX,
@@ -38,8 +34,8 @@ import {
   sinkPort,
   SUCCESS_LINK,
   usePaywallApp,
-} from "../../test-support/paywall-app.js";
-import type { BillingApp, CancelControl, BillingAppOptions } from "../../test-support/paywall-app.js";
+} from "../../../../test-support/paywall-app.js";
+import type { BillingApp, CancelControl, BillingAppOptions } from "../../../../test-support/paywall-app.js";
 
 usePaywallApp();
 
@@ -56,25 +52,21 @@ describe("paywall-trust: a billing tab that heads for a payment provider", () =>
       providerRedirects: ["/billing/portal"],
     });
     const result = await runOn(server);
-    // The tabs were chosen (to read the links they show, and again to look for the plan's control) and the probe went
-    // on: the conventional /app/upgraded granted Pro, and the Billing page's Cancel plan put it back.
+    // Tabs chosen to read links and look for the plan's control; probe granted Pro on /app/upgraded and Cancel plan put it back.
     expectGrantFinding(result, "/app/upgraded");
     expectRestored(server, result, "/app/billing");
-    // The portal start was held before the app's server saw it, so its redirect to the provider never happened, and
-    // the notes say so.
+    // Portal start was held before the app's server saw it, so its redirect to the provider never happened.
     expect(loads(server, "/billing/portal")).toEqual([]);
     expect(result.notes).toMatch(/"Billing" tab on \/app sent the browser to \/billing\/portal[^.]*stopped/);
-    // The tab that went straight to the provider was blocked, and listed; the notes say the tab did it.
+    // The tab that went straight to the provider was blocked, and listed.
     expect(result.notes).toMatch(/billing\.stripe\.com: blocked \(payment provider\)/);
-    // Chosen after Billing on the same page, whose script may still be running: both are named (0.6.0 closeout, review
-    // round 2).
+    // Chosen after Billing on the same page, whose script may still be running: both are named (review round 2).
     expect(result.notes).toMatch(/After Run Hound chose the "Billing" and "Payments" tabs on \/app, the page headed for billing\.stripe\.com \(payment provider\)[^.]*blocked/);
     expectSafe(server, result);
   }, 120_000);
 
   it("never lets a Billing tab create a billing portal session (a write its script sends before heading for the provider), and names it", async () => {
-    // The usual Stripe customer-portal button: POST to the app, which creates the session at the provider and answers
-    // with its URL. The write is held before the app's server gets it; the provider is never reached either.
+    // The usual Stripe customer-portal button: POST to the app, which creates the session at the provider and answers with its URL.
     const server = await billingApp({
       grants: false,
       cancel: "button",

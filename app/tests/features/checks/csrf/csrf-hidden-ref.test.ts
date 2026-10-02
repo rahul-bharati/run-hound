@@ -1,26 +1,17 @@
-/**
- * csrf (0.6.0 close-out, review round 1): a hidden input whose value only looks random (a UUID reference such as
- * list_id) is left out of the forged body by its value alone, because Run Hound can't tell it from a home-made token.
- * When the app then refuses the forge the way it refuses a missing or bad value (400, 404, 409, 422, or a 2xx that
- * stores nothing), the refusal may be the missing reference, not a CSRF defence: the scenario is inconclusive, never a
- * pass, and the notes never call the field "Account A's anti-CSRF token" (docs/v2-spec.md "`csrf`": a pass needs the
- * forge to be refused or to have no effect, and "never a pass when unsure"). A 403 or 419 (the answers of a CSRF
- * defence) still passes: csrf-native-post.test.ts. A field whose name says token is still left out and its refusal
- * still passes, whatever the status.
- */
+// csrf (0.6.0 close-out, review round 1): a hidden value that only looks random (UUID reference) is left out by value alone; a 4xx/2xx-no-store refusal may be the reference, not a CSRF defence — inconclusive, never a pass. 403/419 still passes.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ServerResponse } from "node:http";
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./csrf.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/csrf.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const RUN_TOKEN = "cf7e57a1";
@@ -71,10 +62,7 @@ interface AppOptions {
   railsToken?: boolean;
 }
 
-/**
- * A task app with no CSRF defence (a SameSite=None cookie, no Origin check) unless `railsToken`. Its form carries a
- * hidden list_id (a UUID: the list the task goes in, not a token), and POST /tasks refuses a body without it.
- */
+// A task app with no CSRF defence (SameSite=None cookie, no Origin check) unless `railsToken`; form carries a hidden list_id (UUID, the list the task goes in), POST /tasks refuses a body without it.
 async function refApp(o: AppOptions): Promise<FixtureServer & { tasks: { id: string; title: string }[] }> {
   const tasks: { id: string; title: string }[] = [];
   const form = o.native ? `<form method="post" action="/tasks" aria-label="New task">` : `<form id="new" aria-label="New task">`;
