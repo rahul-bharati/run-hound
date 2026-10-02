@@ -1,23 +1,14 @@
-/**
- * axe-states check: which states it reached, and why it didn't reach the others (RH-09, RH-10); an open list closed
- * before a scan so it isn't reported as aria-hidden-focus (RH-15); an unnamed element named by what and where it is
- * (RH-16); and a wizard's first step, not filled from step 2's fields (RH-06).
- *
- * Split out of axe-states.test.ts to keep each file under the suite's per-file time budget; see that file for the
- * rest of the original file's coverage. Its short preamble (imports, the `run` helper, axeRuleIds, expectAxeFinding)
- * is copied here verbatim, as axe-states-dialog.test.ts already does for its own slice of the check.
- */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import type { Finding } from "../core/types.js";
-import { closeBrowser, getBrowser, overallStatus, runCheck } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { createCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { bookingApp, type BookingVariant } from "../../test/fixtures/checks/booking-page.js";
+import type { Finding } from "../../../../src/core/types.js";
+import { closeBrowser, getBrowser, overallStatus, runCheck } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { createCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { bookingApp, type BookingVariant } from "../../../../test/fixtures/checks/booking-page.js";
 import {
   allFindings,
   bug,
@@ -25,11 +16,11 @@ import {
   expectUniqueIds,
   expectWellFormedFinding,
   findingText,
-} from "../../test/fixtures/checks/assert-finding.js";
-import * as fixtures from "../../test/fixtures/checks/axe-states/variants.js";
-import { startSchemaFormApp } from "../../test/fixtures/checks/schema-form.js";
-import { startWidgetApp, wizardForm } from "../../test/fixtures/widgets/widget-app.js";
-import { check } from "./axe-states.js";
+} from "../../../../test/fixtures/checks/assert-finding.js";
+import * as fixtures from "../../../../test/fixtures/checks/axe-states/variants.js";
+import { startSchemaFormApp } from "../../../../test/fixtures/checks/schema-form.js";
+import { startWidgetApp, wizardForm } from "../../../../test/fixtures/widgets/widget-app.js";
+import { check } from "../../../../src/checks/axe-states.js";
 
 const servers: FixtureServer[] = [];
 afterEach(async () => {
@@ -45,10 +36,7 @@ async function run(variant: BookingVariant) {
   return { scenarios, results, findings: allFindings(results), server, created: app.created };
 }
 
-/**
- * Contract: each axe finding carries an evidence item of kind "axe" whose data has the axe rule id
- * (`ruleId`) and the affected nodes (`nodes`, each with the axe `target` selector list).
- */
+// Each axe finding carries an evidence item of kind "axe" whose data has the axe rule id (`ruleId`) and the affected nodes (`nodes`, each with the axe `target` selector list).
 function axeRuleIds(finding: Finding): string[] {
   return finding.evidence
     .filter((e) => e.kind === "axe")
@@ -97,10 +85,7 @@ describe("axe-states: states it reached, and why it didn't reach the others (RH-
   });
 });
 
-/**
- * A custom select that the page opens after a refused submit (it focuses the first invalid field and opens it), and
- * that hides the rest of the page from screen readers while open, as Radix Select does. Escape closes it.
- */
+// A custom select that the page opens after a refused submit (it focuses the first invalid field and opens it), and that hides the rest of the page from screen readers while open, as Radix Select does. Escape closes it.
 const OPEN_ON_ERROR = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Invite</title><link rel="icon" href="data:,">
 <style>body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; color: #111; background: #fff; }
 button { min-height: 44px; min-width: 44px; font-size: 16px; color: #111; background: #eee; border: 1px solid #555; }
@@ -166,7 +151,7 @@ describe("axe-states: an open list is closed before a scan (RH-15)", () => {
   });
 });
 
-/** Two icon-only buttons with no name: one opens the sidebar (aria-controls), one sits in the page header. */
+// Two icon-only buttons with no name: one opens the sidebar (aria-controls), one sits in the page header.
 const UNNAMED_BUTTONS = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>App</title><link rel="icon" href="data:,">
 <style>body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; color: #111; background: #fff; } button { min-width: 44px; min-height: 44px; }</style></head>
 <body><header><button type="button" aria-controls="app-sidebar" aria-expanded="true"><svg aria-hidden="true" width="16" height="16"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor"/></svg></button>

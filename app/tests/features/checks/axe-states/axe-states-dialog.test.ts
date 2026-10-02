@@ -1,17 +1,12 @@
-/**
- * axe-states on a form in a dialog that closes itself after saving (Fernway's "Book a demo" on a slow CI runner):
- * the dialog can still be animating out when the success state is checked, and gone by the time axe runs. That
- * state is then "not on the page, not scanned", never an error (axe throws "No elements found for include").
- */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { createCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./axe-states.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { createCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/axe-states.js";
 
 const PAGE = `<!doctype html>
 <html lang="en">

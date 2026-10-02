@@ -1,7 +1,7 @@
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import { closeBrowser, overallStatus, runCheck } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { bookingApp, type BookingVariant } from "../../test/fixtures/checks/booking-page.js";
+import { closeBrowser, overallStatus, runCheck } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { bookingApp, type BookingVariant } from "../../../../test/fixtures/checks/booking-page.js";
 import {
   allFindings,
   bug,
@@ -9,9 +9,9 @@ import {
   expectUniqueIds,
   expectWellFormedFinding,
   findingText,
-} from "../../test/fixtures/checks/assert-finding.js";
-import * as fixtures from "../../test/fixtures/checks/focus-visible/variants.js";
-import { check } from "./focus-visible.js";
+} from "../../../../test/fixtures/checks/assert-finding.js";
+import * as fixtures from "../../../../test/fixtures/checks/focus-visible/variants.js";
+import { check } from "../../../../src/checks/focus-visible.js";
 
 const servers: FixtureServer[] = [];
 afterEach(async () => {

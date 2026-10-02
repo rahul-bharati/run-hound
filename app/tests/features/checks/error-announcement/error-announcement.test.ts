@@ -1,17 +1,17 @@
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import { closeBrowser, overallStatus, runCheck } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { bookingApp, type BookingVariant } from "../../test/fixtures/checks/booking-page.js";
+import { closeBrowser, overallStatus, runCheck } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { bookingApp, type BookingVariant } from "../../../../test/fixtures/checks/booking-page.js";
 import {
   allFindings,
   bug,
   expectPlanShape,
   expectUniqueIds,
   expectWellFormedFinding,
-} from "../../test/fixtures/checks/assert-finding.js";
-import * as fixtures from "../../test/fixtures/checks/error-announcement/variants.js";
-import { startSchemaFormApp, type SchemaFormOptions } from "../../test/fixtures/checks/schema-form.js";
-import { check } from "./error-announcement.js";
+} from "../../../../test/fixtures/checks/assert-finding.js";
+import * as fixtures from "../../../../test/fixtures/checks/error-announcement/variants.js";
+import { startSchemaFormApp, type SchemaFormOptions } from "../../../../test/fixtures/checks/schema-form.js";
+import { check } from "../../../../src/checks/error-announcement.js";
 
 const servers: FixtureServer[] = [];
 afterEach(async () => {
@@ -85,7 +85,7 @@ describe("error-announcement check", () => {
   });
 });
 
-/** Two required fields with no wrapper of their own; only the first gets a (visual-only) error message. */
+// Two required fields with no wrapper of their own; only the first gets a (visual-only) error message.
 const SHARED_CONTAINER = `<!doctype html><html lang="en"><head><title>Join</title></head><body><main>
 <form id="join" novalidate><h1>Join the list</h1>
 <label for="name">Name</label><input id="name" name="name" required>
@@ -96,7 +96,7 @@ const SHARED_CONTAINER = `<!doctype html><html lang="en"><head><title>Join</titl
 <script>document.getElementById("join").addEventListener("submit", (e) => { e.preventDefault(); document.getElementById("name-msg").textContent = "Enter your name"; });</script>
 </main></body></html>`;
 
-/** A required field with a valid default ("1"), next to an empty one. */
+// A required field with a valid default ("1"), next to an empty one.
 const PREFILLED = `<!doctype html><html lang="en"><head><title>RSVP</title></head><body><main>
 <form id="rsvp" novalidate><h1>RSVP</h1>
 <div><label for="name">Name</label><input id="name" name="name" required aria-describedby="name-error"><p id="name-error"></p></div>
@@ -177,7 +177,7 @@ describe("error-announcement on schema-validated forms that mark nothing as requ
   });
 });
 
-/** A settings form that loads with the saved values; red text only when a field is emptied (W10-style). */
+// A settings form that loads with the saved values; red text only when a field is emptied (W10-style).
 const SETTINGS = (accessible: boolean) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Profile</title><link rel="icon" href="data:,"></head><body><main>
 <form id="profile" novalidate><h1>Profile</h1>
 <div><label for="name">Display name</label><input id="name" name="displayName" value="Alex Rivera"><p id="name-msg" style="color:#b00020"></p></div>

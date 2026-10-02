@@ -1,24 +1,14 @@
-/**
- * axe-states check: registration, GOOD/BAD fixtures for each axe rule the check reconfigures or adds (A01, A02, A06,
- * A08), a violation only present after an invalid submit, several violated rules at once, text fading in (LOV-9),
- * and a form in a dialog that closes after saving (LOV-8).
- *
- * Split from the original axe-states.test.ts (which also covered which states the check reached and why (RH-09,
- * RH-10), an open list closed before a scan (RH-15), an unnamed element named by what and where it is (RH-16), and a
- * wizard's first step (RH-06)) to keep each file under the suite's per-file time budget: see
- * axe-states-reach.test.ts, which copies this file's short preamble verbatim.
- */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import type { Finding } from "../core/types.js";
-import { closeBrowser, getBrowser, overallStatus, runCheck } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { createCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { bookingApp, type BookingVariant } from "../../test/fixtures/checks/booking-page.js";
+import type { Finding } from "../../../../src/core/types.js";
+import { closeBrowser, getBrowser, overallStatus, runCheck } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { createCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { bookingApp, type BookingVariant } from "../../../../test/fixtures/checks/booking-page.js";
 import {
   allFindings,
   bug,
@@ -26,9 +16,9 @@ import {
   expectUniqueIds,
   expectWellFormedFinding,
   findingText,
-} from "../../test/fixtures/checks/assert-finding.js";
-import * as fixtures from "../../test/fixtures/checks/axe-states/variants.js";
-import { check } from "./axe-states.js";
+} from "../../../../test/fixtures/checks/assert-finding.js";
+import * as fixtures from "../../../../test/fixtures/checks/axe-states/variants.js";
+import { check } from "../../../../src/checks/axe-states.js";
 
 const servers: FixtureServer[] = [];
 afterEach(async () => {
@@ -44,10 +34,7 @@ async function run(variant: BookingVariant) {
   return { scenarios, results, findings: allFindings(results), server, created: app.created };
 }
 
-/**
- * Contract: each axe finding carries an evidence item of kind "axe" whose data has the axe rule id
- * (`ruleId`) and the affected nodes (`nodes`, each with the axe `target` selector list).
- */
+// Each axe finding carries an evidence item of kind "axe" whose data has the axe rule id (`ruleId`) and the affected nodes (`nodes`, each with the axe `target` selector list).
 function axeRuleIds(finding: Finding): string[] {
   return finding.evidence
     .filter((e) => e.kind === "axe")
@@ -167,7 +154,7 @@ describe("axe-states: a form in a dialog that closes after saving (LOV-8)", () =
   it("opens the dialog again for the second submission", async () => {
     const members: unknown[] = [];
     const server = await startFixtureServer({
-      root: fileURLToPath(new URL("../../test/fixtures/discover/", import.meta.url)),
+      root: fileURLToPath(new URL("../../../../test/fixtures/discover/", import.meta.url)),
       routes: {
         "GET /api/members": (_req, res) => json(res, 200, members),
         "POST /api/members": (req, res) => {
