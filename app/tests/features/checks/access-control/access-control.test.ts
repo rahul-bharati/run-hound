@@ -1,23 +1,19 @@
-/**
- * access-control (0.4.0, docs/v2-spec.md "access-control"): can account B, or a signed-out visitor, read account A's
- * data? Driven against the shared accounts app (test-support/accounts-app.ts) signed in as alice (A) with bob (B),
- * through createCheckContext with sessions from app.storageState(), plus one run through discoverAndPlan/runPlan.
- */
+// access-control (0.4.0, docs/v2-spec.md "access-control"): can account B, or a signed-out visitor, read account A's data? Driven against the shared accounts app signed in as alice (A) with bob (B), through createCheckContext with sessions from app.storageState(), plus one run through discoverAndPlan/runPlan.
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
-import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../test-support/accounts-app.js";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import { expectWellFormedFinding } from "../../test/fixtures/checks/assert-finding.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Finding, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage, emptyForm } from "../engine/discover.js";
-import { discoverAndPlan, runPlan } from "../engine/runner.js";
-import { check } from "./access-control.js";
+import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../../../test-support/accounts-app.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import { expectWellFormedFinding } from "../../../../test/fixtures/checks/assert-finding.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Finding, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage, emptyForm } from "../../../../src/engine/discover.js";
+import { discoverAndPlan, runPlan } from "../../../../src/engine/runner.js";
+import { check } from "../../../../src/checks/access-control.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const B: AccountRef = { id: "b", label: "Account B" };
@@ -55,14 +51,12 @@ async function tempDir(prefix: string): Promise<string> {
   return dir;
 }
 
-/** The cookie value or bearer token a storage state holds (what identifies that session to the app). */
 function sessionValue(state: SessionState): string {
   const value = state.cookies[0]?.value ?? state.origins[0]?.localStorage.find((e) => e.name === "token")?.value;
   if (!value) throw new Error("the storage state holds no session");
   return value;
 }
 
-/** Discovers `path` signed in with `state` (the page renders after GET /api/me). */
 async function discoverWith(url: string, state: SessionState): Promise<DiscoveredPage> {
   const context = await browser.newContext({ storageState: state });
   try {
@@ -96,15 +90,11 @@ function scenarioFor(which: Which, page: DiscoveredPage): Scenario {
 interface Ran {
   result: CheckResult;
   ctx: RunningCheckContext;
-  /** Session values (sid cookie or bearer token) of the two identities. */
   alice: string;
   bob: string | null;
 }
 
-/**
- * Runs one access-control scenario on `path` of the accounts app as the runner would: A = alice (the run account),
- * B = bob only for other-account, A's marker = her username (the email). app.requests holds only the run's requests.
- */
+/** Runs one access-control scenario: A = alice, B = bob only for other-account, marker = alice's email. app.requests holds only the run's requests. */
 async function runScenario(app: AccountsApp, which: Which, options: { path?: string; markers?: string[] } = {}): Promise<Ran> {
   const path = options.path ?? "/notes";
   const targetUrl = app.url + path;
@@ -134,7 +124,6 @@ const carries = (r: RecordedRequest, session: string) => (r.headers.cookie ?? ""
 const credentialless = (r: RecordedRequest) => r.headers.cookie === undefined && r.headers.authorization === undefined;
 const writes = (app: AccountsApp) => app.requests.filter((r) => r.method !== "GET" && r.method !== "HEAD").map((r) => `${r.method} ${r.url}`);
 
-/** Usernames, passwords and session values never appear in a result (findings, evidence, notes, spec). */
 function expectNoAccountValues(result: CheckResult, app: AccountsApp, sessions: (string | null)[]) {
   const text = JSON.stringify(result);
   const { alice, bob } = app.users;
@@ -151,7 +140,6 @@ function onlyFinding(result: CheckResult): Finding {
   return f;
 }
 
-/** The finding's reproduction spec: two request.newContext identities whose credentials come from the environment. */
 function expectReplaySpec(f: Finding) {
   expect(f.spec!.source).toContain("request.newContext");
   expect(f.spec!.source).toContain("process.env");
@@ -167,13 +155,10 @@ describe("access-control:other-account", () => {
     // A's data on /notes: GET /api/me and GET /api/users/u1/profile (her email), GET /api/notes (the test record).
     expect(result.notes).toMatch(/Checked 3 of Account A's requests as Account B; none returned Account A's data/);
 
-    // Step 1: A saved a test record through the main form ("New note"), carrying the run token.
     expect(app.notes().some((n) => n.ownerId === "u1" && `${n.title} ${n.body}`.includes(RUN_TOKEN))).toBe(true);
     expect(ctx.testRecordsCreated()).toBeGreaterThanOrEqual(1);
-    // B opened the page with B's session, and replayed A's requests with it.
     expect(gets(app, "/api/me").some((r) => carries(r, bob!))).toBe(true);
     expect(gets(app, "/api/users/u1/profile").some((r) => carries(r, bob!))).toBe(true);
-    // Read-only: the only write is A's test record; nobody was signed out.
     expect(writes(app)).toEqual(["POST /api/notes"]);
     expectNoAccountValues(result, app, [bob]);
   });

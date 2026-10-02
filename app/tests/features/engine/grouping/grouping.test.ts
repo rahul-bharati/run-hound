@@ -1,22 +1,16 @@
-/**
- * Tester release (0.1.0): one finding per problem (docs/v0-spec.md, "Tester release").
- * When the same problem affects several elements the check reports ONE finding: the title states the count,
- * `locations` lists every element, `location` is the first, and the evidence marks all of them (one frame marking
- * every element, or one frame per element, up to 6). Different problems stay separate findings, and the report
- * shows every location.
- */
+// Tester release (0.1.0): one finding per problem (docs/v0-spec.md, "Tester release"): when the same problem affects several elements the check reports ONE finding: the title states the count, `locations` lists every element, `location` is the first, and the evidence marks all of them (one frame marking every element, or one frame per element, up to 6); different problems stay separate findings, and the report shows every location.
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import type { Finding, Report } from "../core/types.js";
-import { closeBrowser, overallStatus, runCheck } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { bookingApp, type BookingVariant } from "../../test/fixtures/checks/booking-page.js";
-import { allFindings, expectUniqueIds } from "../../test/fixtures/checks/assert-finding.js";
-import * as axeFixtures from "../../test/fixtures/checks/axe-states/variants.js";
-import * as announceFixtures from "../../test/fixtures/checks/error-announcement/variants.js";
-import { check as axeStates } from "../checks/axe-states.js";
-import { check as errorAnnouncement } from "../checks/error-announcement.js";
-import { check as focusVisible } from "../checks/focus-visible.js";
-import { NOT_VISIBLE, renderHtml, renderMarkdown } from "./report.js";
+import type { Finding, Report } from "../../../../src/core/types.js";
+import { closeBrowser, overallStatus, runCheck } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { bookingApp, type BookingVariant } from "../../../../test/fixtures/checks/booking-page.js";
+import { allFindings, expectUniqueIds } from "../../../../test/fixtures/checks/assert-finding.js";
+import * as axeFixtures from "../../../../test/fixtures/checks/axe-states/variants.js";
+import * as announceFixtures from "../../../../test/fixtures/checks/error-announcement/variants.js";
+import { check as axeStates } from "../../../../src/checks/axe-states.js";
+import { check as errorAnnouncement } from "../../../../src/checks/error-announcement.js";
+import { check as focusVisible } from "../../../../src/checks/focus-visible.js";
+import { NOT_VISIBLE, renderHtml, renderMarkdown } from "../../../../src/engine/report.js";
 
 const servers: FixtureServer[] = [];
 afterEach(async () => {

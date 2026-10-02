@@ -1,17 +1,12 @@
-/**
- * bundle-secrets and a labelled AWS secret access key (0.6.1, docs/launch-spec.md "Redaction"): the new
- * "aws-secret-key" pattern makes the check report a secret key shipped in a script as "an AWS secret access key",
- * redacted everywhere in the results, and the exported spec tests for it with its own pattern (SPEC_PATTERNS), which
- * matches the script that ships it.
- */
+// bundle-secrets and a labelled AWS secret access key (0.6.1, docs/launch-spec.md "Redaction"): the new "aws-secret-key" pattern makes the check report a secret key shipped in a script as "an AWS secret access key", redacted everywhere in the results, and the exported spec tests for it with its own pattern (SPEC_PATTERNS), which matches the script that ships it.
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import { closeBrowser, overallStatus, runCheck } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { bookingApp, scriptRoute } from "../../test/fixtures/checks/booking-page.js";
-import { allFindings } from "../../test/fixtures/checks/assert-finding.js";
-import { check } from "./bundle-secrets.js";
+import { closeBrowser, overallStatus, runCheck } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { bookingApp, scriptRoute } from "../../../../test/fixtures/checks/booking-page.js";
+import { allFindings } from "../../../../test/fixtures/checks/assert-finding.js";
+import { check } from "../../../../src/checks/bundle-secrets.js";
 
-/** AWS's documented example secret access key (not real). */
+// AWS's documented example secret access key (not real).
 const KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
 const SCRIPT = `window.__AWS__ = { region: "eu-west-1", accessKeyId: "AKIAIOSFODNN7EXAMPLE", secretAccessKey: "${KEY}" };\n`;
 

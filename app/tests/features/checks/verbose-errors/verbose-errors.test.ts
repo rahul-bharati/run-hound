@@ -3,24 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser, runCheck } from "../../test-support/harness.js";
-import { startFixtureServer } from "../../test-support/server.js";
-import { createCheckContext } from "../engine/context.js";
-import { discoverForm } from "../engine/discover.js";
-import { startBookingApp, sampleForm, type ApiOptions, type BookingServer, type ClientOptions } from "../../test/fixtures/checks/_behavior/booking-app.js";
-import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectPlan } from "../../test/fixtures/checks/_behavior/expectations.js";
-import { startHangApp } from "../../test/fixtures/checks/hang-app.js";
-import { check, replayAllowed } from "./verbose-errors.js";
+import { closeBrowser, runCheck } from "../../../../test-support/harness.js";
+import { startFixtureServer } from "../../../../test-support/server.js";
+import { createCheckContext } from "../../../../src/engine/context.js";
+import { discoverForm } from "../../../../src/engine/discover.js";
+import { startBookingApp, sampleForm, type ApiOptions, type BookingServer, type ClientOptions } from "../../../../test/fixtures/checks/_behavior/booking-app.js";
+import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectPlan } from "../../../../test/fixtures/checks/_behavior/expectations.js";
+import { startHangApp } from "../../../../test/fixtures/checks/hang-app.js";
+import { check, replayAllowed } from "../../../../src/checks/verbose-errors.js";
 
 const ID = "verbose-errors" as const;
 const servers: BookingServer[] = [];
 
-/**
- * The fixture form has no client-side length or format checks, so oversized and malformed values reach
- * the server whether the check types them into the form or sends them directly.
- * GOOD server: 400 { errors: { field: friendly message } }, or 400 { error } for a malformed body.
- * BAD server (stackOnBadInput): 500 { error, stack } with a Node stack trace and /srv/kennel/... paths.
- */
 async function app(client: ClientOptions, api: ApiOptions) {
   const s = await startBookingApp(client, api);
   servers.push(s);

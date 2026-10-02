@@ -2,15 +2,15 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser, runCheck } from "../../test-support/harness.js";
-import { json, startFixtureServer } from "../../test-support/server.js";
-import { startBookingApp, sampleForm, type ApiOptions, type BookingServer } from "../../test/fixtures/checks/_behavior/booking-app.js";
-import { expectCheckShape, expectCleanPass, expectFailure, expectPlan, findingText } from "../../test/fixtures/checks/_behavior/expectations.js";
-import { CONTACT_FIELDS, SIGNUP_FIELDS, startModernApp, type ModernApp, type ModernAppOptions } from "../../test/fixtures/checks/modern-apps.js";
-import { startSchemaFormApp } from "../../test/fixtures/checks/schema-form.js";
-import { createCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./persistence.js";
+import { closeBrowser, getBrowser, runCheck } from "../../../../test-support/harness.js";
+import { json, startFixtureServer } from "../../../../test-support/server.js";
+import { startBookingApp, sampleForm, type ApiOptions, type BookingServer } from "../../../../test/fixtures/checks/_behavior/booking-app.js";
+import { expectCheckShape, expectCleanPass, expectFailure, expectPlan, findingText } from "../../../../test/fixtures/checks/_behavior/expectations.js";
+import { CONTACT_FIELDS, SIGNUP_FIELDS, startModernApp, type ModernApp, type ModernAppOptions } from "../../../../test/fixtures/checks/modern-apps.js";
+import { startSchemaFormApp } from "../../../../test/fixtures/checks/schema-form.js";
+import { createCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/persistence.js";
 
 const ID = "persistence" as const;
 const servers: BookingServer[] = [];
@@ -62,11 +62,7 @@ describe("persistence: GOOD", () => {
   });
 });
 
-/**
- * The save request starts 400 ms after the click (async validation before fetch), so it reaches the capture
- * well after the click resolves: the check must wait for it instead of concluding "no request was sent".
- * On a busy machine even a synchronous fetch() arrives after the click resolves; this makes that case certain.
- */
+// The save request starts 400 ms after the click (async validation before fetch), so it reaches the capture well after the click resolves: the check must wait for it instead of concluding "no request was sent". On a busy machine even a synchronous fetch() arrives after the click resolves; this makes that case certain.
 const ASYNC_VALIDATION: [string, string][] = [
   ['res = await fetch("/api/bookings", {', 'await new Promise(function (r) { setTimeout(r, 400); }); res = await fetch("/api/bookings", {'],
 ];
@@ -150,8 +146,7 @@ describe("persistence: apps built with AI app builders", () => {
   });
 
   it("LOV-5: a page the app moved to that lists the records without one field reports that field, like the same list on the form's page", async () => {
-    // Two or more values listed on the page the app went to make it a record view, not a greeting: the field it
-    // leaves out is reported, as "still fails when the list really drops a field" reports it on the form's own page.
+    // Two or more values listed on the page the app went to make it a record view, not a greeting: the field it leaves out is reported, as "still fails when the list really drops a field" reports it on the form's own page.
     const a = await contact("records-page", { unlisted: ["message"] });
     const { results } = await runCheck(check, a.formUrl);
     const findings = expectFailure(results, ID, "broken-feature", ["critical"]);
@@ -242,7 +237,7 @@ describe("persistence: a classic form post that redirects to a thank-you page gr
   });
 });
 
-/** A fixture server for the tests below, closed after each test file. */
+// A fixture server for the tests below, closed after each test file.
 async function fixture(options: Parameters<typeof startFixtureServer>[0]) {
   const s = await startFixtureServer(options);
   closers.push(() => s.close());
@@ -257,8 +252,7 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 
 describe("persistence: the app moves to another page after saving", () => {
   it("a classic form post whose detail page leaves out a dropped field reports that field", async () => {
-    // POST /signup → 303 /signup/thanks/<n>, a server-rendered page listing what was stored. The server drops
-    // "company", so the detail page says "Not given" where the typed company should be.
+    // POST /signup → 303 /signup/thanks/<n>, a server-rendered page listing what was stored. The server drops "company", so the detail page says "Not given" where the typed company should be.
     const people: Record<string, string>[] = [];
     const form = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign up</title><link rel="icon" href="data:,"></head><body><main>
 <h1>Sign up for Harbor Notes</h1>
@@ -292,8 +286,7 @@ ${row("Full name", who?.name)}${row("Email address", who?.email)}${row("Company"
   });
 
   it("an app that moves from /projects/new to /projects after a save the server never stored reports every field", async () => {
-    // The list shows the new project from memory right after saving; loaded again, it shows what the server has:
-    // nothing. The server answered 201 all the same.
+    // The list shows the new project from memory right after saving; loaded again, it shows what the server has: nothing. The server answered 201 all the same.
     const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Projects</title><link rel="icon" href="data:,"></head><body><main id="app"></main>
 <script>
 const app = document.getElementById("app");
@@ -335,8 +328,7 @@ show();
   });
 
   it("a header that shows who is signed in (name and email) is not a list of saved records: skipped, the company not reported", async () => {
-    // Sign-up → /dashboard, whose header shows the account from GET /api/me after any load. The company is saved but
-    // shown nowhere, which is normal: the dashboard is not a record view.
+    // Sign-up → /dashboard, whose header shows the account from GET /api/me after any load. The company is saved but shown nowhere, which is normal: the dashboard is not a record view.
     const users: Record<string, string>[] = [];
     const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Acme</title><link rel="icon" href="data:,"></head><body>
 <header id="top"></header><main id="app"></main>
@@ -492,10 +484,7 @@ describe("persistence: skip notes never blame the app for what Run Hound didn't 
   });
 });
 
-/**
- * A profile edited in a dialog ("Edit profile"): the saved values only show in the dialog's own fields, loaded from
- * GET /api/profile when it opens. `dropBio`: the server never stores the bio (and doesn't send it back).
- */
+// A profile edited in a dialog ("Edit profile"): the saved values only show in the dialog's own fields, loaded from GET /api/profile when it opens. `dropBio`: the server never stores the bio (and doesn't send it back).
 function profilePage(): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Settings</title><link rel="icon" href="data:,">
 <style>body { font-family: system-ui, sans-serif; margin: 2rem; } [role=dialog] { position: fixed; inset: 10% 25%; background: #fff; border: 1px solid #333; padding: 1.5rem; }</style></head>

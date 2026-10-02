@@ -1,28 +1,16 @@
-/**
- * access-control on apps that are harder than the accounts app (round-2 review). A small notes app whose sessions are
- * fixed cookies (sid=a-session for A, sid=b-session for B), or bearer tokens when its API is on another local origin.
- * Clean unless an option says otherwise: every /api answers 401 without a session and only the session user's data.
- *
- * - A public script bundle (or page text) that happens to contain Account A's username is not Account A's data: no
- *   finding on a clean app, for a short username ("admin") or an email in a demo hint.
- * - A username is matched as a whole value, never inside another one: B's own "tester12" is not A's "tester1".
- * - An API on another local origin (localhost:<port> for a page on 127.0.0.1): its reads are A's data requests too, so a
- *   read that answers without a session is found.
- * - The test record is saved through a form that saves a record, never through a form that sets a password.
- * - The notes read well with one request, and a page that shows the sign-in form instead of the form says so plainly.
- */
+// access-control on apps that are harder than the accounts app (round-2 review): a small notes app whose sessions are fixed cookies (sid=a-session for A, sid=b-session for B), or bearer tokens when its API is on another local origin; clean unless an option says otherwise — every /api answers 401 without a session and only the session user's data; a public bundle (or page text) that happens to contain Account A's username is not Account A's data; a username is matched as a whole value, never inside another one; an API on another local origin: its reads are A's data requests too; the test record is saved through a form that saves a record, never through a form that sets a password; the notes read well with one request.
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage, emptyForm } from "../engine/discover.js";
-import { check } from "./access-control.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage, emptyForm } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/access-control.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const B: AccountRef = { id: "b", label: "Account B" };

@@ -1,22 +1,18 @@
-/**
- * deep-links (0.4.0, docs/v2-spec.md "deep-links"): do the app's own pages load when opened directly (a reload, a
- * shared link)? Driven against the shared accounts app (test-support/accounts-app.ts) signed in as alice, and against
- * small fixture sites for link selection and a not-found view answered with 200.
- */
+// deep-links (0.4.0, docs/v2-spec.md "deep-links"): do the app's own pages load when opened directly (a reload, a shared link)? Driven against the shared accounts app (test-support/accounts-app.ts) signed in as alice, and against small fixture sites for link selection and a not-found view answered with 200.
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
-import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../test-support/accounts-app.js";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import { expectWellFormedFinding } from "../../test/fixtures/checks/assert-finding.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage, emptyForm } from "../engine/discover.js";
-import { check } from "./deep-links.js";
+import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../../../test-support/accounts-app.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import { expectWellFormedFinding } from "../../../../test/fixtures/checks/assert-finding.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage, emptyForm } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/deep-links.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const RUN_TOKEN = "d17e57a1";
@@ -71,7 +67,7 @@ async function discoverWith(url: string, state: SessionState | undefined, ready:
   }
 }
 
-/** The scenario as the check plans it for the page, with the scope buildPlan adds to page-scoped checks. */
+// The scenario as the check plans it for the page, with the scope buildPlan adds to page-scoped checks.
 function scenarioFor(page: DiscoveredPage): Scenario {
   const planned = check.plan(page.forms[0] ?? emptyForm(page.url), page, { signedIn: true, otherAccount: false })[0];
   const fallback: Scenario = {
@@ -104,7 +100,7 @@ async function runOn(o: { targetUrl: string; page: DiscoveredPage; self?: Sessio
   return { result: await check.run(ctx, scenarioFor(o.page)), ctx };
 }
 
-/** Runs the check on the accounts app's /notes (links: Notes, Settings, Help) signed in as alice. */
+// Runs the check on the accounts app's /notes (links: Notes, Settings, Help) signed in as alice.
 async function runOnNotes(app: AccountsApp) {
   const page = await discoverWith(`${app.url}/notes`, app.storageState("alice"), "Your notes");
   app.reset();

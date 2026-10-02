@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanErrorMessage, containerLocalhostHint, explainNavigationError, explainNoForm, inContainer, NoFormFoundError, normalizeTargetUrl, splitTargetUrl, TargetUnreachableError } from "./errors.js";
+import { cleanErrorMessage, containerLocalhostHint, explainNavigationError, explainNoForm, inContainer, NoFormFoundError, normalizeTargetUrl, splitTargetUrl, TargetUnreachableError } from "../../../../src/engine/errors.js";
 
 describe("normalizeTargetUrl", () => {
   it("adds http:// when the scheme is missing", () => {

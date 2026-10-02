@@ -1,17 +1,17 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser, runCheck } from "../../test-support/harness.js";
-import { json } from "../../test-support/server.js";
-import { startBookingApp, sampleForm, type BookingServer, type ClientOptions } from "../../test/fixtures/checks/_behavior/booking-app.js";
-import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectPlan } from "../../test/fixtures/checks/_behavior/expectations.js";
-import { startModernApp, type ModernApp } from "../../test/fixtures/checks/modern-apps.js";
-import { check } from "./double-submit.js";
-import { MULTI_STEP_NOTE } from "./lib/functional-form.js";
-import { startSchemaFormApp } from "../../test/fixtures/checks/schema-form.js";
+import { closeBrowser, runCheck } from "../../../../test-support/harness.js";
+import { json } from "../../../../test-support/server.js";
+import { startBookingApp, sampleForm, type BookingServer, type ClientOptions } from "../../../../test/fixtures/checks/_behavior/booking-app.js";
+import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectPlan } from "../../../../test/fixtures/checks/_behavior/expectations.js";
+import { startModernApp, type ModernApp } from "../../../../test/fixtures/checks/modern-apps.js";
+import { check } from "../../../../src/checks/double-submit.js";
+import { MULTI_STEP_NOTE } from "../../../../src/checks/lib/functional-form.js";
+import { startSchemaFormApp } from "../../../../test/fixtures/checks/schema-form.js";
 
 const ID = "double-submit" as const;
 const servers: BookingServer[] = [];
 
-/** The create request takes 800 ms, so a double click always lands while it is pending. */
+// The create request takes 800 ms, so a double click always lands while it is pending.
 async function app(client: ClientOptions) {
   const s = await startBookingApp(client, { delayMs: 800 });
   servers.push(s);

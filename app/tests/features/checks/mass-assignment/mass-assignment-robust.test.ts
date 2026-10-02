@@ -1,23 +1,17 @@
-/**
- * mass-assignment when the record already holds privileged values, when the response holds other records, and when
- * the save creates a record (round-2 review). A field counts as accepted only when the record Run Hound saved did not
- * hold the injected value before the replay and holds it after, looking only at that record (the object that holds
- * the test values, and its parents), never at a list of other people or older records. The notes say what was
- * restored only when a re-read shows it, and a save that creates a record is never "restored" by creating another.
- */
+// mass-assignment when the record already holds privileged values, when the response holds other records, and when the save creates a record (round-2 review): a field counts as accepted only when the record Run Hound saved did not hold the injected value before the replay and holds it after, looking only at that record (the object that holds the test values, and its parents), never at a list of other people or older records; notes say what was restored only when a re-read shows it; a save that creates a record is never "restored" by creating another.
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./mass-assignment.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/mass-assignment.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const RUN_TOKEN = "ma0b57a1";

@@ -1,23 +1,18 @@
-/**
- * mass-assignment (0.4.0, docs/v2-spec.md "mass-assignment"): does the server accept fields the form never sends,
- * such as `role` or `plan`? Driven against the shared accounts app (test-support/accounts-app.ts) signed in as alice,
- * through createCheckContext with her session from app.storageState(), plus two small fixture apps for the
- * not-JSON skip and the echo-only (advisory) case.
- */
+// mass-assignment (0.4.0, docs/v2-spec.md "mass-assignment"): does the server accept fields the form never sends, such as `role` or `plan`? Driven against the shared accounts app signed in as alice, through createCheckContext with her session from app.storageState(), plus two small fixture apps for the not-JSON skip and the echo-only (advisory) case.
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
-import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../test-support/accounts-app.js";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { expectWellFormedFinding, findingText } from "../../test/fixtures/checks/assert-finding.js";
-import type { AccountRef, CheckResult, DiscoveredForm, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./mass-assignment.js";
+import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../../../test-support/accounts-app.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { expectWellFormedFinding, findingText } from "../../../../test/fixtures/checks/assert-finding.js";
+import type { AccountRef, CheckResult, DiscoveredForm, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/mass-assignment.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 /** Lowercase letters and digits, so canary values keep it as is. */
@@ -105,7 +100,6 @@ async function runOn(o: { targetUrl: string; page: DiscoveredPage; formIndex?: n
   return { result: await check.run(ctx, scenarioFor(form, o.page)), ctx };
 }
 
-/** Runs the check on the accounts app's `path` (form `formIndex`) as alice. app.requests holds only the run's requests. */
 async function runOnApp(app: AccountsApp, path: string, ready: string, formIndex = 0) {
   const page = await discoverWith(app.url + path, app.storageState("alice"), ready);
   app.reset();
@@ -114,7 +108,6 @@ async function runOnApp(app: AccountsApp, path: string, ready: string, formIndex
   return { ...ran, alice: sessionValue(self) };
 }
 
-/** Bodies of the PUTs alice's profile received, in order. */
 function profilePuts(app: AccountsApp): Record<string, unknown>[] {
   return app.requests.filter((r) => r.method === "PUT" && r.url === "/api/users/u1/profile").map((r) => JSON.parse(r.body) as Record<string, unknown>);
 }
@@ -126,11 +119,9 @@ describe("mass-assignment on the accounts app", () => {
 
     const puts = profilePuts(app);
     expect(puts.length).toBeGreaterThanOrEqual(2);
-    // Step 1: the form's own save, filled with test values (only the two fields the form has).
     const own = puts[0]!;
     expect(Object.keys(own).sort()).toEqual(["bio", "displayName"]);
     expect(JSON.stringify(own)).toContain(RUN_TOKEN);
-    // Step 3: the same method, URL and body plus the privilege fields, as alice.
     expect(puts).toContainEqual({ ...own, ...INJECTED });
     expect(app.requests.filter((r) => r.method === "PUT").every((r) => (r.headers.cookie ?? "").includes(alice))).toBe(true);
 
@@ -144,7 +135,6 @@ describe("mass-assignment on the accounts app", () => {
     expect(result.findings.map(findingText).join(" ")).toMatch(/\bplan\b/);
     // Its title names every kind it lists: verified and emailVerified are not billing fields.
     expect(result.findings.find((f) => f.severity === "high")?.title).toMatch(/plan, billing or verification fields/);
-    // Usernames and passwords never appear, even though the record holds alice's email.
     const text = JSON.stringify(result);
     for (const value of [app.users.alice.email, app.users.alice.password, alice]) expect(text).not.toContain(value);
   });
@@ -155,7 +145,6 @@ describe("mass-assignment on the accounts app", () => {
 
     const puts = profilePuts(app);
     const own = puts[0]!;
-    // Step 5: one more replay with the original values of the privilege fields the record had (role, plan).
     expect(puts.at(-1)).toEqual({ ...own, role: "member", plan: "free" });
     expect(app.profile("alice")).toMatchObject({ role: "member", plan: "free" });
     // isAdmin & co. were not in the record before: Run Hound can't remove them, and says so.

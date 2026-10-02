@@ -1,21 +1,16 @@
-/**
- * deep-links never opens a link that acts when it is loaded (round-2 review): signing out ("Log off", "/log-off"),
- * disconnecting an integration, accepting an invitation, or any link whose path or query says it deletes, removes or
- * ends something ("?action=delete"). Opening one directly with Account A's session would change A's data or end the
- * session every later scenario uses. Discovery leaves the same links out of DiscoveredPage.linkTargets.
- */
+// deep-links never opens a link that acts when it is loaded (round-2 review): signing out ("Log off", "/log-off"), disconnecting an integration, accepting an invitation, or any link whose path or query says it deletes, removes or ends something ("?action=delete"). Opening one directly with Account A's session would change A's data or end the session every later scenario uses. Discovery leaves the same links out of DiscoveredPage.linkTargets.
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { AccountRef, DiscoveredPage, Scenario } from "../core/types.js";
-import type { SessionState } from "../engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../engine/context.js";
-import { discoverPage, emptyForm } from "../engine/discover.js";
-import { check } from "./deep-links.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { AccountRef, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage, emptyForm } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/deep-links.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const SELF: SessionState = {

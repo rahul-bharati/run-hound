@@ -1,19 +1,13 @@
-/**
- * CheckContext.request() on a password-protected preview (http://user:pass@host/): the browser pages of a run answer
- * the site's HTTP authentication with the credentials taken out of the target URL (guard.ts rememberCredentials), and
- * the requests the access checks send must too, or every replay reads 401 and the check proves nothing. The site's
- * password is not an account: it answers for every identity, signed out included, as the browser does. It is only
- * sent to the origin it was given for, and only when the server asks for it.
- */
+// CheckContext.request() on a password-protected preview (http://user:pass@host/): the browser pages of a run answer the site's HTTP authentication with the credentials taken out of the target URL (guard.ts rememberCredentials), and the requests the access checks send must too, or every replay reads 401 and the check proves nothing. The site's password is not an account: it answers for every identity, signed out included, as the browser does. It is only sent to the origin it was given for, and only when the server asks for it.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { createCheckContext, type RunningCheckContext } from "./context.js";
-import { emptyForm } from "./discover.js";
-import { rememberCredentials } from "./guard.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { emptyForm } from "../../../../src/engine/discover.js";
+import { rememberCredentials } from "../../../../src/engine/guard.js";
 
 const PASSWORD = "preview-Pa55word";
 const BASIC = `Basic ${Buffer.from(`preview:${PASSWORD}`).toString("base64")}`;

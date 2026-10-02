@@ -1,16 +1,13 @@
-/**
- * Evidence never carries a registered secret (0.4.0, docs/v2-spec.md "Test accounts"): file names are made from the
- * redacted label, and labels are redacted, for frames, cards, screenshots and recordings.
- */
+// Evidence never carries a registered secret (0.4.0, docs/v2-spec.md "Test accounts"): file names are made from the redacted label, and labels are redacted, for frames, cards, screenshots and recordings.
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { createCheckContext, type RunningCheckContext } from "./context.js";
-import { emptyForm } from "./discover.js";
-import { registerSecretLiterals } from "./redact.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { emptyForm } from "../../../../src/engine/discover.js";
+import { registerSecretLiterals } from "../../../../src/engine/redact.js";
 
 const PASSWORD = "alice-pass-1234";
 

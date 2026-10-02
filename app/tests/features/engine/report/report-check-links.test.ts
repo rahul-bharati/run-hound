@@ -1,22 +1,12 @@
-/**
- * Each finding in report.html and report.md links to its check's page on Run Hound's public site (DESIGN.md §5.5):
- * - report.html: right after the Fix line, `<p class="check-link"><a href="<page>" target="_blank"
- *   rel="noopener noreferrer">About the <id> check</a></p>`.
- * - report.md: right after "- Fix: …", `- About this check: <page>`.
- * The link is derived from the check id when the report is rendered: report.json is unchanged, a redacted report keeps
- * the link, and the link carries no run data (no query, no target, no run or finding id). As in the web UI, a finding
- * whose check id isn't in CHECK_IDS gets no link (the runner never writes one; a direct caller of renderHtml or
- * renderMarkdown could). report.html is still served with the same sandboxed CSP, whose allow-popups and
- * allow-popups-to-escape-sandbox let the link open a new tab.
- */
+// Each finding in report.html and report.md links to its check's page on Run Hound's public site (DESIGN.md §5.5): report.html places `<p class="check-link"><a href="<page>" target="_blank" rel="noopener noreferrer">About the <id> check</a></p>` right after the Fix line; report.md places `- About this check: <page>` right after the Fix line; the link is derived from the check id at render time so report.json is unchanged, a redacted report keeps the link, and the link carries no run data (no query, no target, no run or finding id); a finding whose check id isn't in CHECK_IDS gets no link (the runner never writes one); report.html is served with the same sandboxed CSP whose allow-popups and allow-popups-to-escape-sandbox let the link open a new tab.
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { SITE_URL, checkPageUrl } from "../core/links.js";
-import type { CheckId, Finding, Report } from "../core/types.js";
-import { createApp } from "../server/app.js";
-import { NOT_VISIBLE, redactReport, renderHtml, renderMarkdown, writeReport } from "./report.js";
+import { SITE_URL, checkPageUrl } from "../../../../src/core/links.js";
+import type { CheckId, Finding, Report } from "../../../../src/core/types.js";
+import { createApp } from "../../../../src/server/app.js";
+import { NOT_VISIBLE, redactReport, renderHtml, renderMarkdown, writeReport } from "../../../../src/engine/report.js";
 
 /** Obviously fake, but shaped like a real OpenAI project key so the redactor must catch it. */
 const FAKE_SECRET = "sk-proj-FAKEFAKEfake1234567890abcdefghijklmnopqrstuvwxyzABCDEFGH";

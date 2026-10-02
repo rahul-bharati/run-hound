@@ -1,36 +1,19 @@
-/**
- * CheckContext with sessionStorage sessions (0.6.0, docs/v2-spec.md "Sign-in: two-step and sessionStorage"): every new
- * browser context for an identity seeds that identity's sessionStorage items (SignedIn.sessionStorage) before any page
- * script runs, with an init script per origin, so a new tab is signed in as the app expects. CheckContext.request keeps
- * authenticating with the credential headers harvested from the app's own requests (nothing is guessed from storage).
- *
- * The items reach createCheckContext as ContextOptions.sessionStorage = { self?, other? } (each in the shape of
- * SignedIn.sessionStorage), beside ContextOptions.sessions. The items are seeded only on their own origin, and a value
- * the app itself changes later in the tab is not written over on the next page load.
- *
- * Runs against the accounts app in tokenMode "session-storage": its client reads sessionStorage["token"] as soon as the
- * page loads and sends it as Authorization: Bearer; without it the app sends the visitor to /login.
- */
+// CheckContext with sessionStorage sessions (0.6.0, docs/v2-spec.md "Sign-in: two-step and sessionStorage"): every new browser context for an identity seeds that identity's sessionStorage items (SignedIn.sessionStorage) before any page script runs, with an init script per origin, so a new tab is signed in as the app expects; CheckContext.request keeps authenticating with the credential headers harvested from the app's own requests (nothing guessed from storage); the items reach createCheckContext as ContextOptions.sessionStorage = { self?, other? } beside ContextOptions.sessions; items are seeded only on their own origin and a value the app changes later is not overwritten on the next page load; runs against the accounts app in tokenMode "session-storage".
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startAccountsApp, type AccountsApp } from "../../test-support/accounts-app.js";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef } from "../core/types.js";
-import type { SessionState, SignedIn } from "./auth.js";
-import { createCheckContext, type ContextOptions, type RunningCheckContext } from "./context.js";
-import { emptyForm } from "./discover.js";
+import { startAccountsApp, type AccountsApp } from "../../../../test-support/accounts-app.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef } from "../../../../src/core/types.js";
+import type { SessionState, SignedIn } from "../../../../src/engine/auth.js";
+import { createCheckContext, type ContextOptions, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { emptyForm } from "../../../../src/engine/discover.js";
 
 type SessionStorageItems = NonNullable<SignedIn["sessionStorage"]>;
-/**
- * ContextOptions as 0.6.0 extends it: the sessionStorage items each identity's new browser contexts are seeded with.
- * TODO(N7 → N6/lead): once N7 lands ContextOptions.sessionStorage in context.ts, delete this type and the
- * `as ContextOptions` cast in makeContext, so tsc checks the shape these tests pass against the real field (the cast
- * would otherwise hide a mismatch until it shows up at run time as "signed out").
- */
+// TODO(N7 → N6/lead): once N7 lands ContextOptions.sessionStorage in context.ts, delete this type and the `as ContextOptions` cast in makeContext, so tsc checks the shape these tests pass against the real field.
 type SeededOptions = ContextOptions & { sessionStorage?: { self?: SessionStorageItems; other?: SessionStorageItems } };
 
 const A: AccountRef = { id: "a", label: "Account A" };

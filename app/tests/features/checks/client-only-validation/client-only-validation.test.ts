@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser, runCheck } from "../../test-support/harness.js";
-import { startFixtureServer } from "../../test-support/server.js";
+import { closeBrowser, runCheck } from "../../../../test-support/harness.js";
+import { startFixtureServer } from "../../../../test-support/server.js";
 import {
   FAKE_CSRF_TOKEN,
   startBookingApp,
@@ -8,22 +8,17 @@ import {
   type ApiOptions,
   type BookingServer,
   type ClientOptions,
-} from "../../test/fixtures/checks/_behavior/booking-app.js";
-import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectPlan, findingText } from "../../test/fixtures/checks/_behavior/expectations.js";
-import { startHangApp } from "../../test/fixtures/checks/hang-app.js";
-import { startModernApp } from "../../test/fixtures/checks/modern-apps.js";
-import { startSchemaFormApp, type SchemaFormApp, type SchemaFormOptions } from "../../test/fixtures/checks/schema-form.js";
-import { MULTI_STEP_NOTE } from "./lib/functional-form.js";
-import { check } from "./client-only-validation.js";
+} from "../../../../test/fixtures/checks/_behavior/booking-app.js";
+import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectPlan, findingText } from "../../../../test/fixtures/checks/_behavior/expectations.js";
+import { startHangApp } from "../../../../test/fixtures/checks/hang-app.js";
+import { startModernApp } from "../../../../test/fixtures/checks/modern-apps.js";
+import { startSchemaFormApp, type SchemaFormApp, type SchemaFormOptions } from "../../../../test/fixtures/checks/schema-form.js";
+import { MULTI_STEP_NOTE } from "../../../../src/checks/lib/functional-form.js";
+import { check } from "../../../../src/checks/client-only-validation.js";
 
 const ID = "client-only-validation" as const;
 const servers: BookingServer[] = [];
 
-/**
- * Every fixture blocks "end date before start date" in the browser. The server either validates it too
- * (GOOD) or does not (BAD); it always validates everything else, so replaying with some other field made
- * invalid (e.g. an empty pet name) is not enough to catch the BAD server.
- */
 async function app(client: ClientOptions, api: ApiOptions) {
   const s = await startBookingApp({ dateOrderCheck: true, ...client }, api);
   servers.push(s);

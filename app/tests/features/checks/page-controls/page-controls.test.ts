@@ -2,12 +2,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser, runPageCheck } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { AccountRef, CheckResult } from "../core/types.js";
-import { createCheckContext } from "../engine/context.js";
-import { discoverPage, emptyForm } from "../engine/discover.js";
-import { check } from "./page-controls.js";
+import { closeBrowser, getBrowser, runPageCheck } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { AccountRef, CheckResult } from "../../../../src/core/types.js";
+import { createCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage, emptyForm } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/page-controls.js";
 
 const servers: FixtureServer[] = [];
 afterAll(async () => {
@@ -17,10 +17,7 @@ afterAll(async () => {
 
 const A: AccountRef = { id: "a", label: "Account A" };
 
-/**
- * Discovers the page at `url` and runs page-controls on it like runPageCheck, as a signed-in run unless `signedIn` is
- * false (CheckContext.accounts.self is set; these fixture pages need no real session).
- */
+// Discovers the page at `url` and runs page-controls on it like runPageCheck, as a signed-in run unless `signedIn` is false (CheckContext.accounts.self is set; these fixture pages need no real session).
 async function runOn(url: string, options: { allowDestructive?: boolean; signedIn?: boolean } = {}): Promise<CheckResult> {
   const browser = await getBrowser();
   const page = await browser.newPage();
@@ -49,7 +46,7 @@ async function runOn(url: string, options: { allowDestructive?: boolean; signedI
   }
 }
 
-/** A signed-in header: a working menu button and a "Log out" button that ends the session on the server. */
+// A signed-in header: a working menu button and a "Log out" button that ends the session on the server.
 const SIGNED_IN_HEADER = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Dashboard</title><link rel="icon" href="data:,"></head>
 <body><header><button type="button" id="menu" aria-expanded="false">Menu</button> <button type="button" id="logout">Log out</button></header>
 <main><h1>Dashboard</h1><p id="out"></p></main>
@@ -80,11 +77,7 @@ describe("page-controls: signed-in runs keep their session", () => {
   });
 });
 
-/**
- * A task list whose checkboxes and switch save as soon as they are toggled (Fernway RH-13): Radix-style
- * button[role=checkbox] / button[role=switch] with aria-checked, each sending PATCH /api/tasks/:id { done }. The page
- * renders what the server stored, like an app that loads its tasks.
- */
+// A task list whose checkboxes and switch save as soon as they are toggled (Fernway RH-13): Radix-style button[role=checkbox] / button[role=switch] with aria-checked, each sending PATCH /api/tasks/:id { done }. The page renders what the server stored, like an app that loads its tasks.
 function taskPage(stored: Record<string, boolean>): string {
   const row = (id: string, name: string, role: "checkbox" | "switch") =>
     `<li><button type="button" role="${role}" id="t-${id}" data-id="${id}" aria-labelledby="n-${id}" aria-checked="${stored[id]}" data-state="${stored[id] ? "checked" : "unchecked"}"></button> <span id="n-${id}">${name}</span></li>`;
@@ -163,7 +156,7 @@ b.addEventListener("click", function () { var next = b.getAttribute("aria-checke
 
 const TRASH = '<svg class="lucide lucide-trash-2" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/></svg>';
 
-/** An AI-built invoice list: icon-only delete buttons, a Send button per row, and harmless header controls. */
+// An AI-built invoice list: icon-only delete buttons, a Send button per row, and harmless header controls.
 const INVOICES = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Invoices</title><link rel="icon" href="data:,">
 <style>.banner { position: fixed; inset: auto 0 0 0; height: 140px; background: #eee; }</style></head>
 <body><header><button type="button" id="theme">Toggle theme</button><button type="button" id="docs">Open docs</button></header>

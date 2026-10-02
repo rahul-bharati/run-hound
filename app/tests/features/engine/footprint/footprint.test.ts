@@ -1,27 +1,4 @@
-/**
- * The footprint contract (0.6.1, docs/launch-spec.md "The footprint contract test"): a real run, discovery then one
- * scenario in headless Chromium against a local fixture page, with HOME, the XDG folders and TMPDIR (TEMP/TMP and
- * USERPROFILE on Windows) pointed at empty sentinel folders and secrets planted in the environment. It proves:
- * - nothing is written outside the runs folder and the config folder: HOME, XDG_CONFIG_HOME, XDG_CACHE_HOME,
- *   XDG_DATA_HOME, XDG_STATE_HOME and the temp folder are as empty afterwards as before;
- * - no Playwright temp profile (playwright_chromiumdev_profile-*), artifacts folder (playwright-artifacts-*) or Run
- *   Hound browser folder (run-hound-browser-*) is left behind;
- * - Chromium's environment carries no planted secret: every launch passed an explicit env without them, and HOME in
- *   it is the per-launch folder, not the sentinel home (Playwright hands options.env to the Chromium process as is:
- *   node_modules/playwright-core/lib/coreBundle.js:39798, amendEnvironment is the identity for Chromium at :43219);
- * - the scenario's download was refused and the report was written under the runs folder.
- * The sentinels are set before the run and restored after it; Playwright's own browser cache was located when the
- * module loaded, so moving HOME does not hide the installed browsers.
- *
- * macOS and Windows (0.6.3 risk, docs/launch-spec.md "1.2 browserEnv" "to be verified, not proved"): the checks above
- * only prove that nothing lands where the environment points. On macOS, Chromium's per-user folders (Library/
- * Application Support, Library/Caches, Library/Saved Application State) are likely resolved through
- * NSSearchPathForDirectoriesInDomains/NSHomeDirectory, which honour CFFIXED_USER_HOME (set alongside HOME), not HOME
- * itself; on Windows, likely through the Known Folder APIs, not USERPROFILE/APPDATA/LOCALAPPDATA (only TEMP/TMP are
- * confirmed env-driven there). Gated to the real OS, so this only runs once CI reaches macOS or Windows (0.6.3): it
- * lists those real, untouched locations before and after the run and asserts no Chromium- or Playwright-named entry
- * newly appeared there.
- */
+// Footprint contract (0.6.1, docs/launch-spec.md "The footprint contract test"): a real run, discovery then one scenario in headless Chromium against a local fixture page, with HOME, the XDG folders and TMPDIR (TEMP/TMP and USERPROFILE on Windows) pointed at empty sentinel folders and secrets planted in the environment; proves nothing is written outside the runs/config folders (HOME, XDG_* and the temp folder are as empty afterwards as before); no Playwright temp profile, artifacts folder or run-hound-browser-* folder is left behind; Chromium's environment carries no planted secret (HOME in it is the per-launch folder, not the sentinel home); the scenario's download was refused and the report was written under the runs folder; sentinels are set before the run and restored after it; Playwright's browser cache was located when the module loaded so moving HOME does not hide the installed browsers. macOS and Windows (0.6.3 risk): the checks only prove nothing lands where the environment points; on macOS Chromium's per-user folders (Library/Application Support, Library/Caches, Library/Saved Application State) likely honour CFFIXED_USER_HOME not HOME; on Windows the Known Folder APIs are likely used (only TEMP/TMP confirmed env-driven); gated to the real OS.
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
@@ -29,9 +6,9 @@ import { platform as osPlatform, tmpdir, userInfo } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { chromium, type LaunchOptions } from "playwright";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { Check, CheckResult } from "../core/types.js";
-import { discoverAndPlan, runPlan } from "./runner.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { Check, CheckResult } from "../../../../src/core/types.js";
+import { discoverAndPlan, runPlan } from "../../../../src/engine/runner.js";
 
 /** Chromium- or Playwright-named, the only kind a leak here would create. */
 const BROWSER_NAMED = /chromium|playwright|run-hound/i;
@@ -42,14 +19,7 @@ async function browserNamedEntries(dir: string): Promise<string[]> {
   return (await readdir(dir)).filter((e) => BROWSER_NAMED.test(e)).sort();
 }
 
-/**
- * The real, untouched OS-resolved per-user folders this platform's Chromium likely uses, outside anything the
- * sentinel env variables point at: macOS's Library folders under the real home (node:os's userInfo().homedir reads
- * the password database directly, ignoring the HOME this file's sentinel test overrides). On Windows, the test below
- * never touches process.env.APPDATA or LOCALAPPDATA (only USERPROFILE, TEMP and TMP), so they still name the real
- * folders; `browserEnv` sets Chromium's own APPDATA/LOCALAPPDATA into the per-launch folder regardless of the
- * caller's env, which is exactly the point being checked here.
- */
+/** The real, untouched OS-resolved per-user folders this platform's Chromium likely uses, outside what the sentinel env points at (macOS Library folders under the real home via password database, Windows APPDATA/LOCALAPPDATA which `browserEnv` sets per-launch). */
 function realOsFolders(): string[] {
   if (osPlatform() === "darwin") {
     const home = userInfo().homedir;

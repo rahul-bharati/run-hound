@@ -1,29 +1,16 @@
-/**
- * CheckContext identities (0.4.0, docs/v2-spec.md "Signed-in runs" and "Types"): createCheckContext with
- * ContextOptions.sessions opens pages and sends requests as the run's account ("self"), the other account ("other") or
- * nobody ("signed-out").
- *
- * - openPage({ as }) opens its fresh context with that identity's storageState; "other" throws without a second
- *   account; a signed-out run opens everything signed out, as in 0.3.0.
- * - request(as, req) sends one HTTP request with the identity's cookies plus, for self/other, the credential headers
- *   the app itself sent from that identity to the same origin (authorization, apikey, x-*-token, x-api-key; never
- *   guessed from storage). Credential headers in `req.headers` are dropped. The URL must pass the safety gate,
- *   redirects are not followed, the body is capped at 1 MB, header names are lower-case. Not page activity; an
- *   accepted non-GET counts as a test record.
- * - accountMarkers() returns ContextOptions.markers; accounts is ContextOptions.accounts.
- */
+// CheckContext identities (0.4.0, docs/v2-spec.md "Signed-in runs" and "Types"): createCheckContext with ContextOptions.sessions opens pages and sends requests as the run's account ("self"), the other account ("other") or nobody ("signed-out"); openPage({ as }) opens its fresh context with that identity's storageState — "other" throws without a second account, a signed-out run opens everything signed out as in 0.3.0; request(as, req) sends one HTTP request with the identity's cookies plus, for self/other, the credential headers the app itself sent from that identity to the same origin (authorization, apikey, x-*-token, x-api-key; never guessed from storage), credential headers in req.headers are dropped, the URL must pass the safety gate, redirects are not followed, the body is capped at 1 MB, header names are lower-case, not page activity, an accepted non-GET counts as a test record; accountMarkers() returns ContextOptions.markers; accounts is ContextOptions.accounts.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startAccountsApp, type AccountsApp } from "../../test-support/accounts-app.js";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountRef } from "../core/types.js";
-import type { SessionState } from "./auth.js";
-import { createCheckContext, type ContextOptions, type RunningCheckContext } from "./context.js";
-import { emptyForm } from "./discover.js";
+import { startAccountsApp, type AccountsApp } from "../../../../test-support/accounts-app.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountRef } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type ContextOptions, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { emptyForm } from "../../../../src/engine/discover.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const B: AccountRef = { id: "b", label: "Account B" };

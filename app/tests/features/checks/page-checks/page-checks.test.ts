@@ -1,12 +1,12 @@
 import type { ServerResponse } from "node:http";
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser, runPageCheck } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { check as cookieFlags, cookieProblems, isSessionCookie } from "./cookie-flags.js";
-import { check as cors, corsVerdict, PROBE_ORIGIN } from "./cors.js";
-import { check as pageControls } from "./page-controls.js";
-import { check as securityHeaders, headerProblems } from "./security-headers.js";
-import { check as sourceMaps, parseMap, sourceMappingUrl } from "./source-maps.js";
+import { closeBrowser, runPageCheck } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { check as cookieFlags, cookieProblems, isSessionCookie } from "../../../../src/checks/cookie-flags.js";
+import { check as cors, corsVerdict, PROBE_ORIGIN } from "../../../../src/checks/cors.js";
+import { check as pageControls } from "../../../../src/checks/page-controls.js";
+import { check as securityHeaders, headerProblems } from "../../../../src/checks/security-headers.js";
+import { check as sourceMaps, parseMap, sourceMappingUrl } from "../../../../src/checks/source-maps.js";
 
 const servers: FixtureServer[] = [];
 afterAll(async () => {
@@ -14,7 +14,7 @@ afterAll(async () => {
   await closeBrowser();
 });
 
-/** Headers a well-configured production app sends with its pages. */
+// Headers a well-configured production app sends with its pages.
 const GOOD_HEADERS = {
   "content-security-policy": "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'",
   "x-content-type-options": "nosniff",

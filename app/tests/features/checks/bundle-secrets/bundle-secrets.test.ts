@@ -1,18 +1,18 @@
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import type { CheckResult } from "../core/types.js";
-import { closeBrowser, overallStatus, runCheck } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { bookingApp, type BookingVariant } from "../../test/fixtures/checks/booking-page.js";
+import type { CheckResult } from "../../../../src/core/types.js";
+import { closeBrowser, overallStatus, runCheck } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { bookingApp, type BookingVariant } from "../../../../test/fixtures/checks/booking-page.js";
 import {
   allFindings,
   bug,
   expectPlanShape,
   expectWellFormedFinding,
   findingText,
-} from "../../test/fixtures/checks/assert-finding.js";
-import * as fixtures from "../../test/fixtures/checks/bundle-secrets/variants.js";
-import { startHangApp } from "../../test/fixtures/checks/hang-app.js";
-import { check, groupSecrets } from "./bundle-secrets.js";
+} from "../../../../test/fixtures/checks/assert-finding.js";
+import * as fixtures from "../../../../test/fixtures/checks/bundle-secrets/variants.js";
+import { startHangApp } from "../../../../test/fixtures/checks/hang-app.js";
+import { check, groupSecrets } from "../../../../src/checks/bundle-secrets.js";
 
 const servers: FixtureServer[] = [];
 afterEach(async () => {
@@ -28,7 +28,7 @@ async function run(variant: BookingVariant) {
   return { scenarios, results, findings: allFindings(results), server };
 }
 
-/** The secret must not appear anywhere in the results: not whole, and not a long-enough slice to reuse. */
+// The secret must not appear anywhere in the results: not whole, and not a long-enough slice to reuse.
 function expectRedacted(results: CheckResult[], secret: string) {
   const everything = JSON.stringify(results);
   expect(everything).not.toContain(secret);
@@ -65,7 +65,6 @@ describe("bundle-secrets check", () => {
       severity: bug("S01").severity,
       confidence: "confirmed",
     });
-    // Points at the script that ships it.
     expect(findingText(f)).toContain("/assets/app-config.js");
     expectRedacted(results, fixtures.FAKE_LLM_KEY);
     // Evidence still identifies the key safely: the redacted preview starts with its first 4 chars.
@@ -121,7 +120,7 @@ describe("bundle-secrets does not follow redirects off the target", () => {
 
 describe("bundle-secrets excerpt and claims", () => {
   it("numbers the excerpt as the file does, without a second gutter in the text", async () => {
-    const { excerptAround } = await import("./bundle-secrets.js");
+    const { excerptAround } = await import("../../../../src/checks/bundle-secrets.js");
     const text = ["// 1", "// 2", "// 3", "// 4", "// 5", `const key = "${fixtures.FAKE_LLM_KEY}";`, "// 7"].join("\n");
     const excerpt = excerptAround(text, text.indexOf(fixtures.FAKE_LLM_KEY), "openai-key");
     expect(excerpt.line).toBe(6);
@@ -132,7 +131,7 @@ describe("bundle-secrets excerpt and claims", () => {
   });
 
   it("reads the role claim of a service_role JWT without returning any part of the token", async () => {
-    const { jwtClaims } = await import("./bundle-secrets.js");
+    const { jwtClaims } = await import("../../../../src/checks/bundle-secrets.js");
     const text = `key: "${fixtures.FAKE_SERVICE_ROLE_JWT}"`;
     const claims = jwtClaims(text, text.indexOf("eyJ"));
     expect(claims.find((c) => /role/i.test(c.label))?.value).toBe("service_role");

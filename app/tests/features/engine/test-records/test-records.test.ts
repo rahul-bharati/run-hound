@@ -1,20 +1,16 @@
-/**
- * Tester release (0.1.0): test data is disclosed, not deleted (docs/v0-spec.md, "Tester release").
- * The report states how many test records the run created, in report.md and report.html, so a tester knows what
- * to clean up in their own app. Checked against the fixture app's own count of created bookings.
- */
+// Tester release (0.1.0): test data is disclosed, not deleted (docs/v0-spec.md, "Tester release"): the report states how many test records the run created, in report.md and report.html, so a tester knows what to clean up in their own app; checked against the fixture app's own count of created bookings.
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { bookingApp } from "../../test/fixtures/checks/booking-page.js";
-import type { Check } from "../core/types.js";
-import { check as axeStates } from "../checks/axe-states.js";
-import { check as consoleNetworkErrors } from "../checks/console-network-errors.js";
-import { check as focusVisible } from "../checks/focus-visible.js";
-import { startModernApp } from "../../test/fixtures/checks/modern-apps.js";
-import { discoverAndPlan, runPlan } from "./runner.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { bookingApp } from "../../../../test/fixtures/checks/booking-page.js";
+import type { Check } from "../../../../src/core/types.js";
+import { check as axeStates } from "../../../../src/checks/axe-states.js";
+import { check as consoleNetworkErrors } from "../../../../src/checks/console-network-errors.js";
+import { check as focusVisible } from "../../../../src/checks/focus-visible.js";
+import { startModernApp } from "../../../../test/fixtures/checks/modern-apps.js";
+import { discoverAndPlan, runPlan } from "../../../../src/engine/runner.js";
 
 let runsDir: string;
 const servers: FixtureServer[] = [];

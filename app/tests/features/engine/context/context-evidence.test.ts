@@ -2,13 +2,13 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { DiscoveredForm, Evidence } from "../core/types.js";
-import { createCheckContext, type ContextOptions } from "./context.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { DiscoveredForm, Evidence } from "../../../../src/core/types.js";
+import { createCheckContext, type ContextOptions } from "../../../../src/engine/context.js";
 
 // Pass-through spies: the real implementations run, the tests see what text they were given.
-vi.mock(import("./evidence.js"), async (importOriginal) => {
+vi.mock(import("../../../../src/engine/evidence.js"), async (importOriginal) => {
   const original = await importOriginal();
   return {
     ...original,
@@ -17,7 +17,7 @@ vi.mock(import("./evidence.js"), async (importOriginal) => {
   };
 });
 
-const { composeFrame, renderCard, FRAME } = await import("./evidence.js");
+const { composeFrame, renderCard, FRAME } = await import("../../../../src/engine/evidence.js");
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 // Built by concatenation so secret scanners don't flag this file.

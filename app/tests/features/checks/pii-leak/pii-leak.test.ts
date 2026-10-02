@@ -4,21 +4,21 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import { createCheckContext } from "../engine/context.js";
-import { discoverForm } from "../engine/discover.js";
-import { closeBrowser, overallStatus, runCheck } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { bookingApp, type BookingVariant } from "../../test/fixtures/checks/booking-page.js";
+import { createCheckContext } from "../../../../src/engine/context.js";
+import { discoverForm } from "../../../../src/engine/discover.js";
+import { closeBrowser, overallStatus, runCheck } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { bookingApp, type BookingVariant } from "../../../../test/fixtures/checks/booking-page.js";
 import {
   allFindings,
   bug,
   expectPlanShape,
   expectWellFormedFinding,
   findingText,
-} from "../../test/fixtures/checks/assert-finding.js";
-import * as fixtures from "../../test/fixtures/checks/pii-leak/variants.js";
-import { canaries } from "./lib/a11y-form.js";
-import { appBackends, check, isOwnApiSave, thirdPartyRequests } from "./pii-leak.js";
+} from "../../../../test/fixtures/checks/assert-finding.js";
+import * as fixtures from "../../../../test/fixtures/checks/pii-leak/variants.js";
+import { canaries } from "../../../../src/checks/lib/a11y-form.js";
+import { appBackends, check, isOwnApiSave, thirdPartyRequests } from "../../../../src/checks/pii-leak.js";
 
 const servers: FixtureServer[] = [];
 let analytics: FixtureServer;
@@ -47,7 +47,7 @@ async function run(variant: BookingVariant) {
   return { scenarios, results, findings: allFindings(results), server, booking };
 }
 
-/** The canary email the check submitted, read back from what the target's own API received. */
+// The canary email the check submitted, read back from what the target's own API received.
 function submittedEmail(booking: { ownerEmail?: string } | undefined): string {
   expect(booking?.ownerEmail, "the check submitted the form with a canary email").toEqual(expect.any(String));
   return booking!.ownerEmail!;

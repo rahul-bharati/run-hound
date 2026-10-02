@@ -1,20 +1,14 @@
-/**
- * Evidence images never show a registered account value (round-2 review, docs/v2-spec.md "Test accounts"): while a
- * frame, a screenshot or a recording step is taken, text on the page that holds a registered username (any letter
- * case) or literal secret is replaced with dots of the same length, and put back right after. A page records every
- * change of its text, so the test sees what the screenshot saw. With nothing registered (signed-out runs), the page is
- * never touched.
- */
+// Evidence images never show a registered account value (round-2 review, docs/v2-spec.md "Test accounts"): while a frame, screenshot or recording step is taken, text on the page that holds a registered username (any letter case) or literal secret is replaced with dots of the same length and put back right after; a page records every change of its text so the test sees what the screenshot saw; with nothing registered (signed-out runs), the page is never touched.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { createCheckContext, type RunningCheckContext } from "./context.js";
-import { emptyForm } from "./discover.js";
-import { registerAccountUsernames, registerSecretLiterals } from "./redact.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { emptyForm } from "../../../../src/engine/discover.js";
+import { registerAccountUsernames, registerSecretLiterals } from "../../../../src/engine/redact.js";
 
 const EMAIL = "Alice@Example.test";
 

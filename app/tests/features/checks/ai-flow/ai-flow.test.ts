@@ -3,41 +3,30 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { CheckResult, DiscoveredForm, FlowStep, Scenario } from "../core/types.js";
-import { createCheckContext } from "../engine/context.js";
-import { discoverPage } from "../engine/discover.js";
-import { check } from "./ai-flow.js";
-import { explainPrompt } from "../ai/explain.js";
-import { projectForm, startWidgetApp, type WidgetApp } from "../../test/fixtures/widgets/widget-app.js";
+import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { CheckResult, DiscoveredForm, FlowStep, Scenario } from "../../../../src/core/types.js";
+import { createCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { check } from "../../../../src/checks/ai-flow.js";
+import { explainPrompt } from "../../../../src/ai/explain.js";
+import { projectForm, startWidgetApp, type WidgetApp } from "../../../../test/fixtures/widgets/widget-app.js";
 
-/**
- * ai-flow runs the steps of an AI-suggested scenario (Scenario.flow) against the discovered form and decides each
- * `expect` deterministically. See the JSDoc in ./ai-flow.ts and FlowExpectation in core/types.ts.
- *
- * Interpretations pinned here:
- * - "press" acts on whatever has focus; after a "fill" the filled field has focus, so Enter submits the form.
- *   Enter is only pressed while focus is on a field of the scenario's form; Escape anywhere; Tab and Space never
- *   (they can reach and activate a destructive control) → "skipped". Focus landing on a destructive control after
- *   any step, without allowDestructive, stops the flow → "skipped".
- * - An unknown field key or an out-of-range control index is a step that can't be performed → status "error" with
- *   notes naming the problem, no findings.
- * - A destructive control without allowDestructive → "skipped" before anything is clicked, notes name the control.
- */
+// ai-flow runs the steps of an AI-suggested scenario (Scenario.flow) against the discovered form and decides each `expect` deterministically. See the JSDoc in ./ai-flow.ts and FlowExpectation in core/types.ts.
+// Interpretations pinned here: "press" acts on whatever has focus; after a "fill" the filled field has focus, so Enter submits the form. Enter is only pressed while focus is on a field of the scenario's form; Escape anywhere; Tab and Space never (they can reach and activate a destructive control) → "skipped". Focus landing on a destructive control after any step, without allowDestructive, stops the flow → "skipped". An unknown field key or an out-of-range control index is a step that can't be performed → status "error" with notes naming the problem, no findings. A destructive control without allowDestructive → "skipped" before anything is clicked, notes name the control.
 
 interface AppOptions {
-  /** Status /api/save answers with. Default 200. */
+  // Status /api/save answers with. Default 200.
   status?: number;
-  /** Clear every input when the save fails (field-kept must fail). */
+  // Clear every input when the save fails (field-kept must fail).
   clearOnError?: boolean;
-  /** Throw an uncaught error in the submit handler (after the request). */
+  // Throw an uncaught error in the submit handler (after the request).
   throwOnSubmit?: boolean;
-  /** pushState to /done?saved=1 after a successful save. */
+  // pushState to /done?saved=1 after a successful save.
   navigateOnSuccess?: boolean;
-  /** Put the "Delete account" button right after the email field, so one Tab from email reaches it. */
+  // Put the "Delete account" button right after the email field, so one Tab from email reaches it.
   deleteNextToEmail?: boolean;
-  /** Move focus to "Delete account" whenever the email field is typed into. */
+  // Move focus to "Delete account" whenever the email field is typed into.
   focusDeleteOnInput?: boolean;
 }
 
@@ -124,17 +113,14 @@ function flowScenario(flow: FlowStep[] | undefined, extra: Partial<Scenario> = {
   };
 }
 
-/** Index of the control named `name` in the discovered form. */
+// Index of the control named `name` in the discovered form.
 function controlIndex(form: DiscoveredForm, name: RegExp): number {
   const i = form.controls.findIndex((c) => name.test(c.accessibleName ?? "") || name.test(c.text));
   if (i < 0) throw new Error(`fixture: no control ${name}`);
   return i;
 }
 
-/**
- * Discovers the page, builds the flow with the discovered form (so control indexes are real), runs ai-flow and
- * reports which evidence files existed before the artifacts were removed.
- */
+// Discovers the page, builds the flow with the discovered form (so control indexes are real), runs ai-flow and reports which evidence files existed before the artifacts were removed.
 async function runFlow(
   url: string,
   build: (form: DiscoveredForm) => FlowStep[] | undefined,
@@ -409,7 +395,7 @@ describe("ai-flow: the keyboard can't reach a destructive control", () => {
   });
 });
 
-/** A "Delete your account" form: typing the email to confirm and pressing Enter submits it, which deletes the account. */
+// A "Delete your account" form: typing the email to confirm and pressing Enter submits it, which deletes the account.
 const DELETE_PAGE = `<!doctype html><html lang="en"><head><title>Account</title></head><body>
 <main>
 <form id="close" novalidate>
@@ -556,7 +542,7 @@ describe("ai-flow: widgets (LOV-1, LOV-14)", () => {
     await widgets?.close();
   });
 
-  /** Runs a flow against the Radix/shadcn form with its hand-written discovery result (no discovery needed). */
+  // Runs a flow against the Radix/shadcn form with its hand-written discovery result (no discovery needed).
   async function runWidgetFlow(flow: FlowStep[]): Promise<CheckResult> {
     widgets ??= await startWidgetApp();
     const url = `${widgets.url}/projects`;
