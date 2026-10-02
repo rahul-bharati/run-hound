@@ -3,10 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { Check, CheckContext, CheckId, CheckResult, Finding, Plan, Report, Scenario } from "../core/types.js";
-import { NoFormFoundError, TargetNotAllowedError } from "./errors.js";
-import { canShowBrowser, discoverAndPlan, NothingToRunError, planWarnings, runPlan, type ProgressEvent } from "./runner.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { Check, CheckContext, CheckId, CheckResult, Finding, Plan, Report, Scenario } from "../../../../src/core/types.js";
+import { NoFormFoundError, TargetNotAllowedError } from "../../../../src/engine/errors.js";
+import { canShowBrowser, discoverAndPlan, NothingToRunError, planWarnings, runPlan, type ProgressEvent } from "../../../../src/engine/runner.js";
 
 const FORM_PAGE = `<!doctype html><html lang="en"><head><title>Runner fixture</title></head><body>
 <form id="booking">
@@ -42,13 +42,7 @@ function finding(checkId: CheckId, n: number): Finding {
   };
 }
 
-/**
- * Four fake checks, deliberately passed out of CHECK_IDS order:
- *  - persistence "pe:reload": destructive (check asks for defaultSelected, plan must turn it off)
- *  - silent-failure "sf:500": not selected by default, fails with one finding
- *  - dead-control "dc:controls": selected by default, opens a page through the context, passes
- *  - console-network-errors "cne:load": selected by default, throws
- */
+// Four fake checks passed out of CHECK_IDS order (persistence destructive, sf fails, dc opens a page, cne throws).
 function fakeChecks(rec: Recorder): Check[] {
   const make = (id: CheckId, scenarios: Scenario[], run: (ctx: CheckContext, s: Scenario) => Promise<CheckResult>): Check => ({
     id,

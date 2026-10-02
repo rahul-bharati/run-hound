@@ -1,15 +1,11 @@
-/**
- * A target URL with a user name and password in it (http://user:pass@host/, a password-protected preview): they are
- * taken out of the URL before anything is planned, so no plan, report, spec file, log line or progress event carries
- * them, and the browser still answers the app's HTTP authentication with them. Fake checks only.
- */
+// User/password in a URL (http://user:pass@host/) are stripped before planning; browser still answers the auth.
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { Check, Scenario } from "../core/types.js";
-import { discoverAndPlan, runPlan, type ProgressEvent } from "./runner.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { Check, Scenario } from "../../../../src/core/types.js";
+import { discoverAndPlan, runPlan, type ProgressEvent } from "../../../../src/engine/runner.js";
 
 const FORM_PAGE = `<!doctype html><html lang="en"><head><title>Preview fixture</title></head><body>
 <form id="booking"><h1>Book a sitter</h1>
@@ -50,14 +46,14 @@ afterEach(async () => {
   await rm(runsDir, { recursive: true, force: true });
 });
 
-/** Every file under dir, as text. */
+// Every file under dir, as text.
 async function allText(dir: string): Promise<string> {
   const entries = await readdir(dir, { recursive: true, withFileTypes: true });
   const files = entries.filter((e) => e.isFile()).map((e) => join(e.parentPath, e.name));
   return (await Promise.all(files.map((f) => readFile(f, "utf8")))).join("\n");
 }
 
-/** One check that opens the page, reports what it saw, and writes the URLs it knows into a finding and its spec. */
+// One check that opens the page, reports what it saw, and writes the URLs it knows into a finding and its spec.
 function fakeChecks(): Check[] {
   const scenario: Scenario = { id: "dc:1", checkId: "dead-control", title: "Fake dc:1", description: "fake", kind: "golden", priority: "medium", destructive: false, defaultSelected: true };
   return [

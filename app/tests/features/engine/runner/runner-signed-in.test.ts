@@ -1,32 +1,16 @@
-/**
- * Signed-in runs, the parts runner-accounts.test.ts leaves open (0.4.0, docs/v2-spec.md, v2 decisions):
- * - progress events (scenario-end results) are redacted like the report, since the server streams them to the UI;
- * - the run's secrets (passwords, session values, distinctive usernames) are registered only while the plan or run is
- *   going;
- * - an approved other-account scenario is skipped, with a reason, when the other account can't be used;
- * - a run whose session still lands on the sign-in page fails before any scenario, and leaves no run folder;
- * - the plan summary names the account.
- *
- * 0.6.0 (docs/v2-spec.md "0.6.0: write-side checks and sign-in"):
- * - write-access's other-account scenario signs Account B in like access-control's, and says what it can't do without
- *   it ("read or change");
- * - a sessionStorage session (SignedIn.sessionStorage) reaches every browser context the plan and the run open for
- *   that identity (discovery, the credential-header harvest, every scenario, as A and as B), so it passes the "still
- *   shows the sign-in page" check; one the app throws away on load still fails it, and so does a session that lands on
- *   the first step of a two-step sign-in page.
- */
+// Signed-in bits not in runner-accounts.test.ts: redaction, secrets lifetime, two-step and tab-scoped sessions.
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startAccountsApp, type AccountsApp } from "../../test-support/accounts-app.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { AccountsConfig } from "../interfaces/accounts.js";
-import type { AccountRef, Check, CheckId, CheckResult, Plan, Scenario } from "../core/types.js";
-import { SignInError } from "./auth.js";
-import { planSummary } from "./plan.js";
-import { redactSecrets } from "./redact.js";
-import { discoverAndPlan, needsOtherAccount, runPlan, type ProgressEvent } from "./runner.js";
+import { startAccountsApp, type AccountsApp } from "../../../../test-support/accounts-app.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { AccountsConfig } from "../../../../src/interfaces/accounts.js";
+import type { AccountRef, Check, CheckId, CheckResult, Plan, Scenario } from "../../../../src/core/types.js";
+import { SignInError } from "../../../../src/engine/auth.js";
+import { planSummary } from "../../../../src/engine/plan.js";
+import { redactSecrets } from "../../../../src/engine/redact.js";
+import { discoverAndPlan, needsOtherAccount, runPlan, type ProgressEvent } from "../../../../src/engine/runner.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 
@@ -34,7 +18,7 @@ function scenario(checkId: CheckId, id: string): Scenario {
   return { id, checkId, title: `Fake ${id}`, description: "fake", kind: "golden", priority: "medium", destructive: false, defaultSelected: true, scope: "page" };
 }
 
-/** A page check whose notes echo both passwords, and an access-control check whose other-account scenario records what it got. */
+// A page check whose notes echo both passwords, and an access-control check whose other-account scenario records what it got.
 function checksFor(app: AccountsApp, seen: string[]): Check[] {
   return [
     {
@@ -68,12 +52,12 @@ function withoutB(config: AccountsConfig): AccountsConfig {
 }
 
 let app: AccountsApp;
-/** The accounts app in tokenMode "session-storage" (0.6.0): its session lives only in sessionStorage. */
+// The accounts app in tokenMode "session-storage" (0.6.0): its session lives only in sessionStorage.
 let tabTokenApp: AccountsApp;
 let tabApp: FixtureServer;
 let runsDir: string;
 
-/** A one-step sign-in page whose submit runs `onSubmit` (in the page) and then goes to `next`. */
+// A one-step sign-in page whose submit runs `onSubmit` (in the page) and then goes to `next`.
 function loginPage(onSubmit: string, next: string): string {
   return `<!doctype html><html lang="en"><head><title>Sign in</title></head><body><main><h1>Sign in</h1>
 <form id="f" aria-label="Sign in">
@@ -85,7 +69,7 @@ function loginPage(onSubmit: string, next: string): string {
 </main></body></html>`;
 }
 
-/** A signed-in page: "Welcome" and a note form when `signedIn` (an expression, in the page) holds, else it runs `otherwise`. */
+// A signed-in page: "Welcome" + a note form when `signedIn` holds, else it runs `otherwise`.
 function appPage(signedIn: string, otherwise: string): string {
   return `<!doctype html><html lang="en"><head><title>App</title></head><body><main><h1>Loading</h1>
 <form id="note"><label for="t">Note</label><input id="t" name="t"><button type="submit">Save</button></form>
@@ -93,18 +77,11 @@ function appPage(signedIn: string, otherwise: string): string {
 </main></body></html>`;
 }
 
-/**
- * Signs in with sessionStorage only: a storageState carries nothing, so a new context lands on /login again unless
- * it gets the sessionStorage items the sign-in left (0.6.0).
- */
+// sessionStorage-only sign-in: storageState carries nothing; a new context needs the items the sign-in left.
 const TAB_LOGIN = loginPage(`sessionStorage.setItem("token", "tab-" + Math.random().toString(36).slice(2) + "-" + Date.now())`, "/app");
 const TAB_APP = appPage(`sessionStorage.getItem("token")`, `location.replace("/login?next=/app")`);
 
-/**
- * A sessionStorage session the app throws away on load (still not supported in 0.6.0): the token is only good in the
- * tab it was made in (window.name holds the tab's id), so a new tab clears sessionStorage and goes back to sign in,
- * whatever it was seeded with.
- */
+// sessionStorage the app throws away on load: the token is only good in the tab that made it (window.name).
 const ONCE_LOGIN = loginPage(
   `const tab = "t" + Math.random().toString(36).slice(2); window.name = tab; sessionStorage.setItem("token", "once-" + Math.random().toString(36).slice(2) + "-" + Date.now()); sessionStorage.setItem("tab", tab)`,
   "/once/app",
@@ -114,11 +91,7 @@ const ONCE_APP = appPage(
   `sessionStorage.clear(); location.replace("/once/login?next=/once/app")`,
 );
 
-/**
- * A session kept only in the tab's memory (window.name): no new context has it. Signed out, the app sends the visitor
- * to the first step of a two-step sign-in page ("/auth/identifier", an Auth0-style address that is not the account's
- * sign-in page): an email field and "Continue", no password field yet.
- */
+// Session kept only in window.name; signed out, the app routes to /auth/identifier (Auth0-style), email + Continue.
 const MEMORY_LOGIN = loginPage(`window.name = "signed-in"`, "/memory/app");
 const MEMORY_APP = appPage(`window.name === "signed-in"`, `location.replace("/auth/identifier?next=/memory/app")`);
 const FIRST_STEP = `<!doctype html><html lang="en"><head><title>Sign in</title></head><body><main><h1>Sign in</h1>
@@ -128,12 +101,7 @@ const FIRST_STEP = `<!doctype html><html lang="en"><head><title>Sign in</title><
 </form>
 </main></body></html>`;
 
-/**
- * A signed-in app page on an address that looks like sign-in to a path test ("/authors/new" has "auth" in it): signed
- * in (TAB_LOGIN's sessionStorage token), "/authors" sends the visitor there, to a form with one Email field and "Add".
- * It says nothing about signing in, so it is not the first step of a two-step sign-in, whatever the account's sign-in
- * page is called.
- */
+// Signed-in /authors/new ("auth" substring): an Email field + "Add"; not a sign-in form, so not a two-step start.
 const AUTHORS = `<!doctype html><html lang="en"><head><title>Authors</title></head><body><main><h1>Authors</h1>
 <script>if (sessionStorage.getItem("token")) location.replace("/authors/new"); else location.replace("/login?next=/authors");</script>
 </main></body></html>`;
@@ -172,7 +140,7 @@ beforeEach(async () => {
   }
 });
 
-/** A test account on the fixture server `tabApp`, signing in at `path`. */
+// A test account on the fixture server `tabApp`, signing in at `path`.
 function tabAccounts(path: string): AccountsConfig {
   return {
     isolated: true,
@@ -183,12 +151,12 @@ function tabAccounts(path: string): AccountsConfig {
   };
 }
 
-/** Who signed in to an accounts app, in order (the identifiers POST /api/login got). */
+// Who signed in to an accounts app, in order (the identifiers POST /api/login got).
 function loginsOf(on: AccountsApp): string[] {
   return on.requests.filter((r) => r.method === "POST" && r.url === "/api/login").map((r) => (JSON.parse(r.body) as { email: string }).email);
 }
 
-/** A page check with one scenario that records whether it ran. */
+// A page check with one scenario that records whether it ran.
 function probeCheck(ran: string[]): Check {
   return {
     id: "dead-control",
@@ -203,7 +171,7 @@ function probeCheck(ran: string[]): Check {
   };
 }
 
-/** runPlan's rejection, or null when it resolved. */
+// runPlan's rejection, or null when it resolved.
 async function runError(plan: Plan, options: Parameters<typeof runPlan>[1]): Promise<unknown> {
   return runPlan(plan, options).then(
     () => null,
@@ -363,7 +331,7 @@ describe("a signed-in run", () => {
   });
 });
 
-/** A fake write-access check (0.6.0) whose scenarios record who they got and what the app says B is. */
+// A fake write-access check (0.6.0) whose scenarios record who they got and what the app says B is.
 function writeAccessCheck(on: AccountsApp, seen: { scenarioId: string; other: AccountRef | null; otherMe: number | null }[]): Check {
   return {
     id: "write-access",
@@ -444,23 +412,20 @@ describe("write-access in a signed-in run (0.6.0)", () => {
   });
 });
 
-/** What a sessionStorage run's fake checks saw, as each identity. */
+// What a sessionStorage run's fake checks saw, as each identity.
 interface TabSeen {
   heading: Record<string, string>;
   email: Record<string, string>;
   tokens: string[];
 }
 
-/** Waits for the accounts app's client to settle: the notes page (signed in) or the sign-in form. */
+// Waits for the accounts app's client to settle: the notes page (signed in) or the sign-in form.
 async function headingOf(page: import("playwright").Page): Promise<string> {
   await page.locator("h1:text-is('Your notes'), #signin-form").first().waitFor({ timeout: 10_000 });
   return (await page.locator("h1").first().textContent()) ?? "";
 }
 
-/**
- * A page check that opens the page as A, and an access-control one that opens it as B: each records the heading its
- * page shows, who /api/me says it is through CheckContext.request, and the token its tab holds (echoed in its notes).
- */
+// Page check opens as A, access-control opens as B; both record heading, /api/me identity, and token.
 function tabChecks(on: AccountsApp, seen: TabSeen): Check[] {
   const probe = (identity: "self" | "other", checkId: CheckId, id: string): Check => ({
     id: checkId,

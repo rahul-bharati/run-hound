@@ -1,21 +1,17 @@
-/**
- * The per-scenario time limit (RunOptions.scenarioTimeoutMs, default SCENARIO_TIMEOUT_MS): a scenario that never
- * finishes, for example because the app never answers a request the check sent, is abandoned like a stopped one
- * (its browser contexts closed) and ends "error" with a plain note, and the run goes on. Fake checks only.
- */
+// Per-scenario time limit (RunOptions.scenarioTimeoutMs, default SCENARIO_TIMEOUT_MS): abandoned like a stopped one.
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { Check, CheckId, DiscoveredForm, DiscoveredPage, FormControl, Report, Scenario } from "../core/types.js";
-import { buildPlan } from "./plan.js";
-import { check as deadControl } from "../checks/dead-control.js";
-import { check as pageControls } from "../checks/page-controls.js";
-import { check as persistence } from "../checks/persistence.js";
-import { emptyForm } from "./discover.js";
-import { runPlan, SCENARIO_TIMEOUT_MS, scenarioLimitMs, scenarioTimeoutNote, type ProgressEvent } from "./runner.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { Check, CheckId, DiscoveredForm, DiscoveredPage, FormControl, Report, Scenario } from "../../../../src/core/types.js";
+import { buildPlan } from "../../../../src/engine/plan.js";
+import { check as deadControl } from "../../../../src/checks/dead-control.js";
+import { check as pageControls } from "../../../../src/checks/page-controls.js";
+import { check as persistence } from "../../../../src/checks/persistence.js";
+import { emptyForm } from "../../../../src/engine/discover.js";
+import { runPlan, SCENARIO_TIMEOUT_MS, scenarioLimitMs, scenarioTimeoutNote, type ProgressEvent } from "../../../../src/engine/runner.js";
 
 const FORM_PAGE = `<!doctype html><html lang="en"><head><title>Timeout fixture</title></head><body>
 <form id="booking"><h1>Book a sitter</h1>
@@ -29,22 +25,18 @@ function scenario(checkId: CheckId, id: string): Scenario {
 let server: FixtureServer;
 let runsDir: string;
 let ran: string[];
-/** Releases the hanging check, so an abandoned check never outlives its test. */
+// Releases the hanging check, so an abandoned check never outlives its test.
 let release: () => void;
 let hung: Promise<void>;
-/** The page the hanging check opened before it hung, and the one it opens after it is released. */
+// The page the hanging check opened before it hung, and the one it opens after it is released.
 let firstPage: Page | undefined;
 let latePage: Page | undefined;
-/** Set once the hanging check's run() has returned (after it was released). */
+// Set once the hanging check's run() has returned (after it was released).
 let hangEnded: boolean;
-/** What the passing check saw of the late page while the run was still going. */
+// What the passing check saw of the late page while the run was still going.
 let lateClosedDuringRun: boolean | undefined;
 
-/**
- * Features: dead-control "dc:1" opens a page, takes a step, then waits until released; released, it takes another
- * step and opens a second page (what an abandoned check that carries on would do).
- * Security: bundle-secrets "bs:1" passes; with `releaseHang` it first releases dc:1 and watches its late page.
- */
+// dc:1 opens a page, steps, hangs until released; bs:1 passes and (with releaseHang) watches dc:1's late page.
 function fakeChecks(options: { releaseHang?: boolean } = {}): Check[] {
   const make = (id: CheckId, category: Check["category"], sid: string, run: Check["run"]): Check => ({
     id,

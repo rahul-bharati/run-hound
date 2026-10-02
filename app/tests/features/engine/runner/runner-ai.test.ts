@@ -1,30 +1,14 @@
-/**
- * AI hooks of the runner (docs/ai-spec.md "Surfaces" → Runner).
- *
- * Option shape the integrator implements (on RunOptions, used by both discoverAndPlan and runPlan):
- *
- *   ai?: { client: LlmClient; remote: boolean; features: AiFeatures }
- *
- * - discoverAndPlan(url, {ai}): after buildPlan, reviewPlan when features.review, then suggestScenarios when
- *   features.suggest; sets Plan.ai = {provider, model, remote, warnings, reviewedAt, reviewed, suggested}. A failed call
- *   leaves the built-in plan and adds a warning. Engine step "Asking <provider>/<model> to review the plan".
- * - runPlan(plan, {ai}): when features.explain, explainFindings before writeReport; Report.ai = {…, explained}.
- *   report.json carries Finding.ai; report.md labels it "AI explanation" and "advisory".
- * - Without `ai`, nothing AI-related appears and the client is never called.
- *
- * The fake client below answers whatever the request's own validator accepts (review, suggest or explain answer),
- * so the tests don't depend on schema names or call order.
- */
+// Runner AI hooks (docs/ai-spec.md "Surfaces" → Runner); fake client answers whatever each request.validate accepts.
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { AiError, type AiFeatures, type JsonRequest, type LlmClient } from "../ai/types.js";
-import type { Check, CheckId, Finding, Report, Scenario } from "../core/types.js";
-import { discoverAndPlan, runPlan, type ProgressEvent, type RunOptions } from "./runner.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { AiError, type AiFeatures, type JsonRequest, type LlmClient } from "../../../../src/ai/types.js";
+import type { Check, CheckId, Finding, Report, Scenario } from "../../../../src/core/types.js";
+import { discoverAndPlan, runPlan, type ProgressEvent, type RunOptions } from "../../../../src/engine/runner.js";
 
-/** The option the integrator adds to RunOptions. Typed separately so this file compiles before it exists. */
+// The option the integrator adds to RunOptions; typed separately so this file compiles before it exists.
 interface AiRunOptions {
   client: LlmClient;
   remote: boolean;
@@ -109,7 +93,7 @@ interface FakeClient extends LlmClient {
   calls: string[];
 }
 
-/** Answers the first canned answer the request's validator accepts; `fail` makes every call reject. */
+// Answers the first canned answer the request's validator accepts; `fail` makes every call reject.
 function fakeClient(options: { fail?: boolean } = {}): FakeClient {
   const calls: string[] = [];
   return {

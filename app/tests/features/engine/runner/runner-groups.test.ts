@@ -1,17 +1,14 @@
-/**
- * Groups and timing through the runner and the report renderers (docs/v0-spec.md, "Groups and timing").
- * Fake checks only: no check opens a page, so the run is fast and every result is controlled here.
- */
+// Groups and timing through the runner and the report renderers (docs/v0-spec.md, "Groups and timing").
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import { formatDuration } from "../core/format.js";
-import type { Category, Check, CheckId, CheckResult, DiscoveredForm, Finding, Report, Scenario } from "../core/types.js";
-import { buildPlan } from "./plan.js";
-import { NOT_VISIBLE, renderHtml, renderMarkdown } from "./report.js";
-import { runPlan, type ProgressEvent } from "./runner.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { formatDuration } from "../../../../src/core/format.js";
+import type { Category, Check, CheckId, CheckResult, DiscoveredForm, Finding, Report, Scenario } from "../../../../src/core/types.js";
+import { buildPlan } from "../../../../src/engine/plan.js";
+import { NOT_VISIBLE, renderHtml, renderMarkdown } from "../../../../src/engine/report.js";
+import { runPlan, type ProgressEvent } from "../../../../src/engine/runner.js";
 
 const FORM_PAGE = `<!doctype html><html lang="en"><head><title>Groups fixture</title></head><body>
 <form id="booking"><h1>Book a sitter</h1>
@@ -39,12 +36,7 @@ function finding(checkId: CheckId, category: Category, n: number): Finding {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/**
- * Fake checks in a scrambled order across all three groups:
- *   Accessibility: axe-states "axe:1" passes (1000 ms), focus-visible "fv:1" fails with one finding (2000 ms)
- *   Features: dead-control "dc:1" passes (500 ms), client-only-validation "cov:1" throws, persistence "pe:1" is destructive
- *   Security: bundle-secrets "bs:1" fails with two findings (3000 ms)
- */
+// Fake checks in a scrambled order across all three groups; one passes, one fails, one throws, one destructive.
 function fakeChecks(ran: string[]): Check[] {
   const make = (id: CheckId, category: Category, scenarios: Scenario[], run: (s: Scenario) => Omit<CheckResult, "checkId" | "scenarioId">): Check => ({
     id,
@@ -189,7 +181,7 @@ describe("runPlan groups", () => {
   }, 60_000);
 });
 
-/** Text a reader sees in the HTML: tags removed, entities for & decoded, whitespace collapsed. */
+// Text a reader sees in the HTML: tags removed, entities for & decoded, whitespace collapsed.
 function visibleText(html: string): string {
   return html.replace(/<style[\s\S]*?<\/style>/g, " ").replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ");
 }

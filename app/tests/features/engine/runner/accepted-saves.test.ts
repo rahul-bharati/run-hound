@@ -1,9 +1,6 @@
-/**
- * report.testRecordsCreated counts the save requests the app accepted (docs/v0-spec.md, "Tester release": test data
- * is disclosed, not deleted). isAcceptedSave decides what counts.
- */
+// isAcceptedSave: what report.testRecordsCreated counts (docs/v0-spec.md, "Tester release").
 import { describe, expect, it } from "vitest";
-import { isAcceptedSave } from "./context.js";
+import { isAcceptedSave } from "../../../../src/engine/context.js";
 
 const TARGET = "http://localhost:5173/book";
 const TOKEN = "ab12cd34";
@@ -45,11 +42,7 @@ describe("isAcceptedSave", () => {
   });
 });
 
-/**
- * CHK-5: an app that also POSTs to its own origin to read (GraphQL queries, Apollo's default) or to report events
- * (a same-origin analytics proxy) created no record with those requests. Only writes that carry the run's test values,
- * page posts and writes with no body at all count.
- */
+// CHK-5: same-origin reads (GraphQL, analytics proxy) never count; only writes carrying the run's test values.
 describe("isAcceptedSave: reads and events sent as POST (CHK-5)", () => {
   const gql = (query: string, variables: Record<string, unknown> = {}) => JSON.stringify({ query, variables });
 

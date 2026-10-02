@@ -1,27 +1,13 @@
-/**
- * A scenario whose page left the allowed targets (the navigation guard's `escaped`) ends "error" with no findings, and
- * its notes say where the page went (guardSummary). A check that changes Account A (mass-assignment, csrf,
- * write-access, paywall-trust) keeps its own notes beside that summary: a write-side check's restore note ("… could
- * not be undone: check Account A", docs/v2-spec.md "Safety contract") or paywall-trust's "blocked (payment provider)"
- * must never be lost to the escape, whether the check returned its result or threw with those notes in its message
- * (as write-access and paywall-trust do), and whether the scenario then ran past its time limit or the run was
- * stopped (a stopped scenario's notes still start "Stopped by you", which the app matches on).
- * The error Playwright throws once the guard closed the context repeats where the page went, so it is left out when a
- * thrown message starts with it; a note that quotes it in a sentence is kept as the check wrote it. The notes a check
- * adds after the "Call log:" Playwright puts at the end of an interrupted call's error stay, with or without an
- * escape; the call log does not, even when an entry spans lines (a filled value). Secrets in the check's message are
- * still redacted. Any other check's notes are the summary alone, as in 0.5.0, whatever it returned or threw (the
- * built-in checks on a real escape: runner-escaped-checks.test.ts). Fake checks only.
- */
+// Escaped scenarios end "error" with only the guard summary; Account-A-changing checks keep their own notes beside it.
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { Check, CheckContext, CheckId, CheckResult, Finding, Report, Scenario } from "../core/types.js";
-import type { RunningCheckContext } from "./context.js";
-import { discoverAndPlan, runPlan, scenarioTimeoutNote, STOPPED_NOTE, type ProgressEvent, type RunOptions } from "./runner.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { Check, CheckContext, CheckId, CheckResult, Finding, Report, Scenario } from "../../../../src/core/types.js";
+import type { RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverAndPlan, runPlan, scenarioTimeoutNote, STOPPED_NOTE, type ProgressEvent, type RunOptions } from "../../../../src/engine/runner.js";
 
 const FORM_PAGE = `<!doctype html><html lang="en"><head><title>Escape fixture</title></head><body>
 <form id="task"><h1>New task</h1>
@@ -30,12 +16,12 @@ const FORM_PAGE = `<!doctype html><html lang="en"><head><title>Escape fixture</t
 <button id="stuck" disabled>Stuck</button>
 <textarea id="memo" readonly></textarea></body></html>`;
 
-/** Where /go-out sends the page: a host the fake lookup puts on a public address, so the gate refuses it. */
+// Where /go-out sends the page: a host the fake lookup puts on a public address, so the gate refuses it.
 const ESCAPED_TO = "http://elsewhere.test:9/landed";
 const SUMMARY = `Stopped: the page left the target and went to ${ESCAPED_TO}, which Run Hound is not allowed to test.`;
-/** A write-side check's restore note, as write-access writes it. */
+// A write-side check's restore note, as write-access writes it.
 const RESTORE_NOTE = "Could not be undone: title of Account A's test record: check Account A.";
-/** paywall-trust's note on a request to a payment provider the guard stopped. */
+// paywall-trust's note on a request to a payment provider the guard stopped.
 const PROVIDER_NOTE = "blocked (payment provider): POST https://checkout.stripe.test/v1/sessions.";
 const INTERRUPTED_NOTE = "If Run Hound had already sent a change as another account or signed out, Account A's test record may have changed or been deleted: check Account A.";
 
@@ -90,10 +76,7 @@ function fakeCheck(id: CheckId, sid: string, run: (ctx: CheckContext, s: Scenari
   return { id, title: `Fake ${id}`, category: "security", plan: () => [scenario(id, sid)], run };
 }
 
-/**
- * Sends the scenario's page to /go-out and waits until the guard has seen the escape and closed the page. The runner
- * hands checks its RunningCheckContext, whose `escaped` is what it reads.
- */
+// Sends the scenario's page to /go-out and waits for the guard to close it; checks read ctx.escaped.
 async function escape(ctx: CheckContext): Promise<Page> {
   // A getter: read it each time.
   const escaped = () => (ctx as RunningCheckContext).escaped.length;
@@ -106,7 +89,7 @@ async function escape(ctx: CheckContext): Promise<Page> {
   return page;
 }
 
-/** What the check's next browser call throws once the guard closed its context. */
+// What the check's next browser call throws once the guard closed its context.
 async function closedError(ctx: CheckContext, page: Page): Promise<string> {
   const err = await page.goto(ctx.targetUrl).then(
     () => null,
@@ -116,7 +99,7 @@ async function closedError(ctx: CheckContext, page: Page): Promise<string> {
   return (err as Error).message;
 }
 
-/** What a check's browser call threw, as a string, or a string saying it went through. */
+// What a check's browser call threw, as a string, or a string saying it went through.
 async function thrownBy(call: Promise<unknown>): Promise<string> {
   return call.then(
     () => "the call went through",
@@ -124,7 +107,7 @@ async function thrownBy(call: Promise<unknown>): Promise<string> {
   );
 }
 
-/** As write-access, csrf and paywall-trust build the error they throw: the caught message, then their notes. */
+// As write-access, csrf and paywall-trust build the error they throw: the caught message, then their notes.
 function writeSideError(message: string, ...notes: string[]): Error {
   return new Error([message.replace(/\.?$/, "."), ...notes].join(" "));
 }
@@ -337,8 +320,7 @@ describe("a scenario that escaped the allowed targets", () => {
 });
 
 describe("a scenario that escaped, of a check that does not change the target", () => {
-  // As on 0.5.0: only the guard summary. What such a check noticed after its page left was not the target, and the
-  // error its next browser call threw (the guard closed the context) repeats where the page went.
+  // As on 0.5.0: only the guard summary; the post-escape check's browser call's error repeats where the page went.
   it("says only where the page went when the check returned the error its next browser call threw", async () => {
     let caught = "";
     const check = fakeCheck("axe-states", "axe:waited", async (ctx, s) => {

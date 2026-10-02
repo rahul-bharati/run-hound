@@ -1,15 +1,12 @@
-/**
- * Stopping a run (RunOptions.signal), per-scenario steps (CheckResult.steps) and the browser name (Report.browser).
- * See docs/app-ui-spec.md ("Stop run", API). Fake checks only: no check opens a page, every result is controlled here.
- */
+// Stopping a run (RunOptions.signal), CheckResult.steps, and Report.browser (docs/app-ui-spec.md "Stop run").
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { Check, CheckId, DiscoveredForm, Report, Scenario } from "../core/types.js";
-import { buildPlan } from "./plan.js";
-import { runPlan, type ProgressEvent } from "./runner.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { Check, CheckId, DiscoveredForm, Report, Scenario } from "../../../../src/core/types.js";
+import { buildPlan } from "../../../../src/engine/plan.js";
+import { runPlan, type ProgressEvent } from "../../../../src/engine/runner.js";
 
 const FORM_PAGE = `<!doctype html><html lang="en"><head><title>Stop fixture</title></head><body>
 <form id="booking"><h1>Book a sitter</h1>
@@ -17,7 +14,7 @@ const FORM_PAGE = `<!doctype html><html lang="en"><head><title>Stop fixture</tit
 <button type="submit">Book</button></form></body></html>`;
 
 const STOPPED = "Stopped by you";
-/** Fake credential: only matches the shape of a Stripe secret key. */
+// Fake credential: only matches the shape of a Stripe secret key.
 const FAKE_SECRET = "sk_live_FAKEFAKEFAKE1234567890abcdEFGH";
 
 function scenario(checkId: CheckId, id: string): Scenario {
@@ -27,18 +24,14 @@ function scenario(checkId: CheckId, id: string): Scenario {
 let server: FixtureServer;
 let runsDir: string;
 let ran: string[];
-/** Resolves the "hang" check's wait, so an abandoned check never outlives its test. */
+// Resolves the "hang" check's wait, so an abandoned check never outlives its test.
 let release: () => void;
 let hung: Promise<void>;
-/** Resolves once the "hang" check has started (and taken its steps). */
+// Resolves once the "hang" check has started (and taken its steps).
 let hangStarted: Promise<void>;
 let markHangStarted: () => void;
 
-/**
- * Accessibility: axe-states "axe:1" passes after two steps (one carrying a secret).
- * Features: dead-control "dc:1" takes one step then hangs until released (the scenario to stop mid-way).
- * Security: bundle-secrets "bs:1" passes.
- */
+// axe:1 passes after two steps (one carries a secret); dc:1 hangs until released; bs:1 passes.
 function fakeChecks(): Check[] {
   const make = (id: CheckId, category: Check["category"], sid: string, run: Check["run"]): Check => ({
     id,

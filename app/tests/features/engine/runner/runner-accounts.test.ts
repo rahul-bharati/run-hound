@@ -1,32 +1,17 @@
-/**
- * Signed-in runs in the runner (0.4.0, docs/v2-spec.md "Signing in" and "Signed-in runs"):
- *
- * - discoverAndPlan(url, { signInAs, accounts }) signs in first, so discovery sees the signed-in page; the plan records
- *   the account by label only (Plan.account) and every check's plan() gets a PlanEnv.
- * - runPlan(plan, { accounts }) signs in again as the plan's account (a fresh session per run), and as the other
- *   account only when an approved scenario needs it; every scenario runs signed in; Report.accounts says who ran.
- * - A failed sign-in throws SignInError before discovery / before any scenario.
- * - planWarnings: signed out, a redirect to a sign-in page suggests signing in as a test account; signed in, a page
- *   that still shows the sign-in form fails the plan.
- * - A signed-in run never clicks session-ending controls, even with allowDestructive.
- * - Neither password nor the run's session value is written anywhere in the run folder.
- *
- * The app under test is the shared accounts app (test-support/accounts-app.ts); accounts are injected, never read
- * from the machine's config.
- */
+// Signed-in runner behaviour (docs/v2-spec.md "Signing in" and "Signed-in runs") — accounts injected, never from disk.
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startAccountsApp, type AccountsApp } from "../../test-support/accounts-app.js";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { AccountsConfig } from "../interfaces/accounts.js";
-import { check as pageControls } from "../checks/page-controls.js";
-import { check as persistence } from "../checks/persistence.js";
-import type { AccountRef, Check, CheckContext, CheckId, CheckResult, Finding, Identity, Plan, PlanEnv, Report, Scenario } from "../core/types.js";
-import { SignInError } from "./auth.js";
-import { testDataSentence } from "./report.js";
-import { discoverAndPlan, planWarnings, runPlan, type ProgressEvent } from "./runner.js";
+import { startAccountsApp, type AccountsApp } from "../../../../test-support/accounts-app.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { AccountsConfig } from "../../../../src/interfaces/accounts.js";
+import { check as pageControls } from "../../../../src/checks/page-controls.js";
+import { check as persistence } from "../../../../src/checks/persistence.js";
+import type { AccountRef, Check, CheckContext, CheckId, CheckResult, Finding, Identity, Plan, PlanEnv, Report, Scenario } from "../../../../src/core/types.js";
+import { SignInError } from "../../../../src/engine/auth.js";
+import { testDataSentence } from "../../../../src/engine/report.js";
+import { discoverAndPlan, planWarnings, runPlan, type ProgressEvent } from "../../../../src/engine/runner.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };
 const B: AccountRef = { id: "b", label: "Account B" };
@@ -37,15 +22,15 @@ function scenario(checkId: CheckId, id: string, extra: Partial<Scenario> = {}): 
 
 const pass = (s: Scenario): CheckResult => ({ checkId: s.checkId, scenarioId: s.id, status: "pass", findings: [], durationMs: 1 });
 
-/** What a fake check saw from inside a scenario. */
+// What a fake check saw from inside a scenario.
 interface Seen {
   scenarioId: string;
-  /** Path of the page openPage() landed on. */
+  // Path of the page openPage() landed on.
   path: string;
   heading: string | null;
-  /** Email /api/me answered for request("self"), else "status <n>" or "error: …". */
+  // Email /api/me answered for request("self"), else "status <n>" or "error: …".
   me: string;
-  /** The same for request("other"), when asked. */
+  // The same for request("other"), when asked.
   other?: string;
   accounts: CheckContext["accounts"];
   markers: string[];
@@ -71,7 +56,7 @@ async function observe(ctx: CheckContext, scenarioId: string, withOther = false)
   };
 }
 
-/** A page-scoped fake check with two scenarios that records what each saw, and the PlanEnv each plan() got. */
+// A page-scoped fake check with two scenarios that records what each saw, and the PlanEnv each plan() got.
 function probeCheck(seen: Seen[], envs: (PlanEnv | undefined)[] = []): Check {
   return {
     id: "dead-control",
@@ -89,7 +74,7 @@ function probeCheck(seen: Seen[], envs: (PlanEnv | undefined)[] = []): Check {
   };
 }
 
-/** A fake access-control check whose one scenario needs the other account. */
+// A fake access-control check whose one scenario needs the other account.
 function otherAccountCheck(seen: Seen[]): Check {
   return {
     id: "access-control",
@@ -104,11 +89,7 @@ function otherAccountCheck(seen: Seen[]): Check {
   };
 }
 
-/**
- * A check that writes both passwords and the session value it can see into everything a check can write: step
- * labels, log lines, a card, a frame, a finding (every text field, a location, evidence data, a spec and its file
- * name) and the notes. As if the page echoed them back.
- */
+// A check that writes both passwords and the session value into every field a check can write, as if the page echoed them.
 function leakCheck(app: AccountsApp, saw: { session?: string }): Check {
   const pwA = app.users.alice.password;
   const pwB = app.users.bob.password;
@@ -156,14 +137,14 @@ function leakCheck(app: AccountsApp, saw: { session?: string }): Check {
   };
 }
 
-/** Emails of every POST /api/login the app received (in order). */
+// Emails of every POST /api/login the app received (in order).
 function logins(app: AccountsApp): string[] {
   return app.requests
     .filter((r) => r.method === "POST" && r.url === "/api/login")
     .map((r) => String((JSON.parse(r.body || "{}") as { email?: string }).email ?? ""));
 }
 
-/** Every session value (sid cookie or bearer token) the app received. */
+// Every session value (sid cookie or bearer token) the app received.
 function sessionValuesSent(app: AccountsApp): string[] {
   const out = new Set<string>();
   for (const r of app.requests) {
@@ -179,7 +160,7 @@ async function filesUnder(dir: string): Promise<string[]> {
   return entries.filter((e) => e.isFile()).map((e) => join(e.parentPath, e.name));
 }
 
-/** The error a promise rejected with, or null when it resolved. */
+// The error a promise rejected with, or null when it resolved.
 async function rejection(promise: Promise<unknown>): Promise<unknown> {
   return promise.then(
     () => null,
@@ -191,10 +172,7 @@ function withAccount(config: AccountsConfig, id: "a" | "b", patch: Partial<Accou
   return { ...config, accounts: { ...config.accounts, [id]: { ...config.accounts[id], ...patch } } };
 }
 
-/**
- * An app whose sessionStorage session is only good in the tab that signed in (window.name): a new context clears it and
- * goes back to the sign-in page, whatever it was seeded with (still unsupported in 0.6.0).
- */
+// An app whose sessionStorage session is only good in the tab that signed in (window.name): a new context clears it.
 const TAB_LOGIN = `<!doctype html><html lang="en"><head><title>Sign in</title></head><body><main><h1>Sign in</h1>
 <form id="f" aria-label="Sign in">
   <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username">

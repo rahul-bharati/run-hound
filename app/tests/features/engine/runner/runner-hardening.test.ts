@@ -1,35 +1,25 @@
-/**
- * Signed-in plans and runs on pages that are harder than the accounts app (round-2 review):
- * - a target that renders the sign-in form in place (no redirect) fails the plan like a redirect does, and when the
- *   sign-in page is on another host name (localhost vs 127.0.0.1) the message says why the session didn't carry over;
- *   a signed-in page with a password field that is not a sign-in form (change email) still plans;
- * - usernames reach no file of the run folder, however short and in whatever letter case the page shows them (report,
- *   evidence file names, spec file names and contents);
- * - the discovery session never reaches the plan (a link that carries the session value) or the report;
- * - a form that sets a password (change password) is never submitted on a signed-in run: its scenarios are
- *   destructive in the plan, and skipped at run time even with allowDestructive, with the reason.
- */
+// Signed-in plans/runs on pages harder than the accounts app: in-place sign-in, username leaks, change-password.
 import { randomBytes } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../test-support/server.js";
-import type { AccountsConfig } from "../interfaces/accounts.js";
-import { check as credentialFields } from "../checks/credential-fields.js";
-import { check as deepLinks } from "../checks/deep-links.js";
-import { check as pageControls } from "../checks/page-controls.js";
-import { check as persistence } from "../checks/persistence.js";
-import type { DiscoveredForm, DiscoveredPage, FormField } from "../core/types.js";
-import { buildPlan } from "./plan.js";
-import { discoverAndPlan, runPlan } from "./runner.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import type { AccountsConfig } from "../../../../src/interfaces/accounts.js";
+import { check as credentialFields } from "../../../../src/checks/credential-fields.js";
+import { check as deepLinks } from "../../../../src/checks/deep-links.js";
+import { check as pageControls } from "../../../../src/checks/page-controls.js";
+import { check as persistence } from "../../../../src/checks/persistence.js";
+import type { DiscoveredForm, DiscoveredPage, FormField } from "../../../../src/core/types.js";
+import { buildPlan } from "../../../../src/engine/plan.js";
+import { discoverAndPlan, runPlan } from "../../../../src/engine/runner.js";
 
 const USERNAME = "Alice";
 const PASSWORD = "fixture-pw-2468";
 
 let server: FixtureServer;
 let runsDir: string;
-/** Every session the app handed out. */
+// Every session the app handed out.
 const sessions = new Set<string>();
 const passwordChanges: string[] = [];
 
@@ -40,7 +30,7 @@ function sidOf(req: RecordedRequest): string | null {
   return m && sessions.has(m[1]!) ? m[1]! : null;
 }
 
-/** The sign-in form, as the login page and (signed out) the dashboard itself show it. */
+// The sign-in form, as the login page and (signed out) the dashboard itself show it.
 const SIGN_IN = `<main><h1>Sign in</h1><form id="signin" aria-label="Sign in">
 <label for="u">Username</label><input id="u" name="username" autocomplete="username">
 <label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password">

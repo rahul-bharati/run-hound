@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type LaunchOptions, type Page } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../test-support/server.js";
-import type { Check, CheckContext, CheckId, CheckResult, Plan, Report, Scenario } from "../core/types.js";
-import { discoverAndPlan, runPlan, type ProgressEvent } from "./runner.js";
+import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import type { Check, CheckContext, CheckId, CheckResult, Plan, Report, Scenario } from "../../../../src/core/types.js";
+import { discoverAndPlan, runPlan, type ProgressEvent } from "../../../../src/engine/runner.js";
 
-/** A form page that keeps repainting, so a screencast always has frames to send. */
+// A form page that keeps repainting, so a screencast always has frames to send.
 const FORM_PAGE = `<!doctype html><html lang="en"><head><title>Live fixture</title>
 <style>@keyframes spin { to { transform: rotate(360deg); } } .spinner { width: 40px; height: 40px; background: #F5B642; animation: spin 0.5s linear infinite; }</style>
 </head><body>
@@ -33,14 +33,10 @@ const pass = (checkId: CheckId, s: Scenario): CheckResult => ({ checkId, scenari
 
 let site: FixtureServer;
 let runsDir: string;
-/** Progress events of the current run when it is live, else null. */
+// Progress events of the current run when it is live, else null.
 let liveEvents: ProgressEvent[] | null = null;
 
-/**
- * Stays on `page` for 400 ms and, in a live run, until a frame of this page has reached the live view.
- * Frames arrive asynchronously (first paint, JPEG encoding, CDP), and on a busy machine the first frame of a
- * fresh page takes longer than any fixed pause: waiting for it keeps the frame test about behaviour, not timing.
- */
+// Stays on page for 400 ms and (live run) until one has reached the live view; frames arrive asynchronously.
 async function linger(page: Page, scenarioId: string) {
   await page.waitForTimeout(400);
   const events = liveEvents;
@@ -52,12 +48,7 @@ async function linger(page: Page, scenarioId: string) {
   }
 }
 
-/**
- * Two fake checks:
- *  - dead-control "dc:walk": steps without a page, opens /book, steps on it, navigates to /thanks, steps again.
- *  - silent-failure "sf:second": opens /book and steps once.
- * Each lingers on a repainting page (see linger()) so the screencast (when live) has time to deliver frames.
- */
+// Two fake checks (dc:walk, sf:second); each lingers on a repainting page so a live screencast gets frames.
 function liveChecks(): Check[] {
   return [
     {
@@ -97,7 +88,7 @@ type FrameEvent = Extract<ProgressEvent, { type: "frame" }>;
 
 const isIso = (at: string) => typeof at === "string" && !Number.isNaN(Date.parse(at)) && /^\d{4}-\d{2}-\d{2}T/.test(at);
 
-/** True when `wanted` appears in `seen` in the same order (other entries may sit between them). */
+// True when `wanted` appears in `seen` in the same order (other entries may sit between them).
 function inOrder(seen: string[], wanted: string[]): boolean {
   let i = 0;
   for (const s of seen) if (s === wanted[i]) i += 1;
@@ -240,7 +231,7 @@ describe("runPlan live progress", () => {
 });
 
 describe("runPlan headed mode", () => {
-  /** Spies on chromium.launch but always launches headless, so the test never opens a window. */
+  // Spies on chromium.launch but always launches headless, so the test never opens a window.
   function spyLaunch() {
     const original = chromium.launch.bind(chromium);
     return vi.spyOn(chromium, "launch").mockImplementation((options?: LaunchOptions) => original({ ...options, headless: true }));
