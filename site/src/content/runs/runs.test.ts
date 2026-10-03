@@ -644,7 +644,7 @@ describe("no secrets and no local paths", () => {
     const app = (file: string) => readFileSync(new URL(`app/src/${file}`, repo), "utf8");
     assert.ok(app("checks/lib/functional-form.ts").includes("`Fake-Passw0rd-${tag}!`"), "functional-form's fake password");
     assert.ok(app("checks/lib/a11y-form.ts").includes("`Rh-${token}-Passw0rd!`"), "a11y-form's canary password");
-    assert.match(app("engine/runner.ts"), /const runToken = randomBytes\(4\)\.toString\("hex"\)/);
+    assert.match(app("engine/runner/run-flow.ts"), /const runToken = randomBytes\(4\)\.toString\("hex"\)/);
     const fills = both().flatMap((extract) =>
       findingsOf(extract)
         .filter((f) => f.spec)

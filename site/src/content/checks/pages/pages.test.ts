@@ -4,7 +4,7 @@
 // number, a step or an evidence item. Reads ../app/src/checks (each check's source), so it runs in `pnpm test` on a
 // full checkout, never in the build.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 import { askPrompt, extractsText, featuredFinding, pageFinding } from "@/components/checks/run-evidence";
 import { builtInChecks } from "@/content/checks/data";
@@ -161,7 +161,12 @@ describe("the check pages that exist", () => {
 for (const page of checkPages) {
   describe(`/checks/${page.id}/`, () => {
     const check = builtIn(page.id);
-    const source = readFileSync(new URL(`${page.id}.ts`, appChecks), "utf8");
+    // A check's public module, plus its implementation folder when it has one (checks/<id>/).
+    const folder = new URL(`${page.id}/`, appChecks);
+    const source = [
+      readFileSync(new URL(`${page.id}.ts`, appChecks), "utf8"),
+      ...(existsSync(folder) ? readdirSync(folder).filter((f) => f.endsWith(".ts")).map((f) => readFileSync(new URL(f, folder), "utf8")) : []),
+    ].join("\n");
     const featured = featuredFinding(page.id);
 
     test("the meta description is 70 to 160 characters, and no other page's", () => {

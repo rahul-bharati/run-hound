@@ -1,0 +1,722 @@
+// csrf (0.5.0): each CSRF posture (SameSite=Lax/None, header/body token, Origin, JSON-only, JSON-any-type, array-shape read, upsert, no twin) drives a verdict from the forged post + re-read; failed re-read or no twin is inconclusive.
+import { createServer, type Server } from "node:http";
+import { mkdtemp, rm } from "node:fs/promises";
+import type { AddressInfo } from "node:net";
+import { networkInterfaces, tmpdir } from "node:os";
+import { join } from "node:path";
+import type { Browser } from "playwright";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { closeBrowser, getBrowser } from "../../../support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../support/server.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
+import type { SessionState } from "../../../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";
+import { discoverPage } from "../../../../src/engine/discover.js";
+import { crossSitePage } from "../../../../src/checks/lib/cross-site.js";
+import { check } from "../../../../src/checks/csrf.js";
+
+const A: AccountRef = { id: "a", label: "Account A" };
+/** Lowercase letters and digits, so canary values keep it verbatim; must not contain "csrf" (the forged marker suffix). */
+const RUN_TOKEN = "cf7e57a1";
+
+let browser: Browser;
+const servers: FixtureServer[] = [];
+const rawServers: Server[] = [];
+const contexts: RunningCheckContext[] = [];
+const dirs: string[] = [];
+
+beforeAll(async () => {
+  browser = await getBrowser();
+});
+afterEach(async () => {
+  await Promise.all(contexts.splice(0).map((c) => c.dispose()));
+  await Promise.all(servers.splice(0).map((s) => s.close()));
+  await Promise.all(rawServers.splice(0).map((s) => new Promise<void>((r) => s.close(() => r()))));
+  await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
+});
+afterAll(closeBrowser);
+
+/** A session cookie for `host` with the given SameSite (Secure for None, which Chromium accepts on http://localhost). */
+function session(host: string, sameSite: "Lax" | "Strict" | "None"): SessionState {
+  return {
+    cookies: [{ name: "sid", value: "a-session", domain: host, path: "/", expires: -1, httpOnly: true, secure: sameSite === "None", sameSite }],
+    origins: [],
+  };
+}
+
+const CSRF_TOKEN = "tok-server-rendered-per-session";
+
+interface TaskAppOptions {
+  /**
+   * How the save is defended, beyond needing the session cookie: a CSRF token in a custom header ("token") or in a
+   * hidden `_csrf` body field ("body-token"), an Origin check, a JSON-only body, or a JSON save the server parses
+   * whatever its content-type ("json-any-type", as `await req.json()` does).
+   */
+  defense?: "none" | "token" | "body-token" | "origin" | "json-only" | "json-any-type";
+  /** What the page reads the tasks with: `{ tasks: [...] }` (default), a bare array (Fernway's shape), or one task by id. */
+  list?: "object" | "array" | "one";
+  /** The JSON app's CORS reflects any Origin with credentials allowed (the preflight and the answer). */
+  cors?: boolean;
+  /** POST /api/tasks overwrites the one task there is (an upsert) instead of adding one. */
+  upsert?: boolean;
+  /** After creating a task, the page saves it again with PATCH /api/tasks/:id (as Fernway's Quick add does). */
+  patch?: boolean;
+  /** Once a write arrives from another origin, every read of the tasks answers 500 (the re-read fails). */
+  failReadAfterForge?: boolean;
+  /** Every task holds `updatedAt`, which the app sets itself on every save (a create, an upsert, a PATCH). */
+  stamp?: boolean;
+}
+
+type Task = { id: string; title: string; updatedAt?: string };
+
+// A task app: GET /app shows a "New task" form; the page loads the tasks and POSTs the form to /api/tasks. Every API call needs the session cookie; `o` picks the defense and the shapes (see TaskAppOptions).
+async function taskApp(o: TaskAppOptions = {}): Promise<FixtureServer & { tasks: Task[] }> {
+  const tasks: Task[] = [];
+  let saves = 0;
+  /** Moves `updatedAt` on a save when the app stamps its tasks (o.stamp). */
+  const stamped = (task: Task) => {
+    if (o.stamp) task.updatedAt = new Date(Date.UTC(2026, 8, 27, 12, 0, ++saves)).toISOString();
+    return task;
+  };
+  const defense = o.defense ?? "none";
+  const list = o.list ?? "object";
+  const json = defense === "json-only" || defense === "json-any-type";
+  let forged = false;
+  const signedIn = (cookie: string | undefined) => /(?:^|;\s*)sid=a-session\b/.test(cookie ?? "");
+  const script = json
+    ? `fetch('/api/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: t.value }) })`
+    : defense === "token"
+      ? `fetch('/api/tasks', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-csrf-token': ${JSON.stringify(CSRF_TOKEN)} }, body: new URLSearchParams({ title: t.value }).toString() })`
+      : `fetch('/api/tasks', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(new FormData(document.getElementById('new'))).toString() })`;
+  const then = o.patch
+    ? `.then(function (r) { return r.json(); }).then(function (d) { localStorage.setItem('last', d.task.id); return fetch('/api/tasks/' + d.task.id, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: d.task.title }) }); })`
+    : `.then(function (r) { return r.json(); }).then(function (d) { if (d.task) localStorage.setItem('last', d.task.id); })`;
+  const read =
+    list === "one"
+      ? `(localStorage.getItem('last') ? fetch('/api/tasks/' + localStorage.getItem('last')).then(function (r) { return r.ok ? r.json() : null; }).then(function (x) { return x ? [x] : []; }) : Promise.resolve([]))`
+      : `fetch('/api/tasks').then(function (r) { return r.ok ? r.json() : []; }).then(function (d) { return Array.isArray(d) ? d : d.tasks || []; })`;
+  const server = await startFixtureServer({
+    pages: {
+      "/app": `<!doctype html><html lang="en"><head><title>Tasks</title><meta name="csrf-token" content="${CSRF_TOKEN}"></head><body><main><h1>Tasks</h1>
+<form id="new" aria-label="New task">${defense === "body-token" ? `<input type="hidden" name="_csrf" value="${CSRF_TOKEN}">` : ""}<label for="t">Title</label><input id="t" name="title" required><button type="submit">Add task</button></form>
+<p role="status" id="status"></p><ul id="list"></ul></main>
+<script>
+var t = document.getElementById('t');
+function load() { ${read}.then(function (items) {
+  document.getElementById('list').innerHTML = items.map(function (x) { return '<li>' + String(x.title).replace(/</g, '&lt;') + '</li>'; }).join(''); }); }
+document.getElementById('new').addEventListener('submit', function (e) {
+  e.preventDefault();
+  ${script}${then}.then(function () { document.getElementById('status').textContent = 'Task added'; load(); });
+});
+load();
+</script></body></html>`,
+    },
+    routes: {
+      "GET /api/tasks": (req, res) => {
+        if (!signedIn(req.headers.cookie)) return end(res, 401, { error: "Sign in first" });
+        if (o.failReadAfterForge && forged) return end(res, 500, { error: "Down" });
+        return end(res, 200, list === "array" ? tasks : { tasks });
+      },
+      "POST /api/tasks": (req, res) => {
+        const cors: Record<string, string> =
+          o.cors && req.headers.origin ? { "access-control-allow-origin": String(req.headers.origin), "access-control-allow-credentials": "true" } : {};
+        const origin = String(req.headers.origin ?? "");
+        if (origin && origin !== `http://${req.headers.host}`) forged = true;
+        if (!signedIn(req.headers.cookie)) return end(res, 401, { error: "Sign in first" }, cors);
+        const ct = String(req.headers["content-type"] ?? "");
+        if (defense === "origin" && origin && origin !== `http://${req.headers.host}`) return end(res, 403, { error: "Bad origin" });
+        if (defense === "token" && req.headers["x-csrf-token"] !== CSRF_TOKEN) return end(res, 403, { error: "Bad CSRF token" });
+        let title: string | undefined;
+        if (json) {
+          if (defense === "json-only" && !ct.includes("application/json")) return end(res, 415, { error: "JSON only" }, cors);
+          try {
+            title = (JSON.parse(req.body) as { title?: string }).title;
+          } catch {
+            return end(res, 400, { error: "Bad JSON" }, cors);
+          }
+        } else {
+          if (!ct.includes("application/x-www-form-urlencoded")) return end(res, 415, { error: "Form only" });
+          const params = new URLSearchParams(req.body);
+          if (defense === "body-token" && params.get("_csrf") !== CSRF_TOKEN) return end(res, 403, { error: "Bad CSRF token" });
+          title = params.get("title") ?? undefined;
+        }
+        if (!title) return end(res, 400, { error: "Title required" }, cors);
+        const existing = o.upsert ? tasks[0] : undefined;
+        const task = stamped(existing ?? { id: `t${tasks.length + 1}`, title });
+        task.title = title;
+        if (!existing) tasks.push(task);
+        return end(res, 201, { task }, cors);
+      },
+      "OPTIONS /api/tasks": (req, res) => {
+        // Without `cors`, no CORS headers: a cross-site JSON request's preflight is never allowed.
+        res.writeHead(
+          204,
+          o.cors && req.headers.origin
+            ? {
+                "access-control-allow-origin": String(req.headers.origin),
+                "access-control-allow-credentials": "true",
+                "access-control-allow-methods": "POST",
+                "access-control-allow-headers": "content-type",
+              }
+            : {},
+        );
+        res.end();
+      },
+      "GET /favicon.ico": (_req, res) => {
+        res.writeHead(204);
+        res.end();
+      },
+    },
+    // GET and PATCH /api/tasks/:id.
+    fallback: (req, res) => {
+      const m = /^\/api\/tasks\/([^/?]+)/.exec(req.url);
+      if (!m) return end(res, 404, { error: "Not found" });
+      if (!signedIn(req.headers.cookie)) return end(res, 401, { error: "Sign in first" });
+      const task = tasks.find((x) => x.id === m[1]);
+      if (!task) return end(res, 404, { error: "Not found" });
+      if (req.method === "GET") return o.failReadAfterForge && forged ? end(res, 500, { error: "Down" }) : end(res, 200, task);
+      if (req.method === "PATCH") {
+        const body = JSON.parse(req.body || "{}") as { title?: string };
+        if (body.title) task.title = body.title;
+        return end(res, 200, stamped(task));
+      }
+      return end(res, 405, { error: "No" });
+    },
+  });
+  servers.push(server);
+  return Object.assign(server, { tasks });
+}
+
+function end(res: import("node:http").ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
+  res.writeHead(status, { "content-type": "application/json", ...headers });
+  res.end(JSON.stringify(body));
+}
+
+async function discover(url: string, state: SessionState): Promise<DiscoveredPage> {
+  const context = await browser.newContext({ storageState: state });
+  try {
+    const page = await context.newPage();
+    await page.goto(url);
+    await page.getByRole("heading", { level: 1, name: "Tasks" }).waitFor();
+    await page.waitForLoadState("networkidle");
+    return await discoverPage(page);
+  } finally {
+    await context.close();
+  }
+}
+
+/** The scenario as the check plans it for the page's form, signed in, with the scope the planner adds. */
+function scenarioFor(page: DiscoveredPage): Scenario {
+  const form = page.forms[0]!;
+  const planned = check.plan(form, page, { signedIn: true, otherAccount: false })[0];
+  if (!planned) throw new Error("csrf planned no scenario for this form");
+  return { ...planned, scope: "form", formIndex: 0 };
+}
+
+async function run(o: { targetUrl: string; page: DiscoveredPage; self: SessionState; allowedHosts?: string[] }): Promise<CheckResult> {
+  const form = o.page.forms[0]!;
+  const dir = await mkdtemp(join(tmpdir(), "rh-csrf-"));
+  dirs.push(dir);
+  const ctx = createCheckContext({
+    browser,
+    form,
+    discoveredPage: o.page,
+    targetUrl: o.targetUrl,
+    artifactsDir: dir,
+    runToken: RUN_TOKEN,
+    checkId: "csrf",
+    sessions: { self: o.self },
+    accounts: { self: A, other: null },
+    markers: [],
+    ...(o.allowedHosts ? { allowedHosts: o.allowedHosts } : {}),
+  });
+  contexts.push(ctx);
+  return check.run(ctx, scenarioFor(o.page));
+}
+
+// Runs the check against a task app, reached on 127.0.0.1 (so the cross-site twin is localhost) or, with `host: "localhost"`, on localhost (the twin is 127.0.0.1, Fernway's direction).
+async function runApp(server: FixtureServer, sameSite: "Lax" | "Strict" | "None", host: "127.0.0.1" | "localhost" = "127.0.0.1"): Promise<CheckResult> {
+  const base = server.url.replace("127.0.0.1", host);
+  const self = session(host, sameSite);
+  const page = await discover(`${base}/app`, self);
+  server.requests.length = 0;
+  return run({ targetUrl: `${base}/app`, page, self });
+}
+
+/** The forged POSTs the server got: those whose body carries the forged marker (the run token followed by "csrf"). */
+function forgedPosts(server: FixtureServer) {
+  return server.requests.filter((r) => r.method === "POST" && r.url === "/api/tasks" && /cf7e57a1csrf/i.test(decodeURIComponent(r.body.replace(/\+/g, " "))));
+}
+
+const hasSession = (r: { headers: Record<string, unknown> }) => /(?:^|;\s*)sid=/.test(String(r.headers.cookie ?? ""));
+
+describe("csrf: the cross-site page and its verdict", () => {
+  it("passes when the session cookie is SameSite=Lax: the browser doesn't send it cross-site", async () => {
+    const server = await taskApp();
+    const result = await runApp(server, "Lax");
+    expect(result.findings).toEqual([]);
+    expect(result.status).toBe("pass");
+    expect(result.notes).toMatch(/could not change Account A's data/);
+    // The forge really ran, and reached the server without the session cookie (so a broken forge can't pass).
+    const forged = forgedPosts(server);
+    expect(forged.length).toBeGreaterThan(0);
+    expect(forged.some(hasSession)).toBe(false);
+    expect(result.notes).not.toMatch(/check Account A/);
+  }, 60_000);
+
+  it("finds it when the cookie is SameSite=None and the save takes a cross-site form post with no token or Origin check", async () => {
+    const server = await taskApp({ defense: "none" });
+    const result = await runApp(server, "None");
+    expect(result.status).toBe("fail");
+    expect(result.findings).toHaveLength(1);
+    const f = result.findings[0]!;
+    expect(f.checkId).toBe("csrf");
+    expect(f.severity).toBe("high");
+    expect(f.confidence).toBe("confirmed");
+    expect(f.title).toMatch(/another site can change Account A's data/);
+    // The reason comes from the cookies the forged request really carried.
+    expect(f.meaning).toMatch(/sid \(SameSite=None\)/);
+    const forged = forgedPosts(server);
+    expect(forged.length).toBeGreaterThan(0);
+    expect(forged.every(hasSession)).toBe(true);
+    // The forged create made a new test record: named, with "check Account A".
+    expect(result.notes).toMatch(/created a new test record[\s\S]*check Account A/);
+    // No cookie value or session secret leaks into the result.
+    expect(JSON.stringify(result)).not.toContain("a-session");
+    // The exported spec signs in from env vars, serves a real page on the other site, and holds no run value.
+    const spec = f.spec!.source;
+    expect(spec).toMatch(/RUNHOUND_ACCOUNT_A_PASSWORD/);
+    expect(spec).toMatch(/createServer/);
+    expect(spec).not.toMatch(/route\.fulfill|storageState: "|cf7e57a1|new-value/);
+    expect(spec).toContain('const RECORD = "/api/tasks"');
+    // A cookie session: a failed re-read means Account A isn't signed in, and the spec says so.
+    expect(spec).toContain('expect(reread.ok, "the re-read as Account A failed: sign in as Account A so the record can be read")');
+    expect(spec).not.toMatch(/add what the comment above says/);
+  }, 60_000);
+
+  it("finds it on a localhost target (the attacker page on 127.0.0.1), Fernway's direction", async () => {
+    const server = await taskApp({ defense: "none" });
+    const result = await runApp(server, "None", "localhost");
+    expect(result.status).toBe("fail");
+    expect(result.findings[0]?.confidence).toBe("confirmed");
+    expect(result.notes).toMatch(/http:\/\/127\.0\.0\.1:\d+/);
+  }, 60_000);
+
+  it("finds it when the record endpoint answers a bare array (Fernway's GET /api/tasks)", async () => {
+    const server = await taskApp({ defense: "none", list: "array" });
+    const result = await runApp(server, "None");
+    expect(result.status).toBe("fail");
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]!.confidence).toBe("confirmed");
+  }, 60_000);
+
+  it("passes when a CSRF token in a custom header is required: a cross-site form post can't add it", async () => {
+    const server = await taskApp({ defense: "token" });
+    const result = await runApp(server, "None");
+    expect(result.findings).toEqual([]);
+    expect(result.status).toBe("pass");
+  }, 60_000);
+
+  it("passes when a CSRF token in a hidden body field is required: the forged body never carries Account A's token", async () => {
+    const server = await taskApp({ defense: "body-token" });
+    const result = await runApp(server, "None");
+    expect(result.findings).toEqual([]);
+    expect(result.status).toBe("pass");
+    expect(result.notes).toMatch(/left out _csrf/);
+    const forged = forgedPosts(server);
+    expect(forged.length).toBeGreaterThan(0);
+    for (const r of forged) {
+      expect(new URLSearchParams(r.body).has("_csrf")).toBe(false);
+      expect(r.body).not.toContain(CSRF_TOKEN);
+    }
+  }, 60_000);
+
+  it("passes when the server checks the Origin header: the attacker origin is rejected", async () => {
+    const server = await taskApp({ defense: "origin" });
+    const result = await runApp(server, "None");
+    expect(result.findings).toEqual([]);
+    expect(result.status).toBe("pass");
+  }, 60_000);
+
+  it("passes with 'needs a preflight' when the save is JSON only (and CORS doesn't allow the other site)", async () => {
+    const server = await taskApp({ defense: "json-only" });
+    const result = await runApp(server, "None");
+    expect(result.findings).toEqual([]);
+    expect(result.status).toBe("pass");
+    expect(result.notes).toMatch(/preflight/i);
+    // The text/plain attempt sent the JSON payload, not a form body.
+    const text = server.requests.filter((r) => r.method === "POST" && String(r.headers["content-type"]).startsWith("text/plain"));
+    expect(text.length).toBeGreaterThan(0);
+    for (const r of text) expect(JSON.parse(r.body)).toMatchObject({ title: expect.stringMatching(/cf7e57a1csrf/) });
+  }, 60_000);
+
+  it("finds it when a JSON save is taken whatever its content-type: the JSON payload sent as text/plain", async () => {
+    const server = await taskApp({ defense: "json-any-type" });
+    const result = await runApp(server, "None");
+    expect(result.status).toBe("fail");
+    expect(result.findings).toHaveLength(1);
+    expect(result.notes).toMatch(/JSON sent as text\/plain/);
+    // The stored text/plain forge carried the session cookie (the app refuses a request without it): its answer is seen,
+    // so the finding names that cookie, never "the save needs no session".
+    expect(result.findings[0]!.title).toBe("A page on another site can change Account A's data (no CSRF protection)");
+    expect(result.findings[0]!.meaning).toMatch(/sid \(SameSite=None\)/);
+  }, 60_000);
+
+  it("finds it, noted as a CORS issue, when the JSON save's CORS reflects the other site with credentials", async () => {
+    const server = await taskApp({ defense: "json-only", cors: true });
+    const result = await runApp(server, "None");
+    expect(result.status).toBe("fail");
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]!.meaning).toMatch(/\bcors\b/i);
+    // The preflight was a real one, answered by the app's own server.
+    expect(server.requests.some((r) => r.method === "OPTIONS" && r.headers.origin)).toBe(true);
+  }, 60_000);
+
+  it("is inconclusive, never a pass, when the re-read as Account A fails after the forge", async () => {
+    const server = await taskApp({ defense: "origin", failReadAfterForge: true });
+    const result = await runApp(server, "None");
+    expect(result.status).toBe("skipped");
+    expect(result.findings).toEqual([]);
+    expect(result.notes).toMatch(/^Inconclusive: the re-read as Account A failed[\s\S]*check Account A/);
+  }, 60_000);
+
+  it("is inconclusive when the app takes the forge (2xx) but the record endpoint reads only the test record", async () => {
+    const server = await taskApp({ defense: "none", list: "one" });
+    const result = await runApp(server, "None");
+    expect(server.tasks.some((t) => /cf7e57a1csrf/.test(t.title))).toBe(true);
+    expect(result.status).toBe("skipped");
+    expect(result.findings).toEqual([]);
+    expect(result.notes).toMatch(/Inconclusive[\s\S]*created a new one: check Account A/);
+  }, 60_000);
+
+  it("puts a changed test record back only through the app's own update for its id, never by replaying the create", async () => {
+    const server = await taskApp({ defense: "none", upsert: true, patch: true });
+    const result = await runApp(server, "None", "localhost");
+    expect(result.status).toBe("fail");
+    expect(result.notes).toMatch(/Restored title/);
+    expect(server.tasks).toHaveLength(1);
+    expect(server.tasks[0]!.title).not.toMatch(/cf7e57a1csrf/);
+    // After the forge, only the app's PATCH was sent to put it back; no second create.
+    const afterForge = server.requests.slice(server.requests.findIndex((r) => forgedPosts(server).includes(r)) + 1);
+    expect(afterForge.filter((r) => r.method === "POST" && !forgedPosts(server).includes(r))).toEqual([]);
+    expect(afterForge.some((r) => r.method === "PATCH")).toBe(true);
+  }, 60_000);
+
+  it("names updatedAt, which the app moves again on the put-back, as set by the app itself, never as could not be undone", async () => {
+    const server = await taskApp({ defense: "none", upsert: true, patch: true, stamp: true });
+    const result = await runApp(server, "None", "localhost");
+    expect(result.status).toBe("fail");
+    expect(result.notes).toMatch(/Restored title/);
+    expect(server.tasks[0]!.title).not.toMatch(/cf7e57a1csrf/);
+    expect(result.notes).not.toMatch(/Could not be undone/);
+    expect(result.notes).toContain("back to its values except updatedAt, which the app sets itself");
+  }, 60_000);
+
+  it("puts a changed test record back on a 127.0.0.1 target too, where only Account A's browser sends its Secure cookie", async () => {
+    // A SameSite=None cookie is Secure. Over http, Playwright's request context sends a Secure cookie only to localhost,
+    // never to 127.0.0.1, so a put-back through it fails there; through Account A's own page it works.
+    const server = await taskApp({ defense: "none", upsert: true, patch: true });
+    const result = await runApp(server, "None", "127.0.0.1");
+    expect(result.status).toBe("fail");
+    expect(result.notes).toMatch(/Restored title/);
+    expect(result.notes).not.toMatch(/Could not be undone/);
+    expect(server.tasks).toHaveLength(1);
+    expect(server.tasks[0]!.title).not.toMatch(/cf7e57a1csrf/);
+  }, 60_000);
+
+  it("says a changed test record could not be undone when the app sent no update for it", async () => {
+    const server = await taskApp({ defense: "none", upsert: true });
+    const result = await runApp(server, "None", "localhost");
+    expect(result.status).toBe("fail");
+    expect(result.notes).toMatch(/Could not be undone[\s\S]*check Account A/);
+    // Nothing but forged requests was sent after the first forge: no create replayed as a "restore".
+    const afterForge = server.requests.slice(server.requests.findIndex((r) => forgedPosts(server).includes(r)) + 1);
+    expect(afterForge.filter((r) => r.method !== "GET" && r.method !== "OPTIONS" && !forgedPosts(server).includes(r))).toEqual([]);
+  }, 60_000);
+});
+
+// A's own t1 ("Groceries") is there before the run; the page lists A's tasks (GET /api/tasks) and the form changes t1, never creates one: "rename" POSTs {title} as JSON to /api/tasks/t1, "today" POSTs {title} to /api/today (URL/body name no record); with `resave` the page then PATCHes t1 again. Server takes JSON whatever its content-type (as `await req.json()` does).
+async function editApp(form: "rename" | "today", o: { resave?: boolean } = {}): Promise<FixtureServer & { tasks: Task[]; titles: string[] }> {
+  const tasks: Task[] = [{ id: "t1", title: "Groceries" }];
+  /** Every title t1 was ever given, in order. */
+  const titles: string[] = [];
+  const signedIn = (cookie: string | undefined) => /(?:^|;\s*)sid=a-session\b/.test(cookie ?? "");
+  const titleOf = (body: string) => {
+    try {
+      const title = (JSON.parse(body) as { title?: unknown }).title;
+      return typeof title === "string" && title.trim() ? title : null;
+    } catch {
+      return null;
+    }
+  };
+  const setTitle = (title: string) => {
+    tasks[0]!.title = title;
+    titles.push(title);
+  };
+  const save =
+    form === "rename"
+      ? `fetch('/api/tasks/t1', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: t.value }) })`
+      : `fetch('/api/today', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: t.value }) })`;
+  const resave = o.resave
+    ? `.then(function () { return fetch('/api/tasks/t1', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: t.value }) }); })`
+    : "";
+  const server = await startFixtureServer({
+    pages: {
+      "/app": `<!doctype html><html lang="en"><head><title>Tasks</title></head><body><main><h1>Tasks</h1>
+<form id="edit" aria-label="${form === "rename" ? "Rename task" : "Today's focus"}"><label for="t">Title</label><input id="t" name="title" required><button type="submit">Save</button></form>
+<ul id="list"></ul></main>
+<script>
+var t = document.getElementById('t');
+function load() { fetch('/api/tasks').then(function (r) { return r.ok ? r.json() : { tasks: [] }; }).then(function (d) {
+  document.getElementById('list').innerHTML = d.tasks.map(function (x) { return '<li>' + String(x.title).replace(/</g, '&lt;') + '</li>'; }).join(''); }); }
+document.getElementById('edit').addEventListener('submit', function (e) { e.preventDefault(); ${save}${resave}.then(load); });
+load();
+</script></body></html>`,
+    },
+    routes: {
+      "GET /api/tasks": (req, res) => (signedIn(req.headers.cookie) ? end(res, 200, { tasks }) : end(res, 401, { error: "Sign in first" })),
+      "POST /api/today": (req, res) => {
+        if (!signedIn(req.headers.cookie)) return end(res, 401, { error: "Sign in first" });
+        const title = titleOf(req.body);
+        if (!title) return end(res, 400, { error: "Title required" });
+        setTitle(title);
+        return end(res, 200, { ok: true });
+      },
+      "GET /favicon.ico": (_req, res) => {
+        res.writeHead(204);
+        res.end();
+      },
+    },
+    // GET, POST and PATCH /api/tasks/t1: a POST or PATCH renames it, whatever the body's content-type.
+    fallback: (req, res) => {
+      if (!/^\/api\/tasks\/t1$/.test(new URL(req.url, "http://x").pathname)) return end(res, 404, { error: "Not found" });
+      if (!signedIn(req.headers.cookie)) return end(res, 401, { error: "Sign in first" });
+      if (req.method === "GET") return end(res, 200, tasks[0]);
+      if (req.method !== "POST" && req.method !== "PATCH") return end(res, 405, { error: "No" });
+      const title = titleOf(req.body);
+      if (!title) return end(res, 400, { error: "Title required" });
+      setTitle(title);
+      return end(res, 200, tasks[0]);
+    },
+  });
+  servers.push(server);
+  return Object.assign(server, { tasks, titles });
+}
+
+/** Requests the app got from a page on another site (an Origin header that isn't the app's own). */
+const fromOtherSite = (server: FixtureServer) =>
+  server.requests.filter((r) => r.headers.origin !== undefined && r.headers.origin !== `http://${String(r.headers.host)}`);
+/** Every write the app got for Account A's own t1. */
+const writesToT1 = (server: FixtureServer) => server.requests.filter((r) => !["GET", "HEAD", "OPTIONS"].includes(r.method) && /^\/api\/tasks\/t1$/.test(new URL(r.url, "http://x").pathname));
+
+describe("csrf: a record Account A already had", () => {
+  it.each(["None", "Lax"] as const)(
+    "never forges a write to it, nor lets the form's own save reach it (cookie SameSite=%s): skipped with the reason",
+    async (sameSite) => {
+      const server = await editApp("rename");
+      const result = await runApp(server, sameSite);
+      expect(result.findings).toEqual([]);
+      expect(result.status, result.notes).toBe("skipped");
+      expect(result.notes).toMatch(/changes a record Account A already had/);
+      expect(result.notes).toMatch(/stopped the form's save \(POST \/api\/tasks\/t1\) before it reached the app/);
+      // Nothing reached t1: not a forge from another site, not Account A's own form save.
+      expect(fromOtherSite(server)).toEqual([]);
+      expect(writesToT1(server).map((r) => `${r.method} ${r.url}`)).toEqual([]);
+      expect(server.titles.some((title) => /cf7e57a1csrf/.test(title))).toBe(false);
+      expect(server.tasks[0]).toEqual({ id: "t1", title: "Groceries" });
+    },
+    60_000,
+  );
+
+  it("skips, before any forge, a form whose own save turned out to change it, and puts it back through the app's own update", async () => {
+    const server = await editApp("today", { resave: true });
+    const result = await runApp(server, "None");
+    expect(result.findings).toEqual([]);
+    expect(result.status, result.notes).toBe("skipped");
+    expect(result.notes).toMatch(/changes a record Account A already had/);
+    expect(result.notes).toMatch(/POST \/api\/today/);
+    expect(result.notes).toMatch(/put back title/i);
+    expect(result.notes).not.toMatch(/nothing was (changed|written|sent)|stopped the form's save/i);
+    expect(fromOtherSite(server)).toEqual([]);
+    expect(server.titles.some((title) => /cf7e57a1csrf/.test(title))).toBe(false);
+    expect(server.tasks[0]).toEqual({ id: "t1", title: "Groceries" });
+  }, 60_000);
+
+  it("says it could not be undone, naming the form's own save, when there is no update to put it back with", async () => {
+    const server = await editApp("today");
+    const result = await runApp(server, "None");
+    expect(result.findings).toEqual([]);
+    expect(result.status, result.notes).toBe("skipped");
+    expect(result.notes).toMatch(/changes a record Account A already had/);
+    expect(result.notes).toMatch(/Could not be undone: the form's own save \(POST \/api\/today\) changed title of that record[\s\S]*check Account A/);
+    expect(fromOtherSite(server)).toEqual([]);
+    expect(server.titles.some((title) => /cf7e57a1csrf/.test(title))).toBe(false);
+  }, 60_000);
+});
+
+// A's own t1 ("Groceries") is there; the form renames it under a key other than id (0.6.0 round 1): list keyed `taskId` (DynamoDB-style) and save POSTs taskId=t1 form-encoded to /api/tasks/rename ("keyed"), or list keyed `id` and save names t1 as {taskId} in JSON ("body"), as ?taskId=t1 ("query"), or as task_id=t1 ("form"). SameSite=None cookie, no CSRF defence.
+async function renameApp(where: "keyed" | "body" | "query" | "form"): Promise<FixtureServer & { tasks: Record<string, string>[]; titles: string[] }> {
+  const key = where === "keyed" ? "taskId" : "id";
+  const tasks: Record<string, string>[] = [{ [key]: "t1", title: "Groceries" }];
+  const titles: string[] = [];
+  const signedIn = (cookie: string | undefined) => /(?:^|;\s*)sid=a-session\b/.test(cookie ?? "");
+  const send =
+    where === "keyed"
+      ? `fetch('/api/tasks/rename', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ taskId: 't1', title: t.value }).toString() })`
+      : where === "body"
+        ? `fetch('/api/tasks/rename', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ taskId: 't1', title: t.value }) })`
+        : where === "query"
+          ? `fetch('/api/tasks/rename?taskId=t1', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title: t.value }) })`
+          : `fetch('/api/tasks/rename', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ task_id: 't1', title: t.value }).toString() })`;
+  const server = await startFixtureServer({
+    pages: {
+      "/app": `<!doctype html><html lang="en"><head><title>Tasks</title></head><body><main><h1>Tasks</h1>
+<form id="edit" aria-label="Rename top task"><label for="t">Title</label><input id="t" name="title" required><button type="submit">Save</button></form>
+<ul id="list"></ul></main>
+<script>
+var t = document.getElementById('t');
+function load() { fetch('/api/tasks').then(function (r) { return r.ok ? r.json() : { tasks: [] }; }).then(function (d) {
+  document.getElementById('list').innerHTML = d.tasks.map(function (x) { return '<li>' + String(x.title).replace(/</g, '&lt;') + '</li>'; }).join(''); }); }
+document.getElementById('edit').addEventListener('submit', function (e) { e.preventDefault(); ${send}.then(load); });
+load();
+</script></body></html>`,
+    },
+    routes: {
+      "GET /api/tasks": (req, res) => (signedIn(req.headers.cookie) ? end(res, 200, { tasks }) : end(res, 401, { error: "Sign in first" })),
+      // Renames the task the query or body names, whatever the body's content-type.
+      "POST /api/tasks/rename": (req, res) => {
+        if (!signedIn(req.headers.cookie)) return end(res, 401, { error: "Sign in first" });
+        let fields: Record<string, unknown>;
+        try {
+          fields = JSON.parse(req.body) as Record<string, unknown>;
+        } catch {
+          fields = Object.fromEntries(new URLSearchParams(req.body));
+        }
+        const id = new URL(req.url, "http://x").searchParams.get("taskId") ?? fields.taskId ?? fields.task_id;
+        const task = tasks.find((x) => x[key] === id);
+        const title = fields.title;
+        if (!task || typeof title !== "string" || !title) return end(res, 400, { error: "Bad request" });
+        task.title = title;
+        titles.push(title);
+        return end(res, 200, { task });
+      },
+      "GET /favicon.ico": (_req, res) => {
+        res.writeHead(204);
+        res.end();
+      },
+    },
+  });
+  servers.push(server);
+  return Object.assign(server, { tasks, titles });
+}
+
+describe("csrf: a record Account A already had, named under a key other than id", () => {
+  it.each(["keyed", "body", "query", "form"] as const)(
+    "never lets the form's own save reach it, nor forges a write at it (%s): skipped with the reason",
+    async (where) => {
+      const server = await renameApp(where);
+      const result = await runApp(server, "None");
+      expect(result.findings).toEqual([]);
+      expect(result.status, result.notes).toBe("skipped");
+      expect(result.notes).toMatch(/changes a record Account A already had/);
+      expect(result.notes).toMatch(/stopped the form's save \(POST \/api\/tasks\/rename(\?taskId=t1)?\) before it reached the app/);
+      expect(fromOtherSite(server)).toEqual([]);
+      expect(server.titles).toEqual([]);
+      expect(server.tasks[0]!.title).toBe("Groceries");
+      expect(result.notes).not.toMatch(/test record/);
+    },
+    60_000,
+  );
+});
+
+describe("csrf: the cross-site origin", () => {
+  it("is always plain http, also for an https target, so the attacker page loads", async () => {
+    const context = await browser.newContext();
+    const stub = {
+      targetUrl: "https://localhost:9/app",
+      openPage: async () => ({ context, page: await context.newPage() }),
+      step: () => undefined,
+    } as unknown as import("../../../../src/core/types.js").CheckContext;
+    try {
+      const out = await crossSitePage(stub, "https://localhost:9/app");
+      if ("inconclusive" in out) throw new Error(out.inconclusive);
+      expect(out.origin).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+      await out.dispose();
+    } finally {
+      await context.close();
+    }
+  }, 30_000);
+});
+
+describe("csrf: no cross-site origin can be set up", () => {
+  it("crossSitePage maps localhost <-> 127.0.0.1 and refuses hosts with no twin", async () => {
+    // Host logic only: openPage is never reached for the inconclusive branch (it returns before opening a page).
+    const stub = { targetUrl: "http://10.1.2.3:8080/app" } as unknown as import("../../../../src/core/types.js").CheckContext;
+    const out = await crossSitePage(stub, "http://10.1.2.3:8080/app");
+    expect("inconclusive" in out).toBe(true);
+    if ("inconclusive" in out) expect(out.inconclusive).toMatch(/no cross-site twin|can't be tested/);
+  });
+
+  it("reports inconclusive (never confirmed or pass) when the target host has no cross-site twin", async () => {
+    // A non-loopback address (bound on 0.0.0.0) reaches the app but has no localhost/127.0.0.1 twin, so no cross-site
+    // origin can be set up. The whole check runs (it creates the record) and then reports inconclusive, not a finding.
+    const lan = Object.values(networkInterfaces())
+      .flat()
+      .find((n) => n && n.family === "IPv4" && !n.internal)?.address;
+    if (!lan) return; // no non-loopback interface in this environment; the unit test above still covers the branch.
+    const server = await rawTaskServer("0.0.0.0");
+    const target = `http://${lan}:${server.port}/app`;
+    // A non-Secure cookie: an http address that isn't loopback is not a secure context, so the browser won't send a
+    // Secure (SameSite=None) cookie there. SameSite doesn't matter here: the check reports inconclusive before forging.
+    const self = session(lan, "Lax");
+    let page: DiscoveredPage;
+    try {
+      page = await discover(target, self);
+    } catch {
+      return; // the browser can't route to the address here; the unit test above still covers the branch.
+    }
+    const result = await run({ targetUrl: target, page, self, allowedHosts: [lan] });
+    expect(result.status).not.toBe("fail");
+    expect(result.status).not.toBe("pass");
+    expect(result.findings).toEqual([]);
+    expect(result.notes).toMatch(/[Ii]nconclusive/);
+  }, 60_000);
+});
+
+/** A task app on a raw HTTP server bound to `host` (so it can be reached at a non-loopback address for the twin test). */
+async function rawTaskServer(host: string): Promise<{ port: number }> {
+  const tasks: { id: string; title: string }[] = [];
+  const signedIn = (c?: string) => /(?:^|;\s*)sid=a-session\b/.test(c ?? "");
+  const server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const path = new URL(req.url ?? "/", "http://x").pathname;
+      if (req.method === "GET" && path === "/app") {
+        res.writeHead(200, { "content-type": "text/html" });
+        return res.end(`<!doctype html><html lang="en"><head><title>Tasks</title></head><body><main><h1>Tasks</h1>
+<form id="new" aria-label="New task"><label for="t">Title</label><input id="t" name="title" required><button type="submit">Add task</button></form>
+<ul id="list"></ul></main><script>
+var t=document.getElementById('t');
+function load(){fetch('/api/tasks').then(function(r){return r.ok?r.json():{tasks:[]};}).then(function(d){document.getElementById('list').innerHTML=(d.tasks||[]).map(function(x){return '<li>'+String(x.title)+'</li>';}).join('');});}
+document.getElementById('new').addEventListener('submit',function(e){e.preventDefault();fetch('/api/tasks',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({title:t.value}).toString()}).then(function(){load();});});
+load();
+</script></body></html>`);
+      }
+      if (path === "/api/tasks") {
+        if (!signedIn(req.headers.cookie)) return end(res, 401, { error: "Sign in first" });
+        if (req.method === "GET") return end(res, 200, { tasks });
+        if (req.method === "POST") {
+          const title = new URLSearchParams(body).get("title") ?? "";
+          if (title) tasks.push({ id: `t${tasks.length + 1}`, title });
+          return end(res, 201, { ok: true });
+        }
+      }
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("not found");
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, host, resolve));
+  rawServers.push(server);
+  return { port: (server.address() as AddressInfo).port };
+}

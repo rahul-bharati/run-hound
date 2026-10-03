@@ -1,0 +1,482 @@
+/**
+ * In-memory run state plus the finished runs on disk (runsDir/<id>/report.json). diskSummaries caches parsed summaries
+ * keyed by the file's mtime + size so the runs list parses each report at most once per change. startRun owns the
+ * long-running runPlan call; finishRun / failRun update the state once the promise settles.
+ */
+import { readFileSync } from "node:fs";
+import { readFile, readdir, stat } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import {
+  CHECK_GROUPS,
+  type Check,
+  type CheckGroup,
+  type Plan,
+  type Report,
+} from "../../core/types.js";
+import { cleanErrorMessage } from "../../engine/errors.js";
+import { redactSecrets } from "../../engine/redact.js";
+import { newRunId, runPlan, STOPPED_NOTE } from "../../engine/runner.js";
+import type { ProgressEvent } from "../../engine/runner.js";
+import type { AccountsConfig } from "../../interfaces/accounts.js";
+import type { AiSession } from "../../ai/session.js";
+import { usernameHider, planAccount, hideInJson, registerPasswords } from "../accounts.js";
+import type {
+  DiskSummaryEntry,
+  LiveState,
+  RunState,
+  RunSummary,
+} from "../state/server-internal-types.js";
+import { LIVE_STEPS, MAX_RUNS } from "../../config/server.js";
+import { REDACTED, RUN_ID } from "../../constants/server-constants.js";
+
+/** Options the runs model needs from the surrounding app (passed through createApp's options). */
+export interface RunsModelOptions {
+  runsDir: string;
+  maxConcurrentRuns: number;
+  allowedHosts?: string[];
+  /** Checks (passed to runPlan). */
+  checks?: Check[];
+}
+
+/** A plan with secrets redacted (its target URL may carry a token). */
+function redactPlan(plan: Plan): Plan {
+  return JSON.parse(redactSecrets(JSON.stringify(plan))) as Plan;
+}
+
+/** What a run tested, for the runs list: the form's name (V0, or a V1 page with one named form), "2 forms" on a page
+ * with several, or null. Redacted. */
+function subjectOf(plan: Plan): string | null {
+  const forms = plan.page?.forms;
+  if (forms && forms.length > 1)
+    return `${forms.length} forms${forms[0]!.name ? `, including "${redactSecrets(forms[0]!.name)}"` : ""}`;
+  return plan.form?.name ? redactSecrets(plan.form.name) : null;
+}
+
+function newLiveState(scenarios: LiveState["scenarios"] = []): LiveState {
+  return {
+    scenarioId: null,
+    scenarioTitle: null,
+    scenarioIndex: 0,
+    group: null,
+    groupLabel: null,
+    step: null,
+    url: null,
+    frameSeq: 0,
+    updatedAt: new Date().toISOString(),
+    steps: [],
+    pagesVisited: [],
+    finished: [],
+    scenarios,
+    browser: null,
+  };
+}
+
+const groupLabel = (id: CheckGroup): string =>
+  CHECK_GROUPS.find((g) => g.id === id)?.label ?? id;
+
+/** The approved scenarios in the order the runner takes them: group by group (plan.groups), then any left over. */
+function runOrder(plan: Plan, approved: Set<string>): LiveState["scenarios"] {
+  const byId = new Map(plan.scenarios.map((s) => [s.id, s]));
+  const out: LiveState["scenarios"] = [];
+  const seen = new Set<string>();
+  for (const g of plan.groups ?? []) {
+    for (const id of g.scenarioIds) {
+      const s = byId.get(id);
+      if (!s || !approved.has(id) || seen.has(id)) continue;
+      seen.add(id);
+      out.push({ id, title: s.title, group: g.id, groupLabel: g.label });
+    }
+  }
+  for (const s of plan.scenarios) {
+    if (approved.has(s.id) && !seen.has(s.id))
+      out.push({ id: s.id, title: s.title, group: null, groupLabel: null });
+  }
+  return out;
+}
+
+/** Folds one runner progress event into the live state. URLs and labels arrive already redacted by the engine. */
+function applyProgress(live: LiveState, plan: Plan, e: ProgressEvent): void {
+  live.updatedAt = new Date().toISOString();
+  switch (e.type) {
+    case "group-start":
+      live.group = e.group;
+      live.groupLabel = e.label;
+      break;
+    case "scenario-start":
+      live.scenarioId = e.scenarioId;
+      live.scenarioTitle =
+        plan.scenarios.find((s) => s.id === e.scenarioId)?.title ?? null;
+      live.scenarioIndex = e.index + 1;
+      if (e.group && e.group !== live.group) {
+        live.group = e.group;
+        live.groupLabel = groupLabel(e.group);
+      }
+      live.step = null;
+      break;
+    case "step":
+      live.step = e.label;
+      live.url = e.url;
+      live.steps.push({
+        scenarioId: e.scenarioId,
+        label: e.label,
+        url: e.url,
+        at: e.at,
+      });
+      if (live.steps.length > LIVE_STEPS)
+        live.steps.splice(0, live.steps.length - LIVE_STEPS);
+      break;
+    case "page":
+      live.url = e.url;
+      if (!live.pagesVisited.includes(e.url)) live.pagesVisited.push(e.url);
+      break;
+    case "frame":
+      live.frame = e.jpeg;
+      live.frameSeq += 1;
+      break;
+    case "scenario-end":
+      live.finished.push({
+        scenarioId: e.scenarioId,
+        status: e.result.status,
+        durationMs: e.result.durationMs,
+      });
+      break;
+  }
+}
+
+/**
+ * Whether a run read back from disk was started with allowDestructive: report.options when the report records it,
+ * else whether a destructive approved scenario really ran (it is skipped with "Destructive scenario; …" without the
+ * opt-in; a scenario stopped before it started says nothing either way).
+ */
+function allowedDestructive(report: Report): boolean {
+  const recorded: unknown = report.options?.allowDestructive;
+  if (typeof recorded === "boolean") return recorded;
+  const destructive = new Set(
+    report.plan.scenarios.filter((s) => s.destructive).map((s) => s.id),
+  );
+  return report.results.some(
+    (r) =>
+      destructive.has(r.scenarioId) &&
+      !(
+        r.status === "skipped" &&
+        ((r.notes ?? "").startsWith(STOPPED_NOTE) ||
+          /^Destructive scenario\b/.test(r.notes ?? ""))
+      ),
+  );
+}
+
+/**
+ * Runs in memory (started by this process) and finished runs on disk (runsDir/<id>/report.json), with disk summaries
+ * cached by mtime+size. The maps keep insertion order so listRuns preserves newest-first on tie-break.
+ */
+export class RunsModel {
+  readonly #runs = new Map<string, RunState>();
+  readonly #diskSummaries = new Map<string, DiskSummaryEntry>();
+  readonly #options: RunsModelOptions;
+
+  constructor(options: RunsModelOptions) {
+    this.#options = options;
+  }
+
+  /** Runs allowed at the same time, from createApp's options. */
+  get maxConcurrentRuns(): number {
+    return this.#options.maxConcurrentRuns;
+  }
+
+  /** Runs directory (resolved, absolute). */
+  get runsDir(): string {
+    return this.#options.runsDir;
+  }
+
+  /** In-memory run state, by id. */
+  get runs(): Map<string, RunState> {
+    return this.#runs;
+  }
+
+  /** The run's state from memory, or a finished run read back from disk (after a restart or pruning). */
+  async runState(runId: string): Promise<RunState | undefined> {
+    const known = this.#runs.get(runId);
+    if (known || !RUN_ID.test(runId)) return known;
+    const dir = join(this.#options.runsDir, runId);
+    try {
+      if (!(await stat(dir)).isDirectory()) return undefined;
+      const report = JSON.parse(
+        await readFile(join(dir, "report.json"), "utf8"),
+      ) as Report;
+      if (report.runId !== runId) return undefined;
+      const live = newLiveState(
+        runOrder(
+          report.plan,
+          new Set(report.approved ?? report.results.map((r) => r.scenarioId)),
+        ),
+      );
+      live.pagesVisited = (report.pagesVisited ?? []).map((p) => p.url);
+      live.finished = report.results.map((r) => ({
+        scenarioId: r.scenarioId,
+        status: r.status,
+        durationMs: r.durationMs,
+      }));
+      live.browser = report.browser ?? null;
+      const durationMs =
+        report.durationMs ??
+        Date.parse(report.finishedAt) - Date.parse(report.startedAt);
+      const approved =
+        report.approved ?? report.results.map((r) => r.scenarioId);
+      return {
+        status: "done",
+        completed: report.results.length,
+        total: report.results.length,
+        dir,
+        startedAt: report.startedAt,
+        durationMs,
+        report,
+        live,
+        // The plan as written to disk: its target is redacted (the rerun refuses one with a redacted secret).
+        plan: report.plan,
+        approved,
+        allowDestructive: allowedDestructive(report),
+        headed: report.options?.headed === true,
+        ai: Boolean(report.plan.ai ?? report.ai),
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Returns the summary for a known runId, or null if the disk file is gone. */
+  async diskSummary(runId: string): Promise<RunSummary | null> {
+    let info;
+    try {
+      info = await stat(join(this.#options.runsDir, runId, "report.json"));
+    } catch {
+      this.#diskSummaries.delete(runId);
+      return null;
+    }
+    const cached = this.#diskSummaries.get(runId);
+    if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size)
+      return cached.summary;
+    const state = await this.runState(runId);
+    const summary = state ? summarize(runId, state) : null;
+    this.#diskSummaries.set(runId, {
+      mtimeMs: info.mtimeMs,
+      size: info.size,
+      summary,
+    });
+    return summary;
+  }
+
+  /** Runs in memory plus finished runs on disk (runsDir/<id>/report.json), newest first. */
+  async listRuns(): Promise<RunSummary[]> {
+    const out = [...this.#runs].map(([id, state]) => summarize(id, state));
+    let names: string[] = [];
+    try {
+      names = (await readdir(this.#options.runsDir, { withFileTypes: true }))
+        .filter((d) => d.isDirectory() && RUN_ID.test(d.name))
+        .map((d) => d.name);
+    } catch {
+      // No runs folder yet.
+    }
+    const present = new Set(names);
+    for (const id of this.#diskSummaries.keys())
+      if (!present.has(id)) this.#diskSummaries.delete(id);
+    const onDisk = await Promise.all(
+      names.filter((id) => !this.#runs.has(id)).map((id) => this.diskSummary(id)),
+    );
+    for (const summary of onDisk) if (summary) out.push(summary);
+    return out.sort(
+      (a, b) =>
+        Date.parse(b.startedAt) - Date.parse(a.startedAt) ||
+        (a.runId < b.runId ? 1 : a.runId > b.runId ? -1 : 0),
+    );
+  }
+
+  /** Drops the oldest entries; running runs are never dropped. */
+  prune(): void {
+    const finished = [...this.#runs]
+      .filter(([, r]) => r.status !== "running")
+      .map(([id]) => id);
+    for (const id of finished.slice(0, Math.max(0, this.#runs.size - MAX_RUNS)))
+      this.#runs.delete(id);
+  }
+
+  /**
+   * Starts a run in the background; returns its id, or an error response body and status. Reading the map of running
+   * runs is the caller's source for "too many concurrent runs" — we compute it here from the same map.
+   */
+  startRun(
+    plan: Plan,
+    approved: string[],
+    flags: {
+      allowDestructive: boolean;
+      headed: boolean;
+      ai: boolean;
+      session?: AiSession;
+      accounts?: AccountsConfig;
+    },
+  ): { runId: string } | { error: string; code: 409 } {
+    const running = [...this.#runs.values()].filter(
+      (r) => r.status === "running",
+    ).length;
+    if (running >= this.#options.maxConcurrentRuns) {
+      return {
+        error: `${running} run${running === 1 ? " is" : "s are"} already in progress. Wait for ${running === 1 ? "it" : "one"} to finish.`,
+        code: 409,
+      };
+    }
+    const approvedSet = new Set(approved);
+    const runId = newRunId();
+    const controller = new AbortController();
+    // What the live view shows of a signed-in run never names an account's username (nor any secret).
+    const hide = usernameHider(flags.accounts);
+    const shown = hideInJson(redactPlan(plan), hide);
+    const state: RunState = {
+      status: "running",
+      completed: 0,
+      total: plan.scenarios.filter((s) => approvedSet.has(s.id)).length,
+      dir: join(this.#options.runsDir, runId),
+      startedAt: new Date().toISOString(),
+      live: newLiveState(runOrder(shown, approvedSet)),
+      plan,
+      approved: [...approvedSet],
+      allowDestructive: flags.allowDestructive,
+      headed: flags.headed,
+      ai: flags.ai,
+      controller,
+    };
+    this.#runs.set(runId, state);
+    this.prune();
+
+    // The accounts' passwords stay redacted from everything the run reports until it has ended.
+    const unregister = flags.accounts
+      ? registerPasswords(flags.accounts)
+      : () => undefined;
+    runPlan(plan, {
+      checks: this.#options.checks,
+      allowedHosts: this.#options.allowedHosts,
+      runsDir: this.#options.runsDir,
+      runId,
+      approved: state.approved,
+      allowDestructive: flags.allowDestructive,
+      headed: flags.headed,
+      signal: controller.signal,
+      ...(flags.session ? { ai: flags.session } : {}),
+      ...(flags.accounts ? { accounts: flags.accounts } : {}),
+      // The UI always shows the live view, so the server always asks for the screencast.
+      live: true,
+      onProgress: (e) => {
+        if (e.type === "scenario-end") state.completed += 1;
+        // The runner reports the browser it really launched; until then (and for runners that don't), the build the
+        // installed Playwright ships.
+        if (e.type === "browser") state.live.browser = e.name;
+        if (e.type === "scenario-start" && state.live.browser === null)
+          state.live.browser = bundledChromium();
+        const event =
+          e.type === "step"
+            ? { ...e, label: hide(e.label), url: hide(e.url) }
+            : e.type === "page"
+              ? { ...e, url: hide(e.url) }
+              : e;
+        applyProgress(state.live, shown, event);
+      },
+    }).then(
+      ({ report: raw, dir }) => {
+        const report = flags.accounts ? hideInJson(raw, hide) : raw;
+        const durationMs =
+          report.durationMs ??
+          Date.parse(report.finishedAt) - Date.parse(report.startedAt);
+        Object.assign(state, {
+          status: "done",
+          report,
+          dir,
+          durationMs,
+          controller: undefined,
+        });
+        // The report is authoritative once written (it also covers pages seen before a frame or step).
+        if (report.pagesVisited)
+          state.live.pagesVisited = report.pagesVisited.map((p) => p.url);
+        state.live.browser = report.browser ?? null;
+        state.live.updatedAt = new Date().toISOString();
+        unregister();
+      },
+      (err: unknown) => {
+        Object.assign(state, {
+          status: "error",
+          controller: undefined,
+          durationMs: Date.now() - Date.parse(state.startedAt),
+          error: hide(
+            redactSecrets(
+              cleanErrorMessage(
+                err instanceof Error ? err.message : String(err),
+              ),
+            ),
+          ),
+        });
+        state.live.updatedAt = new Date().toISOString();
+        unregister();
+      },
+    );
+    return { runId };
+  }
+
+  /** REDACTED check helper used by the rerun handler to refuse planning a redacted target. */
+  isRedactedPlan(state: RunState): boolean {
+    return REDACTED.test(state.plan.target);
+  }
+}
+
+/** Build a RunSummary from a RunState, with secrets redacted and an optional account ref. */
+export function summarize(runId: string, state: RunState): RunSummary {
+  const report = state.report;
+  const out: RunSummary = {
+    runId,
+    target: redactSecrets(report?.target ?? state.plan.target),
+    formName: subjectOf(report?.plan ?? state.plan),
+    status: state.status,
+    startedAt: state.startedAt,
+    completed: state.completed,
+    total: state.total,
+  };
+  const account = planAccount(report?.plan ?? state.plan);
+  if (account) out.account = account;
+  if (state.status !== "running") {
+    out.finishedAt =
+      report?.finishedAt ??
+      new Date(
+        Date.parse(state.startedAt) + (state.durationMs ?? 0),
+      ).toISOString();
+    if (state.durationMs !== undefined) out.durationMs = state.durationMs;
+    if (report) out.summary = report.summary;
+  }
+  return out;
+}
+
+let bundledChromiumName: string | null | undefined;
+
+/**
+ * "Chromium 153.0.8010.12": the Chromium build the installed Playwright launches (runPlan uses chromium.launch with no
+ * channel or executablePath), read from playwright-core's browsers.json. Null if that file can't be read.
+ */
+function bundledChromium(): string | null {
+  if (bundledChromiumName !== undefined) return bundledChromiumName;
+  bundledChromiumName = null;
+  try {
+    const require = createRequire(import.meta.url);
+    const dir = dirname(
+      require.resolve("playwright-core/package.json", {
+        paths: [dirname(require.resolve("playwright"))],
+      }),
+    );
+    const data = JSON.parse(
+      readFileSync(join(dir, "browsers.json"), "utf8"),
+    ) as { browsers?: { name: string; browserVersion?: string }[] };
+    const version = data.browsers?.find(
+      (b) => b.name === "chromium",
+    )?.browserVersion;
+    if (version && /^[\d.]+$/.test(version))
+      bundledChromiumName = `Chromium ${version}`;
+  } catch {
+    // Unknown layout: the browser shows up when the report is written.
+  }
+  return bundledChromiumName;
+}

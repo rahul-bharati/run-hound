@@ -27,7 +27,7 @@
 #
 # The images built here are tagged :local (never a release tag or :latest, so a local build can't be mistaken for,
 # or silently shadow, a published release image); the rest of each service definition stays identical to
-# run-hound.compose.yml's (app/test/compose-files.test.ts checks that). Never run `docker compose push` with this
+# run-hound.compose.yml's (app/tests/config/compose-files.test.ts checks that). Never run `docker compose push` with this
 # file. pull_policy: never (not the compose spec's `build`, which rebuilds unconditionally on every `up`) means a
 # plain `up` builds only an image that's missing, and `--build` still forces a rebuild, as documented above.
 

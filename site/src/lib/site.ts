@@ -1,6 +1,6 @@
 // The release this site describes: set by hand in the same commit as app/package.json's version and the CHANGELOG
 // section for it (docs/development.md "Releasing"). release-images.yml's check-version no longer checks it against
-// the tag (docs/decisions/09-2026.md#2026-09-29-images-latest-no-version-pins); app/test/cli-version.test.ts still
+// the tag (docs/decisions/09-2026.md#2026-09-29-images-latest-no-version-pins); app/tests/features/cli/cli-version.test.ts still
 // checks `released`/`releasedIso` (below) against the CHANGELOG heading of this version.
 const version = "0.6.1";
 const tag = `v${version}`;
