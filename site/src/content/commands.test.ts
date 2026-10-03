@@ -114,7 +114,8 @@ describe("the commands", () => {
   test("the quick start's output is what a plain docker run prints: the entrypoint's log line, then the server's two", () => {
     const entrypoint = readFileSync(join(repo, "app", "docker-entrypoint.sh"), "utf8");
     const dockerfile = readFileSync(join(repo, "app", "Dockerfile"), "utf8");
-    const cli = readFileSync(join(repo, "app", "src", "cli.ts"), "utf8");
+    // serve's warning lives in its command handler, its address line in the server adapter.
+    const cli = ["serve.ts", "../adapters/server.ts"].map((f) => readFileSync(join(repo, "app", "src", "cli", "commands", f), "utf8")).join("\n");
     const port = dockerfile.match(/^CMD \[[^\]]*"--port",\s*"(\d+)"/m)?.[1];
     const host = dockerfile.match(/^CMD \[[^\]]*"--host",\s*"([^"]+)"/m)?.[1];
     // The line it prints when RUNHOUND_PUBLIC_URL is unset, as it is in a plain docker run (only the compose files set it).
