@@ -34,6 +34,10 @@ A release is three things, moved together in one commit: `app/package.json`'s `v
 
 Then tag and push (`git tag vX.Y.Z && git push origin vX.Y.Z`): [release-images.yml](../.github/workflows/release-images.yml) builds, tags (`X.Y.Z`, `X.Y` and, for a full release, `latest`) and publishes the four images, then creates the GitHub Release from the CHANGELOG section.
 
+## Code maintenance
+
+For how the app code is arranged, where a declaration belongs, and the traps to avoid when changing it, see [code-maintenance.md](code-maintenance.md).
+
 ## Decisions
 
 Record every decision in the append-only decision log. See [DECISIONS.md](../DECISIONS.md) for the index and how to add a decision.
