@@ -303,7 +303,7 @@ It is a select and not radio buttons because the radios' labels would share word
 
 ### 6. The footprint contract test
 
-`app/src/engine/footprint.test.ts` runs a real run: discovery, then one scenario, in headless Chromium, against a fixture page on `127.0.0.1` from `app/test-support/server.ts`. The scenario opens the page, clicks a download link, takes a frame and a card, and writes a log line.
+`app/tests/features/engine/footprint/footprint.test.ts` runs a real run: discovery, then one scenario, in headless Chromium, against a fixture page on `127.0.0.1` from `app/test-support/server.ts`. The scenario opens the page, clicks a download link, takes a frame and a card, and writes a log line.
 
 **Setup.**
 
@@ -348,17 +348,17 @@ It runs in the normal app suite. From 0.6.3 it runs on macOS and Windows CI too.
 
 | File | What it pins |
 |---|---|
-| `app/src/engine/isolation.test.ts` | `browserEnv` on Linux (headless, headed, X11 and Wayland, the `XAUTHORITY` default), any other POSIX platform, macOS (including `CFFIXED_USER_HOME`) and Windows (case-insensitive names); no planted value in any result; `ISOLATED_CONTEXT`; `launchChromium` with an injected launcher (the folder and its subfolders, `env` and `artifactsDir`, removal on close, crash and failed launch; the exit-time fallback kept when an injected `remove` fails, dropped once it succeeds; `newContext`/`newPage` forced to `acceptDownloads: false` whatever the caller passes); `engine/isolation.ts` as the only module that imports or launches a browser type |
-| `app/src/engine/isolation-launch-sites.test.ts` | Real runs with `chromium.launch` and each browser's `newContext` spied on: discovery, the run, signed-in discovery (`auth.ts`) and `testSignIn` (`server/accounts.ts`) each launch isolated and leave no folder; every context (discovery, `openPage`, sign-in, the evidence renderer) has `acceptDownloads: false`; a clicked download is refused |
-| `app/src/engine/footprint.test.ts` | [The footprint contract](#6-the-footprint-contract-test) |
-| `app/src/ai/aws-access-keys.test.ts` | `resolveAwsCredentials` order (env, `saved`, named profile) and `source: "saved"`; no read under a sentinel `~/.aws` without a named profile (with `readFileSync`/`existsSync` recorded), `AWS_CONFIG_FILE` included; `awsProfileName` returning `null`; `awsProfileRegion` and `awsCredentialsAvailable`; `credentialProcessEnv` and the environment a real helper sees; `converseJson` signing with the saved pair and taking no region from `~/.aws` |
-| `app/src/ai/config-access-keys.test.ts` | Resolution of the pair (file, env over file, token only with its pair, half pairs, Bedrock only); region only from a named profile; every `saveAiConfig` rule above, `0600`/`0700`, errors without values; `aiStatus`'s `hasAwsKeys`, `hasAwsSessionToken` and `sources.awsKeys` without any value; a `[default]` profile not counted |
-| `app/src/server/app-ai-credentials.test.ts` | `PUT`, then `GET /api/ai` and `GET /api/settings` without the pair or token; `ai.json` `0600`; 400 for half a pair and for an env-locked pair (naming `AWS_ACCESS_KEY_ID`); no region or credentials from a `[default]` profile under the server's HOME |
-| `app/src/server/ui-ai-credentials.test.ts` | [Settings](#38-settings) |
-| `app/src/ai/ai-secrets-redacted.test.ts` | Registration by `resolveAiConfig` (file, env, a key that doesn't apply, replacement) and by `resolveAwsCredentials`; a saved secret kept out of a real run's report files, spec files and log |
-| `app/src/engine/redact-aws-secret.test.ts` | The `aws-secret-key` pattern: the labelled forms, `findSecrets`, and what it must not match |
-| `app/src/checks/bundle-secrets-aws-secret.test.ts` | The `bundle-secrets` finding, its redaction, and a spec whose pattern matches the script |
-| `app/src/ai/aws-credentials.test.ts`, `app/src/ai/config.test.ts` | Updated: the tests that pinned the unnamed `[default]` profile now pin that it is read only when named |
+| `app/tests/features/engine/isolation/isolation.test.ts` | `browserEnv` on Linux (headless, headed, X11 and Wayland, the `XAUTHORITY` default), any other POSIX platform, macOS (including `CFFIXED_USER_HOME`) and Windows (case-insensitive names); no planted value in any result; `ISOLATED_CONTEXT`; `launchChromium` with an injected launcher (the folder and its subfolders, `env` and `artifactsDir`, removal on close, crash and failed launch; the exit-time fallback kept when an injected `remove` fails, dropped once it succeeds; `newContext`/`newPage` forced to `acceptDownloads: false` whatever the caller passes); `engine/isolation.ts` as the only module that imports or launches a browser type |
+| `app/tests/features/engine/isolation/isolation-launch-sites.test.ts` | Real runs with `chromium.launch` and each browser's `newContext` spied on: discovery, the run, signed-in discovery (`auth.ts`) and `testSignIn` (`server/accounts.ts`) each launch isolated and leave no folder; every context (discovery, `openPage`, sign-in, the evidence renderer) has `acceptDownloads: false`; a clicked download is refused |
+| `app/tests/features/engine/footprint/footprint.test.ts` | [The footprint contract](#6-the-footprint-contract-test) |
+| `app/tests/features/ai/aws-access-keys.test.ts` | `resolveAwsCredentials` order (env, `saved`, named profile) and `source: "saved"`; no read under a sentinel `~/.aws` without a named profile (with `readFileSync`/`existsSync` recorded), `AWS_CONFIG_FILE` included; `awsProfileName` returning `null`; `awsProfileRegion` and `awsCredentialsAvailable`; `credentialProcessEnv` and the environment a real helper sees; `converseJson` signing with the saved pair and taking no region from `~/.aws` |
+| `app/tests/features/ai/config-access-keys.test.ts` | Resolution of the pair (file, env over file, token only with its pair, half pairs, Bedrock only); region only from a named profile; every `saveAiConfig` rule above, `0600`/`0700`, errors without values; `aiStatus`'s `hasAwsKeys`, `hasAwsSessionToken` and `sources.awsKeys` without any value; a `[default]` profile not counted |
+| `app/tests/features/server/app-ai-credentials.test.ts` | `PUT`, then `GET /api/ai` and `GET /api/settings` without the pair or token; `ai.json` `0600`; 400 for half a pair and for an env-locked pair (naming `AWS_ACCESS_KEY_ID`); no region or credentials from a `[default]` profile under the server's HOME |
+| `app/tests/features/server/ui-ai-credentials.test.ts` | [Settings](#38-settings) |
+| `app/tests/features/ai/ai-secrets-redacted.test.ts` | Registration by `resolveAiConfig` (file, env, a key that doesn't apply, replacement) and by `resolveAwsCredentials`; a saved secret kept out of a real run's report files, spec files and log |
+| `app/tests/features/engine/redact/redact-aws-secret.test.ts` | The `aws-secret-key` pattern: the labelled forms, `findSecrets`, and what it must not match |
+| `app/tests/features/checks/bundle-secrets/bundle-secrets-aws-secret.test.ts` | The `bundle-secrets` finding, its redaction, and a spec whose pattern matches the script |
+| `app/tests/features/ai/aws-credentials.test.ts`, `app/tests/features/ai/config.test.ts` | Updated: the tests that pinned the unnamed `[default]` profile now pin that it is read only when named |
 
 ### Not in 0.6.1
 

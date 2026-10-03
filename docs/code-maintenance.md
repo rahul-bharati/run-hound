@@ -2,7 +2,7 @@
 
 How Run Hound's app code is arranged, why, and how to change it without breaking the product. This is a maintainer guide for working inside `app/`. For setup, suites and releases see [development.md](development.md); for what the product does see [overview.md](overview.md).
 
-The architecture here was settled during the 1.0.0 maintainability refactor. Each rule below points at the decision that established it, in the [decision log](decisions/10-2026.md).
+The architecture here was settled during the app maintainability refactor. Each rule below points at the decision that established it, in the [decision log](decisions/10-2026.md).
 
 ## The shape of the code
 

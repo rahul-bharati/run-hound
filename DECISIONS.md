@@ -143,3 +143,4 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-10-03: [Discover all app tests under the tests folder](docs/decisions/10-2026.md#2026-10-03-app-test-root)
 - 2026-10-03: [Separate runner options, secrets, sign-in detection, planning and execution](docs/decisions/10-2026.md#2026-10-03-runner-responsibilities)
 - 2026-10-03: [Separate write-access record matching, token replay, restoration and findings](docs/decisions/10-2026.md#2026-10-03-write-access-responsibilities)
+- 2026-10-03: [Keep the app refactor PR to app code and its docs](docs/decisions/10-2026.md#2026-10-03-refactor-final-review)
