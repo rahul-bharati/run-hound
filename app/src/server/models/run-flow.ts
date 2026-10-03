@@ -1,11 +1,11 @@
 /**
  * Runs flow: /api/runs, /api/runs/:id/stop, /api/runs/:id/rerun, /api/runs/:id, /api/runs/:id/live,
  * /api/runs/:id/live.jpg, /api/runs/:id/{report.json|md|html}, /api/runs/:id/specs/:file, /api/runs/:id/artifacts/:file.
- * Reads from the runs model and the plans store passed in; holds no state of its own.
+ * Reads from the runs model and the plans store passed in; holds no state of its own. The account/AI/password deps
+ * are required and wired in the composition root; the flow never reaches for module-level fallbacks.
  */
-import { planAccount, registerPasswords, usernameHider } from "../accounts.js";
-import { notReadyMessage, resolveAccounts } from "../../config/accounts.js";
-import { planBounded, aiForRequest, type SignedInForPlanning } from "./ai-session.js";
+import { notReadyMessage } from "../../config/accounts.js";
+import { planBounded } from "./ai-session.js";
 import { cleanErrorMessage } from "../../engine/errors.js";
 import { NO_DISPLAY_MESSAGE } from "../../engine/runner.js";
 import { redactSecrets } from "../../engine/redact.js";
@@ -13,45 +13,28 @@ import { isUserError } from "./plan-flow.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ARTIFACT_TYPES, REPORT_CSP, REPORT_FILES, SAFE_FILE } from "../../constants/server-constants.js";
-import type { Plan } from "../../core/types.js";
-import type { RunState, RunSummary } from "../../types/server.js";
+import type { RunState } from "../../types/server.js";
 import type {
   ArtifactFile,
   FileFetchOutcome,
-  FlowError,
   IRunsFlow,
   ReportFile,
+  RerunPlanDeps,
+  RerunPlanRequest,
   RunListSummary,
   RunLiveView,
   RunStatusView,
+  RunsFlowDeps,
+  RunsModelLike,
   SpecFile,
   StartRunBody,
   StartRunOutcome,
   StartRunRefused,
   StopOutcome,
 } from "../../interfaces/server.js";
-import type { DiscoverAndPlan, ServerOptions } from "../../interfaces/server.js";
+import type { RerunPlanOutcome } from "../../types/server.js";
 
-/** What the runs flow needs from the engine (discoverAndPlan wrapper + server options). */
-export interface RunsFlowDeps {
-  discoverAndPlan: DiscoverAndPlan;
-  plans: { get(id: string): { plan: Plan; ai: boolean } | undefined };
-  runs: RunsModelLike;
-  options: Pick<ServerOptions, "checks" | "allowedHosts">;
-  host: { aiPlanBudgetMs(): number };
-  canShowBrowser: boolean;
-}
-
-/** The slice of RunsModel the runs flow uses. */
-export interface RunsModelLike {
-  startRun(plan: Plan, approved: string[], flags: { allowDestructive: boolean; headed: boolean; ai: boolean; session?: import("../../ai/session.js").AiSession; accounts?: import("../../interfaces/accounts.js").AccountsConfig }): { runId: string } | { error: string; code: 409 };
-  runState(runId: string): Promise<RunState | undefined>;
-  listRuns(): Promise<RunSummary[]>;
-  isRedactedPlan(state: RunState): boolean;
-  readonly map: Map<string, RunState>;
-  readonly maxConcurrentRuns: number;
-  readonly runsDir: string;
-}
+export type { RerunPlanDeps, RerunPlanOutcome, RerunPlanRequest, RunsFlowDeps, RunsModelLike };
 
 /** Runs flow: every /api/runs and /api/runs/:id operation. */
 export class RunsFlow implements IRunsFlow {
@@ -68,8 +51,8 @@ export class RunsFlow implements IRunsFlow {
     const plan = stored.plan;
     if (
       body.approved !== undefined &&
-      !(Array.isArray(body.approved) && body.approved.every((a) => typeof a === "string"))
-    ) {
+      !(Array.isArray(body.approved) && body.approved.every((a) => typeof a === "string")))
+    {
       return { ok: false, status: 400, message: "approved must be a list of scenario ids." };
     }
     for (const flag of ["allowDestructive", "headed"] as const) {
@@ -92,12 +75,12 @@ export class RunsFlow implements IRunsFlow {
     }
     let accounts: import("../../interfaces/accounts.js").AccountsConfig | undefined;
     if (plan.account) {
-      const { config, status } = await resolveAccounts();
+      const { config, status } = await this.#deps.resolveAccounts();
       const why = notReadyMessage(status.accounts[plan.account.id]);
       if (why) return { ok: false, status: 400, message: redactSecrets(why) };
       accounts = config;
     }
-    const session = stored.ai ? (await aiForRequest(true)).ai : undefined;
+    const session = stored.ai ? (await this.#deps.aiForRequest(true)).ai : undefined;
     const started = this.#deps.runs.startRun(plan, approvedIds, {
       allowDestructive: body.allowDestructive === true,
       headed: body.headed === true,
@@ -143,14 +126,17 @@ export class RunsFlow implements IRunsFlow {
       return { ok: false, status: 409, message: concurrentRunsMessage(running) };
     }
 
-    const planned = await rerunPlanFor({
-      state,
-      signal,
-      discoverAndPlan: this.#deps.discoverAndPlan,
-      aiPlanBudgetMs: this.#deps.host.aiPlanBudgetMs(),
-      checks: this.#deps.options.checks,
-      allowedHosts: this.#deps.options.allowedHosts,
-    });
+    const planned = await rerunPlanFor(
+      {
+        state,
+        signal,
+        discoverAndPlan: this.#deps.discoverAndPlan,
+        aiPlanBudgetMs: this.#deps.host.aiPlanBudgetMs(),
+        checks: this.#deps.options.checks,
+        allowedHosts: this.#deps.options.allowedHosts,
+      },
+      this.#rerunDeps(),
+    );
     try {
       if (!planned.ok) return { ok: false, status: planned.error.status, message: planned.error.message };
       const known = new Set(planned.plan.scenarios.map((s) => s.id));
@@ -228,32 +214,27 @@ export class RunsFlow implements IRunsFlow {
       return { notFound: true };
     }
   }
-}
 
-/** Inputs for re-planning a stored run's target under the same account. */
-export interface RerunPlanRequest {
-  state: RunState;
-  signal: AbortSignal;
-  discoverAndPlan: DiscoverAndPlan;
-  aiPlanBudgetMs: number;
-  checks?: unknown;
-  allowedHosts?: string[];
+  #rerunDeps(): RerunPlanDeps {
+    return {
+      resolveAccounts: this.#deps.resolveAccounts,
+      planAccount: this.#deps.planAccount,
+      registerPasswords: this.#deps.registerPasswords,
+      usernameHider: this.#deps.usernameHider,
+      aiForRequest: this.#deps.aiForRequest,
+    };
+  }
 }
-
-/** Result of re-planning. */
-export type RerunPlanOutcome =
-  | { ok: true; plan: Plan; signedIn?: SignedInForPlanning; session?: import("../../ai/session.js").AiSession; unregister: () => void }
-  | { ok: false; error: FlowError; unregister: () => void };
 
 /** Re-plan a stored run's target under its prior account. The caller has already checked the run isn't redacted and
  * there aren't too many concurrent runs (so we don't open a browser we won't use); the caller runs `unregister` in
  * `finally`. */
-export async function rerunPlanFor(request: RerunPlanRequest): Promise<RerunPlanOutcome> {
+export async function rerunPlanFor(request: RerunPlanRequest, deps: RerunPlanDeps): Promise<RerunPlanOutcome> {
   const { state, signal, discoverAndPlan, aiPlanBudgetMs, checks, allowedHosts } = request;
-  const account = planAccount(state.plan);
-  let signedIn: SignedInForPlanning | undefined;
+  const account = deps.planAccount(state.plan);
+  let signedIn: import("../../interfaces/server.js").SignedInForPlanning | undefined;
   if (account) {
-    const { config, status } = await resolveAccounts();
+    const { config, status } = await deps.resolveAccounts();
     const why = notReadyMessage(status.accounts[account.id]);
     if (why) {
       return {
@@ -265,10 +246,10 @@ export async function rerunPlanFor(request: RerunPlanRequest): Promise<RerunPlan
     signedIn = { id: account.id, accounts: config };
   }
   const unregister = signedIn
-    ? registerPasswords(signedIn.accounts, [signedIn.id])
+    ? deps.registerPasswords(signedIn.accounts, [signedIn.id])
     : () => undefined;
   try {
-    const { ai: session } = await aiForRequest(state.ai);
+    const { ai: session } = await deps.aiForRequest(state.ai);
     const plan = (
       await planBounded(
         state.plan.target,
@@ -276,13 +257,13 @@ export async function rerunPlanFor(request: RerunPlanRequest): Promise<RerunPlan
         signal,
         aiPlanBudgetMs,
         (target, opts) =>
-          discoverAndPlan(target, { checks: checks as never, allowedHosts, ...opts }),
+          discoverAndPlan(target, { checks, allowedHosts, ...opts }),
         signedIn,
       )
     ).plan;
     return { ok: true, plan, signedIn, session, unregister };
   } catch (err) {
-    const hide = usernameHider(signedIn?.accounts);
+    const hide = deps.usernameHider(signedIn?.accounts);
     const cleaned = hide(
       redactSecrets(cleanErrorMessage(err instanceof Error ? err.message : String(err))),
     );

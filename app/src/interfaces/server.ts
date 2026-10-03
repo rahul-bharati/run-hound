@@ -3,16 +3,36 @@
  * on the composition root's full Services object. The composition root (server/app.ts) binds them to concrete
  * implementations. The public ServerOptions type (used by tests, CLI, and createApp callers) lives here too.
  *
- * Flow input/output types live next to each flow's class in server/models/, not here — the interface files only carry
- * the controller-facing contracts and the public configuration.
+ * Flow ports (IPlanFlow, IRunsFlow, IAccountsFlow, IAiFlow, IUiFlow) and the mandatory deps each flow class needs
+ * (PlanFlowDeps, RunsFlowDeps, AccountsFlowDeps, RerunPlanDeps) live here; the model files (server/models/) only
+ * import the deps type, never the concrete functions. The composition root wires each concrete function into the
+ * deps when it constructs the flow.
  */
 import type { RunOptions } from "../engine/runner.js";
-import type { Plan } from "../core/types.js";
-import type { AccountsStatus, SignInCheck } from "./accounts.js";
-import type { AccountId } from "../types/accounts.js";
+import type { AccountId, Plan, Check } from "../core/types.js";
+import type { AiSession } from "../ai/session.js";
+import type { AccountsStatus, AccountsConfig, SignInCheck } from "./accounts.js";
 
 /** The discoverAndPlan function the flows depend on (typed). */
 export type DiscoverAndPlan = (target: string, options: Partial<RunOptions>) => Promise<Plan>;
+
+/** The resolveAccounts function from operations/accounts-storage. */
+export type ResolveAccounts = (options?: {
+  env?: NodeJS.ProcessEnv;
+  home?: string;
+}) => Promise<{ config: AccountsConfig; status: AccountsStatus }>;
+
+/** The registerPasswords function from server/accounts. */
+export type RegisterPasswords = (config: AccountsConfig, ids?: readonly AccountId[]) => () => void;
+
+/** The usernameHider function from server/accounts. */
+export type UsernameHider = (config: AccountsConfig | undefined) => (text: string) => string;
+
+/** The aiForRequest function from server/models/ai-session. */
+export type AiForRequest = (wanted: boolean | undefined) => Promise<{ ai?: AiSession; warning?: string }>;
+
+/** The planAccount function from server/accounts. */
+export type PlanAccount = (plan: Plan | undefined) => { id: AccountId; label: string } | undefined;
 
 export interface ServerOptions extends Pick<RunOptions, "checks" | "runsDir" | "allowedHosts"> {
   /** Runs allowed at the same time (each one drives its own Chromium). Default 2; more are refused with 409. */
@@ -231,3 +251,101 @@ export interface IUiFlow {
   uiHtml(): string;
   uiPolicy(): string;
 }
+
+/** The slice of the runs model the rerun flow needs (kept narrow so the rerun flow can be wired without RunsModel). */
+export interface RunsModelLike {
+  startRun(plan: Plan, approved: string[], flags: { allowDestructive: boolean; headed: boolean; ai: boolean; session?: AiSession; accounts?: AccountsConfig }): { runId: string } | { error: string; code: 409 };
+  runState(runId: string): Promise<import("../types/server.js").RunState | undefined>;
+  listRuns(): Promise<import("../types/server.js").RunSummary[]>;
+  isRedactedPlan(state: import("../types/server.js").RunState): boolean;
+  readonly map: Map<string, import("../types/server.js").RunState>;
+  readonly maxConcurrentRuns: number;
+  readonly runsDir: string;
+}
+
+/** Inputs for re-planning a stored run's target under the same account. */
+export interface RerunPlanRequest {
+  state: import("../types/server.js").RunState;
+  signal: AbortSignal;
+  discoverAndPlan: DiscoverAndPlan;
+  aiPlanBudgetMs: number;
+  checks?: Check[];
+  allowedHosts?: string[];
+}
+
+/** A test account to sign in as during planning (resolved per request). */
+export interface SignedInForPlanning {
+  id: AccountId;
+  accounts: AccountsConfig;
+}
+
+/**
+ * Mandatory deps the plan flow needs. The composition root (server/app.ts) wires the concrete functions; the flow
+ * itself never reaches into globals or a Services bag. The account/AI/password deps are required: the flow refuses to
+ * construct without them, so the plan controller's behaviour is independent of any module-level fallback.
+ */
+export interface PlanFlowDeps {
+  discoverAndPlan: DiscoverAndPlan;
+  store: { set(id: string, value: { plan: Plan; ai: boolean }): void };
+  aiPlanBudgetMs?: number;
+  checks?: Check[];
+  allowedHosts?: string[];
+  resolveAccounts: ResolveAccounts;
+  registerPasswords: RegisterPasswords;
+  aiForRequest: AiForRequest;
+}
+
+/**
+ * Mandatory deps the runs flow needs. Like PlanFlowDeps, the account/AI/password deps are required; the runs
+ * controller's behaviour never depends on a module-level fallback. `host.aiPlanBudgetMs()` is provided by the
+ * HostState model and reads the configured budget without going through the engine.
+ */
+export interface RunsFlowDeps {
+  discoverAndPlan: DiscoverAndPlan;
+  plans: { get(id: string): { plan: Plan; ai: boolean } | undefined };
+  runs: RunsModelLike;
+  options: Pick<ServerOptions, "checks" | "allowedHosts">;
+  host: { aiPlanBudgetMs(): number };
+  canShowBrowser: boolean;
+  resolveAccounts: ResolveAccounts;
+  planAccount: PlanAccount;
+  registerPasswords: RegisterPasswords;
+  usernameHider: UsernameHider;
+  aiForRequest: AiForRequest;
+}
+
+/**
+ * Mandatory deps the accounts flow needs. `allowedHosts()` reads the configured list without going through the
+ * engine; `signInTests` is the in-flight counter the controller increments before each sign-in test and decrements
+ * after.
+ */
+export interface AccountsFlowDeps {
+  resolveAccounts: ResolveAccounts;
+  checkAccountsPatch: (patch: unknown) => asserts patch is import("../interfaces/accounts.js").AccountsPatch;
+  saveAccounts: (patch: import("../interfaces/accounts.js").AccountsPatch) => Promise<AccountsStatus>;
+  allowedHosts(): string[];
+  signInTests: { value: number; increment(): void; decrement(): void };
+}
+
+/**
+ * Mandatory deps the rerun plan helper (rerunPlanFor) needs. The composition root injects the concrete functions;
+ * tests can pass mocks to exercise the helper without monkey-patching imports.
+ */
+export interface RerunPlanDeps {
+  resolveAccounts: ResolveAccounts;
+  planAccount: PlanAccount;
+  registerPasswords: RegisterPasswords;
+  usernameHider: UsernameHider;
+  aiForRequest: AiForRequest;
+}
+
+/** A resolved test account plus its accounts config, ready for planning or running. */
+export interface ReadyAccount {
+  id: AccountId;
+  accounts: AccountsConfig;
+}
+
+/** Result of looking up whether a test-account slot is ready to sign in. */
+export type AccountReadiness =
+  | { ok: true; account: ReadyAccount }
+  | { ok: false; message: string };

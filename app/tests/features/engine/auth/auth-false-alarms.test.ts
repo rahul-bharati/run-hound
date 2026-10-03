@@ -233,6 +233,17 @@ describe("signIn never submits a form that sends a sign-in link or a code (a pas
     expect(err.message).toMatch(/no password field appeared/);
     expect(err.message).toContain('and "Continue" was used');
   });
+
+  // Exact-message regression: passFirstStep throws SignInError so the signIn wrapper doesn't prepend a second
+  // "Account A could not sign in:" prefix; the original SignInError contract is preserved (one prefix, the
+  // two-step "no password field" wording). A plain Error would produce "Account A could not sign in: Account A
+  // could not sign in: ..." and silently change the message contract.
+  it('a first step with no password field: the SignInError is propagated unchanged (no duplicated "could not sign in:" prefix)', async () => {
+    const err = await failed(signIn(browser, account("/continue-nowhere")));
+    expect(err).toBeInstanceOf(SignInError);
+    expect(err.message).toMatch(/^Account A could not sign in: no password field appeared on .+ after the email was entered and "Continue" was used\./);
+    expect(err.message).not.toMatch(/could not sign in: Account A could not sign in:/);
+  });
 });
 
 describe("signIn: a captcha that shows after the submit, at the sign-in page's own address", () => {

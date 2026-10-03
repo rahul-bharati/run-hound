@@ -5,7 +5,7 @@ const FAKE = new URL("./fake-checks.mjs", import.meta.url).href;
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (/\/checks\/index\.(js|ts)$/.test(specifier) && /\/src\/engine\/[^/]+\.ts$/.test(context.parentURL ?? "")) {
+    if (/\/checks\/index\.(js|ts)$/.test(specifier) && /\/src\/engine\/.+\.ts$/.test(context.parentURL ?? "")) {
       return { url: FAKE, shortCircuit: true, format: "module" };
     }
     return nextResolve(specifier, context);

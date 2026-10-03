@@ -8,7 +8,8 @@ import { chromium, type BrowserContextOptions, type LaunchOptions } from "playwr
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { startAccountsApp, type AccountsApp } from "../../../../test-support/accounts-app.js";
 import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
-import { accountEnvName, resolveAccounts } from "../../../../src/config/accounts.js";
+import { accountEnvName } from "../../../../src/config/accounts.js";
+import { resolveAccounts } from "../../../../src/operations/accounts-storage.js";
 import type { Check, CheckResult, Scenario } from "../../../../src/core/types.js";
 import { testSignIn } from "../../../../src/server/accounts.js";
 import { discoverAndPlan, runPlan } from "../../../../src/engine/runner.js";

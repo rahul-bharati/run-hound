@@ -10,7 +10,7 @@ export { aiForRequest, planBounded, AI_PLAN_BUDGET_MS } from "./ai-session.js";
 export type { AiSession } from "./ai-session.js";
 export { buildServerModels } from "./services.js";
 export type { ServerModels } from "./services.js";
-export { isUserError, isRedactedTarget, redactPlan, hideFunction, flowError } from "./plan-flow.js";
+export { isUserError, isRedactedTarget, redactPlan, flowError } from "./plan-flow.js";
 export { PlanFlow } from "./plan-flow.js";
 export { readyAccount, isAccountId } from "./account-flow.js";
 export { AccountsFlow } from "./account-flow.js";

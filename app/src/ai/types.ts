@@ -6,8 +6,6 @@
 /** Wire protocol. "ollama" is the OpenAI-compatible protocol with Ollama's defaults and its native model list. */
 export type AiProvider = "ollama" | "openai-compatible" | "bedrock";
 
-export const AI_PROVIDERS: readonly AiProvider[] = ["ollama", "openai-compatible", "bedrock"];
-
 export interface AiFeatures {
   /** Review the built-in plan: recommend, rank and give a reason per scenario. */
   review: boolean;

@@ -7,7 +7,7 @@ import { runCommand } from "./commands/run.js";
 import { aiCommand } from "./commands/ai.js";
 import { accountsCommand } from "./commands/accounts.js";
 import { serveCommand } from "./commands/serve.js";
-import { resolveAccounts, clearAccount, saveAccounts, checkAccountsPatch } from "../config/accounts.js";
+import { resolveAccounts, clearAccount, saveAccounts, checkAccountsPatch } from "../operations/accounts-storage.js";
 import { resolveAiConfig } from "../ai/config.js";
 import { aiSession } from "../ai/session.js";
 import { testConnection } from "../ai/client.js";

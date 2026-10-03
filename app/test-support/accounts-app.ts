@@ -1,7 +1,7 @@
 /**
  * ACCOUNTS APP: the shared test app for 0.4.0 (V2) tests: two users with their own data behind a sign-in page, plus
  * toggles that plant the V2 bugs. HTTP on 127.0.0.1, a random free port, one independent in-memory state per start().
- * Its own behaviour is pinned by test/accounts-app.test.ts.
+ * Its own behaviour is pinned by tests/integration/accounts-app.test.ts.
  *
  *   import { startAccountsApp } from "../test-support/accounts-app.js";   // (from src/<dir>/: "../../test-support/…")
  *   const app = await startAccountsApp({ idor: true });  // every option is optional

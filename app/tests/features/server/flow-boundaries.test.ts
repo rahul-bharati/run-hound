@@ -1,13 +1,26 @@
 /**
  * Boundaries of the server-side flow orchestrations: plan-flow, run-flow, account-flow, ai-models, redact-text.
  * Each describe constructs a flow with the narrow deps it needs and calls its methods directly, asserting on the
- * outcome and the unregister hook.
+ * outcome and the unregister hook. The PlanFlowDeps/RunsFlowDeps account/AI/password functions are mandatory in
+ * production, so the tests pass real typed stubs (the same shape the composition root uses) instead of `as never`
+ * casts and skipped fixture fields.
  */
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Plan, Scenario } from "../../../src/core/types.js";
+import type { AccountId, Check, Plan, Scenario } from "../../../src/core/types.js";
+import type { AccountRef } from "../../../src/core/types.js";
+import type { AccountStatus, AccountsConfig, AccountsStatus, TestAccount } from "../../../src/interfaces/accounts.js";
+import type { AccountSource } from "../../../src/types/accounts.js";
+import type {
+  AiForRequest,
+  DiscoverAndPlan,
+  PlanAccount,
+  RegisterPasswords,
+  ResolveAccounts,
+  UsernameHider,
+} from "../../../src/interfaces/server.js";
 import {
   PlanFlow,
   flowError,
@@ -74,16 +87,72 @@ const fakePlan: Plan = {
   groups: [],
 };
 
-function buildPlanFlow(discover: (url: string, opts: unknown) => Promise<Plan> = async () => fakePlan) {
+/** A real, typed stub of the AccountsStatus the flow consumes (matches the canonical shape in
+ * interfaces/accounts.ts; missing `isolatedSource` here would have silently broken status-driven messages). */
+const emptyAccountsConfig: AccountsConfig = {
+  isolated: true,
+  accounts: {
+    a: { id: "a", label: "Account A", loginUrl: "", username: "", password: null },
+    b: { id: "b", label: "Account B", loginUrl: "", username: "", password: null },
+  },
+};
+
+function emptyStatus(overrides: Partial<AccountStatus> = {}): AccountStatus {
+  return {
+    id: "a",
+    label: "Account A",
+    loginUrl: "",
+    username: "",
+    hasPassword: false,
+    ready: false,
+    sources: { label: "default", loginUrl: "default", username: "default", password: "default" },
+    problem: null,
+    ...overrides,
+  };
+}
+
+const noopResolveAccounts: ResolveAccounts = async () => ({
+  config: emptyAccountsConfig,
+  status: {
+    isolated: true,
+    isolatedSource: "default" satisfies AccountSource,
+    accounts: {
+      a: emptyStatus({ id: "a" }),
+      b: emptyStatus({ id: "b", label: "Account B" }),
+    },
+    file: "",
+  } satisfies AccountsStatus,
+});
+
+const noopRegisterPasswords: RegisterPasswords = () => () => undefined;
+const noopAiForRequest: AiForRequest = async () => ({});
+const noopPlanAccount: PlanAccount = () => undefined;
+const noopUsernameHider: UsernameHider = () => (text) => text;
+const noopDiscoverAndPlan: DiscoverAndPlan = async () => fakePlan;
+
+function buildPlanFlow(
+  discover: DiscoverAndPlan = noopDiscoverAndPlan,
+  deps: Partial<{ resolveAccounts: ResolveAccounts; registerPasswords: RegisterPasswords; aiForRequest: AiForRequest }> = {},
+) {
   const store = { set: vi.fn() };
   const flow = new PlanFlow({
-    discoverAndPlan: discover as never,
+    discoverAndPlan: discover,
     store,
-    checks: [],
+    checks: [] as Check[],
     allowedHosts: [],
     aiPlanBudgetMs: 1000,
+    resolveAccounts: deps.resolveAccounts ?? noopResolveAccounts,
+    registerPasswords: deps.registerPasswords ?? noopRegisterPasswords,
+    aiForRequest: deps.aiForRequest ?? noopAiForRequest,
   });
   return { flow, store };
+}
+
+/** Resolves accounts from the on-disk fixture (RUNHOUND_CONFIG_DIR is set in beforeEach). The composition root uses
+ * the same operations module; the test uses the real read to exercise the wired dep, not a stubbed status. */
+async function loadAccountsFromDisk(): Promise<ReturnType<ResolveAccounts>> {
+  const { resolveAccounts } = await import("../../../src/operations/accounts-storage.js");
+  return resolveAccounts();
 }
 
 describe("plan-flow / isAccountId", () => {
@@ -145,6 +214,80 @@ describe("plan-flow / isRedactedTarget", () => {
   });
 });
 
+/** A typed stub of the AccountsStatus / AccountsConfig the flow consumes, with a complete `isolatedSource`. */
+function stubResolution(): { config: AccountsConfig; status: AccountsStatus } {
+  const config: AccountsConfig = {
+    isolated: true,
+    accounts: {
+      a: { id: "a", label: "Account A", loginUrl: "http://127.0.0.1:1/login", username: "alice@x.test", password: "very-long-password-1" } satisfies TestAccount as TestAccount,
+      b: { id: "b", label: "Account B", loginUrl: "", username: "", password: null } satisfies TestAccount as TestAccount,
+    },
+  };
+  const status: AccountsStatus = {
+    isolated: true,
+    isolatedSource: "default",
+    accounts: {
+      a: { id: "a", label: "Account A", loginUrl: "http://127.0.0.1:1/login", username: "alice@x.test", hasPassword: true, ready: true, sources: { label: "default", loginUrl: "default", username: "default", password: "default" }, problem: null } satisfies AccountStatus,
+      b: { id: "b", label: "Account B", loginUrl: "", username: "", hasPassword: false, ready: false, sources: { label: "default", loginUrl: "default", username: "default", password: "default" }, problem: null } satisfies AccountStatus,
+    },
+    file: "",
+  };
+  return { config, status };
+}
+
+describe("plan-flow / injected deps", () => {
+  it("uses the injected resolveAccounts / registerPasswords / aiForRequest", async () => {
+    const store = { set: vi.fn() };
+    const resolveAccountsMock: ResolveAccounts = vi.fn(async () => stubResolution());
+    const registerPasswordsMock: RegisterPasswords = vi.fn(() => () => undefined);
+    const aiForRequestMock: AiForRequest = vi.fn(async () => ({}));
+    const flow = new PlanFlow({
+      discoverAndPlan: noopDiscoverAndPlan,
+      store,
+      resolveAccounts: resolveAccountsMock,
+      registerPasswords: registerPasswordsMock,
+      aiForRequest: aiForRequestMock,
+    });
+    const outcome = await flow.planForRequest({
+      url: "http://127.0.0.1:1/notes",
+      signInAs: "a",
+      signal: new AbortController().signal,
+    });
+    expect(outcome.ok).toBe(true);
+    expect(resolveAccountsMock).toHaveBeenCalledTimes(1);
+    expect(registerPasswordsMock).toHaveBeenCalledTimes(1);
+    expect(aiForRequestMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("cleans the secret out of the error message when an injected deps path throws", async () => {
+    const SECRET = "deps-error-secret-77";
+    const unregister = registerSecretLiterals([SECRET]);
+    try {
+      const store = { set: vi.fn() };
+      const resolveAccountsMock: ResolveAccounts = vi.fn(async () => stubResolution());
+      const flow = new PlanFlow({
+        discoverAndPlan: async () => {
+          throw new Error(`engine said: ${SECRET}`);
+        },
+        store,
+        resolveAccounts: resolveAccountsMock,
+        registerPasswords: noopRegisterPasswords,
+        aiForRequest: noopAiForRequest,
+      });
+      const outcome = await flow.planForRequest({
+        url: "http://127.0.0.1:1/notes",
+        signal: new AbortController().signal,
+      });
+      expect(outcome.ok).toBe(false);
+      if (outcome.ok) return;
+      expect(outcome.error.message).not.toContain(SECRET);
+      expect(outcome.error.message).toContain("Could not plan a run");
+    } finally {
+      unregister();
+    }
+  });
+});
+
 describe("PlanFlow.planForRequest", () => {
   it("stores the plan, returns its id, and unregisters nothing for a signed-out request", async () => {
     const { flow, store } = buildPlanFlow();
@@ -177,9 +320,10 @@ describe("PlanFlow.planForRequest", () => {
 
   it("answers 400 when the engine throws a SignInError and the caller can still unregister", async () => {
     await writeAccounts({ a: { loginUrl: "http://127.0.0.1:1/login", username: "a@x.test", password: "very-long-password-1" } });
+    const resolveAccountsFromDisk: ResolveAccounts = async () => loadAccountsFromDisk();
     const { flow } = buildPlanFlow(async () => {
       throw new SignInError("Wrong password.");
-    });
+    }, { resolveAccounts: resolveAccountsFromDisk });
     const outcome = await flow.planForRequest({
       url: "http://127.0.0.1:1/notes",
       signInAs: "a",
@@ -232,6 +376,14 @@ describe("run-flow / countRunning and concurrentRunsMessage", () => {
   });
 });
 
+const noopRerunDeps = {
+  resolveAccounts: noopResolveAccounts,
+  planAccount: noopPlanAccount,
+  registerPasswords: noopRegisterPasswords,
+  usernameHider: noopUsernameHider,
+  aiForRequest: noopAiForRequest,
+};
+
 describe("run-flow / rerunPlanFor", () => {
   it("proceeds past a redacted target when the caller has already checked (the controller does)", async () => {
     const state = {
@@ -244,31 +396,32 @@ describe("run-flow / rerunPlanFor", () => {
     const out = await rerunPlanFor({
       state,
       signal: new AbortController().signal,
-      discoverAndPlan: vi.fn(async () => fakePlan) as never,
+      discoverAndPlan: noopDiscoverAndPlan,
       aiPlanBudgetMs: 1000,
       checks: [],
       allowedHosts: [],
-    });
+    }, noopRerunDeps);
     expect(out.ok).toBe(true);
   });
 
   it("refuses an unconfigured slot before calling the engine", async () => {
     const state = {
-      plan: { ...fakePlan, target: "http://127.0.0.1:1/notes", account: { id: "a", label: "Account A" } },
+      plan: { ...fakePlan, target: "http://127.0.0.1:1/notes", account: { id: "a", label: "Account A" } as AccountRef },
       approved: ["dc:1"],
       allowDestructive: false,
       headed: false,
       ai: false,
     } as never;
-    const discover = vi.fn();
+    const discover = vi.fn<DiscoverAndPlan>(async () => fakePlan);
+    const planAccountMock: PlanAccount = (plan) => plan?.account;
     const out = await rerunPlanFor({
       state,
       signal: new AbortController().signal,
-      discoverAndPlan: discover as never,
+      discoverAndPlan: discover,
       aiPlanBudgetMs: 1000,
       checks: [],
       allowedHosts: [],
-    });
+    }, { ...noopRerunDeps, planAccount: planAccountMock });
     expect(out.ok).toBe(false);
     if (out.ok) return;
     expect(out.error.status).toBe(400);
@@ -287,11 +440,11 @@ describe("run-flow / rerunPlanFor", () => {
     const out = await rerunPlanFor({
       state,
       signal: new AbortController().signal,
-      discoverAndPlan: vi.fn(async () => fakePlan) as never,
+      discoverAndPlan: noopDiscoverAndPlan,
       aiPlanBudgetMs: 1000,
       checks: [],
       allowedHosts: [],
-    });
+    }, noopRerunDeps);
     expect(out.ok).toBe(true);
     if (!out.ok) return;
     expect(out.plan).toBe(fakePlan);
@@ -308,24 +461,95 @@ describe("run-flow / rerunPlanFor", () => {
     const out = await rerunPlanFor({
       state,
       signal: new AbortController().signal,
-      discoverAndPlan: vi.fn(async () => {
+      discoverAndPlan: async () => {
         throw new Error("disk gone");
-      }) as never,
+      },
       aiPlanBudgetMs: 1000,
       checks: [],
       allowedHosts: [],
-    });
+    }, noopRerunDeps);
     expect(out.ok).toBe(false);
     if (out.ok) return;
     expect(out.error.status).toBe(500);
     expect(out.error.message).toContain("Could not plan the run again");
+  });
+
+  it("uses the injected resolveAccounts / planAccount / registerPasswords / usernameHider / aiForRequest instead of the imports", async () => {
+    const state = {
+      plan: { ...fakePlan, account: { id: "a", label: "Account A" } as AccountRef },
+      approved: ["dc:1"],
+      allowDestructive: false,
+      headed: false,
+      ai: false,
+    } as never;
+    const resolveAccountsMock: ResolveAccounts = vi.fn(async () => stubResolution());
+    const planAccountMock: PlanAccount = vi.fn(() => ({ id: "a" as AccountId, label: "Account A" }));
+    const registerPasswordsMock: RegisterPasswords = vi.fn(() => () => undefined);
+    const usernameHiderMock: UsernameHider = vi.fn(() => (text: string) => text);
+    const aiForRequestMock: AiForRequest = vi.fn(async () => ({}));
+    const out = await rerunPlanFor({
+      state,
+      signal: new AbortController().signal,
+      discoverAndPlan: noopDiscoverAndPlan,
+      aiPlanBudgetMs: 1000,
+      checks: [],
+      allowedHosts: [],
+    }, {
+      resolveAccounts: resolveAccountsMock,
+      planAccount: planAccountMock,
+      registerPasswords: registerPasswordsMock,
+      usernameHider: usernameHiderMock,
+      aiForRequest: aiForRequestMock,
+    });
+    expect(out.ok).toBe(true);
+    expect(resolveAccountsMock).toHaveBeenCalledTimes(1);
+    expect(planAccountMock).toHaveBeenCalledTimes(1);
+    expect(registerPasswordsMock).toHaveBeenCalledTimes(1);
+    expect(aiForRequestMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the username in the 500 error message via the injected usernameHider", async () => {
+    // A username-shaped token the engine would surface in a non-secret way (long enough to be a username, no
+    // match against the redactor's secret patterns): the usernameHider mock replaces it; the hider is the layer
+    // that hides usernames that are not registered secrets.
+    const USERNAME = "runaudit-user@some-app.example.test";
+    const state = {
+      plan: fakePlan,
+      approved: ["dc:1"],
+      allowDestructive: false,
+      headed: false,
+      ai: false,
+    } as never;
+    const hiderCalls: string[] = [];
+    const out = await rerunPlanFor({
+      state,
+      signal: new AbortController().signal,
+      discoverAndPlan: async () => {
+        throw new Error(`engine failed for ${USERNAME} on submit`);
+      },
+      aiPlanBudgetMs: 1000,
+      checks: [],
+      allowedHosts: [],
+    }, {
+      ...noopRerunDeps,
+      usernameHider: () => (text) => {
+        hiderCalls.push(text);
+        return text.replace(USERNAME, "<hidden-user>");
+      },
+    });
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(hiderCalls.length).toBe(1);
+    expect(hiderCalls[0]).toContain(USERNAME);
+    expect(out.error.message).not.toContain(USERNAME);
+    expect(out.error.message).toContain("<hidden-user>");
   });
 });
 
 describe("RunsFlow.specFile / artifactFile outcomes", () => {
   function buildRunsFlow(runs: { runState: (id: string) => Promise<unknown> }) {
     return new RunsFlow({
-      discoverAndPlan: vi.fn(async () => fakePlan) as never,
+      discoverAndPlan: noopDiscoverAndPlan,
       plans: { get: vi.fn() },
       runs: {
         startRun: vi.fn(),
@@ -339,6 +563,11 @@ describe("RunsFlow.specFile / artifactFile outcomes", () => {
       options: { allowedHosts: [] },
       host: { aiPlanBudgetMs: () => 1000 },
       canShowBrowser: true,
+      resolveAccounts: noopResolveAccounts,
+      planAccount: noopPlanAccount,
+      registerPasswords: noopRegisterPasswords,
+      usernameHider: noopUsernameHider,
+      aiForRequest: noopAiForRequest,
     });
   }
 

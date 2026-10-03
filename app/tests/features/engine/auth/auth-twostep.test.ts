@@ -1192,6 +1192,11 @@ describe("signIn: two-step pages with a sign-up form", () => {
     expect(err.message).not.toContain(PASSWORD);
     // The message says the page offered to create an account, not that a password field never came.
     expect(err.message).toMatch(/creat|sign.?up|new account/i);
+    // Exact-message regression: passwordStepForm throws SignInError ("Account A could not sign in: after the email,
+    // the page offered to create a new account …") so the signIn wrapper doesn't prepend a second prefix. A plain
+    // Error would produce "Account A could not sign in: Account A could not sign in: …".
+    expect(err.message).toMatch(/^Account A could not sign in: after the email, the page offered to create a new account instead of asking for the password/);
+    expect(err.message).not.toMatch(/could not sign in: Account A could not sign in:/);
     // The first step ran: the email was typed into the sign-in form.
     expect(typed()).toContain("signin/li-email");
     // Nothing went into the new-password field, and nothing was submitted after Continue.

@@ -7,11 +7,11 @@
 import { resolveAiConfig } from "../../ai/config.js";
 import { aiSession, boundSession, AI_PLAN_BUDGET_MS } from "../../ai/session.js";
 import type { AiSession } from "../../ai/session.js";
-import type { AccountId, Plan } from "../../core/types.js";
-import type { AccountsConfig } from "../../interfaces/accounts.js";
+import type { Plan } from "../../core/types.js";
 import type { RunOptions } from "../../engine/runner.js";
+import type { SignedInForPlanning } from "../../interfaces/server.js";
 
-export type { AiSession };
+export type { AiSession, SignedInForPlanning };
 
 /**
  * The AI session for one request, from the config as it is now (saved file + env). `wanted` undefined = use AI when
@@ -28,12 +28,6 @@ export async function aiForRequest(
 }
 
 export { AI_PLAN_BUDGET_MS };
-
-/** A test account to sign in as during planning (resolved per request). */
-export interface SignedInForPlanning {
-  id: AccountId;
-  accounts: AccountsConfig;
-}
 
 /**
  * Bound the AI steps of a planning call so they stop when the HTTP request is aborted and after aiPlanBudgetMs in

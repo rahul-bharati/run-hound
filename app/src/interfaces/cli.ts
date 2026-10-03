@@ -20,7 +20,7 @@ export interface ICliContext extends ICliStreams {
 }
 
 export interface IRunServices {
-  resolveAccounts: typeof import("../config/accounts.js").resolveAccounts;
+  resolveAccounts: typeof import("../operations/accounts-storage.js").resolveAccounts;
   resolveAiConfig: typeof import("../ai/config.js").resolveAiConfig;
   discoverAndPlan: typeof import("../engine/runner.js").discoverAndPlan;
   runPlan: typeof import("../engine/runner.js").runPlan;
@@ -35,10 +35,10 @@ export interface IAiServices {
 }
 
 export interface IAccountsServices {
-  resolveAccounts: typeof import("../config/accounts.js").resolveAccounts;
-  clearAccount: typeof import("../config/accounts.js").clearAccount;
-  saveAccounts: typeof import("../config/accounts.js").saveAccounts;
-  checkAccountsPatch: typeof import("../config/accounts.js").checkAccountsPatch;
+  resolveAccounts: typeof import("../operations/accounts-storage.js").resolveAccounts;
+  clearAccount: typeof import("../operations/accounts-storage.js").clearAccount;
+  saveAccounts: typeof import("../operations/accounts-storage.js").saveAccounts;
+  checkAccountsPatch: typeof import("../operations/accounts-storage.js").checkAccountsPatch;
   testSignIn: typeof import("../server/accounts.js").testSignIn;
   checkLoginUrls: typeof import("../server/accounts.js").checkLoginUrls;
   registerPasswords: typeof import("../server/accounts.js").registerPasswords;

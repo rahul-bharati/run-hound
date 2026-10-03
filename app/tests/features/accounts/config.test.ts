@@ -12,13 +12,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { configFile } from "../../../src/ai/config.js";
+import { accountsFile } from "../../../src/config/accounts.js";
 import {
-  accountsFile,
   clearAccount,
   isReady,
   resolveAccounts,
   saveAccounts,
-} from "../../../src/config/accounts.js";
+} from "../../../src/operations/accounts-storage.js";
 import type { AccountStatus, TestAccount } from "../../../src/interfaces/accounts.js";
 import type { AccountId, AccountSource } from "../../../src/types/accounts.js";
 

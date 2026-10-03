@@ -1,6 +1,8 @@
 /**
  * Composition root: builds model objects, constructs each feature's flow, mounts middleware, and registers the
  * controllers with their narrow flow dependency. The middleware order and route map match the pre-refactor app.ts.
+ * The composition root is the only place that knows the concrete account/AI/password functions; the flow classes
+ * take them as required deps.
  */
 import { Hono } from "hono";
 import {
@@ -22,6 +24,17 @@ import { PlanFlow } from "./models/plan-flow.js";
 import { buildServerModels } from "./models/services.js";
 import { RunsFlow } from "./models/run-flow.js";
 import { UiFlow } from "./models/ui-flow.js";
+import {
+  planAccount,
+  registerPasswords,
+  usernameHider,
+} from "./accounts.js";
+import {
+  checkAccountsPatch,
+  resolveAccounts,
+  saveAccounts,
+} from "../operations/accounts-storage.js";
+import { aiForRequest } from "./models/ai-session.js";
 import { discoverAndPlan } from "../engine/runner.js";
 import type { ServerOptions } from "../interfaces/server.js";
 
@@ -56,6 +69,9 @@ export function createApp(options: ServerOptions = {}): Hono {
     discoverAndPlan,
     store: models.plans,
     aiPlanBudgetMs: models.host.aiPlanBudgetMs,
+    resolveAccounts,
+    registerPasswords,
+    aiForRequest,
     ...(options.checks !== undefined ? { checks: options.checks } : {}),
     ...(options.allowedHosts !== undefined ? { allowedHosts: options.allowedHosts } : {}),
   });
@@ -74,12 +90,20 @@ export function createApp(options: ServerOptions = {}): Hono {
     options: { checks: options.checks, allowedHosts: options.allowedHosts },
     host: { aiPlanBudgetMs: () => models.host.aiPlanBudgetMs },
     canShowBrowser: models.canShowBrowser,
+    resolveAccounts,
+    planAccount,
+    registerPasswords,
+    usernameHider,
+    aiForRequest,
   });
   const aiFlow = new AiFlow({
     host: { runsDir: models.host.runsDir, allowedHosts: () => models.host.allowedHosts(), extraHosts: models.host.extraHosts },
     version: models.version,
   });
   const accountsFlow = new AccountsFlow({
+    resolveAccounts,
+    checkAccountsPatch,
+    saveAccounts,
     allowedHosts: () => models.host.allowedHosts(),
     signInTests: models.signInTests,
   });
