@@ -13,8 +13,8 @@ import { cancelUndoes, refusal } from "../../../../src/checks/paywall-trust/enti
 import { check, hider, openRoute } from "../../../../src/checks/paywall-trust.js";
 import { registerSecretLiterals } from "../../../../src/engine/redact.js";
 import type { Page, Route as PwRoute } from "playwright";
-import { getBrowser } from "../../../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { getBrowser } from "../../../support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../support/server.js";
 
 function mockRequest(resourceType: string, method: string, isNavigation = false, url = "https://example.com/x"): {
   url: () => string;

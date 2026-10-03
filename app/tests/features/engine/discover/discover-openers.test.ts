@@ -7,8 +7,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Page } from "playwright";
-import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { closeBrowser, getBrowser } from "../../../support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import type { Check, CheckId, DiscoveredForm, DiscoveredPage } from "../../../../src/core/types.js";
 import { check as persistence } from "../../../../src/checks/persistence.js";
 import { isDestructiveControl } from "../../../../src/checks/dead-control.js";
@@ -16,7 +16,7 @@ import { discoverPage, safeToProbe } from "../../../../src/engine/discover.js";
 import { OPEN_FORM_TIMEOUT_MS, openForm } from "../../../../src/engine/open-form.js";
 import { discoverAndPlan, runPlan } from "../../../../src/engine/runner.js";
 
-const root = fileURLToPath(new URL("../../../../test/fixtures/discover/", import.meta.url));
+const root = fileURLToPath(new URL("../../../fixtures/discover/", import.meta.url));
 
 const servers: FixtureServer[] = [];
 const dirs: string[] = [];

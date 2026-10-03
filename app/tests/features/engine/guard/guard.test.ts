@@ -1,6 +1,6 @@
 import { chromium, type Browser, type BrowserContext } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer, type RouteHandler } from "../../../../test-support/server.js";
+import { startFixtureServer, type FixtureServer, type RouteHandler } from "../../../support/server.js";
 import { guardContext, guardSummary, rememberCredentials } from "../../../../src/engine/guard.js";
 
 // "blocked.test" stands in for a public site (Chromium is told it lives on 127.0.0.1 while the gate's DNS says it is public); "rebind.test" stands for DNS rebinding (the gate's DNS says private 10.0.0.9, Chromium gets 0.0.0.0).

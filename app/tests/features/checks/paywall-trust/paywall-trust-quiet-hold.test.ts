@@ -2,7 +2,7 @@
 
 import type { ServerResponse } from "node:http";
 import { describe, expect, it } from "vitest";
-import { app, BILLING, confirmed, loads, posts, runOn, send, settings, signedIn, sinkHits, usePaywallHarness, WHO } from "../../../../test-support/paywall-harness.js";
+import { app, BILLING, confirmed, loads, posts, runOn, send, settings, signedIn, sinkHits, usePaywallHarness, WHO } from "../../../support/paywall-harness.js";
 
 usePaywallHarness({ tmpPrefix: "rh-paywall-quiet-", restoreMocks: true });
 

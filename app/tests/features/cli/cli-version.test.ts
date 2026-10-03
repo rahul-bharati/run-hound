@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../support/server.js";
 import type { Check, Report } from "../../../src/core/types.js";
 import { discoverAndPlan, runPlan } from "../../../src/engine/runner.js";
 import { createApp } from "../../../src/server/app.js";

@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { serve, type ServerType } from "@hono/node-server";
 import { chromium, type Browser, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../support/server.js";
 import type { Check, Scenario } from "../../../src/core/types.js";
 import { createApp } from "../../../src/server/app.js";
 

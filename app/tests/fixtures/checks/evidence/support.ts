@@ -2,7 +2,7 @@
  * Shared setup and assertions for src/checks/evidence.test.ts: the "Evidence" contract in docs/v0-spec.md
  * (frames, cards and GIFs that carry the URL, time, highlighted element and the facts behind a finding).
  *
- * runCheckKeepingArtifacts is test-support/harness.ts runCheck with two differences: it creates one
+ * runCheckKeepingArtifacts is tests/support/harness.ts runCheck with two differences: it creates one
  * CheckContext per scenario (so each gets its checkId and scenario title for the frame header) and it keeps
  * the artifacts directory until the caller's assertions have run.
  */
@@ -16,7 +16,7 @@ import { createCheckContext } from "../../../../src/engine/context.js";
 import { discoverForm } from "../../../../src/engine/discover.js";
 import { FRAME } from "../../../../src/engine/evidence.js";
 import { redactSecrets } from "../../../../src/engine/redact.js";
-import { getBrowser } from "../../../../test-support/harness.js";
+import { getBrowser } from "../../../support/harness.js";
 
 export interface KeptRun {
   scenarios: Scenario[];

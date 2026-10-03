@@ -3,14 +3,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { closeBrowser, getBrowser } from "../../../support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import type { CheckResult, DiscoveredForm, FlowStep, Scenario } from "../../../../src/core/types.js";
 import { createCheckContext } from "../../../../src/engine/context.js";
 import { discoverPage } from "../../../../src/engine/discover.js";
 import { check } from "../../../../src/checks/ai-flow.js";
 import { explainPrompt } from "../../../../src/ai/explain.js";
-import { projectForm, startWidgetApp, type WidgetApp } from "../../../../test/fixtures/widgets/widget-app.js";
+import { projectForm, startWidgetApp, type WidgetApp } from "../../../fixtures/widgets/widget-app.js";
 
 // ai-flow runs the steps of an AI-suggested scenario (Scenario.flow) against the discovered form and decides each `expect` deterministically. See the JSDoc in ./ai-flow.ts and FlowExpectation in core/types.ts.
 // Interpretations pinned here: "press" acts on whatever has focus; after a "fill" the filled field has focus, so Enter submits the form. Enter is only pressed while focus is on a field of the scenario's form; Escape anywhere; Tab and Space never (they can reach and activate a destructive control) → "skipped". Focus landing on a destructive control after any step, without allowDestructive, stops the flow → "skipped". An unknown field key or an out-of-range control index is a step that can't be performed → status "error" with notes naming the problem, no findings. A destructive control without allowDestructive → "skipped" before anything is clicked, notes name the control.

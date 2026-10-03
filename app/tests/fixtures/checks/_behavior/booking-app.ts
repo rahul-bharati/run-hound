@@ -5,7 +5,7 @@
  * Each test builds a GOOD and a BAD variant by flipping one client or server behaviour, so a check that
  * passes GOOD and fails BAD is reacting to exactly that behaviour.
  */
-import { json, startFixtureServer, type FixtureServer, type RecordedRequest, type RouteHandler } from "../../../../test-support/server.js";
+import { json, startFixtureServer, type FixtureServer, type RecordedRequest, type RouteHandler } from "../../../support/server.js";
 import type { DiscoveredForm } from "../../../../src/core/types.js";
 
 /** How the page reacts when the create request does not succeed. */

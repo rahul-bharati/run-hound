@@ -8,7 +8,7 @@
  */
 import { readFileSync } from "node:fs";
 import type { DiscoveredForm, FormField } from "../../../src/core/types.js";
-import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../test-support/server.js";
+import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../support/server.js";
 
 const page = (file: string) => readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
 

@@ -2,9 +2,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
-import type { Check, CheckResult, Scenario } from "../src/core/types.js";
-import { createCheckContext } from "../src/engine/context.js";
-import { discoverForm, discoverPage, emptyForm } from "../src/engine/discover.js";
+import type { Check, CheckResult, Scenario } from "../../src/core/types.js";
+import { createCheckContext } from "../../src/engine/context.js";
+import { discoverForm, discoverPage, emptyForm } from "../../src/engine/discover.js";
 
 let browser: Browser | undefined;
 

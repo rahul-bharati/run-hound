@@ -1,7 +1,7 @@
 // Quiet waits (review round 1): the Billing tab holds what its script still sends; late page-Load change isn't credited to a later route; time-out with unopened routes is never a pass; late change put down to a tab names what came between.
 
 import { describe, expect, it, vi } from "vitest";
-import { app, BILLING, confirmed, loads, notFound, page, posts, runOn, send, settings, SHOW, signedIn, sinkHits, usePaywallHarness, WHO } from "../../../../test-support/paywall-harness.js";
+import { app, BILLING, confirmed, loads, notFound, page, posts, runOn, send, settings, SHOW, signedIn, sinkHits, usePaywallHarness, WHO } from "../../../support/paywall-harness.js";
 
 usePaywallHarness({ tmpPrefix: "rh-paywall-quiet-", restoreMocks: true });
 

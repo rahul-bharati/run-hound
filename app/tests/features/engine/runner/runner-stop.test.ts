@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import type { Check, CheckId, DiscoveredForm, Report, Scenario } from "../../../../src/core/types.js";
 import { buildPlan } from "../../../../src/engine/plan.js";
 import { runPlan, type ProgressEvent } from "../../../../src/engine/runner.js";

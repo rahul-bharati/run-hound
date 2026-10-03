@@ -1,7 +1,7 @@
 // Channels that head for a payment provider (WebSocket, new window) and the cancel flow's retention offer the restore must never accept.
 
 import { describe, expect, it } from "vitest";
-import { app, CONFIRM_ON_LOAD, DASHBOARD, me, page, runOn, send, SHOW, sinkHits, usePaywallHarness } from "../../../../test-support/paywall-harness.js";
+import { app, CONFIRM_ON_LOAD, DASHBOARD, me, page, runOn, send, SHOW, sinkHits, usePaywallHarness } from "../../../support/paywall-harness.js";
 
 usePaywallHarness({ tmpPrefix: "rh-paywall-edges-" });
 

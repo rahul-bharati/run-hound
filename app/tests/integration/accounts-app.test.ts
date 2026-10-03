@@ -1,11 +1,11 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext, Page } from "playwright";
-import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../test-support/accounts-app.js";
-import { closeBrowser, getBrowser } from "../../test-support/harness.js";
+import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../support/accounts-app.js";
+import { closeBrowser, getBrowser } from "../support/harness.js";
 import { discoverForm, discoverPage } from "../../src/engine/discover.js";
 
 /**
- * The shared V2 test app (test-support/accounts-app.ts) behaves as its header comment documents, in every mode. These
+ * The shared V2 test app (tests/support/accounts-app.ts) behaves as its header comment documents, in every mode. These
  * tests are infrastructure checks: they must pass before any 0.4.0 feature exists.
  */
 

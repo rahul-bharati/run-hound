@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type LaunchOptions, type Page } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import type { Check, CheckContext, CheckId, CheckResult, Plan, Report, Scenario } from "../../../../src/core/types.js";
 import { discoverAndPlan, runPlan, type ProgressEvent } from "../../../../src/engine/runner.js";
 

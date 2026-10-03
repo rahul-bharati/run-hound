@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { chromium, type Browser } from "playwright";
-import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import type { Check, CheckId, DiscoveredForm, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
 import { discoverPage } from "../../../../src/engine/discover.js";
 import { NoFormFoundError } from "../../../../src/engine/errors.js";

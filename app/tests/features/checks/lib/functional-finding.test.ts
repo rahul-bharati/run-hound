@@ -4,7 +4,7 @@
  * fillForm did (setFieldSpec).
  */
 import { describe, expect, it } from "vitest";
-import { projectForm } from "../../../../test/fixtures/widgets/widget-app.js";
+import { projectForm } from "../../../fixtures/widgets/widget-app.js";
 import type { DiscoveredForm, FormField } from "../../../../src/core/types.js";
 import { openFormSpec } from "../../../../src/engine/open-form.js";
 import { playwrightSpec } from "../../../../src/checks/lib/a11y-common.js";

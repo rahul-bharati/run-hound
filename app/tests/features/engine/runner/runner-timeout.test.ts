@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import type { Check, CheckId, DiscoveredForm, DiscoveredPage, FormControl, Report, Scenario } from "../../../../src/core/types.js";
 import { buildPlan } from "../../../../src/engine/plan.js";
 import { check as deadControl } from "../../../../src/checks/dead-control.js";

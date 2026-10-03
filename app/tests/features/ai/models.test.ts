@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { startFakeLlm } from "../../../test-support/fake-llm.js";
-import { json, startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import { startFakeLlm } from "../../support/fake-llm.js";
+import { json, startFixtureServer, type FixtureServer } from "../../support/server.js";
 import { listModels } from "../../../src/ai/models.js";
 import type { AiConfig } from "../../../src/ai/types.js";
 

@@ -1,7 +1,7 @@
 // A clean success page that changes the plan without a grant — a free trial kept beside the plan, a metered entitlement's usage counter going up, and a free plan renamed — must never be a confirmed finding.
 
 import { describe, expect, it } from "vitest";
-import { app, BILLING, confirmed, DASHBOARD, page, pathOf, runOn, send, signedIn, usePaywallHarness, WHO } from "../../../../test-support/paywall-harness.js";
+import { app, BILLING, confirmed, DASHBOARD, page, pathOf, runOn, send, signedIn, usePaywallHarness, WHO } from "../../../support/paywall-harness.js";
 
 usePaywallHarness({ tmpPrefix: "rh-paywall-shapes-" });
 

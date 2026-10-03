@@ -1,7 +1,7 @@
 // attachCapture (0.6.0 close-out round 1): a write to the app carries its anti-CSRF token in a header on many apps (Django's X-CSRFToken, axios' X-XSRF-TOKEN, Rails' X-CSRF-Token), so the capture keeps the anti-CSRF headers (a name with csrf or xsrf, lower-case) of each write to the page's origin or another local origin (write-access sends Account B's replay with B's own token); never a read's, never any other header; in memory only.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { closeBrowser, getBrowser } from "../../../support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import type { Capture } from "../../../../src/core/types.js";
 import { attachCapture } from "../../../../src/engine/capture.js";
 

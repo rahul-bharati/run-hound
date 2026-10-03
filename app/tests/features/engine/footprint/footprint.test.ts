@@ -6,7 +6,7 @@ import { platform as osPlatform, tmpdir, userInfo } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { chromium, type LaunchOptions } from "playwright";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import type { Check, CheckResult } from "../../../../src/core/types.js";
 import { discoverAndPlan, runPlan } from "../../../../src/engine/runner.js";
 

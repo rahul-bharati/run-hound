@@ -102,7 +102,7 @@ Each of these calls `launchChromium` with the options it builds today, and none 
 - `app/src/engine/runner.ts:473` (discovery) and `:930` (the run), through `launchOptions` (`:161`);
 - `app/src/server/accounts.ts:80` (the sign-in test in Settings and `run-hound accounts test`).
 
-The test helpers (`app/test-support/harness.ts`, the UI tests) launch their own browsers and are exempt.
+The test helpers (`app/tests/support/harness.ts`, the UI tests) launch their own browsers and are exempt.
 
 ### 2. Downloads
 
@@ -303,7 +303,7 @@ It is a select and not radio buttons because the radios' labels would share word
 
 ### 6. The footprint contract test
 
-`app/tests/features/engine/footprint/footprint.test.ts` runs a real run: discovery, then one scenario, in headless Chromium, against a fixture page on `127.0.0.1` from `app/test-support/server.ts`. The scenario opens the page, clicks a download link, takes a frame and a card, and writes a log line.
+`app/tests/features/engine/footprint/footprint.test.ts` runs a real run: discovery, then one scenario, in headless Chromium, against a fixture page on `127.0.0.1` from `app/tests/support/server.ts`. The scenario opens the page, clicks a download link, takes a frame and a card, and writes a log line.
 
 **Setup.**
 

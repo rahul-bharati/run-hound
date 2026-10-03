@@ -3,8 +3,8 @@ import { randomBytes } from "node:crypto";
 import type { ServerResponse } from "node:http";
 import type { Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import { closeBrowser, getBrowser } from "../../../support/harness.js";
+import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../support/server.js";
 import type { TestAccount } from "../../../../src/interfaces/accounts.js";
 import { sessionInStorage, signIn, type SessionState, type SignedIn } from "../../../../src/engine/auth.js";
 

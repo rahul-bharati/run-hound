@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import { check as axeStates } from "../../../../src/checks/axe-states.js";
 import { check as errorAnnouncement } from "../../../../src/checks/error-announcement.js";
 import { check as persistence } from "../../../../src/checks/persistence.js";

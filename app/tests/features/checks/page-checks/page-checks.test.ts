@@ -1,7 +1,7 @@
 import type { ServerResponse } from "node:http";
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser, runPageCheck } from "../../../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { closeBrowser, runPageCheck } from "../../../support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import { check as cookieFlags, cookieProblems, isSessionCookie } from "../../../../src/checks/cookie-flags.js";
 import { check as cors, corsVerdict, PROBE_ORIGIN } from "../../../../src/checks/cors.js";
 import { check as pageControls } from "../../../../src/checks/page-controls.js";

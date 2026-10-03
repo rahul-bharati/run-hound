@@ -3,13 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser, runCheck } from "../../../../test-support/harness.js";
-import { startFixtureServer } from "../../../../test-support/server.js";
+import { closeBrowser, runCheck } from "../../../support/harness.js";
+import { startFixtureServer } from "../../../support/server.js";
 import { createCheckContext } from "../../../../src/engine/context.js";
 import { discoverForm } from "../../../../src/engine/discover.js";
-import { startBookingApp, sampleForm, type ApiOptions, type BookingServer, type ClientOptions } from "../../../../test/fixtures/checks/_behavior/booking-app.js";
-import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectPlan } from "../../../../test/fixtures/checks/_behavior/expectations.js";
-import { startHangApp } from "../../../../test/fixtures/checks/hang-app.js";
+import { startBookingApp, sampleForm, type ApiOptions, type BookingServer, type ClientOptions } from "../../../fixtures/checks/_behavior/booking-app.js";
+import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectPlan } from "../../../fixtures/checks/_behavior/expectations.js";
+import { startHangApp } from "../../../fixtures/checks/hang-app.js";
 import { check, replayAllowed } from "../../../../src/checks/verbose-errors.js";
 
 const ID = "verbose-errors" as const;

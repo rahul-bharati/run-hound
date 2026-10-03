@@ -3,7 +3,7 @@ import { buildDispatch, runAndReport } from "../../../src/cli/dispatch.js";
 import { UsageError } from "../../../src/errors/usage-error.js";
 import { registerSecretLiterals } from "../../../src/engine/redact.js";
 import { USAGE } from "../../../src/constants/cli-constants.js";
-import { cliContext } from "../../../test-support/cli.js";
+import { cliContext } from "../../support/cli.js";
 import type { CommandRegistry } from "../../../src/types/cli.js";
 
 function application(commands: CommandRegistry = new Map()) {

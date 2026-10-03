@@ -1,6 +1,6 @@
 /**
  * setField / setFieldSpec (0.4.0): the one way every check, and every exported spec, sets a field's value. Run against
- * test/fixtures/widgets/radix-form.html, which reproduces the DOM React 19 + Radix + shadcn + cmdk render: a Select
+ * tests/fixtures/widgets/radix-form.html, which reproduces the DOM React 19 + Radix + shadcn + cmdk render: a Select
  * trigger with an aria-hidden bubble <select> and a portal listbox (modal: the page is aria-hidden and body has
  * pointer-events: none while it is open), a RadioGroup, a Slider, a Switch and a Checkbox with bubble inputs, a
  * Popover + cmdk Combobox and a Downshift-style autocomplete. The fields are the hand-written discovery result
@@ -8,8 +8,8 @@
  */
 import type { Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
-import { planField, projectFields, startWidgetApp, type WidgetApp } from "../../../../test/fixtures/widgets/widget-app.js";
+import { closeBrowser, getBrowser } from "../../../support/harness.js";
+import { planField, projectFields, startWidgetApp, type WidgetApp } from "../../../fixtures/widgets/widget-app.js";
 import type { FormField } from "../../../../src/core/types.js";
 import { fieldKind, firstChoice, hasEmptyChoice, isConsentCheckbox, setField, setFieldSpec, showsLabel, type FieldSetting } from "../../../../src/checks/lib/widgets.js";
 

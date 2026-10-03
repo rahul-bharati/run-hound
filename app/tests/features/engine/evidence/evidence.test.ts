@@ -1,7 +1,7 @@
 import { PNG } from "pngjs";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
+import { closeBrowser, getBrowser } from "../../../support/harness.js";
 import type { Box, Highlight } from "../../../../src/core/types.js";
 import { FRAME, composeFrame, encodeGif, renderCard, resolveHighlights } from "../../../../src/engine/evidence.js";
 

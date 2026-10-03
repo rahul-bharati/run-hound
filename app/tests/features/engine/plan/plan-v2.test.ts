@@ -1,8 +1,8 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser } from "playwright";
-import { startAccountsApp, type AccountsApp } from "../../../../test-support/accounts-app.js";
-import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { startAccountsApp, type AccountsApp } from "../../../support/accounts-app.js";
+import { closeBrowser, getBrowser } from "../../../support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import { check as accessControl } from "../../../../src/checks/access-control.js";
 import { check as deepLinks } from "../../../../src/checks/deep-links.js";
 import { checks as allChecks } from "../../../../src/checks/index.js";

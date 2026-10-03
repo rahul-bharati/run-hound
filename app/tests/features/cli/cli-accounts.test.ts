@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startAccountsApp, type AccountsApp } from "../../../test-support/accounts-app.js";
+import { startAccountsApp, type AccountsApp } from "../../support/accounts-app.js";
 import type { Plan } from "../../../src/core/types.js";
 import type { CliResult } from "../../../src/interfaces/cli-test.js";
 

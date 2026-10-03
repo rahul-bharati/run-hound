@@ -2,7 +2,7 @@
 
 import type { Browser } from "playwright";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import {
   A,
   ALEX,
@@ -36,8 +36,8 @@ import {
   sinkPort,
   SUCCESS_LINK,
   usePaywallApp,
-} from "../../../../test-support/paywall-app.js";
-import type { BillingApp, CancelControl, BillingAppOptions, SuccessPage } from "../../../../test-support/paywall-app.js";
+} from "../../../support/paywall-app.js";
+import type { BillingApp, CancelControl, BillingAppOptions, SuccessPage } from "../../../support/paywall-app.js";
 
 usePaywallApp();
 

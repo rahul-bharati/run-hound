@@ -4,7 +4,7 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../support/server.js";
 import type { AccountsConfig } from "../../../../src/interfaces/accounts.js";
 import { check as credentialFields } from "../../../../src/checks/credential-fields.js";
 import { check as deepLinks } from "../../../../src/checks/deep-links.js";

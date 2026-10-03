@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFakeLlm, type FakeLlm } from "../../../test-support/fake-llm.js";
-import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import { startFakeLlm, type FakeLlm } from "../../support/fake-llm.js";
+import { startFixtureServer, type FixtureServer } from "../../support/server.js";
 import type { Plan } from "../../../src/core/types.js";
 import type { CliResult } from "../../../src/interfaces/cli-test.js";
 

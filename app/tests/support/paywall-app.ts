@@ -29,13 +29,13 @@ import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
 import { startFixtureServer, type FixtureServer, type RecordedRequest } from "./server.js";
-import type { AccountRef, CheckResult, DiscoveredPage, Finding, Scenario } from "../src/core/types.js";
-import type { SessionState } from "../src/engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../src/engine/context.js";
-import { discoverPage, emptyForm } from "../src/engine/discover.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Finding, Scenario } from "../../src/core/types.js";
+import type { SessionState } from "../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../src/engine/context.js";
+import { discoverPage, emptyForm } from "../../src/engine/discover.js";
 
 export { emptyForm };
-import { check } from "../src/checks/paywall-trust.js";
+import { check } from "../../src/checks/paywall-trust.js";
 
 export { check };
 export type { DiscoveredPage };

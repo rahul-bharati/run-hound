@@ -1,8 +1,8 @@
 // signIn on sign-in pages harder than the accounts app (round-2 review): a sign-up form before the sign-in form is never used (signInForm ranks: sign-in words and autocomplete=current-password win; a sign-up / new-password form is never picked); a GET form is refused before the request leaves the browser; an IndexedDB session (Firebase Auth) is part of the session and its token is a redaction value; the password is typed and sent only on the sign-in page's own origin.
 import type { Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { closeBrowser, getBrowser } from "../../../support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import type { TestAccount } from "../../../../src/interfaces/accounts.js";
 import type { DiscoveredForm } from "../../../../src/core/types.js";
 import { sessionSecrets, signIn, signInForm, SignInError, type SessionState } from "../../../../src/engine/auth.js";

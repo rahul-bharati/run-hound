@@ -16,7 +16,7 @@
  * native selector matches one input per item.
  */
 import type { DiscoveredForm, FormField } from "../../../../src/core/types.js";
-import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../support/server.js";
 
 export interface WidgetFormOptions {
   /** The Select opens on mouse down only (no key handler), like a hand-made dropdown. */

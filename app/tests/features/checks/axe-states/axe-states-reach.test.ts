@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import type { Finding } from "../../../../src/core/types.js";
-import { closeBrowser, getBrowser, overallStatus, runCheck } from "../../../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { closeBrowser, getBrowser, overallStatus, runCheck } from "../../../support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import { createCheckContext } from "../../../../src/engine/context.js";
 import { discoverPage } from "../../../../src/engine/discover.js";
-import { bookingApp, type BookingVariant } from "../../../../test/fixtures/checks/booking-page.js";
+import { bookingApp, type BookingVariant } from "../../../fixtures/checks/booking-page.js";
 import {
   allFindings,
   bug,
@@ -16,10 +16,10 @@ import {
   expectUniqueIds,
   expectWellFormedFinding,
   findingText,
-} from "../../../../test/fixtures/checks/assert-finding.js";
-import * as fixtures from "../../../../test/fixtures/checks/axe-states/variants.js";
-import { startSchemaFormApp } from "../../../../test/fixtures/checks/schema-form.js";
-import { startWidgetApp, wizardForm } from "../../../../test/fixtures/widgets/widget-app.js";
+} from "../../../fixtures/checks/assert-finding.js";
+import * as fixtures from "../../../fixtures/checks/axe-states/variants.js";
+import { startSchemaFormApp } from "../../../fixtures/checks/schema-form.js";
+import { startWidgetApp, wizardForm } from "../../../fixtures/widgets/widget-app.js";
 import { check } from "../../../../src/checks/axe-states.js";
 
 const servers: FixtureServer[] = [];

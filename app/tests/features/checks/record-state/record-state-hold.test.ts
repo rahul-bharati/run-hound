@@ -14,8 +14,8 @@
  */
 import type { Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { closeBrowser, getBrowser } from "../../../support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import type { CheckContext } from "../../../../src/core/types.js";
 import { attachCapture } from "../../../../src/engine/capture.js";
 import { changesReadRecord, holdExistingEdits } from "../../../../src/checks/lib/record-state.js";

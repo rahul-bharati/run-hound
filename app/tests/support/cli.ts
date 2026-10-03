@@ -1,5 +1,5 @@
 import { PassThrough } from "node:stream";
-import { createContext } from "../src/cli/context.js";
+import { createContext } from "../../src/cli/context.js";
 
 export function cliContext() {
   const stdout = new PassThrough();

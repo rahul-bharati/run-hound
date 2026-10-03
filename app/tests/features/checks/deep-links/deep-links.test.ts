@@ -1,13 +1,13 @@
-// deep-links (0.4.0, docs/v2-spec.md "deep-links"): do the app's own pages load when opened directly (a reload, a shared link)? Driven against the shared accounts app (test-support/accounts-app.ts) signed in as alice, and against small fixture sites for link selection and a not-found view answered with 200.
+// deep-links (0.4.0, docs/v2-spec.md "deep-links"): do the app's own pages load when opened directly (a reload, a shared link)? Driven against the shared accounts app (tests/support/accounts-app.ts) signed in as alice, and against small fixture sites for link selection and a not-found view answered with 200.
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
-import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../../../test-support/accounts-app.js";
-import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../../test-support/server.js";
-import { expectWellFormedFinding } from "../../../../test/fixtures/checks/assert-finding.js";
+import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../../support/accounts-app.js";
+import { closeBrowser, getBrowser } from "../../../support/harness.js";
+import { startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../support/server.js";
+import { expectWellFormedFinding } from "../../../fixtures/checks/assert-finding.js";
 import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../../../src/core/types.js";
 import type { SessionState } from "../../../../src/engine/auth.js";
 import { createCheckContext, type RunningCheckContext } from "../../../../src/engine/context.js";

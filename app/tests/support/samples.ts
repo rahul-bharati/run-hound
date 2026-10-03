@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 export type SampleName = "classic-post" | "spa-fetch" | "login" | "cross-origin-api";
 
-const SAMPLES_DIR = fileURLToPath(new URL("../../fixtures/samples/", import.meta.url));
+const SAMPLES_DIR = fileURLToPath(new URL("../../../fixtures/samples/", import.meta.url));
 
 /** Path of each sample's form page. */
 const FORM_PATH: Record<SampleName, string> = { "classic-post": "/signup", "spa-fetch": "/", login: "/", "cross-origin-api": "/" };

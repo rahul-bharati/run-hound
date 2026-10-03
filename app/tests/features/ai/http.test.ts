@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../support/server.js";
 import { httpError, send } from "../../../src/ai/http.js";
 import { ollamaChatJson } from "../../../src/ai/ollama.js";
 import { chatJson } from "../../../src/ai/openai-compatible.js";

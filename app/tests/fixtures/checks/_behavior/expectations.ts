@@ -1,7 +1,7 @@
 /** Shared assertions for the behaviour-check tests. */
 import { expect } from "vitest";
 import { CHECK_IDS, type Category, type Check, type CheckId, type CheckResult, type DiscoveredForm, type Finding, type Scenario, type Severity } from "../../../../src/core/types.js";
-import { overallStatus } from "../../../../test-support/harness.js";
+import { overallStatus } from "../../../support/harness.js";
 
 /** The check module's export is well-formed and matches its file name. */
 export function expectCheckShape(check: Check, id: CheckId, category: Category) {

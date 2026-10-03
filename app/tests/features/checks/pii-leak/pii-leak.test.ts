@@ -6,17 +6,17 @@ import { join } from "node:path";
 import { chromium } from "playwright";
 import { createCheckContext } from "../../../../src/engine/context.js";
 import { discoverForm } from "../../../../src/engine/discover.js";
-import { closeBrowser, overallStatus, runCheck } from "../../../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
-import { bookingApp, type BookingVariant } from "../../../../test/fixtures/checks/booking-page.js";
+import { closeBrowser, overallStatus, runCheck } from "../../../support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../support/server.js";
+import { bookingApp, type BookingVariant } from "../../../fixtures/checks/booking-page.js";
 import {
   allFindings,
   bug,
   expectPlanShape,
   expectWellFormedFinding,
   findingText,
-} from "../../../../test/fixtures/checks/assert-finding.js";
-import * as fixtures from "../../../../test/fixtures/checks/pii-leak/variants.js";
+} from "../../../fixtures/checks/assert-finding.js";
+import * as fixtures from "../../../fixtures/checks/pii-leak/variants.js";
 import { canaries } from "../../../../src/checks/lib/a11y-form.js";
 import { appBackends, check, isOwnApiSave, thirdPartyRequests } from "../../../../src/checks/pii-leak.js";
 

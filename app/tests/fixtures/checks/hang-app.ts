@@ -12,7 +12,7 @@
  * close() ends the requests left hanging, so the server can stop.
  */
 import type { ServerResponse } from "node:http";
-import { json, startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import { json, startFixtureServer, type FixtureServer } from "../../support/server.js";
 
 export interface HangApp extends FixtureServer {
   /** Requests the server left unanswered so far. */

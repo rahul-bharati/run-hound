@@ -4,8 +4,8 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
 import { chromium, type Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { closeBrowser, getBrowser } from "../../../support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import type { TestAccount } from "../../../../src/interfaces/accounts.js";
 import { guardSignInBrowser, signIn, SignInError, stopUnrouted, type SignedIn } from "../../../../src/engine/auth.js";
 

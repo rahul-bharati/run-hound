@@ -1,17 +1,17 @@
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import type { Finding } from "../../../../src/core/types.js";
-import { closeBrowser, overallStatus } from "../../../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
-import { bookingApp, type BookingVariant } from "../../../../test/fixtures/checks/booking-page.js";
-import { startBookingApp, type ApiOptions, type ClientOptions } from "../../../../test/fixtures/checks/_behavior/booking-app.js";
-import * as axeFixtures from "../../../../test/fixtures/checks/axe-states/variants.js";
-import * as bundleFixtures from "../../../../test/fixtures/checks/bundle-secrets/variants.js";
-import * as credentialFixtures from "../../../../test/fixtures/checks/credential-fields/variants.js";
-import * as errorFixtures from "../../../../test/fixtures/checks/error-announcement/variants.js";
-import * as focusFixtures from "../../../../test/fixtures/checks/focus-visible/variants.js";
-import * as keyboardFixtures from "../../../../test/fixtures/checks/keyboard-completion/variants.js";
-import * as piiFixtures from "../../../../test/fixtures/checks/pii-leak/variants.js";
-import * as reflowFixtures from "../../../../test/fixtures/checks/reflow-320/variants.js";
+import { closeBrowser, overallStatus } from "../../../support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../support/server.js";
+import { bookingApp, type BookingVariant } from "../../../fixtures/checks/booking-page.js";
+import { startBookingApp, type ApiOptions, type ClientOptions } from "../../../fixtures/checks/_behavior/booking-app.js";
+import * as axeFixtures from "../../../fixtures/checks/axe-states/variants.js";
+import * as bundleFixtures from "../../../fixtures/checks/bundle-secrets/variants.js";
+import * as credentialFixtures from "../../../fixtures/checks/credential-fields/variants.js";
+import * as errorFixtures from "../../../fixtures/checks/error-announcement/variants.js";
+import * as focusFixtures from "../../../fixtures/checks/focus-visible/variants.js";
+import * as keyboardFixtures from "../../../fixtures/checks/keyboard-completion/variants.js";
+import * as piiFixtures from "../../../fixtures/checks/pii-leak/variants.js";
+import * as reflowFixtures from "../../../fixtures/checks/reflow-320/variants.js";
 import {
   DEAD_CONTROL_BUTTONS,
   DEAD_CONTROL_HANDLERS,
@@ -25,7 +25,7 @@ import {
   expectNoSecretsInEvidence,
   runCheckKeepingArtifacts,
   type KeptRun,
-} from "../../../../test/fixtures/checks/evidence/support.js";
+} from "../../../fixtures/checks/evidence/support.js";
 import { check as axeStates } from "../../../../src/checks/axe-states.js";
 import { check as bundleSecrets } from "../../../../src/checks/bundle-secrets.js";
 import { check as clientOnlyValidation } from "../../../../src/checks/client-only-validation.js";

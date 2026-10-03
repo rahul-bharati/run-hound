@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser, runCheck } from "../../../../test-support/harness.js";
-import { startFixtureServer } from "../../../../test-support/server.js";
+import { closeBrowser, runCheck } from "../../../support/harness.js";
+import { startFixtureServer } from "../../../support/server.js";
 import {
   FAKE_CSRF_TOKEN,
   startBookingApp,
@@ -8,11 +8,11 @@ import {
   type ApiOptions,
   type BookingServer,
   type ClientOptions,
-} from "../../../../test/fixtures/checks/_behavior/booking-app.js";
-import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectPlan, findingText } from "../../../../test/fixtures/checks/_behavior/expectations.js";
-import { startHangApp } from "../../../../test/fixtures/checks/hang-app.js";
-import { startModernApp } from "../../../../test/fixtures/checks/modern-apps.js";
-import { startSchemaFormApp, type SchemaFormApp, type SchemaFormOptions } from "../../../../test/fixtures/checks/schema-form.js";
+} from "../../../fixtures/checks/_behavior/booking-app.js";
+import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectPlan, findingText } from "../../../fixtures/checks/_behavior/expectations.js";
+import { startHangApp } from "../../../fixtures/checks/hang-app.js";
+import { startModernApp } from "../../../fixtures/checks/modern-apps.js";
+import { startSchemaFormApp, type SchemaFormApp, type SchemaFormOptions } from "../../../fixtures/checks/schema-form.js";
 import { MULTI_STEP_NOTE } from "../../../../src/checks/lib/functional-form.js";
 import { check } from "../../../../src/checks/client-only-validation.js";
 

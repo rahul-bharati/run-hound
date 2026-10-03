@@ -64,7 +64,7 @@ Both are build-time variables (inlined into the pages):
 `src/lib/site.ts` holds the Run Hound version the site describes (`version`, `released`, `releasedIso`), set by hand
 in the same commit as `app/package.json`'s version and the CHANGELOG section for it (docs/development.md
 "Releasing"). The release workflow (`release-images.yml`, check-version) no longer checks it against the git tag
-(docs/decisions/09-2026.md#2026-09-29-images-latest-no-version-pins); `app/test/cli-version.test.ts` still checks
+(docs/decisions/09-2026.md#2026-09-29-images-latest-no-version-pins); `app/tests/features/cli/cli-version.test.ts` still checks
 `released` and `releasedIso` are the same day and match the CHANGELOG heading of `site.ts`'s own version. The
 download links (`curl` of `run-hound.compose.yml` and the settings asset, `run-hound.env.example`) point at the
 latest GitHub Release, which `release-images.yml` creates only once every image is pushed, so they never name images

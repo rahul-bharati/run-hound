@@ -1,9 +1,9 @@
-// signIn (0.4.0, docs/v2-spec.md "Signing in"): signs a test account in with a fresh, guarded browser context and returns the session (Playwright storageState, in memory only), where the browser landed (redacted) and the session values to redact. Failures are SignInError with one or two plain sentences that never hold the password. Runs against the shared accounts app (test-support/accounts-app.ts) in every sign-in variant and token mode, plus a few one-off sign-in pages served below.
+// signIn (0.4.0, docs/v2-spec.md "Signing in"): signs a test account in with a fresh, guarded browser context and returns the session (Playwright storageState, in memory only), where the browser landed (redacted) and the session values to redact. Failures are SignInError with one or two plain sentences that never hold the password. Runs against the shared accounts app (tests/support/accounts-app.ts) in every sign-in variant and token mode, plus a few one-off sign-in pages served below.
 import type { Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../../../test-support/accounts-app.js";
-import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../../support/accounts-app.js";
+import { closeBrowser, getBrowser } from "../../../support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import type { TestAccount } from "../../../../src/interfaces/accounts.js";
 import { signIn, SignInError, type SessionState, type SignedIn } from "../../../../src/engine/auth.js";
 

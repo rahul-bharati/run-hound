@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { serveCommand } from "../../../src/cli/commands/serve.js";
 import { buildDispatch, runAndReport } from "../../../src/cli/dispatch.js";
 import { registerSecretLiterals } from "../../../src/engine/redact.js";
-import { cliContext } from "../../../test-support/cli.js";
+import { cliContext } from "../../support/cli.js";
 import type { IServeCommandDeps, IServerHandle } from "../../../src/interfaces/cli.js";
 
 function serverHarness() {

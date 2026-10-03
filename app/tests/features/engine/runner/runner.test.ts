@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import type { Check, CheckContext, CheckId, CheckResult, Finding, Plan, Report, Scenario } from "../../../../src/core/types.js";
 import { NoFormFoundError, TargetNotAllowedError } from "../../../../src/engine/errors.js";
 import { canShowBrowser, discoverAndPlan, NothingToRunError, planWarnings, runPlan, type ProgressEvent } from "../../../../src/engine/runner.js";

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../support/server.js";
 import type { Report } from "../../../src/core/types.js";
 import type { CliTimedResult as CliResult } from "../../../src/interfaces/cli-test.js";
 

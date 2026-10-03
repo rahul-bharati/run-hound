@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { startFakeLlm, type FakeLlm } from "../../../test-support/fake-llm.js";
-import { startFixtureServer } from "../../../test-support/server.js";
+import { startFakeLlm, type FakeLlm } from "../../support/fake-llm.js";
+import { startFixtureServer } from "../../support/server.js";
 import { chatJson, type ChatMessage } from "../../../src/ai/openai-compatible.js";
 import { AiError } from "../../../src/ai/types.js";
 

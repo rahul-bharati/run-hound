@@ -2,9 +2,9 @@
 import type { ServerResponse } from "node:http";
 import type { Browser, BrowserContext } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../../../test-support/accounts-app.js";
-import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { startAccountsApp, type AccountsApp, type AccountsAppOptions } from "../../../support/accounts-app.js";
+import { closeBrowser, getBrowser } from "../../../support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import type { TestAccount } from "../../../../src/interfaces/accounts.js";
 import { signIn, type SessionState, type SignedIn } from "../../../../src/engine/auth.js";
 

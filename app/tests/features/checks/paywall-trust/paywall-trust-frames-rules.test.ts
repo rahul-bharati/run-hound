@@ -1,7 +1,7 @@
 // Loads a page makes outside its frame (Speculation-Rules header, document rules, link rel=prefetch) must never reach a payment provider.
 
 import { describe, expect, it } from "vitest";
-import { app, page, pathOf, runOn, send, SHOW, signedIn, sinkHits, SUCCESS_LINK, usePaywallHarness, WHO } from "../../../../test-support/paywall-harness.js";
+import { app, page, pathOf, runOn, send, SHOW, signedIn, sinkHits, SUCCESS_LINK, usePaywallHarness, WHO } from "../../../support/paywall-harness.js";
 
 usePaywallHarness({ tmpPrefix: "rh-paywall-shapes-" });
 

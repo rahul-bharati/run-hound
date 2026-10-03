@@ -3,7 +3,7 @@ import { runCommand } from "../../../src/cli/commands/run.js";
 import { resolveAiConfig } from "../../../src/ai/config.js";
 import { aiSession } from "../../../src/ai/session.js";
 import { emptyForm } from "../../../src/engine/discover.js";
-import { cliContext } from "../../../test-support/cli.js";
+import { cliContext } from "../../support/cli.js";
 import type { Plan, Report } from "../../../src/core/types.js";
 import type { IRunServices } from "../../../src/interfaces/cli.js";
 

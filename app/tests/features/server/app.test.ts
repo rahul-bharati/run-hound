@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Hono } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../support/server.js";
 import type { Check, CheckId, Plan, Report, Scenario } from "../../../src/core/types.js";
 import { createApp } from "../../../src/server/app.js";
 

@@ -1,7 +1,7 @@
 // paywall-trust against other app shapes (review round 1): where Account A's plan is read from, a grant that lands late, and a teammate's card with a heading of its own.
 
 import { describe, expect, it } from "vitest";
-import type { FixtureServer } from "../../../../test-support/server.js";
+import type { FixtureServer } from "../../../support/server.js";
 import {
   ALEX,
   app,
@@ -21,7 +21,7 @@ import {
   SUCCESS_LINK,
   usePaywallHarness,
   WHO,
-} from "../../../../test-support/paywall-harness.js";
+} from "../../../support/paywall-harness.js";
 
 usePaywallHarness({ tmpPrefix: "rh-paywall-shapes-" });
 

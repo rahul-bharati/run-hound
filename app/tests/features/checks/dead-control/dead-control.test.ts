@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser, overallStatus, runCheck } from "../../../../test-support/harness.js";
-import { startBookingApp, sampleForm, type BookingServer } from "../../../../test/fixtures/checks/_behavior/booking-app.js";
-import { allFindings } from "../../../../test/fixtures/checks/assert-finding.js";
-import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
-import { expectCheckShape, expectCleanPass, expectFailure, expectPlan, findingText } from "../../../../test/fixtures/checks/_behavior/expectations.js";
+import { closeBrowser, getBrowser, overallStatus, runCheck } from "../../../support/harness.js";
+import { startBookingApp, sampleForm, type BookingServer } from "../../../fixtures/checks/_behavior/booking-app.js";
+import { allFindings } from "../../../fixtures/checks/assert-finding.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../support/server.js";
+import { expectCheckShape, expectCleanPass, expectFailure, expectPlan, findingText } from "../../../fixtures/checks/_behavior/expectations.js";
 import type { DiscoveredForm } from "../../../../src/core/types.js";
 import { createCheckContext } from "../../../../src/engine/context.js";
 import { discoverPage } from "../../../../src/engine/discover.js";
@@ -482,7 +482,7 @@ describe("dead-control: a form in a dialog (LOV-8)", () => {
   it("opens the dialog on every fresh page before clicking, and the spec opens it too", async () => {
     const members: unknown[] = [];
     const server = await startFixtureServer({
-      root: fileURLToPath(new URL("../../../../test/fixtures/discover/", import.meta.url)),
+      root: fileURLToPath(new URL("../../../fixtures/discover/", import.meta.url)),
       routes: {
         "GET /api/members": (_req, res) => json(res, 200, members),
         "POST /api/members": (req, res) => {

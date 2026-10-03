@@ -1,8 +1,8 @@
 // signIn on two-step sign-in pages (0.6.0, docs/v2-spec.md "Sign-in: two-step and sessionStorage") that ask for more after the password step: codes and captchas aren't supported, so signing in fails with their messages ("Signing in" step 6) instead of being judged a success because the password field went away. A code on the next page, on the sign-in origin (autocomplete=one-time-code); a captcha challenge that replaces the password step at the same address (the password field is gone); a password step whose answer asks for a captcha, with the password field still shown and the page's message. The password is typed and sent once, to the password step's own request, and nothing is typed into the code field.
 import type { Browser } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { closeBrowser, getBrowser } from "../../../support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import type { TestAccount } from "../../../../src/interfaces/accounts.js";
 import { signIn, SignInError, type SignedIn } from "../../../../src/engine/auth.js";
 

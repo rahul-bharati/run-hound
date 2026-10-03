@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Hono } from "hono";
 import { chromium, type Browser, type LaunchOptions } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../support/server.js";
 import type { Check, CheckId, Scenario } from "../../../src/core/types.js";
 import { createApp } from "../../../src/server/app.js";
 

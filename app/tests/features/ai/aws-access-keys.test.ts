@@ -15,7 +15,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { startFakeLlm, type FakeLlm } from "../../../test-support/fake-llm.js";
+import { startFakeLlm, type FakeLlm } from "../../support/fake-llm.js";
 import {
   awsCredentialsAvailable,
   awsProfileName,

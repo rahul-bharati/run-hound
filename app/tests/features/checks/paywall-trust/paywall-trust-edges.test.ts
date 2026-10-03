@@ -1,7 +1,7 @@
 // paywall-trust against the shapes the 0.6.0 review's round 2 found: never a pass while a change could still land — late grant, session-endpoint plan, snake_case flag, trial object.
 
 import { describe, expect, it } from "vitest";
-import { ALEX, app, BILLING, confirmed, CONFIRM_ON_LOAD, me, page, runOn, send, SHOW, signedIn, SUCCESS_LINK, usePaywallHarness, WHO } from "../../../../test-support/paywall-harness.js";
+import { ALEX, app, BILLING, confirmed, CONFIRM_ON_LOAD, me, page, runOn, send, SHOW, signedIn, SUCCESS_LINK, usePaywallHarness, WHO } from "../../../support/paywall-harness.js";
 
 usePaywallHarness({ tmpPrefix: "rh-paywall-edges-" });
 

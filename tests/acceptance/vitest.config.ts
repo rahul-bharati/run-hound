@@ -21,7 +21,7 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
     // Never the developer's real AI settings (they would add AI steps to the golden runs).
-    setupFiles: ["../../app/test-support/isolate-config.ts"],
+    setupFiles: ["../../app/tests/support/isolate-config.ts"],
     testTimeout: 10 * 60_000,
     hookTimeout: 5 * 60_000,
     maxConcurrency: Number.isFinite(concurrency) && concurrency > 0 ? concurrency : 2,

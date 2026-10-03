@@ -145,3 +145,4 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-10-03: [Separate write-access record matching, token replay, restoration and findings](docs/decisions/10-2026.md#2026-10-03-write-access-responsibilities)
 - 2026-10-03: [Keep the app refactor PR to app code and its docs](docs/decisions/10-2026.md#2026-10-03-refactor-final-review)
 - 2026-10-03: [Site tests read a refactored check's implementation folder, not only its facade](docs/decisions/10-2026.md#2026-10-03-site-tests-follow-app-split)
+- 2026-10-03: [Put the app's fixtures and test helpers under tests/, beside the tests](docs/decisions/10-2026.md#2026-10-03-app-single-test-root)

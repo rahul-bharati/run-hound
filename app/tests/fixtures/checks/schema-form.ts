@@ -16,7 +16,7 @@
  * - reactTextarea: the Notes text area mirrors its value into its text content (defaultValue), as React does for a
  *   controlled <textarea>, so the typed text is also a text node of the page.
  */
-import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../../test-support/server.js";
+import { json, startFixtureServer, type FixtureServer, type RecordedRequest } from "../../support/server.js";
 
 export interface SchemaFormOptions {
   errors?: "accessible" | "text";

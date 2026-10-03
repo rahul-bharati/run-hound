@@ -3,7 +3,7 @@
  * toggles that plant the V2 bugs. HTTP on 127.0.0.1, a random free port, one independent in-memory state per start().
  * Its own behaviour is pinned by tests/integration/accounts-app.test.ts.
  *
- *   import { startAccountsApp } from "../test-support/accounts-app.js";   // (from src/<dir>/: "../../test-support/…")
+ *   import { startAccountsApp } from "../../support/accounts-app.js";   // (from tests/features/<dir>/; adjust the ../ for depth)
  *   const app = await startAccountsApp({ idor: true });  // every option is optional
  *   ...
  *   await app.stop();
@@ -154,9 +154,9 @@
  */
 import { randomBytes } from "node:crypto";
 import type { ServerResponse } from "node:http";
-import type { AccountsConfig, TestAccount } from "../src/interfaces/accounts.js";
-import type { AccountId } from "../src/core/types.js";
-import type { SessionState, SignedIn } from "../src/engine/auth.js";
+import type { AccountsConfig, TestAccount } from "../../src/interfaces/accounts.js";
+import type { AccountId } from "../../src/core/types.js";
+import type { SessionState, SignedIn } from "../../src/engine/auth.js";
 import { startFixtureServer, type RecordedRequest } from "./server.js";
 
 export type UserKey = "alice" | "bob";

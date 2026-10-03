@@ -5,8 +5,8 @@
  */
 import type { Page, Request } from "playwright";
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
-import { projectFields, projectForm, startWidgetApp, wizardForm, type WidgetApp } from "../../../../test/fixtures/widgets/widget-app.js";
+import { closeBrowser, getBrowser } from "../../../support/harness.js";
+import { projectFields, projectForm, startWidgetApp, wizardForm, type WidgetApp } from "../../../fixtures/widgets/widget-app.js";
 import { SIMULATED_RESPONSE_HEADER, type Capture, type DiscoveredForm, type FormField } from "../../../../src/core/types.js";
 import { attachCapture } from "../../../../src/engine/capture.js";
 import {

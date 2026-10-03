@@ -524,7 +524,7 @@ Built in this order; each step owns the files named and touches no others.
    - Fernway: everything under `fixtures/fernway/` (server routes, `bugs.json`, `CONTRACT.md`, the SPA for
      `/app/upgraded`, its own tests) for V06–V09 and the clean-mode defenses.
    Check tests build their own small fixture servers in the test file (as `mass-assignment-robust.test.ts` does)
-   and do not edit `test-support/accounts-app.ts`.
+   and do not edit `tests/support/accounts-app.ts`.
 3. **Integration** (one engineer, last): `tests/acceptance` (bug → route → check rows, clean-mode re-reads, the
    inconclusive `csrf` case, the widened secret grep), the web UI and report where they list checks, the site's
    checks data, README, TESTING, CHANGELOG and the 0.5.0 version bump.
@@ -916,7 +916,7 @@ Each node owns the files named and touches no others; a node starts when the nod
 | N3 write-access | `checks/write-access.ts` | N2 |
 | N4 paywall tests | `checks/paywall-trust*.test.ts`, `checks/lib/entitlement.test.ts` | N1 |
 | N5 paywall | `checks/paywall-trust.ts`, `checks/lib/entitlement.ts` | N4 |
-| N6 sign-in tests | `test-support/accounts-app.ts`, `engine/auth-twostep.test.ts`, `engine/auth-sessionstorage.test.ts`, `engine/context-sessionstorage.test.ts` | N1 |
+| N6 sign-in tests | `tests/support/accounts-app.ts`, `engine/auth-twostep.test.ts`, `engine/auth-sessionstorage.test.ts`, `engine/context-sessionstorage.test.ts` | N1 |
 | N7 sign-in | `engine/auth.ts`, `engine/context.ts` | N6 |
 | N8 Fernway | `fixtures/fernway/**` | none |
 | N9 engine wiring | `engine/runner.ts`, `engine/runner-signed-in.test.ts` | N3, N7 |

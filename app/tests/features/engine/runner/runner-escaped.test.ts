@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
+import { startFixtureServer, type FixtureServer } from "../../../support/server.js";
 import type { Check, CheckContext, CheckId, CheckResult, Finding, Report, Scenario } from "../../../../src/core/types.js";
 import type { RunningCheckContext } from "../../../../src/engine/context.js";
 import { discoverAndPlan, runPlan, scenarioTimeoutNote, STOPPED_NOTE, type ProgressEvent, type RunOptions } from "../../../../src/engine/runner.js";

@@ -2,22 +2,22 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser, overallStatus, runCheck } from "../../../../test-support/harness.js";
-import { json, startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
-import { bookingApp, type BookingVariant } from "../../../../test/fixtures/checks/booking-page.js";
+import { closeBrowser, getBrowser, overallStatus, runCheck } from "../../../support/harness.js";
+import { json, startFixtureServer, type FixtureServer } from "../../../support/server.js";
+import { bookingApp, type BookingVariant } from "../../../fixtures/checks/booking-page.js";
 import {
   allFindings,
   bug,
   expectPlanShape,
   expectWellFormedFinding,
   findingText,
-} from "../../../../test/fixtures/checks/assert-finding.js";
-import * as fixtures from "../../../../test/fixtures/checks/keyboard-completion/variants.js";
-import { startWidgetForm, widgetForm } from "../../../../test/fixtures/checks/keyboard-completion/widgets.js";
-import { CONTACT_FIELDS, startModernApp } from "../../../../test/fixtures/checks/modern-apps.js";
+} from "../../../fixtures/checks/assert-finding.js";
+import * as fixtures from "../../../fixtures/checks/keyboard-completion/variants.js";
+import { startWidgetForm, widgetForm } from "../../../fixtures/checks/keyboard-completion/widgets.js";
+import { CONTACT_FIELDS, startModernApp } from "../../../fixtures/checks/modern-apps.js";
 import type { DiscoveredForm } from "../../../../src/core/types.js";
 import { createCheckContext } from "../../../../src/engine/context.js";
-import { startSchemaFormApp } from "../../../../test/fixtures/checks/schema-form.js";
+import { startSchemaFormApp } from "../../../fixtures/checks/schema-form.js";
 import { check } from "../../../../src/checks/keyboard-completion.js";
 import { MULTI_STEP_NOTE } from "../../../../src/checks/lib/functional-form.js";
 

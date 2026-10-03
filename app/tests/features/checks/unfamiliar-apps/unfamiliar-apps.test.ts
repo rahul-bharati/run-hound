@@ -1,8 +1,8 @@
 // Checks on apps Run Hound was never tuned for (docs/v0-spec.md, "Tester release (0.1.0)" > "Unfamiliar apps"), using the well-built samples in fixtures/samples/: a classic form post that redirects, a sign-in form and a form whose API is on another origin. Every sample is correct, so a check must pass, or skip with a plain reason; it must never report a finding or error.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Check, CheckResult } from "../../../../src/core/types.js";
-import { closeBrowser, runCheck } from "../../../../test-support/harness.js";
-import { startSample, type Sample, type SampleName } from "../../../../test-support/samples.js";
+import { closeBrowser, runCheck } from "../../../support/harness.js";
+import { startSample, type Sample, type SampleName } from "../../../support/samples.js";
 import { check as axeStates } from "../../../../src/checks/axe-states.js";
 import { check as clientOnlyValidation } from "../../../../src/checks/client-only-validation.js";
 import { check as consoleNetworkErrors } from "../../../../src/checks/console-network-errors.js";

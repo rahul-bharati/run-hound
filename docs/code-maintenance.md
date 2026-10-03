@@ -81,9 +81,11 @@ app/tests/
   features/<area>/    unit and browser tests for that area
   integration/        tests that drive the app end to end
   config/             tests that validate repository configuration
+  fixtures/           pages and small apps the tests run against
+  support/            the shared browser harness, fake LLM and sample apps
 ```
 
-Fixtures (`app/test/fixtures/`) and the shared browser harness (`app/test-support/`) are helpers, not tests, and stay where they are.
+Fixtures (`app/tests/fixtures/`) and the shared harness (`app/tests/support/`) are helpers, not tests: nothing in them is named `*.test.ts`, so Vitest never collects them.
 
 A test must exercise production code. Copying a helper into the test file to assert on the copy proves nothing: the refactor that introduced this rule had a suite of tests that passed against local reimplementations while the real function was wrong. When you need to pin a rule, import the function that owns it.
 

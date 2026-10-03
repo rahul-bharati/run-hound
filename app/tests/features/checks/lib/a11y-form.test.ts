@@ -5,8 +5,8 @@
  */
 import type { Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { closeBrowser, getBrowser } from "../../../../test-support/harness.js";
-import { projectFields, projectForm, startWidgetApp, type WidgetApp } from "../../../../test/fixtures/widgets/widget-app.js";
+import { closeBrowser, getBrowser } from "../../../support/harness.js";
+import { projectFields, projectForm, startWidgetApp, type WidgetApp } from "../../../fixtures/widgets/widget-app.js";
 import type { DiscoveredForm, FormField } from "../../../../src/core/types.js";
 import { canaries, fillActions, fillAndSubmitSpec, fillValid, submitAndWait, textValueFor } from "../../../../src/checks/lib/a11y-form.js";
 

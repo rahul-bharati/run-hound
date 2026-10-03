@@ -1,12 +1,12 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser, runCheck } from "../../../../test-support/harness.js";
-import { json } from "../../../../test-support/server.js";
-import { startBookingApp, sampleForm, type BookingServer, type ClientOptions } from "../../../../test/fixtures/checks/_behavior/booking-app.js";
-import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectPlan } from "../../../../test/fixtures/checks/_behavior/expectations.js";
-import { startModernApp, type ModernApp } from "../../../../test/fixtures/checks/modern-apps.js";
+import { closeBrowser, runCheck } from "../../../support/harness.js";
+import { json } from "../../../support/server.js";
+import { startBookingApp, sampleForm, type BookingServer, type ClientOptions } from "../../../fixtures/checks/_behavior/booking-app.js";
+import { evidenceText, expectCheckShape, expectCleanPass, expectFailure, expectPlan } from "../../../fixtures/checks/_behavior/expectations.js";
+import { startModernApp, type ModernApp } from "../../../fixtures/checks/modern-apps.js";
 import { check } from "../../../../src/checks/double-submit.js";
 import { MULTI_STEP_NOTE } from "../../../../src/checks/lib/functional-form.js";
-import { startSchemaFormApp } from "../../../../test/fixtures/checks/schema-form.js";
+import { startSchemaFormApp } from "../../../fixtures/checks/schema-form.js";
 
 const ID = "double-submit" as const;
 const servers: BookingServer[] = [];

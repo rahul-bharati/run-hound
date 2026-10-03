@@ -19,11 +19,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
 import { afterAll, afterEach, beforeAll, vi } from "vitest";
-import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../src/core/types.js";
-import type { SessionState } from "../src/engine/auth.js";
-import { createCheckContext, type RunningCheckContext } from "../src/engine/context.js";
-import { discoverPage, emptyForm } from "../src/engine/discover.js";
-import { check } from "../src/checks/paywall-trust.js";
+import type { AccountRef, CheckResult, DiscoveredPage, Scenario } from "../../src/core/types.js";
+import type { SessionState } from "../../src/engine/auth.js";
+import { createCheckContext, type RunningCheckContext } from "../../src/engine/context.js";
+import { discoverPage, emptyForm } from "../../src/engine/discover.js";
+import { check } from "../../src/checks/paywall-trust.js";
 import { startFixtureServer, type FixtureServer, type RecordedRequest, type RouteHandler } from "./server.js";
 
 const A: AccountRef = { id: "a", label: "Account A" };

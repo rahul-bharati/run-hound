@@ -3,10 +3,10 @@
  * accessibility and security check (the GOOD baseline). Each BAD fixture is the baseline plus one
  * explicit, named change, so a failing test points at exactly one defect.
  *
- * Served by test-support/server.ts: the form lives at /book, the API at POST /api/bookings.
+ * Served by tests/support/server.ts: the form lives at /book, the API at POST /api/bookings.
  */
 import type { ServerResponse } from "node:http";
-import { json, type RecordedRequest, type RouteHandler } from "../../../test-support/server.js";
+import { json, type RecordedRequest, type RouteHandler } from "../../support/server.js";
 
 export interface BookingVariant {
   /** Extra CSS appended after the baseline styles (later rules win). */

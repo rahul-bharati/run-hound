@@ -1,15 +1,15 @@
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import { closeBrowser, overallStatus, runCheck } from "../../../../test-support/harness.js";
-import { startFixtureServer, type FixtureServer } from "../../../../test-support/server.js";
-import { bookingApp, type BookingVariant } from "../../../../test/fixtures/checks/booking-page.js";
+import { closeBrowser, overallStatus, runCheck } from "../../../support/harness.js";
+import { startFixtureServer, type FixtureServer } from "../../../support/server.js";
+import { bookingApp, type BookingVariant } from "../../../fixtures/checks/booking-page.js";
 import {
   allFindings,
   bug,
   expectPlanShape,
   expectUniqueIds,
   expectWellFormedFinding,
-} from "../../../../test/fixtures/checks/assert-finding.js";
-import * as fixtures from "../../../../test/fixtures/checks/credential-fields/variants.js";
+} from "../../../fixtures/checks/assert-finding.js";
+import * as fixtures from "../../../fixtures/checks/credential-fields/variants.js";
 import { check } from "../../../../src/checks/credential-fields.js";
 
 const servers: FixtureServer[] = [];

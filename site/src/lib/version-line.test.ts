@@ -1,4 +1,4 @@
-// app/test/cli-version.test.ts reads this file's release with /^const version = "([^"]+)";/m
+// app/tests/features/cli/cli-version.test.ts reads this file's release with /^const version = "([^"]+)";/m
 // (docs/decisions/09-2026.md#2026-09-29-images-latest-no-version-pins). A refactor that adds a second
 // `const version = "…";` line, or makes site.version disagree with it, fails here first, in `pnpm test`.
 import assert from "node:assert/strict";

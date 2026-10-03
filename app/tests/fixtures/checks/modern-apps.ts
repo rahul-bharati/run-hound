@@ -5,7 +5,7 @@
  *
  * Every GET outside /api answers the same page; the script renders by location.pathname, like a React Router app.
  */
-import { json, startFixtureServer, type FixtureServer, type RouteHandler } from "../../../test-support/server.js";
+import { json, startFixtureServer, type FixtureServer, type RouteHandler } from "../../support/server.js";
 
 export interface ModernField {
   name: string;
