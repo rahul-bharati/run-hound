@@ -146,3 +146,7 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-10-03: [Keep the app refactor PR to app code and its docs](docs/decisions/10-2026.md#2026-10-03-refactor-final-review)
 - 2026-10-03: [Site tests read a refactored check's implementation folder, not only its facade](docs/decisions/10-2026.md#2026-10-03-site-tests-follow-app-split)
 - 2026-10-03: [Put the app's fixtures and test helpers under tests/, beside the tests](docs/decisions/10-2026.md#2026-10-03-app-single-test-root)
+- 2026-10-04: [Track desktop-first and AI-native QA development in GitHub Project 4](docs/decisions/10-2026.md#2026-10-04-development-project-board)
+- 2026-10-04: [Target all three desktop OS families and hosted coordination with local execution](docs/decisions/10-2026.md#2026-10-04-desktop-team-planning-boundary)
+- 2026-10-04: [Use ticket branches, PRs to main and bounded project-scoped development agents](docs/decisions/10-2026.md#2026-10-04-ticket-branches-and-agent-routing)
+- 2026-10-04: [Use direct xAI for scouting while GLM routes are unavailable](docs/decisions/10-2026.md#2026-10-04-scout-available-provider)
