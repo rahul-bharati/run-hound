@@ -29,7 +29,10 @@ permissions:
     resource: "*.run-hound/*"
     effect: deny
   - action: read
-    resource: "*runs/*"
+    resource: "runs/*"
+    effect: deny
+  - action: read
+    resource: "app/runs/*"
     effect: deny
   - action: read
     resource: "*auth.json"
@@ -41,7 +44,7 @@ permissions:
     resource: "*ai.json"
     effect: deny
   - action: read
-    resource: "*credentials*"
+    resource: "*credentials.json"
     effect: deny
   - action: read
     resource: "*.pem"

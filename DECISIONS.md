@@ -150,3 +150,4 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-10-04: [Target all three desktop OS families and hosted coordination with local execution](docs/decisions/10-2026.md#2026-10-04-desktop-team-planning-boundary)
 - 2026-10-04: [Use ticket branches, PRs to main and bounded project-scoped development agents](docs/decisions/10-2026.md#2026-10-04-ticket-branches-and-agent-routing)
 - 2026-10-04: [Use direct xAI for scouting while GLM routes are unavailable](docs/decisions/10-2026.md#2026-10-04-scout-available-provider)
+- 2026-10-04: [Scope agent read denials to data stores and deny worker merge/release commands](docs/decisions/10-2026.md#2026-10-04-agent-permission-review-fixes)
