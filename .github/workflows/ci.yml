@@ -174,6 +174,7 @@ jobs:
           pnpm --filter kennel exec tsc --noEmit
           pnpm --filter fernway exec tsc --noEmit
           pnpm --filter acceptance exec tsc --noEmit
+          pnpm --filter @run-hound/desktop exec tsc --noEmit
 
       - name: Validate the compose files
         run: docker compose config --quiet && docker compose -f run-hound.compose.yml config --quiet
@@ -189,6 +190,9 @@ jobs:
 
       - name: Fernway tests (clean mode and every bug)
         run: pnpm --filter fernway test
+
+      - name: Desktop package tests
+        run: pnpm --filter @run-hound/desktop test
 
   images:
     name: Docker images (build and smoke test)

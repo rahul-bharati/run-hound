@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join as joinPath, posix, win32 } from "node:path";
+import { posix, win32 } from "node:path";
 import type { DesktopPlatform } from "./contract.js";
 
 /**
@@ -21,14 +21,14 @@ function join(platform: DesktopPlatform, ...parts: string[]): string {
  */
 export function resolveConfigDir(platform: DesktopPlatform, env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
   if (env.RUNHOUND_CONFIG_DIR) return env.RUNHOUND_CONFIG_DIR;
-  if (platform === "darwin") return joinPath(home, "Library", "Application Support", "run-hound");
+  if (platform === "darwin") return join(platform, home, "Library", "Application Support", "run-hound");
   if (platform === "win32") {
     const appData = env.APPDATA;
     if (appData) return join(platform, appData, "run-hound");
     return join(platform, home, "AppData", "Roaming", "run-hound");
   }
-  if (env.XDG_CONFIG_HOME) return joinPath(env.XDG_CONFIG_HOME, "run-hound");
-  return joinPath(home, ".config", "run-hound");
+  if (env.XDG_CONFIG_HOME) return join(platform, env.XDG_CONFIG_HOME, "run-hound");
+  return join(platform, home, ".config", "run-hound");
 }
 
 /**
@@ -36,15 +36,18 @@ export function resolveConfigDir(platform: DesktopPlatform, env: NodeJS.ProcessE
  * meaningful working directory, so the default `"runs"` of the engine
  * would scatter reports. The desktop package must pass an explicit
  * absolute path.
+ *
+ * `RUNHOUND_RUNS_DIR` is read by the desktop app only: the engine and the
+ * CLI do not read it, and keep their working-directory-relative `runs`.
  */
-export function resolveRunsDir(platform: DesktopPlatform, options: { runsDir?: string; configDir: string }, env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
+export function resolveRunsDir(platform: DesktopPlatform, options: { runsDir?: string } = {}, env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
   if (options.runsDir) return options.runsDir;
   if (env.RUNHOUND_RUNS_DIR) return env.RUNHOUND_RUNS_DIR;
-  if (platform === "darwin") return joinPath(home, "Library", "Application Support", "run-hound", "runs");
+  if (platform === "darwin") return join(platform, home, "Library", "Application Support", "run-hound", "runs");
   if (platform === "win32") {
-    const localAppData = env.LOCALAPPDATA ?? joinPath(home, "AppData", "Local");
+    const localAppData = env.LOCALAPPDATA ?? join(platform, home, "AppData", "Local");
     return join(platform, localAppData, "run-hound", "runs");
   }
-  if (env.XDG_DATA_HOME) return joinPath(env.XDG_DATA_HOME, "run-hound", "runs");
-  return joinPath(home, ".local", "share", "run-hound", "runs");
+  if (env.XDG_DATA_HOME) return join(platform, env.XDG_DATA_HOME, "run-hound", "runs");
+  return join(platform, home, ".local", "share", "run-hound", "runs");
 }

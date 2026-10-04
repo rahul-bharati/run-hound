@@ -60,7 +60,7 @@ export interface DesktopIpcChannels {
   /** Main notifies the renderer that the engine is ready. */
   readonly "desktop:engine:ready": DesktopEngineReadyChannel;
   /** Renderer asks the main process to open the user's runs directory. */
-  readonly "desktop:opens:runs-dir": DesktopOpenRunsDirChannel;
+  readonly "desktop:runs-dir:open": DesktopOpenRunsDirChannel;
 }
 
 export interface DesktopVersionCheckChannel {
