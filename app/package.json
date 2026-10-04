@@ -7,12 +7,6 @@
   "bin": {
     "run-hound": "./src/cli.ts"
   },
-  "exports": {
-    ".": "./src/cli.ts",
-    "./server/app": "./src/server/app.ts",
-    "./cli/adapters/server": "./src/cli/adapters/server.ts",
-    "./interfaces/cli": "./src/interfaces/cli.ts"
-  },
   "engines": {
     "node": ">=22.12"
   },

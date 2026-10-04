@@ -1,62 +1,57 @@
 /**
- * The desktop entry: bring up the local Run Hound engine in-process,
- * bind the Hono server to a free loopback port, and report the URL the
- * UI may load.
+ * The desktop entry: bind the local Run Hound server to a free loopback
+ * port and report the URL the window may load.
  *
- * The engine factory is injected by the caller (the Electron main
- * process or a test). This keeps the desktop package decoupled from
- * the engine's import path: the engine stays a CLI binary in the
- * `app/` workspace package, and the desktop receives a function
- * rather than reaching into `app/src`.
- *
- * The factory signature mirrors the engine's `createApp` shape: it
- * takes the runs directory and the bound host, and returns a Hono
- * instance (or any object with a `fetch` method). The desktop does
- * not need to know the engine's types beyond that.
+ * The engine factory and server adapter are injected by the caller (the
+ * Electron main process or a test), so this module never imports the
+ * engine. The caller owns module loading: it applies the Playwright
+ * environment, then imports the engine, then calls this function.
  */
 
-import { connect, createServer } from "node:net";
-import { hostname, platform as osPlatform, userInfo } from "node:os";
+import { createServer } from "node:net";
+import { platform as osPlatform } from "node:os";
 
 import { resolveConfigDir, resolveRunsDir } from "./config.js";
-import type { DesktopPlatform } from "./contract.js";
-import { applyPlaywrightEnv } from "./apply-env.js";
-import type { DesktopEngineHandle, DesktopEngineReady, DesktopLaunchOptions } from "./contract.js";
+import type { DesktopEngineHandle, DesktopEngineReady, DesktopLaunchOptions, DesktopPlatform } from "./contract.js";
 
-const RUN_HOUND_VERSION = process.env.RUN_HOUND_VERSION ?? "0.0.0-desktop";
-
-/**
- * The factory the desktop hands to the entry. The Electron main wires
- * the real `createApp` from the engine here; tests wire a fake.
- */
-export type DesktopEngineFactory = (args: { runsDir: string; boundHost: string }) => { fetch: (request: Request) => Promise<Response> | Response };
-
-/** A minimal HTTP server interface the entry uses to bind the Hono app. */
-export interface DesktopServerAdapter {
-  startServer(args: { app: { fetch: (request: Request) => Promise<Response> | Response }; port: number; host: string; stdout: NodeJS.WritableStream }): DesktopServerHandle;
+/** The fetch handler the server binds: the engine's Hono app, or a test fake. */
+export interface DesktopFetchApp {
+  fetch: (request: Request) => Promise<Response> | Response;
 }
 
-/** A handle the entry's `stop()` can close. */
+/** Builds the engine's app. The Electron main wires the engine's `createApp`; tests wire a fake. */
+export type DesktopEngineFactory = (args: { runsDir: string; boundHost: string }) => DesktopFetchApp;
+
+/** Binds the app to a port. The Electron main wires the engine's `startServerWithApp`. */
+export interface DesktopServerAdapter {
+  startServer(args: { app: DesktopFetchApp; port: number; host: string; stdout: NodeJS.WritableStream }): DesktopServerHandle;
+}
+
+/** The subset of the engine's server handle the entry needs. */
 export interface DesktopServerHandle {
   close(callback: () => void): void;
+  readonly listening: boolean;
+  on(event: "listening" | "error", listener: (...args: unknown[]) => void): void;
 }
 
-/** The state the entry hands back to the Electron main. */
+/** What the entry hands back to the Electron main. */
 export interface DesktopEntryStart {
   readonly handle: DesktopEngineHandle;
   readonly info: DesktopEngineReady;
 }
 
-/** Discover a free loopback port by asking the OS to bind then releasing it. */
+const LOOPBACK = "127.0.0.1";
+
+/** Ask the OS for a free loopback port, then release it for the server to bind. */
 async function pickFreeLoopbackPort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const probe = createServer();
     probe.unref();
     probe.on("error", reject);
-    probe.listen(0, "127.0.0.1", () => {
+    probe.listen(0, LOOPBACK, () => {
       const address = probe.address();
       if (address === null || typeof address === "string") {
-        probe.close(() => reject(new Error("could not determine free port")));
+        probe.close(() => reject(new Error("desktop: could not determine a free loopback port")));
         return;
       }
       const { port } = address;
@@ -65,97 +60,48 @@ async function pickFreeLoopbackPort(): Promise<number> {
   });
 }
 
-function hostPlatform(): DesktopPlatform {
-  const p = osPlatform();
-  if (p === "darwin" || p === "win32" || p === "linux") return p;
-  return "linux";
-}
-
-/** Poll the loopback port until a TCP connection succeeds. */
-async function waitForServer(port: number, attempts = 50, intervalMs = 20): Promise<void> {
-  for (let i = 0; i < attempts; i += 1) {
-    const ok = await canConnect(port);
-    if (ok) return;
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
-  throw new Error(`desktop: engine did not accept connections on port ${port} within ${attempts * intervalMs}ms`);
-}
-
-function canConnect(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = connect(port, "127.0.0.1");
-    let settled = false;
-    const finish = (ok: boolean): void => {
-      if (settled) return;
-      settled = true;
-      socket.destroy();
-      resolve(ok);
-    };
-    socket.once("connect", () => finish(true));
-    socket.once("error", () => finish(false));
-    socket.setTimeout(50, () => finish(false));
+/** Resolve once the server is listening, or reject with its listen error (a port taken in the meantime, say). */
+function whenListening(handle: DesktopServerHandle): Promise<void> {
+  if (handle.listening) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    handle.on("listening", () => resolve());
+    handle.on("error", (err) => reject(err instanceof Error ? err : new Error(String(err))));
   });
 }
 
+/** The platform the app runs on; any other Unix is treated as Linux. */
+export function hostPlatform(): DesktopPlatform {
+  const p = osPlatform();
+  return p === "darwin" || p === "win32" ? p : "linux";
+}
+
+/** Server log lines go to stderr with a prefix, so they stay apart from Electron's own output. */
+const desktopStdout = {
+  write: (chunk: string | Uint8Array): boolean => process.stderr.write(`[run-hound] ${String(chunk)}`),
+} as NodeJS.WritableStream;
+
 /**
- * The exported entry. The order of operations is enforced by the
- * environment variables set in `applyPlaywrightEnv` before
- * `createEngine` is called. The Electron main must call this from
- * inside `app.whenReady()` so the Playwright env is in place before
- * the engine's `playwright` import resolves.
+ * Start the local server. The engine must already be loaded with the
+ * Playwright environment in place; this function only builds the app and
+ * binds it to loopback.
  */
 export async function startDesktopEngine(
-  launchOptions: DesktopLaunchOptions,
+  launchOptions: DesktopLaunchOptions & { readonly runHoundVersion: string },
   createEngine: DesktopEngineFactory,
   server: DesktopServerAdapter,
 ): Promise<DesktopEntryStart> {
-  const platform: DesktopPlatform = hostPlatform();
+  const platform = hostPlatform();
   const configDir = launchOptions.configDir ?? resolveConfigDir(platform);
   const runsDir = launchOptions.runsDir ?? resolveRunsDir(platform);
 
-  applyPlaywrightEnv({
-    browsersPath: `${runsDir}/.playwright-browsers`,
-    skipBrowserGc: "1",
-  });
-
-  // The engine is constructed now, after the env rule. Any import the
-  // engine does at module load must have happened in the caller's
-  // import graph already; the entry does not own module loading.
-  const app = createEngine({ runsDir, boundHost: "127.0.0.1" });
-
+  const app = createEngine({ runsDir, boundHost: LOOPBACK });
   const port = launchOptions.port ?? (await pickFreeLoopbackPort());
+  const handle = server.startServer({ app, port, host: LOOPBACK, stdout: desktopStdout });
+  await whenListening(handle);
 
-  const desktopStdout: NodeJS.WritableStream = {
-    write: (chunk: string | Uint8Array) => {
-      process.stderr.write(`[run-hound] ${String(chunk)}`);
-      return true;
-    },
-  } as NodeJS.WritableStream;
-
-  const handle = server.startServer({ app, port, host: "127.0.0.1", stdout: desktopStdout });
-  await waitForServer(port);
-
-  const url = `http://127.0.0.1:${port}/`;
-  const info: DesktopEngineReady = {
-    url,
-    runsDir,
-    configDir,
-    platform,
-    runHoundVersion: RUN_HOUND_VERSION,
+  const url = `http://${LOOPBACK}:${port}/`;
+  return {
+    handle: { url, stop: () => new Promise<void>((resolve) => handle.close(() => resolve())) },
+    info: { url, runsDir, configDir, platform, runHoundVersion: launchOptions.runHoundVersion },
   };
-
-  const desktopHandle: DesktopEngineHandle = {
-    url,
-    stop: () => new Promise<void>((resolve) => handle.close(() => resolve())),
-  };
-
-  return { handle: desktopHandle, info };
 }
-
-/** Diagnostics for the desktop package. */
-export const DESKTOP_PACKAGE = {
-  name: "@run-hound/desktop",
-  version: RUN_HOUND_VERSION,
-  hostname: hostname(),
-  user: userInfo().username,
-};

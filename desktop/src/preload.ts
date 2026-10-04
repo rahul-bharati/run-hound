@@ -1,45 +1,27 @@
 /**
- * Preload script. Exposes the small bridge surface from the contract
- * to the renderer through `contextBridge`. The renderer cannot reach
- * Node, the filesystem, or any channel not declared here.
+ * Preload script. Exposes exactly the contract's `DesktopPreloadBridge` to
+ * the renderer through `contextBridge`; the renderer reaches no Node API,
+ * no filesystem and no channel not declared in `channels.ts`.
  *
- * Wire protocol matches `desktop/src/contract.ts`. Adding a new channel
- * here must also add it to the contract and to the main process's
- * `ipcMain.handle` registrations.
+ * Built as a single CommonJS file, since a sandboxed preload cannot load
+ * ES modules or other local files.
  */
 
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 
-const VERSION_CHECK = "desktop:version:check";
-const ENGINE_READY = "desktop:engine:ready";
-const RUNS_DIR_OPEN = "desktop:runs-dir:open";
+import { CHANNELS } from "./channels.js";
+import type { DesktopEngineReady, DesktopPreloadBridge } from "./contract.js";
 
-interface VersionResponse {
-  readonly latest: string | null;
-  readonly current: string;
-}
-
-interface RunsDirOpenResponse {
-  readonly ok: boolean;
-  readonly error?: string;
-}
-
-contextBridge.exposeInMainWorld("runHoundDesktop", {
-  version: {
-    check: (): Promise<VersionResponse> => ipcRenderer.invoke(VERSION_CHECK),
-  },
-  runsDir: {
-    open: (): Promise<RunsDirOpenResponse> => ipcRenderer.invoke(RUNS_DIR_OPEN),
-  },
+const bridge: DesktopPreloadBridge = {
+  version: { check: () => ipcRenderer.invoke(CHANNELS.versionCheck) },
+  runsDir: { open: () => ipcRenderer.invoke(CHANNELS.runsDirOpen) },
   engine: {
-    onReady: (cb: (info: { readonly url: string; readonly runHoundVersion: string }) => void): (() => void) => {
-      const listener = (_event: IpcRendererEvent, info: unknown): void => {
-        if (typeof info === "object" && info !== null && "url" in info && "runHoundVersion" in info) {
-          cb(info as { readonly url: string; readonly runHoundVersion: string });
-        }
-      };
-      ipcRenderer.on(ENGINE_READY, listener);
-      return () => ipcRenderer.removeListener(ENGINE_READY, listener);
+    onReady: (cb) => {
+      const listener = (_event: IpcRendererEvent, info: DesktopEngineReady): void => cb(info);
+      ipcRenderer.on(CHANNELS.engineReady, listener);
+      return () => ipcRenderer.removeListener(CHANNELS.engineReady, listener);
     },
   },
-});
+};
+
+contextBridge.exposeInMainWorld("runHoundDesktop", bridge);

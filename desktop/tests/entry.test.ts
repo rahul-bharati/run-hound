@@ -38,6 +38,12 @@ const liveServer: DesktopServerAdapter = {
       close(callback: () => void) {
         srv.close(() => callback());
       },
+      get listening() {
+        return srv.listening;
+      },
+      on(event, listener) {
+        srv.on(event, listener);
+      },
     };
   },
 };
@@ -49,7 +55,7 @@ describe("startDesktopEngine (factory-injected)", () => {
   let info: Awaited<ReturnType<typeof startDesktopEngine>>["info"] | undefined;
 
   beforeAll(async () => {
-    const started = await startDesktopEngine({ headedBrowser: false }, fakeFactory, liveServer);
+    const started = await startDesktopEngine({ headedBrowser: false, runHoundVersion: "9.9.9" }, fakeFactory, liveServer);
     handle = started.handle;
     info = started.info;
   }, 30_000);
@@ -58,9 +64,12 @@ describe("startDesktopEngine (factory-injected)", () => {
     if (handle) await handle.stop();
   });
 
-  it("sets Playwright env before invoking the engine factory", () => {
-    expect(process.env.PLAYWRIGHT_BROWSERS_PATH).toMatch(/\.playwright-browsers$/);
-    expect(process.env.PLAYWRIGHT_SKIP_BROWSER_GC).toBe("1");
+  it("leaves the Playwright environment to the caller, which applies it before importing the engine", () => {
+    expect(process.env.PLAYWRIGHT_BROWSERS_PATH).toBeUndefined();
+  });
+
+  it("reports the version the caller passes", () => {
+    expect(info?.runHoundVersion).toBe("9.9.9");
   });
 
   it("returns a usable loopback URL", () => {
@@ -83,6 +92,11 @@ describe("startDesktopEngine (factory-injected)", () => {
     const res = await fetch(`${info?.url}healthz`);
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("ok");
+  });
+
+  it("rejects with the listen error when the port is taken", async () => {
+    const port = Number(new URL(info?.url ?? "").port);
+    await expect(startDesktopEngine({ port, runHoundVersion: "9.9.9" }, fakeFactory, liveServer)).rejects.toThrow(/EADDRINUSE/);
   });
 
   it("stops the server when handle.stop() is called", async () => {

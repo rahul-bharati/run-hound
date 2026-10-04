@@ -158,4 +158,4 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-10-04: [The scout profile runs on the MiniMax flash preview; Grok stays a subscription-billed trial route](docs/decisions/10-2026.md#2026-10-04-scout-routes-to-minimax-flash) (supersedes 2026-10-04-scout-available-provider)
 - 2026-10-04: [D2 first slice: the desktop entry contract and its tests, no Electron yet](docs/decisions/10-2026.md#2026-10-04-d2a-desktop-entry-contract)
 - 2026-10-04: [CI type-checks and tests the desktop package; its runs-folder variable is desktop-only](docs/decisions/10-2026.md#2026-10-04-desktop-package-in-ci)
-- 2026-10-04: [D2 second slice: the Electron shell wires the engine, the preload and the build](docs/decisions/10-2026.md#2026-10-04-d2b-electron-shell-implemented)
+- 2026-10-05: [The Electron shell loads a bundled engine, pins its window to the engine, and is launch-checked in CI](docs/decisions/10-2026.md#2026-10-05-d2b-electron-shell)

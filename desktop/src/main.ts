@@ -1,107 +1,128 @@
 /**
- * Electron main process entry. Wires the application lifecycle to the
- * desktop entry function from `src/entry.ts`.
+ * Electron main process.
  *
- * Lifecycle:
- *   1. Set the Playwright environment variables BEFORE any module that
- *      transitively imports the engine is loaded. Rule 4 of
- *      `docs/desktop-architecture.md`.
- *   2. Wait for `app.whenReady()`.
- *   3. Call `startDesktopEngine` to bring up the local server.
- *   4. Create the `BrowserWindow` with the hardened preload and the
- *      loopback URL.
- *   5. On all-windows-closed, stop the engine and quit.
+ *   1. Point the engine at the desktop's config folder and, in a packaged
+ *      app that ships its own Chromium, at that browser, BEFORE the engine
+ *      is imported (Rule 4 of docs/desktop-architecture.md).
+ *   2. Import the bundled engine (dist/engine.js) and bind it to loopback.
+ *   3. Open one hardened window on the engine's URL (Rule 5): no Node, an
+ *      isolated sandboxed preload, navigation pinned to the engine's origin.
  *
- * The renderer runs with no Node integration and context isolation on
- * (Rule 5). It reaches the local server only through the preload bridge.
- *
- * The engine factory is wired here so the desktop package does not
- * import the engine module directly; the engine is loaded by Electron's
- * Node runtime and handed to the desktop as a factory.
+ * The engine runs in this process for now; moving it to a supervised
+ * utilityProcess (Rule 6) is the next slice.
  */
 
+import { app, BrowserWindow, dialog, ipcMain, session, shell, type IpcMainInvokeEvent, type WebPreferences } from "electron";
+import { existsSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { applyPlaywrightEnv } from "./apply-env.js";
-import { startDesktopEngine, type DesktopEngineFactory, type DesktopServerAdapter, type DesktopServerHandle } from "./entry.js";
+import { CHANNELS } from "./channels.js";
 import { resolveConfigDir, resolveRunsDir } from "./config.js";
-import type { DesktopPlatform } from "./contract.js";
-import { hostname, platform as osPlatform, userInfo } from "node:os";
+import type { DesktopEngineReady } from "./contract.js";
+import { hostPlatform, startDesktopEngine } from "./entry.js";
 
-const RUN_HOUND_VERSION = process.env.RUN_HOUND_VERSION ?? "0.0.0-desktop";
-
-function hostPlatform(): DesktopPlatform {
-  const p = osPlatform();
-  if (p === "darwin" || p === "win32" || p === "linux") return p;
-  return "linux";
-}
-
-// Step 1: set the Playwright environment variables at module top-level,
-// before any import that transitively reaches `app/src/engine/isolation.ts`.
+const here = dirname(fileURLToPath(import.meta.url));
 const platform = hostPlatform();
 const configDir = resolveConfigDir(platform);
 const runsDir = resolveRunsDir(platform);
-applyPlaywrightEnv({
-  browsersPath: `${runsDir}/.playwright-browsers`,
-  skipBrowserGc: "1",
-});
 
-async function main(): Promise<void> {
-  // Dynamic imports so the env above is definitely in place before the
-  // engine module is evaluated.
-  const { app, BrowserWindow, shell } = await import("electron");
-  const path = await import("node:path");
-  const { fileURLToPath } = await import("node:url");
+// Step 1, before the engine is imported. The engine reads RUNHOUND_CONFIG_DIR for its saved AI and account settings.
+process.env.RUNHOUND_CONFIG_DIR ??= configDir;
+// A packaged app looks for its own Chromium under resources/playwright-browsers (D3 puts it there). Without one,
+// Playwright keeps its default per-user browser cache, which is what a development checkout uses.
+const bundledBrowsers = join(process.resourcesPath, "playwright-browsers");
+if (app.isPackaged && existsSync(bundledBrowsers)) applyPlaywrightEnv({ browsersPath: bundledBrowsers, skipBrowserGc: "1" });
 
-  // Wire the engine factory by importing the engine's Hono factory
-  // here in the Electron main process. The engine is exposed as the
-  // `run-hound` workspace package; the subpaths are declared in
-  // `app/package.json`'s `exports` field.
-  const engineModule = (await import("run-hound/server/app" as string).catch(() => null)) as
-    | { createApp?: (args: { runsDir: string; boundHost: string }) => { fetch: (r: Request) => Promise<Response> | Response } } | null;
-  const createApp = engineModule?.createApp;
-  if (typeof createApp !== "function") {
-    process.stderr.write("[run-hound] desktop: could not load the engine's createApp from run-hound/server/app\n");
-    app.exit(1);
+/** Every window, including the report windows the UI opens, gets these. Only the main window gets the preload. */
+const HARDENED: WebPreferences = {
+  contextIsolation: true,
+  nodeIntegration: false,
+  sandbox: true,
+  webSecurity: true,
+  allowRunningInsecureContent: false,
+  webviewTag: false,
+};
+
+/** The engine's origin, e.g. "http://127.0.0.1:53111". Empty until the engine is listening. */
+let engineOrigin = "";
+
+function isEngineUrl(raw: string): boolean {
+  try {
+    return engineOrigin !== "" && new URL(raw).origin === engineOrigin;
+  } catch {
+    return false;
+  }
+}
+
+/** Hand an outside link to the default browser: web links only, never file:, custom schemes or anything else. */
+function openOutside(raw: string): void {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
     return;
   }
-  const engineFactory: DesktopEngineFactory = (args) => createApp(args);
+  if (url.protocol === "https:" || url.protocol === "http:") void shell.openExternal(url.href).catch(() => undefined);
+}
 
-  // The desktop's server adapter wraps the engine's `startServerWithApp`.
-  const serverModule = (await import("run-hound/cli/adapters/server" as string).catch(() => null)) as
-    | { startServerWithApp?: (opts: { app: { fetch: (r: Request) => Promise<Response> | Response }; port: number; host: string; stdout: NodeJS.WritableStream }) => DesktopServerHandle } | null;
-  const startServerWithApp = serverModule?.startServerWithApp;
-  if (typeof startServerWithApp !== "function") {
-    process.stderr.write("[run-hound] desktop: could not load the engine's startServerWithApp from run-hound/cli/adapters/server\n");
-    app.exit(1);
-    return;
-  }
-  const desktopServer: DesktopServerAdapter = {
-    startServer(opts) {
-      return startServerWithApp(opts);
-    },
-  };
+/** IPC is answered only for frames showing the engine's own pages. */
+function fromEngine(event: IpcMainInvokeEvent): boolean {
+  return isEngineUrl(event.senderFrame?.url ?? "");
+}
 
-  // Hard-block any window the app might open that is not the local
-  // server. The renderer can navigate only inside the local server.
+function lockDownContents(): void {
   app.on("web-contents-created", (_event, contents) => {
-    contents.setWindowOpenHandler(() => ({ action: "deny" }));
-    contents.on("will-navigate", (event, url) => {
-      if (!url.startsWith("http://127.0.0.1:") && !url.startsWith("http://localhost:")) {
-        event.preventDefault();
-        void shell.openExternal(url).catch(() => undefined);
-      }
+    // Engine pages (the HTML report, evidence images) open in a hardened window without the bridge; anything else
+    // goes to the default browser.
+    contents.setWindowOpenHandler(({ url }) => {
+      if (isEngineUrl(url)) return { action: "allow", overrideBrowserWindowOptions: { webPreferences: HARDENED } };
+      openOutside(url);
+      return { action: "deny" };
     });
+    const pinToEngine = (event: { preventDefault(): void }, url: string): void => {
+      if (isEngineUrl(url)) return;
+      event.preventDefault();
+      openOutside(url);
+    };
+    contents.on("will-navigate", pinToEngine);
+    contents.on("will-redirect", pinToEngine);
+    contents.on("will-attach-webview", (event) => event.preventDefault());
   });
+}
 
+/** Needs a ready app: the default session doesn't exist before then. */
+function lockDownPermissions(): void {
+  // The UI's copy buttons write to the clipboard; no other permission is ever granted.
+  const allowed = (permission: string, origin: string): boolean => permission === "clipboard-sanitized-write" && isEngineUrl(origin);
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => callback(allowed(permission, contents.getURL())));
+  session.defaultSession.setPermissionCheckHandler((_contents, permission, requestingOrigin) => allowed(permission, requestingOrigin));
+}
+
+async function start(): Promise<void> {
+  lockDownContents();
   await app.whenReady();
+  lockDownPermissions();
 
+  const engine = await import("./engine.js");
   const { handle, info } = await startDesktopEngine(
-    { configDir, runsDir, headedBrowser: true },
-    engineFactory,
-    desktopServer,
+    { configDir, runsDir, runHoundVersion: engine.RUN_HOUND_VERSION },
+    (args) => engine.createApp(args),
+    { startServer: (args) => engine.startServerWithApp(args) },
   );
+  engineOrigin = new URL(info.url).origin;
+  registerIpc(info);
 
-  const preloadPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "preload.cjs");
-  const indexUrl = `${info.url}?version=${encodeURIComponent(info.runHoundVersion)}`;
+  let stopping: Promise<void> | undefined;
+  const stopEngine = (): Promise<void> => (stopping ??= handle.stop());
+  app.on("before-quit", (event) => {
+    if (stopping) return;
+    event.preventDefault();
+    void stopEngine().finally(() => app.quit());
+  });
+  app.on("window-all-closed", () => app.quit());
 
   const win = new BrowserWindow({
     width: 1280,
@@ -109,32 +130,40 @@ async function main(): Promise<void> {
     minWidth: 960,
     minHeight: 600,
     title: "Run Hound",
-    webPreferences: {
-      preload: preloadPath,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      experimentalFeatures: false,
-    },
+    show: false,
+    webPreferences: { ...HARDENED, preload: join(here, "preload.cjs") },
   });
-
-  await win.loadURL(indexUrl);
-
-  app.on("window-all-closed", () => {
-    void handle.stop().finally(() => {
-      if (process.platform !== "darwin") app.quit();
-    });
-  });
-
-  // Surface a runtime error to the desktop UI as best we can.
+  win.once("ready-to-show", () => win.show());
+  win.webContents.on("did-finish-load", () => win.webContents.send(CHANNELS.engineReady, info));
   win.webContents.on("render-process-gone", (_event, details) => {
-    process.stderr.write(`[run-hound] renderer gone: ${JSON.stringify(details)}\n`);
+    process.stderr.write(`[run-hound] renderer gone: ${details.reason}\n`);
+  });
+  await win.loadURL(info.url);
+}
+
+function registerIpc(info: DesktopEngineReady): void {
+  // No release feed is wired yet (D4), so the latest version is unknown rather than guessed.
+  ipcMain.handle(CHANNELS.versionCheck, (event) => (fromEngine(event) ? { latest: null, current: info.runHoundVersion } : null));
+  ipcMain.handle(CHANNELS.runsDirOpen, async (event) => {
+    if (!fromEngine(event)) return { ok: false, error: "refused" };
+    await mkdir(info.runsDir, { recursive: true });
+    const error = await shell.openPath(info.runsDir);
+    return error ? { ok: false, error } : { ok: true };
   });
 }
 
-void main().catch((err: unknown) => {
-  process.stderr.write(`[run-hound] desktop main failed: ${err instanceof Error ? err.stack : String(err)}\n`);
-  process.exit(1);
-});
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const [win] = BrowserWindow.getAllWindows();
+    if (win?.isMinimized()) win.restore();
+    win?.focus();
+  });
+  start().catch((err: unknown) => {
+    const message = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    process.stderr.write(`[run-hound] desktop failed to start: ${message}\n`);
+    dialog.showErrorBox("Run Hound could not start", message);
+    app.exit(1);
+  });
+}

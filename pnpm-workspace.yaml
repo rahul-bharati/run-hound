@@ -6,6 +6,7 @@ packages:
   - tests/acceptance
 
 allowBuilds:
+  electron-winstaller: false
   esbuild: true
 
 # pnpm 12.3.4 fails to materialise peer-less variants of vitest for the kennel package;
