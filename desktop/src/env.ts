@@ -30,10 +30,11 @@ export interface PlaywrightEnvInit {
 }
 
 /**
- * Apply the env init to `process.env`. The function must be idempotent
- * and must run before any module that imports the engine is loaded.
+ * Apply the env init to a target process environment (defaults to the
+ * real `process.env`). The function must be idempotent and must run
+ * before any module that imports the engine is loaded.
  */
-export type ApplyPlaywrightEnv = (init: PlaywrightEnvInit) => void;
+export type ApplyPlaywrightEnv = (init: PlaywrightEnvInit, target?: NodeJS.ProcessEnv) => void;
 
 /**
  * The order rule, expressed as a check the next slice must satisfy. The

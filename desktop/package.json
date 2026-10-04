@@ -6,19 +6,62 @@
   "engines": {
     "node": ">=22.12"
   },
+  "main": "dist/main.js",
   "exports": {
     ".": "./src/index.ts",
     "./contract": "./src/contract.ts",
     "./env": "./src/env.ts",
-    "./config": "./src/config.ts"
+    "./config": "./src/config.ts",
+    "./entry": "./src/entry.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build": "tsup",
+    "dist": "electron-builder",
+    "dist:dir": "electron-builder --dir"
+  },
+  "dependencies": {
+    "run-hound": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "26.6.2",
+    "electron": "44.5.1",
+    "electron-builder": "25.1.8",
+    "tsup": "8.5.0",
     "typescript": "7.0.2",
     "vitest": "5.0.1"
+  },
+  "build": {
+    "appId": "dev.runhound.desktop",
+    "productName": "Run Hound",
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "linux": {
+      "target": [
+        "deb",
+        "rpm"
+      ],
+      "category": "Development"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "asarUnpack": [
+      "dist/main.js",
+      "dist/entry.js",
+      "dist/preload.cjs"
+    ]
   }
 }

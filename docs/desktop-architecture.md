@@ -150,3 +150,11 @@ The spike is throwaway. Its output is this document's open questions answered, p
 - Code citations as listed above, read in this worktree.
 - Vendor documentation: Electron process model, utility process, updates, code signing, support policy, Electron Forge makers; Tauri sidecar (Node.js), sidecar, WebviewUrl, updater, macOS signing, AppImage, prerequisites; Playwright installation/system requirements and browsers.
 - Installed versions: Playwright 1.63.0 with Chromium revision 1243; Hono 4.13.8; `@hono/node-server` 2.1.1; Node engine `>=22.12`.
+
+## Implementation status
+
+The architecture is realised in the `@run-hound/desktop` workspace package (`desktop/`). The contract lives in `desktop/src/contract.ts` and is pinned by 32 tests. The implementation is currently **in-process**: the Electron main process calls the engine's `createApp` factory directly, binds a free loopback port through the engine's own `startServerWithApp` adapter, and opens a `BrowserWindow` with the hardened preload bridge. The supervised `utilityProcess` (Rule 6) and the browser bundling (D3) are the next slices; this slice satisfies Rules 1–5 and 7–9 in code, and the env-ordering rule (Rule 4) is enforced by `applyPlaywrightEnv` before `createApp` is called.
+
+A small `exports` block on `app/package.json` exposes the engine's Hono factory and server adapter by subpath (`run-hound/server/app`, `run-hound/cli/adapters/server`, `run-hound/interfaces/cli`) so the desktop imports the engine by name rather than by relative path. This is the minimum surface needed for the in-process wiring; further engine exports are a follow-up.
+
+Electron 44.5.1 is the pinned shell. The main process is ESM (Electron 28+ supports an ESM main) so `import.meta.url` resolves the preload path; the preload itself is CJS because Electron's `contextBridge` bootstrap requires it.
