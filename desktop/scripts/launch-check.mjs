@@ -85,24 +85,61 @@ try {
     assert.deepEqual(await page.evaluate(() => Object.keys(window.runHoundDesktop).sort()), ["engine", "runsDir", "version"]);
   });
 
-  await check("a file: navigation is blocked and not opened outside", async () => {
-    await page.evaluate(() => { location.href = "file:///etc/hosts"; });
+  // Each check reads what went to the default browser, so it fails if the app's own handlers aren't the ones acting
+  // (Chromium alone would also refuse some of these navigations, but would never hand them to the OS).
+  const opened = () => app.evaluate(() => globalThis.__opened.splice(0));
+  const stays = async () => {
     await page.waitForTimeout(500);
     assert.equal(new URL(page.url()).origin, origin);
-    assert.deepEqual(await app.evaluate(() => globalThis.__opened), []);
-  });
+  };
 
   await check("a web link goes to the default browser, not the app window", async () => {
     await page.evaluate(() => { location.href = "https://example.com/"; });
-    await page.waitForTimeout(500);
-    assert.equal(new URL(page.url()).origin, origin);
-    assert.deepEqual(await app.evaluate(() => globalThis.__opened), ["https://example.com/"]);
+    await stays();
+    assert.deepEqual(await opened(), ["https://example.com/"]);
   });
 
-  await check("another loopback port is not the engine", async () => {
+  await check("another loopback port is not the engine: it leaves the app, it isn't shown in it", async () => {
     await page.evaluate(() => { location.href = "http://127.0.0.1:9/"; });
+    await stays();
+    assert.deepEqual(await opened(), ["http://127.0.0.1:9/"]);
+  });
+
+  await check("a non-web scheme is neither shown nor handed to the OS", async () => {
+    await page.evaluate(() => { location.href = "x-run-hound-check:hello"; });
+    await stays();
+    assert.deepEqual(await opened(), []);
+  });
+
+  await check("window.open to another site opens outside and adds no app window", async () => {
+    const before = app.windows().length;
+    await page.evaluate(() => window.open("https://example.org/", "_blank"));
     await page.waitForTimeout(500);
-    assert.equal(new URL(page.url()).origin, origin);
+    assert.equal(app.windows().length, before);
+    assert.deepEqual(await opened(), ["https://example.org/"]);
+  });
+
+  await check("window.open to an engine page opens an app window without the bridge", async () => {
+    const [child] = await Promise.all([app.waitForEvent("window"), page.evaluate(() => window.open("/api/runs", "_blank"))]);
+    await child.waitForLoadState("domcontentloaded");
+    assert.equal(new URL(child.url()).origin, origin);
+    assert.equal(await child.evaluate(() => typeof window.runHoundDesktop), "undefined");
+    await child.close();
+  });
+
+  await check("a subframe can't leave the engine, and isn't opened outside", async () => {
+    const src = await page.evaluate(async () => {
+      const frame = document.createElement("iframe");
+      document.body.append(frame);
+      frame.src = "https://example.net/";
+      await new Promise((r) => setTimeout(r, 500));
+      const value = frame.src;
+      frame.remove();
+      return value;
+    });
+    assert.equal(src, "https://example.net/");
+    assert.deepEqual(await opened(), []);
+    assert.equal(page.frames().some((f) => f.url().startsWith("https://example.net")), false);
   });
 } finally {
   await app.close();

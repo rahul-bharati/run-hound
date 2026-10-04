@@ -29,8 +29,9 @@ const platform = hostPlatform();
 const configDir = resolveConfigDir(platform);
 const runsDir = resolveRunsDir(platform);
 
-// Step 1, before the engine is imported. The engine reads RUNHOUND_CONFIG_DIR for its saved AI and account settings.
-process.env.RUNHOUND_CONFIG_DIR ??= configDir;
+// Step 1, before the engine is imported. The engine reads RUNHOUND_CONFIG_DIR for its saved AI and account settings;
+// an empty value counts as unset on both sides, so the engine and the reported configDir always agree.
+if (!process.env.RUNHOUND_CONFIG_DIR) process.env.RUNHOUND_CONFIG_DIR = configDir;
 // A packaged app looks for its own Chromium under resources/playwright-browsers (D3 puts it there). Without one,
 // Playwright keeps its default per-user browser cache, which is what a development checkout uses.
 const bundledBrowsers = join(process.resourcesPath, "playwright-browsers");
@@ -45,6 +46,9 @@ const HARDENED: WebPreferences = {
   allowRunningInsecureContent: false,
   webviewTag: false,
 };
+
+/** How long quitting waits for open requests to finish before the app exits anyway. */
+const QUIT_GRACE_MS = 3_000;
 
 /** The engine's origin, e.g. "http://127.0.0.1:53111". Empty until the engine is listening. */
 let engineOrigin = "";
@@ -82,12 +86,15 @@ function lockDownContents(): void {
       openOutside(url);
       return { action: "deny" };
     });
-    const pinToEngine = (event: { preventDefault(): void }, url: string): void => {
-      if (isEngineUrl(url)) return;
+    // A top-level move off the engine goes to the default browser instead. Subframes (the UI has none) are only
+    // stopped, never opened outside, so an embedded page can't launch the browser.
+    const pinToEngine = (event: { preventDefault(): void; isMainFrame: boolean; url: string }): void => {
+      if (isEngineUrl(event.url)) return;
       event.preventDefault();
-      openOutside(url);
+      if (event.isMainFrame) openOutside(event.url);
     };
     contents.on("will-navigate", pinToEngine);
+    contents.on("will-frame-navigate", pinToEngine);
     contents.on("will-redirect", pinToEngine);
     contents.on("will-attach-webview", (event) => event.preventDefault());
   });
@@ -95,9 +102,10 @@ function lockDownContents(): void {
 
 /** Needs a ready app: the default session doesn't exist before then. */
 function lockDownPermissions(): void {
-  // The UI's copy buttons write to the clipboard; no other permission is ever granted.
+  // The UI's copy buttons write to the clipboard; no other permission is ever granted. Judged by the requesting
+  // frame, not the window, so a foreign frame inside an engine page gets nothing.
   const allowed = (permission: string, origin: string): boolean => permission === "clipboard-sanitized-write" && isEngineUrl(origin);
-  session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => callback(allowed(permission, contents.getURL())));
+  session.defaultSession.setPermissionRequestHandler((_contents, permission, callback, details) => callback(allowed(permission, details.requestingUrl)));
   session.defaultSession.setPermissionCheckHandler((_contents, permission, requestingOrigin) => allowed(permission, requestingOrigin));
 }
 
@@ -115,8 +123,11 @@ async function start(): Promise<void> {
   engineOrigin = new URL(info.url).origin;
   registerIpc(info);
 
+  // Closing the server waits for open requests, and a plan or run request can stay open for minutes; quit after a
+  // short grace period regardless. Playwright closes its browsers when the process exits.
   let stopping: Promise<void> | undefined;
-  const stopEngine = (): Promise<void> => (stopping ??= handle.stop());
+  const stopEngine = (): Promise<void> =>
+    (stopping ??= Promise.race([handle.stop(), new Promise<void>((resolve) => setTimeout(resolve, QUIT_GRACE_MS))]));
   app.on("before-quit", (event) => {
     if (stopping) return;
     event.preventDefault();
