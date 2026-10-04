@@ -150,3 +150,12 @@ The spike is throwaway. Its output is this document's open questions answered, p
 - Code citations as listed above, read in this worktree.
 - Vendor documentation: Electron process model, utility process, updates, code signing, support policy, Electron Forge makers; Tauri sidecar (Node.js), sidecar, WebviewUrl, updater, macOS signing, AppImage, prerequisites; Playwright installation/system requirements and browsers.
 - Installed versions: Playwright 1.63.0 with Chromium revision 1243; Hono 4.13.8; `@hono/node-server` 2.1.1; Node engine `>=22.12`.
+
+## Implementation status
+
+The `@run-hound/desktop` package (`desktop/`) implements Rules 1 to 5 with the engine still in the main process; the supervised `utilityProcess` (Rule 6) is the next slice, and browser bundling is D3.
+
+- **Build:** `desktop/scripts/build.mjs` (esbuild) emits `dist/main.js`, `dist/preload.cjs` and `dist/engine.js`. The engine is bundled from `app/src`, because the app imports its TypeScript by `.js` specifiers and only `tsx` can run that source; Playwright and axe stay external and ship as the desktop package's dependencies.
+- **Start-up order (Rule 4):** the main process sets `RUNHOUND_CONFIG_DIR` and, in a packaged app that ships `resources/playwright-browsers`, `PLAYWRIGHT_BROWSERS_PATH` and `PLAYWRIGHT_SKIP_BROWSER_GC`, then imports `dist/engine.js`. Until D3, the app uses Playwright's per-user browser cache.
+- **Window (Rule 5):** context isolation, sandbox, no Node; the preload exposes only `DesktopPreloadBridge`. Navigation and new windows are pinned to the engine's origin; `http:`/`https:` links open in the default browser and other schemes are dropped. Only clipboard writes are granted.
+- **Proof:** `pnpm --filter @run-hound/desktop test:launch` launches the app with Playwright's Electron driver and checks the window, the API, a Chromium planning run, the bridge and the navigation lock; CI runs it against the development build and an unpacked Linux package.

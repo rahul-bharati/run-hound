@@ -1,24 +1,69 @@
 {
   "name": "@run-hound/desktop",
   "private": true,
+  "description": "Run Hound desktop app",
   "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22.12"
   },
+  "main": "dist/main.js",
   "exports": {
     ".": "./src/index.ts",
     "./contract": "./src/contract.ts",
     "./env": "./src/env.ts",
-    "./config": "./src/config.ts"
+    "./config": "./src/config.ts",
+    "./entry": "./src/entry.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build": "node scripts/build.mjs",
+    "electron:fetch": "install-electron --no",
+    "start": "pnpm electron:fetch && pnpm build && electron .",
+    "test:launch": "pnpm electron:fetch && pnpm build && node scripts/launch-check.mjs",
+    "dist": "pnpm build && node scripts/dist.mjs",
+    "dist:dir": "pnpm build && node scripts/dist.mjs --dir"
+  },
+  "dependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "playwright": "1.63.0"
   },
   "devDependencies": {
     "@types/node": "26.6.2",
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.28.2",
+    "run-hound": "workspace:*",
     "typescript": "7.0.2",
     "vitest": "5.0.1"
+  },
+  "build": {
+    "appId": "dev.runhound.desktop",
+    "productName": "Run Hound",
+    "executableName": "run-hound",
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "linux": {
+      "target": [
+        "deb",
+        "rpm"
+      ],
+      "category": "Development"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "win": {
+      "target": "nsis"
+    }
   }
 }

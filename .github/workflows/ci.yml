@@ -11,6 +11,8 @@
 #     it is the catch-all and a new acceptance test file always lands in one job or the other, never neither.
 #   - checks: type-checks every package, validates the compose files, and runs Kennel's and Fernway's own tests (short
 #     on their own, so not worth a job each).
+#   - desktop: builds the Electron app, launches it under Xvfb and checks the window, the bridge, the navigation lock
+#     and a Chromium plan run, then packages it unpacked for Linux and runs the same checks against the packaged build.
 # The rest is as before: images builds the four Docker images (amd64, nothing pushed) and smoke-tests them in the
 # compose test lab; site lints and builds the marketing site (site/, its own pnpm project); site-lab runs its
 # Playwright lab, now as a 4-way matrix too (site/scripts/lab/run.mjs --shard, greedy-packed by measured spec weight).
@@ -193,6 +195,51 @@ jobs:
 
       - name: Desktop package tests
         run: pnpm --filter @run-hound/desktop test
+
+  # The desktop app launched for real: unit tests can't see a build that bundles the wrong module or an engine that
+  # can't load, so this builds dist/, starts Electron under Xvfb, and runs scripts/launch-check.mjs against the dev
+  # build and against an unpacked Linux package. CI=true makes the check pass --no-sandbox (no setuid sandbox here).
+  desktop:
+    name: Desktop app (build, launch and package)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The planning check opens a page in Playwright's Chromium; --with-deps also brings the libraries Electron needs.
+      - name: Install Chromium and its system dependencies
+        run: pnpm --filter run-hound exec playwright install --with-deps chromium
+
+      - name: Install Xvfb
+        run: command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y xvfb)
+
+      - name: Download Electron
+        run: pnpm --filter @run-hound/desktop electron:fetch
+
+      - name: Build the desktop app
+        run: pnpm --filter @run-hound/desktop build
+
+      - name: Launch checks (development build)
+        working-directory: desktop
+        run: xvfb-run -a node scripts/launch-check.mjs
+
+      - name: Package for Linux (unpacked)
+        working-directory: desktop
+        run: node scripts/dist.mjs --dir
+
+      - name: Launch checks (packaged build)
+        working-directory: desktop
+        env:
+          DESKTOP_EXECUTABLE: ${{ github.workspace }}/desktop/release/linux-unpacked/run-hound
+        run: xvfb-run -a node scripts/launch-check.mjs
 
   images:
     name: Docker images (build and smoke test)
