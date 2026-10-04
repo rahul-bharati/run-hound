@@ -154,3 +154,4 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-10-04: [T1 team-workflow contract: objects, roles and policy-based approval (specification only); three policy questions await the maintainer](docs/decisions/10-2026.md#2026-10-04-t1-team-workflow-contract)
 - 2026-10-04: [Grant contract specified for execution authority (G1)](docs/decisions/10-2026.md#2026-10-04-g1-execution-grants-spec)
 - 2026-10-04: [Define the hosted sync, privacy, data-classification and conflict-resolution contract](docs/decisions/10-2026.md#2026-10-04-hosted-sync-privacy-contract)
+- 2026-10-04: [Desktop shell is Electron on a Playwright-defined support matrix, with updates deferred](docs/decisions/10-2026.md#2026-10-04-desktop-architecture-electron)
