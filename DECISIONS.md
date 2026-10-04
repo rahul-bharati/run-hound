@@ -155,3 +155,4 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-10-04: [Grant contract specified for execution authority (G1)](docs/decisions/10-2026.md#2026-10-04-g1-execution-grants-spec)
 - 2026-10-04: [Define the hosted sync, privacy, data-classification and conflict-resolution contract](docs/decisions/10-2026.md#2026-10-04-hosted-sync-privacy-contract)
 - 2026-10-04: [Desktop shell is Electron on a Playwright-defined support matrix, with updates deferred](docs/decisions/10-2026.md#2026-10-04-desktop-architecture-electron)
+- 2026-10-04: [The scout profile runs on the MiniMax flash preview; Grok stays a subscription-billed trial route](docs/decisions/10-2026.md#2026-10-04-scout-routes-to-minimax-flash) (supersedes 2026-10-04-scout-available-provider)

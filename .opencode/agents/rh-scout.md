@@ -1,7 +1,7 @@
 ---
 description: Bounded read-only source discovery for Run Hound tickets
 mode: subagent
-model: xai/grok-build-0.1
+model: minimax-coding-plan/MiniMax-M3.1-Flash-Preview
 steps: 12
 permissions:
   - action: "*"
