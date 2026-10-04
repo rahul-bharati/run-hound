@@ -9,6 +9,8 @@
   "scripts": {
     "kennel": "pnpm --filter kennel start",
     "serve": "pnpm --filter run-hound serve",
-    "test:acceptance": "pnpm --filter acceptance test"
+    "test:acceptance": "pnpm --filter acceptance test",
+    "test:desktop": "pnpm --filter @run-hound/desktop test",
+    "typecheck": "pnpm -r typecheck"
   }
 }
