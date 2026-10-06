@@ -31,8 +31,10 @@ ENV NODE_ENV=production \
 # - the names Docker and Podman give the machine running the container, so an app there is reachable as
 #   http://host.docker.internal:<port>. They only ever point at that machine; nothing public is added.
 # - settings saved in the UI (AI, test accounts) go to the reports folder, so a mounted ./runs keeps them.
+# - keys and passwords are never saved there: the container takes them from environment variables only.
 ENV RUNHOUND_ALLOWED_HOSTS=host.docker.internal,host.containers.internal \
-    RUNHOUND_CONFIG_DIR=/repo/app/runs/.config
+    RUNHOUND_CONFIG_DIR=/repo/app/runs/.config \
+    RUNHOUND_SECRETS=environment
 WORKDIR /repo
 
 # pnpm comes from the root package.json "packageManager" field via corepack (install time only). The image installs

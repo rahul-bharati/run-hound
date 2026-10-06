@@ -19,6 +19,7 @@ import {
   resolveAccounts,
   saveAccounts,
 } from "../../../src/operations/accounts-storage.js";
+import { readSecrets } from "../../../src/operations/secret-store.js";
 import type { AccountStatus, TestAccount } from "../../../src/interfaces/accounts.js";
 import type { AccountId, AccountSource } from "../../../src/types/accounts.js";
 
@@ -472,17 +473,24 @@ describe("saveAccounts", () => {
     );
     expect((await stat(dir)).mode & 0o777).toBe(0o700);
     expect((await stat(file())).mode & 0o777).toBe(0o600);
+    // The password is sealed in the encrypted store (secrets.json); accounts.json keeps the origin it is bound to.
     expect(await saved()).toMatchObject({
       version: 1,
       accounts: {
         a: {
           loginUrl: LOGIN,
           username: USER_A,
-          password: PASSWORD_A,
+          passwordOrigin: "http://127.0.0.1:5173",
           label: "Owner",
         },
       },
     });
+    expect((await saved()).accounts?.a).not.toHaveProperty("password");
+    expect(await savedText()).not.toContain(PASSWORD_A);
+    expect((await stat(join(dir, "secrets.json"))).mode & 0o777).toBe(0o600);
+    expect((await stat(join(dir, "secrets.key"))).mode & 0o777).toBe(0o600);
+    expect(await readFile(join(dir, "secrets.json"), "utf8")).not.toContain(PASSWORD_A);
+    expect((await readSecrets(dir, { env })).values).toEqual({ "accounts.a.password": PASSWORD_A });
     expect(status.file).toBe(file());
     expect(status.accounts.a).toMatchObject({
       label: "Owner",
@@ -510,8 +518,22 @@ describe("saveAccounts", () => {
     const after = await stat(file());
     expect(after.mode & 0o777).toBe(0o600);
     expect(after.ino).not.toBe(before.ino);
-    expect(await saved()).toMatchObject({ accounts: { a: fullA, b: fullB } });
-    expect(await readdir(dir)).toEqual(["accounts.json"]);
+    // The legacy plain-text password of b moves to the store along with the new one of a; neither is left in the file.
+    const { accounts } = await saved();
+    expect(accounts).toMatchObject({
+      a: { loginUrl: LOGIN, username: USER_A },
+      b: { loginUrl: LOGIN, username: USER_B },
+    });
+    expect(accounts?.a).not.toHaveProperty("password");
+    expect(accounts?.b).not.toHaveProperty("password");
+    expect(await savedText()).not.toContain(PASSWORD_A);
+    expect(await savedText()).not.toContain(PASSWORD_B);
+    expect((await readSecrets(dir, { env })).values).toEqual({
+      "accounts.a.password": PASSWORD_A,
+      "accounts.b.password": PASSWORD_B,
+    });
+    // Only the file, its sealed passwords and the data key are left: no temp file.
+    expect((await readdir(dir)).sort()).toEqual(["accounts.json", "secrets.json", "secrets.key"]);
   });
 
   it("keeps the fields and the slot a patch doesn't mention", async () => {
@@ -686,7 +708,10 @@ describe("clearAccount", () => {
     const text = await savedText();
     expect(text).not.toContain(PASSWORD_A);
     expect(text).not.toContain(USER_A);
-    expect(text).toContain(PASSWORD_B);
+    // B's password is sealed in the store, not in the file; A's is gone from the store with its slot.
+    expect(text).not.toContain(PASSWORD_B);
+    expect((await readSecrets(dir, { env })).values).toEqual({ "accounts.b.password": PASSWORD_B });
+    expect((await resolveAccounts({ env, home: tmp })).config.accounts.b.password).toBe(PASSWORD_B);
     expect((await stat(file())).mode & 0o777).toBe(0o600);
   });
 

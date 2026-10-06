@@ -17,17 +17,30 @@ export function aiStatusLines(status: AiStatus): string[] {
   const features = (
     Object.keys(status.features) as (keyof AiStatus["features"])[]
   ).filter((f) => status.features[f]);
-  return [
+  const lines = [
     `AI: ${status.enabled ? "on" : "off"}${from("enabled")}`,
     `Provider: ${status.provider}${from("provider")}`,
     `Model: ${status.model || "(none)"}${from("model")}`,
     `Endpoint: ${status.baseUrl ? `${status.baseUrl}${from("baseUrl")} ` : ""}(${status.remote ? "remote" : "local"}: ${status.host})`,
     ...(status.provider === "bedrock" ? [`Region: ${status.region ?? "(none)"}${from("region")}`] : []),
     `Key: ${status.hasKey ? "set" : "not set"}${status.hasKey ? from("apiKey") : ""}`,
+  ];
+  if (status.secretProtection) {
+    const protection =
+      status.secretProtection === "os-keychain"
+        ? "encrypted with the system keychain"
+        : status.secretProtection === "run-hound"
+          ? "encrypted by Run Hound (no system keychain)"
+          : "not saved (environment variables only)";
+    lines.push(`Saved keys: ${protection}`);
+  }
+  return [
+    ...lines,
     ...(status.remote ? [`Consent to send to ${status.host}: ${status.allowRemote ? "yes" : "no"}${from("allowRemote")}`] : []),
     `Features: ${features.length ? features.join(", ") : "none"}${from("features")}`,
     `Timeout: ${formatDuration(status.timeoutMs)}${from("timeoutMs")}`,
     `Config file: ${status.file}`,
+    ...(status.secretNotice ? [`Notice: ${status.secretNotice}`] : []),
     status.problem ? `Problem: ${status.problem}.${aiRemedy(status)}` : "Ready.",
   ];
 }

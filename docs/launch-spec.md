@@ -23,7 +23,7 @@ A run must not reach into the rest of the machine, and the machine must not reac
 
 1. [The browser's environment](#1-the-browsers-environment): every Chromium Run Hound launches gets an allowlisted environment, with HOME and the XDG folders in a per-launch folder Run Hound owns and removes.
 2. [Downloads](#2-downloads): no browser context accepts a download.
-3. [Bedrock credentials](#3-bedrock-credentials): an access key ID and secret access key (and an optional session token) can be saved in Settings, `ai.json` or the environment; they are write-only; `~/.aws` is read only when a profile is named; `credential_process` gets none of Run Hound's own secrets.
+3. [Bedrock credentials](#3-bedrock-credentials): an access key ID and secret access key (and an optional session token) can be saved encrypted in Settings, in the environment, or from a named AWS profile; they are write-only; `~/.aws` is read only when a profile is named; `credential_process` gets none of Run Hound's own secrets. See [storage details](#3-6-saving-saveaiconfig).
 4. [Redaction](#4-redaction): the AI secrets are registered with the redactor, and a labelled AWS secret access key has a pattern of its own.
 5. [Egress](#5-egress): `docs/security.md` says what the tested page may reach and why.
 6. [The footprint contract test](#6-the-footprint-contract-test): a real run proves all of the above together.
@@ -129,7 +129,7 @@ Every browser context Run Hound opens includes `...ISOLATED_CONTEXT`, which is `
 1. **A Bedrock API key**, sent as `Authorization: Bearer`, from `apiKey` (Settings, `ai.json`, `RUNHOUND_AI_API_KEY`, else `AWS_BEARER_TOKEN_BEDROCK`). This is unchanged.
 2. **SigV4** with the first of:
    1. the AWS access keys in the environment;
-   2. the access keys saved in `ai.json` (new);
+   2. the access keys saved encrypted in `secrets.json` (new);
    3. the named profile in `~/.aws`.
 
    With none of them, it fails with `AiError("auth", "Bedrock needs credentials: an API key, AWS access keys or an AWS profile")` and nothing is read or sent.
@@ -138,7 +138,7 @@ The pair is never sent anywhere. SigV4 sends a signature bound to the request's 
 
 #### 3.2 Fields and variables
 
-`AiConfig` (`app/src/ai/types.ts`) gains three fields, `null` by default and in `DEFAULT_AI_CONFIG`. They are saved in `ai.json` under the same names:
+`AiConfig` (`app/src/ai/types.ts`) gains three fields, `null` by default and in `DEFAULT_AI_CONFIG`. The field names are read from `ai.json` (to check `sources.awsKeys`), but the actual values are saved encrypted in `secrets.json` ([2026-10-06 decision](decisions/10-2026.md#2026-10-06-encrypted-secret-store)):
 
 | Field | What | Environment (Bedrock only) |
 |---|---|---|
@@ -189,7 +189,7 @@ Names are matched case-insensitively. Everything else is kept.
 - The helper is the user's own program, named in their own `~/.aws/config` and run only because they named that profile. The AWS CLI runs it with the whole environment, and real helpers depend on theirs: aws-vault's backend setting, 1Password's `OP_SESSION_*`, a session bus for a keyring prompt, HOME for their own configuration. An allowlist would break them unpredictably.
 - What must not reach the helper is what Run Hound holds and the helper has no use for: Run Hound's own variables (the AI key, account passwords, config paths) and credentials of the other methods.
 - The chain only reaches the helper when there is no full environment pair, so a stray secret or token there belongs to no key it could use, and a Bedrock API key is a different method altogether.
-- The keys saved in `ai.json` are never in any environment.
+- The keys saved encrypted in `secrets.json` are never in any environment.
 
 #### 3.6 Saving: `saveAiConfig`
 
@@ -206,12 +206,12 @@ Names are matched case-insensitively. Everything else is kept.
   - a secret or token that contains whitespace.
 - **A pair set by the environment is locked.** A patch that sets or removes it throws an `Error` naming `AWS_ACCESS_KEY_ID`. Sending nothing for it is fine.
 - **Errors name fields, never values.** The server's 400 answers are redacted as today.
-- **The file.** The fields are written by the existing `writePrivate` (`config.ts:317`): a new `0600` file renamed into place, in a `0700` folder. There is no OS keychain ([decision](decisions/09-2026.md#2026-09-30-aws-only-when-a-profile-is-named)); protection is file permissions, as for `apiKey` and `accounts.json`.
+- **Storage.** AWS access keys and session tokens are saved encrypted in `secrets.json` under the access key ID as the entry name ([2026-10-06 decision](decisions/10-2026.md#2026-10-06-encrypted-secret-store)): the data key is wrapped by the OS credential store on the desktop or kept as 0600 by Run Hound itself on the command line. In Docker (RUNHOUND_SECRETS=environment), nothing is saved; the variables are used directly.
 
 #### 3.7 API
 
 - **`GET /api/ai`**, and `ai` in `GET /api/settings`, return `AiStatus`. It gains:
-  - `hasAwsKeys: boolean`: a pair is set, from `ai.json` or, for Bedrock, the environment;
+  - `hasAwsKeys: boolean`: a pair is set, from `secrets.json` or, for Bedrock, the environment;
   - `hasAwsSessionToken: boolean`;
   - `sources.awsKeys`.
 
@@ -253,7 +253,7 @@ It is a select and not radio buttons because the radios' labels would share word
 - **The profile field's placeholder** becomes "Profile name" instead of "default".
 - **Save sends, for Bedrock:**
   - the chosen method's values: the typed API key, or `apiKey: null` after "Remove key"; the typed pair and token, or `awsAccessKeyId: null` after "Remove keys", or nothing when nothing was typed; `awsProfile` (the value, or `null` when empty);
-  - `null` for each other method's value that is saved in `ai.json` (`apiKey` when `sources.apiKey` is `"file"`, `awsAccessKeyId` when `sources.awsKeys` is `"file"`, `awsProfile` when `sources.awsProfile` is `"file"`), so one method is saved at a time;
+  - `null` for each other method's value that is saved (`apiKey` in `secrets.json` when `sources.apiKey` is `"file"`, `awsAccessKeyId` in `secrets.json` when `sources.awsKeys` is `"file"`, `awsProfile` in `ai.json` when `sources.awsProfile` is `"file"`), so one method is saved at a time;
   - never a locked field.
 
   Half a pair is sent as typed, and the page shows the server's error.
@@ -352,8 +352,8 @@ It runs in the normal app suite. From 0.6.3 it runs on macOS and Windows CI too.
 | `app/tests/features/engine/isolation/isolation-launch-sites.test.ts` | Real runs with `chromium.launch` and each browser's `newContext` spied on: discovery, the run, signed-in discovery (`auth.ts`) and `testSignIn` (`server/accounts.ts`) each launch isolated and leave no folder; every context (discovery, `openPage`, sign-in, the evidence renderer) has `acceptDownloads: false`; a clicked download is refused |
 | `app/tests/features/engine/footprint/footprint.test.ts` | [The footprint contract](#6-the-footprint-contract-test) |
 | `app/tests/features/ai/aws-access-keys.test.ts` | `resolveAwsCredentials` order (env, `saved`, named profile) and `source: "saved"`; no read under a sentinel `~/.aws` without a named profile (with `readFileSync`/`existsSync` recorded), `AWS_CONFIG_FILE` included; `awsProfileName` returning `null`; `awsProfileRegion` and `awsCredentialsAvailable`; `credentialProcessEnv` and the environment a real helper sees; `converseJson` signing with the saved pair and taking no region from `~/.aws` |
-| `app/tests/features/ai/config-access-keys.test.ts` | Resolution of the pair (file, env over file, token only with its pair, half pairs, Bedrock only); region only from a named profile; every `saveAiConfig` rule above, `0600`/`0700`, errors without values; `aiStatus`'s `hasAwsKeys`, `hasAwsSessionToken` and `sources.awsKeys` without any value; a `[default]` profile not counted |
-| `app/tests/features/server/app-ai-credentials.test.ts` | `PUT`, then `GET /api/ai` and `GET /api/settings` without the pair or token; `ai.json` `0600`; 400 for half a pair and for an env-locked pair (naming `AWS_ACCESS_KEY_ID`); no region or credentials from a `[default]` profile under the server's HOME |
+| `app/tests/features/ai/config-access-keys.test.ts` | Resolution of the pair (encrypted store, env over encrypted, token only with its pair, half pairs, Bedrock only); region only from a named profile; every `saveAiConfig` rule above, encryption and atomic write, errors without values; `aiStatus`'s `hasAwsKeys`, `hasAwsSessionToken` and `sources.awsKeys` without any value; a `[default]` profile not counted |
+| `app/tests/features/server/app-ai-credentials.test.ts` | `PUT`, then `GET /api/ai` and `GET /api/settings` without the pair or token; encrypted store; 400 for half a pair and for an env-locked pair (naming `AWS_ACCESS_KEY_ID`); no region or credentials from a `[default]` profile under the server's HOME |
 | `app/tests/features/server/ui-ai-credentials.test.ts` | [Settings](#38-settings) |
 | `app/tests/features/ai/ai-secrets-redacted.test.ts` | Registration by `resolveAiConfig` (file, env, a key that doesn't apply, replacement) and by `resolveAwsCredentials`; a saved secret kept out of a real run's report files, spec files and log |
 | `app/tests/features/engine/redact/redact-aws-secret.test.ts` | The `aws-secret-key` pattern: the labelled forms, `findSecrets`, and what it must not match |

@@ -2,7 +2,8 @@
  * The AI API and Bedrock access keys (0.6.1, docs/launch-spec.md "Bedrock credentials", "API"):
  * - PUT /api/ai accepts awsAccessKeyId + awsSecretAccessKey (+ awsSessionToken); they are write-only: neither the PUT
  *   answer, a later GET /api/ai nor GET /api/settings contains any of them (hasAwsKeys, hasAwsSessionToken and
- *   sources.awsKeys say what is set); they are saved in ai.json, mode 0600;
+ *   sources.awsKeys say what is set); the access key ID is saved in ai.json (mode 0600), the secret and the token only
+ *   in the encrypted store (secrets.json), never in ai.json;
  * - half a pair is a 400 that saves nothing; a pair set by AWS_ACCESS_KEY_ID is locked (400 naming it); an error never
  *   echoes a value;
  * - with no profile named, the server reads nothing from ~/.aws: HOME points at a sentinel home whose [default] profile
@@ -16,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { clearAwsCredentialCache } from "../../../src/ai/aws-credentials.js";
 import type { AiStatus } from "../../../src/ai/types.js";
 import type { Check } from "../../../src/core/types.js";
+import { readSecrets } from "../../../src/operations/secret-store.js";
 import { createApp } from "../../../src/server/app.js";
 
 const ID = "AKIAIOSFODNN7SAVED01";
@@ -87,7 +89,14 @@ describe("PUT /api/ai with AWS access keys", () => {
 
     const file = join(configDir, "ai.json");
     expect((await stat(file)).mode & 0o777).toBe(0o600);
-    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ awsAccessKeyId: ID, awsSecretAccessKey: SECRET, awsSessionToken: TOKEN });
+    const saved = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+    expect(saved).toMatchObject({ awsAccessKeyId: ID });
+    expect(saved).not.toHaveProperty("awsSecretAccessKey");
+    expect(saved).not.toHaveProperty("awsSessionToken");
+    const sealed = join(configDir, "secrets.json");
+    expect((await stat(sealed)).mode & 0o777).toBe(0o600);
+    expect(await readFile(sealed, "utf8")).not.toContain(SECRET);
+    expect((await readSecrets(configDir, { env: {} })).values).toEqual({ "ai.awsSecretAccessKey": SECRET, "ai.awsSessionToken": TOKEN });
   });
 
   it("answers 400 to half a pair and saves nothing, without echoing the value", async () => {

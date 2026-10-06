@@ -105,6 +105,21 @@ describe("run-hound ai status", () => {
     expect(r.stdout).toMatch(/consent/i);
     expect(r.stdout).toContain("api.example.com");
   });
+
+  it("shows where saved keys are kept (run-hound protection by default)", async () => {
+    const r = await runCli(["ai", "status"], localEnv());
+    expect(r.code, r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/Saved keys:.*(encrypted by Run Hound|no system keychain)/i);
+  });
+
+  it("shows that keys are not saved when using environment variables only", async () => {
+    const r = await runCli(["ai", "status"], {
+      ...localEnv(),
+      RUNHOUND_SECRETS: "environment",
+    });
+    expect(r.code, r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/Saved keys:.*not saved.*environment variables/i);
+  });
 });
 
 describe("run-hound ai test", () => {

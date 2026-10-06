@@ -25,6 +25,8 @@ export interface ResolvedAiConfig {
    * key was not applied. `savedFor` is the key's origin, `endpoint` the current one (keyOriginFor).
    */
   staleKey?: { savedFor: string; endpoint: string };
+  /** Set when saved keys could not be read, or (Docker) a key is still saved in plain text (AiStatus.secretNotice). */
+  secretNotice?: string;
 }
 
 export type { ConfigSource };

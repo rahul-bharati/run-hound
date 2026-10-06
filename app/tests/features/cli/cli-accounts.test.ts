@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { startAccountsApp, type AccountsApp } from "../../support/accounts-app.js";
 import type { Plan } from "../../../src/core/types.js";
+import { readSecrets } from "../../../src/operations/secret-store.js";
 import type { CliResult } from "../../../src/interfaces/cli-test.js";
 
 // CLI surfaces of test accounts (docs/v2-spec.md "Test accounts" → CLI).
@@ -109,6 +110,18 @@ describe("run-hound accounts status", () => {
     expect(r.stdout).toContain(app.url);
     expect(out(r)).not.toContain(app.users.alice.password);
   });
+
+  it("shows where saved passwords are kept (run-hound protection by default)", async () => {
+    const r = await runCli(["accounts", "status"]);
+    expect(r.code, r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/Saved passwords:.*(encrypted by Run Hound|no system keychain)/i);
+  });
+
+  it("shows that passwords are not saved when using environment variables only", async () => {
+    const r = await runCli(["accounts", "status"], { RUNHOUND_SECRETS: "environment" });
+    expect(r.code, r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/Saved passwords:.*not saved.*environment variables/i);
+  });
 });
 
 describe("run-hound accounts set", () => {
@@ -121,8 +134,15 @@ describe("run-hound accounts set", () => {
     expect(r.code, r.stderr).toBe(0);
     expect(out(r)).not.toContain(app.users.alice.password);
     expect((await stat(file())).mode & 0o777).toBe(0o600);
+    // The password is sealed in the encrypted store (secrets.json), never written to accounts.json; the file keeps the
+    // origin it is bound to.
     const saved = JSON.parse(await readFile(file(), "utf8")) as { accounts: Record<string, Record<string, unknown>> };
-    expect(saved.accounts.a).toMatchObject({ loginUrl: app.loginUrl, username: app.users.alice.email, label: "Owner", password: app.users.alice.password });
+    expect(saved.accounts.a).toMatchObject({ loginUrl: app.loginUrl, username: app.users.alice.email, label: "Owner", passwordOrigin: new URL(app.loginUrl).origin });
+    expect(saved.accounts.a).not.toHaveProperty("password");
+    expect(await readFile(file(), "utf8")).not.toContain(app.users.alice.password);
+    expect((await stat(join(configDir, "secrets.json"))).mode & 0o777).toBe(0o600);
+    expect(await readFile(join(configDir, "secrets.json"), "utf8")).not.toContain(app.users.alice.password);
+    expect((await readSecrets(configDir, { env: {} })).values).toEqual({ "accounts.a.password": app.users.alice.password });
 
     const status = await runCli(["accounts", "status"]);
     expect(status.stdout).toContain("Owner");
@@ -135,10 +155,14 @@ describe("run-hound accounts set", () => {
       runCli(["accounts", "set", "a", "--login-url", loginUrl, "--username", app.users.alice.email, ...(stdin ? ["--password-stdin"] : [])], {}, stdin ? { input: stdin } : {});
     expect((await setA(app.loginUrl, `${app.users.alice.password}\n`)).code).toBe(0);
     expect((await setA(`${app.url}/sign-in`)).code).toBe(0);
-    expect(await readFile(file(), "utf8")).toContain(app.users.alice.password);
+    // Kept (in the store, never in the file) while the login origin stays the same...
+    expect(await readFile(file(), "utf8")).not.toContain(app.users.alice.password);
+    expect((await readSecrets(configDir, { env: {} })).values).toEqual({ "accounts.a.password": app.users.alice.password });
     const moved = await setA("http://127.0.0.1:9/login");
     expect(moved.code, moved.stderr).toBe(0);
+    // ...and dropped from the store when it changes.
     expect(await readFile(file(), "utf8")).not.toContain(app.users.alice.password);
+    expect((await readSecrets(configDir, { env: {} })).values).toEqual({});
   });
 
   it("refuses a public login URL: exit 2, the host named, nothing saved", async () => {
@@ -183,6 +207,9 @@ describe("run-hound accounts clear", () => {
     expect(text).not.toContain(app.users.alice.password);
     expect(text).not.toContain(app.users.alice.email);
     expect(text).toContain(app.users.bob.email);
+    // The legacy plain-text passwords moved to the store; only the kept slot's is left there.
+    expect(text).not.toContain(app.users.bob.password);
+    expect((await readSecrets(configDir, { env: {} })).values).toEqual({ "accounts.b.password": app.users.bob.password });
     const status = await runCli(["accounts", "status"]);
     expect(status.stdout).not.toContain(app.users.alice.email);
     expect(status.stdout).toContain(app.users.bob.email);

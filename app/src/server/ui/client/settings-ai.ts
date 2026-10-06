@@ -106,8 +106,19 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
     keyInput.value = "";
     const keyNote = h("span", { class: "field-hint key-note" });
     const removeBtn = apiKeySet && !locked("apiKey") ? h("button", { type: "button", class: "link-btn", id: "ai-key-remove", text: "Remove key" }) : null;
+    const secretProtectionNote = st.secretProtection
+      ? h("span", {
+          class: "field-hint",
+          text:
+            st.secretProtection === "os-keychain"
+              ? "Saved keys are encrypted with your system keychain."
+              : st.secretProtection === "run-hound"
+                ? "Saved keys are encrypted by Run Hound on this computer (no system keychain is available)."
+                : "Keys aren't saved here: set them with environment variables when you start the container.",
+        })
+      : null;
     const keyField = h("div", { class: "ai-field" },
-      h("label", { class: "field-label", for: "ai-key", text: "API key" }), keyInput, lockNote("apiKey"), removeBtn, keyNote,
+      h("label", { class: "field-label", for: "ai-key", text: "API key" }), keyInput, lockNote("apiKey"), removeBtn, keyNote, secretProtectionNote,
       h("span", { class: "field-hint", text: "Stays on this machine; never shown again. Not needed for Ollama or LM Studio." }));
     const region = h("input", { id: "ai-region", class: "input", type: "text", spellcheck: "false", autocomplete: "off", placeholder: "us-east-1", disabled: locked("region") });
     region.value = st.region || "";
@@ -170,6 +181,8 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
     const error = h("p", { class: "error", id: "ai-error" });
     const saved = h("p", { class: "saved", id: "ai-saved", text: message || "" });
     const noticeEl = notice ? h("p", { class: "warning ai-notice", id: "ai-notice", role: "status", text: notice }) : null;
+    // Saved keys that could not be read, or (Docker) a key still saved in plain text.
+    const secretNoticeEl = st.secretNotice ? h("p", { class: "warning", id: "ai-secret-notice", text: st.secretNotice }) : null;
     const testOut = h("p", { class: "field-hint", id: "ai-test-result" });
 
     const isBedrock = () => preset.value === "bedrock";
@@ -401,7 +414,7 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
       h("fieldset", { class: "ai-features" }, h("legend", { class: "field-label", text: "What the model does" }), fReview.row, fSuggest.row, fExplain.row, lockNote("features")),
       consentSlot,
       h("div", { class: "ai-actions" }, save, test),
-      error, saved, noticeEl, testOut,
+      error, saved, noticeEl, secretNoticeEl, testOut,
       st.file ? h("p", { class: "note" }, "Saved to ", h("code", { class: "mono", text: st.file })) : null);
     syncModelUi();
     drawConsent();

@@ -30,7 +30,7 @@ Verified against the current tree.
 | Browser launch | `launchChromium` passes caller options straight through, so `executablePath` and `headless` are already injectable; the per-launch environment, temp folder and `ISOLATED_CONTEXT` download refusal are enforced inside it | `app/src/engine/isolation.ts:206-210`, `221-224` |
 | Cleanup | Temp folder removal runs on close, on `disconnected`, on launch failure and on process `exit` | `app/src/engine/isolation.ts:174-190`, `226-237` |
 | Config storage | `configDir` resolves `$RUNHOUND_CONFIG_DIR`, else `$XDG_CONFIG_HOME/run-hound`, else `~/.config/run-hound` | `app/src/config/ai.ts:34-45` |
-| Credential storage | Accounts are written with a 0700 directory and 0600 file | `app/src/operations/accounts-storage.ts:244-252` |
+| Credential storage | AI keys and test-account passwords are encrypted in `secrets.json`, bound to their names by AES-256-GCM; the data key is in `secrets.key`, wrapped by the OS keychain on the desktop or kept by Run Hound itself on the command line. See [2026-10-06 decision](decisions/10-2026.md#2026-10-06-encrypted-secret-store). | `app/src/operations/secret-store.ts:1-18` |
 | Release automation | CI and release currently build Linux container images for `linux/amd64` and `linux/arm64` only | `.github/workflows/release-images.yml:177-229` |
 
 ### Gaps the desktop app must close
@@ -39,7 +39,7 @@ Verified against the current tree.
 |---|---|---|
 | No native packaging or build pipeline | Releases are container images only (above) | A desktop build, signing and publish pipeline is new work (D4) |
 | The entry point is TypeScript run through `tsx` | `app/package.json` `bin.run-hound = ./src/cli.ts`; `tsx` is a runtime dependency | A desktop build needs a compiled JavaScript entry; bundling `tsx` was not verified from a primary source and is not assumed |
-| Credentials use POSIX modes only | `accounts-storage.ts:244-252` | Windows has no equivalent protection, and macOS has no Keychain integration. An OS credential store is separate work, not part of D2 |
+| Secrets are encrypted and protected | `secret-store.ts`, `key-protector.ts`, `Dockerfile` | Keys and passwords are sealed in an encrypted store, and the data key is wrapped by the OS credential store on the desktop (Electron `safeStorage`) or kept as 0600 by Run Hound elsewhere. See [2026-10-06 decision](decisions/10-2026.md#2026-10-06-encrypted-secret-store). |
 | Config path is XDG-oriented | `config/ai.ts:34-45` | `~/.config` is not the native macOS location; the desktop app should resolve a platform-appropriate directory and keep the override |
 | Report directory is working-directory-relative | `run-flow.ts:205` (`resolve(options.runsDir ?? "runs")`) | A desktop app launched from Finder or the Start menu has no meaningful working directory; the runs directory must be passed explicitly |
 | No user-facing authentication | No account or session code for Run Hound itself was found; the saved accounts are target-app test identities | A future hosted workspace needs its own sign-in (T3) |
@@ -117,7 +117,7 @@ Accepted costs of this recommendation, stated rather than minimised:
 | Windows cleanup can hit `EBUSY`/`EPERM` while Chromium holds handles | `isolation.ts:159`, `168` rely on retries plus a synchronous `exit` hook | Leaked temp folders accumulate on the user's disk |
 | Headed Linux needs a display session | `isolation.ts:104-114` forwards `DISPLAY`/`WAYLAND_DISPLAY`/`XAUTHORITY` | Wayland sessions and minimal installs may fail to show the browser; the sign-in flow depends on it |
 | Temp-path joining is platform-branched while the folder is created with the host's `join` | `isolation.ts:88`, `116` | Mismatch is possible when `platform` is simulated in tests but not on a real host |
-| Credentials are POSIX-mode files | `accounts-storage.ts:244-252` | No Windows ACL, no macOS Keychain; acceptable only if stated honestly |
+| Saved secrets resist copying, not a program running as the user | `secret-store.ts`, `key-protector.ts` | Encrypted with the OS keychain or Run Hound's own key; a program already running as the same user can still read them. Stated in `SECURITY.md` ([2026-10-06](decisions/10-2026.md#2026-10-06-encrypted-secret-store)) |
 | The app has no meaningful working directory when launched from a GUI | `run-flow.ts:205` defaults `runsDir` to `"runs"` | Reports would scatter or fail; the desktop app must pass an explicit path |
 
 ## The smallest spike
@@ -141,7 +141,7 @@ The spike is throwaway. Its output is this document's open questions answered, p
 - **Signing budget.** An Apple Developer Program membership (annual) plus notarization is required for macOS. On Windows, application signing itself does not require an EV certificate, but SmartScreen reputation does affect how a first install looks to a user; the certificate supplier should confirm what buys that reputation and at what cost before this is budgeted. No workaround is proposed for macOS.
 - **Linux packaging priority.** Flatpak and Snap impose sandboxing rules that interact with the per-launch browser isolation and the safety gate's local-address model. deb and rpm are the lower-risk first targets; AppImage needs a separate, older build base for `GLIBC` compatibility.
 - **Update policy.** Rule 8 defers in-app updates. A GitHub Releases download plus a version check is the proposed first-release behaviour.
-- **Credential storage.** Whether an OS credential store is in scope for the first desktop release or deferred, given the local-only data decisions.
+- **Credential storage.** Decided: [2026-10-06](decisions/10-2026.md#2026-10-06-encrypted-secret-store). Saved keys and passwords are encrypted in `secrets.json`, bound to their names; the data key is wrapped by the OS keychain on the desktop or kept by Run Hound itself elsewhere. In Docker, only environment variables are used.
 - **Renderer hardening.** Rule 5's boundary is a proposal, not a measured configuration; the spike confirms it, and tightening it further is a follow-up.
 
 ## Sources

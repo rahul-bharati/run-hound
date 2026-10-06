@@ -28,14 +28,21 @@ import {
   AI_PROVIDERS,
   DEFAULT_BASE_URLS,
   KEY_REMOVED_NOTICE,
+  KEYS_FROM_ENVIRONMENT,
+  plainTextKeyNotice,
 } from "../constants/ai-constants.js";
 import type { AiFlags, ConfigSource, ResolvedAiConfig } from "../interfaces/ai.js";
+import { readSecrets, secretProtection, writeSecrets } from "./secret-store.js";
 
 type Field = Exclude<keyof Required<AiStatus["sources"]>, "awsKeys">;
 type Layer = Partial<Omit<AiConfig, "features">> & { features?: Partial<AiFeatures> };
 
 const FIELDS: readonly Field[] = ["enabled", "provider", "baseUrl", "model", "apiKey", "region", "awsProfile", "allowRemote", "features", "timeoutMs"];
 const FEATURE_NAMES: readonly (keyof AiFeatures)[] = ["review", "suggest", "explain"];
+/** Saved in the encrypted store (secret-store.ts) as "ai.<field>", never in the file. */
+const SECRET_FIELDS = ["apiKey", "awsSecretAccessKey", "awsSessionToken"] as const;
+const secretName = (field: (typeof SECRET_FIELDS)[number]): string => `ai.${field}`;
+const nonEmptyString = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
 
 const isProvider = (v: unknown): v is AiProvider => typeof v === "string" && (AI_PROVIDERS as readonly string[]).includes(v);
 const isTimeout = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v > 0;
@@ -69,12 +76,64 @@ function fromFile(raw: unknown): Layer {
   return out;
 }
 
-async function readSaved(file: string): Promise<Layer> {
+interface Saved {
+  /** The file with its secrets filled in: from the store, or a legacy plain-text value still in the file. */
+  layer: Layer;
+  /** The secrets the store holds, by field. */
+  stored: Partial<Record<(typeof SECRET_FIELDS)[number], string>>;
+  /** True when the file itself still holds a secret in plain text. */
+  plain: boolean;
+  notice: string | null;
+}
+
+async function readSaved(file: string, env: NodeJS.ProcessEnv): Promise<Saved> {
+  let raw: Record<string, unknown>;
   try {
-    return fromFile(JSON.parse(await readFile(file, "utf8")));
+    const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return { layer: {}, stored: {}, plain: false, notice: null };
+    raw = parsed as Record<string, unknown>;
   } catch {
-    return {}; // missing, unreadable or corrupt: defaults
+    return { layer: {}, stored: {}, plain: false, notice: null }; // missing, unreadable or corrupt: defaults
   }
+  const plain = SECRET_FIELDS.some((field) => nonEmptyString(raw[field]) !== null);
+  const store = await readSecrets(dirname(file), { env });
+  const stored: Saved["stored"] = {};
+  for (const field of SECRET_FIELDS) {
+    const value = store.values[secretName(field)];
+    if (value === undefined) continue;
+    stored[field] = value;
+    if (nonEmptyString(raw[field]) === null) raw[field] = value;
+  }
+  const notice = plain && store.protection === "environment" ? plainTextKeyNotice(file) : store.problem;
+  return { layer: fromFile(raw), stored, plain, notice };
+}
+
+/**
+ * Moves secrets still saved in plain text in the file (written before the encrypted store) into the store, then
+ * rewrites the file without them. A store that can't be written (environment only, or locked by the desktop app's OS
+ * keychain) leaves the file as it is.
+ */
+async function moveSecretsOut(file: string, env: NodeJS.ProcessEnv): Promise<void> {
+  if (secretProtection(env) === "environment") return;
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+  } catch {
+    return;
+  }
+  const updates: Record<string, string> = {};
+  for (const field of SECRET_FIELDS) {
+    const value = nonEmptyString(raw[field]);
+    if (value !== null) updates[secretName(field)] = value;
+  }
+  if (Object.keys(updates).length === 0) return;
+  try {
+    await writeSecrets(dirname(file), updates, { env });
+  } catch {
+    return;
+  }
+  for (const field of SECRET_FIELDS) delete raw[field];
+  await writePrivate(file, `${JSON.stringify(raw, null, 2)}\n`);
 }
 
 function envBool(value: string | undefined): boolean | undefined {
@@ -129,6 +188,8 @@ interface Resolution extends ResolvedAiConfig {
    * awsSessionToken; RUNHOUND_AI_API_KEY; for Bedrock AWS_BEARER_TOKEN_BEDROCK, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN.
    */
   secrets: string[];
+  /** True when the file still holds a secret in plain text (resolveAiConfig moves it into the store). */
+  plainSecrets: boolean;
 }
 
 /** `saved` replaces the file's contents (saveAiConfig uses it to see where a patch would point before writing). */
@@ -136,7 +197,8 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
   const file = configFile(env, home);
   const { layer: envLayer, names } = fromEnv(env);
   const envNames: Resolution["envNames"] = names;
-  const fileLayer = saved ?? (await readSaved(file));
+  const read: Saved = saved ? { layer: saved, stored: {}, plain: false, notice: null } : await readSaved(file, env);
+  const fileLayer = read.layer;
   const layers: [ConfigSource, Layer][] = [
     ["file", fileLayer],
     ["env", envLayer],
@@ -237,7 +299,16 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
     if (host !== null) config.allowRemoteHost = host;
     if (config.allowRemote && host !== endpointHost(config)) config.allowRemote = false;
   }
-  return { config, sources, file, envNames, secrets: secrets.filter((v): v is string => typeof v === "string" && v !== ""), ...(staleKey ? { staleKey } : {}) };
+  return {
+    config,
+    sources,
+    file,
+    envNames,
+    secrets: secrets.filter((v): v is string => typeof v === "string" && v !== ""),
+    plainSecrets: read.plain,
+    ...(staleKey ? { staleKey } : {}),
+    ...(read.notice ? { secretNotice: read.notice } : {}),
+  };
 }
 
 /** Shortest an API key can be and still count as a real credential without looking random (below: looksRandom must say so). */
@@ -291,9 +362,11 @@ function legacyKeyOrigin(file: Layer, region: string | null): string {
  * config no longer holds stops being registered.
  */
 export async function resolveAiConfig(options: { env?: NodeJS.ProcessEnv; flags?: AiFlags; home?: string } = {}): Promise<ResolvedAiConfig> {
-  const { config, sources, file, staleKey, secrets } = await resolve(options.env ?? process.env, options.flags ?? {}, options.home);
+  const env = options.env ?? process.env;
+  const { config, sources, file, staleKey, secrets, plainSecrets, secretNotice } = await resolve(env, options.flags ?? {}, options.home);
   registerAiSecrets(secrets);
-  return { config, sources, file, ...(staleKey ? { staleKey } : {}) };
+  if (plainSecrets) await moveSecretsOut(file, env);
+  return { config, sources, file, ...(staleKey ? { staleKey } : {}), ...(secretNotice ? { secretNotice } : {}) };
 }
 
 /** The live registration of the AI secrets resolveAiConfig last read. */
@@ -446,7 +519,8 @@ export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS
   }
   const pair = pairChange(patch, current);
 
-  const saved = (await readSaved(current.file)) as Record<string, unknown>;
+  const read = await readSaved(current.file, env);
+  const saved = read.layer as Record<string, unknown>;
   if (changes.provider !== undefined && changes.provider !== saved.provider && changes.baseUrl === undefined) delete saved.baseUrl;
   const next: Record<string, unknown> = { ...saved, ...changes };
   if (next.apiKey === null) delete next.apiKey;
@@ -484,6 +558,22 @@ export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS
     delete next.allowRemoteHost;
   }
 
+  // Secrets go to the encrypted store, never the file. In the Docker image nothing new is saved: a key that would be
+  // saved is refused, and a legacy plain-text key stays in the file until it is removed.
+  if (secretProtection(env) === "environment") {
+    for (const field of SECRET_FIELDS) {
+      const value = nonEmptyString(next[field]);
+      if (value !== null && value !== nonEmptyString(saved[field])) throw new Error(KEYS_FROM_ENVIRONMENT);
+    }
+  } else {
+    const updates: Record<string, string | null> = {};
+    for (const field of SECRET_FIELDS) {
+      const value = nonEmptyString(next[field]);
+      delete next[field];
+      if (value !== (read.stored[field] ?? null)) updates[secretName(field)] = value;
+    }
+    if (Object.keys(updates).length > 0) await writeSecrets(dirname(current.file), updates, { env });
+  }
   await writePrivate(current.file, `${JSON.stringify(next, null, 2)}\n`);
   const resolved = await resolveAiConfig({ env, home: options.home });
   return notice ? { ...resolved, notice } : resolved;
@@ -536,5 +626,7 @@ export function aiStatus(resolved: ResolvedAiConfig, env: NodeJS.ProcessEnv = pr
     problem,
     sources: { ...resolved.sources, awsKeys: resolved.sources.awsKeys ?? "default" },
     file: resolved.file,
+    secretProtection: secretProtection(env),
+    secretNotice: resolved.secretNotice ?? null,
   };
 }

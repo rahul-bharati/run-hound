@@ -161,3 +161,4 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-10-05: [The Electron shell loads a bundled engine, pins its window to the engine, and is launch-checked in CI](docs/decisions/10-2026.md#2026-10-05-d2b-electron-shell)
 - 2026-10-05: [Track ticket owners in a board field, and send scoped tickets to the OpenCode agents with Claude Code as the gate](docs/decisions/10-2026.md#2026-10-05-board-owner-and-agent-dispatch)
 - 2026-10-05: [The automated Claude review may read the pull request and run its review subagents](docs/decisions/10-2026.md#2026-10-05-claude-review-tools)
+- 2026-10-06: [Saved keys and test-account passwords are encrypted: the OS keychain on the desktop, Run Hound's own store elsewhere, environment variables only in Docker](docs/decisions/10-2026.md#2026-10-06-encrypted-secret-store) (supersedes the `ai.json` storage in 2026-09-30-aws-only-when-a-profile-is-named)

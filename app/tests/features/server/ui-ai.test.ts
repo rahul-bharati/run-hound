@@ -513,6 +513,25 @@ describe("Settings → AI card: key, locks, consent, save and test", () => {
     expect(await o.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await o.page.close();
   });
+
+  it("shows where saved keys are kept when secretProtection is set", async () => {
+    const o = await open("#/settings", { ai: status({ secretProtection: "run-hound" }) });
+    const { page } = o;
+    const keyFieldText = await page.locator('label:has-text("API key")').locator("..").innerText();
+    expect(keyFieldText).toContain("encrypted by Run Hound");
+    expect(keyFieldText).toContain("no system keychain");
+    await page.close();
+  });
+
+  it("shows the secretNotice warning when set", async () => {
+    const notice = "Test warning about keys";
+    const o = await open("#/settings", { ai: status({ secretNotice: notice }) });
+    const { page } = o;
+    const noticeEl = page.locator("#ai-secret-notice");
+    await noticeEl.waitFor({ state: "visible" });
+    expect(await noticeEl.textContent()).toContain(notice);
+    await page.close();
+  });
 });
 
 function aiPlan(): Plan {

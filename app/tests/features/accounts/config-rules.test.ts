@@ -8,6 +8,7 @@ import {
   resolveAccounts,
   saveAccounts,
 } from "../../../src/operations/accounts-storage.js";
+import { readSecrets } from "../../../src/operations/secret-store.js";
 
 /**
  * Rules of the saved accounts that config.test.ts leaves open (docs/v2-spec.md "Test accounts"):
@@ -66,7 +67,9 @@ describe("saving a password", () => {
     const during = await saveAccounts({ accounts: { a: { label: "Owner" } } }, { env: withEnv, home: tmp });
     expect(during.accounts.a.hasPassword).toBe(false);
     expect(during.accounts.a.problem).toContain("http://127.0.0.1:5173");
-    expect(await savedText()).toContain(PASSWORD);
+    // The password is kept, sealed in the encrypted store: never in accounts.json.
+    expect(await savedText()).not.toContain(PASSWORD);
+    expect((await readSecrets(dir, { env })).values).toEqual({ "accounts.a.password": PASSWORD });
     // Once the env variable is gone, the saved password applies again.
     const after = await resolveAccounts({ env, home: tmp });
     expect(after.config.accounts.a).toMatchObject({ label: "Owner", password: PASSWORD });

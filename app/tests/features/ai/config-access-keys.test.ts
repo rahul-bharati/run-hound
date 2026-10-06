@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { clearAwsCredentialCache } from "../../../src/ai/aws-credentials.js";
 import { aiStatus, resolveAiConfig, saveAiConfig } from "../../../src/ai/config.js";
+import { readSecrets } from "../../../src/operations/secret-store.js";
 
 const ID = "AKIAIOSFODNN7SAVED01";
 const SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYSAVEDKEY01";
@@ -74,6 +75,9 @@ describe("resolveAiConfig: the AWS access key pair", () => {
     let r = await resolveAiConfig({ env: { ...env, AWS_ACCESS_KEY_ID: ENV_ID }, home });
     expect(r.config).toMatchObject({ awsAccessKeyId: ID, awsSecretAccessKey: SECRET });
     expect(r.sources.awsKeys).toBe("file");
+    // Resolving moved the saved secret into the store; a lone saved ID needs a config dir that holds none.
+    await rm(join(dir, "secrets.json"));
+    await rm(join(dir, "secrets.key"));
     await writeSaved({ ...bedrock, awsAccessKeyId: ID });
     r = await resolveAiConfig({ env, home });
     expect(r.config).toMatchObject({ awsAccessKeyId: null, awsSecretAccessKey: null, awsSessionToken: null });
@@ -100,8 +104,19 @@ describe("saveAiConfig: the AWS access key pair", () => {
     const r = await saveAiConfig({ provider: "bedrock", region: "us-east-1", awsAccessKeyId: ID, awsSecretAccessKey: SECRET, awsSessionToken: TOKEN }, { env, home });
     expect(r.config).toMatchObject({ awsAccessKeyId: ID, awsSecretAccessKey: SECRET, awsSessionToken: TOKEN });
     expect(r.sources.awsKeys).toBe("file");
-    expect(await savedFile()).toMatchObject({ awsAccessKeyId: ID, awsSecretAccessKey: SECRET, awsSessionToken: TOKEN });
+    // The secret access key and the token are sealed in the encrypted store; only the (public) access key ID is in ai.json.
+    const saved = await savedFile();
+    expect(saved).toMatchObject({ awsAccessKeyId: ID });
+    expect(saved).not.toHaveProperty("awsSecretAccessKey");
+    expect(saved).not.toHaveProperty("awsSessionToken");
+    const text = await readFile(file(), "utf8");
+    expect(text).not.toContain(SECRET);
+    expect(text).not.toContain(TOKEN);
+    expect(await readFile(join(dir, "secrets.json"), "utf8")).not.toContain(SECRET);
+    expect((await readSecrets(dir, { env })).values).toEqual({ "ai.awsSecretAccessKey": SECRET, "ai.awsSessionToken": TOKEN });
+    expect((await resolveAiConfig({ env, home })).config).toMatchObject({ awsAccessKeyId: ID, awsSecretAccessKey: SECRET, awsSessionToken: TOKEN });
     expect((await stat(file())).mode & 0o777).toBe(0o600);
+    expect((await stat(join(dir, "secrets.json"))).mode & 0o777).toBe(0o600);
     expect((await stat(dir)).mode & 0o777).toBe(0o700);
   });
 
@@ -109,7 +124,9 @@ describe("saveAiConfig: the AWS access key pair", () => {
     await saveAiConfig({ provider: "bedrock", region: "us-east-1", awsAccessKeyId: ID, awsSecretAccessKey: SECRET, awsSessionToken: TOKEN }, { env, home });
     await saveAiConfig({ model: "anthropic.other" }, { env, home });
     await saveAiConfig({ awsAccessKeyId: "", awsSecretAccessKey: "", awsSessionToken: "" }, { env, home });
-    expect(await savedFile()).toMatchObject({ awsAccessKeyId: ID, awsSecretAccessKey: SECRET, awsSessionToken: TOKEN });
+    expect(await savedFile()).toMatchObject({ awsAccessKeyId: ID, model: "anthropic.other" });
+    expect((await resolveAiConfig({ env, home })).config).toMatchObject({ awsAccessKeyId: ID, awsSecretAccessKey: SECRET, awsSessionToken: TOKEN });
+    expect((await readSecrets(dir, { env })).values).toEqual({ "ai.awsSecretAccessKey": SECRET, "ai.awsSessionToken": TOKEN });
   });
 
   it("removes the pair and its token on null", async () => {
@@ -118,17 +135,21 @@ describe("saveAiConfig: the AWS access key pair", () => {
     expect(r.sources.awsKeys).toBe("default");
     const saved = await savedFile();
     for (const field of ["awsAccessKeyId", "awsSecretAccessKey", "awsSessionToken"]) expect(saved).not.toHaveProperty(field);
+    expect((await readSecrets(dir, { env })).values).toEqual({});
   });
 
   it("removes a saved token when a new pair comes without one, and removes the token alone on awsSessionToken: null", async () => {
     await saveAiConfig({ provider: "bedrock", region: "us-east-1", awsAccessKeyId: ID, awsSecretAccessKey: SECRET, awsSessionToken: TOKEN }, { env, home });
     await saveAiConfig({ awsAccessKeyId: "AKIAIOSFODNN7NEWKEY1", awsSecretAccessKey: "new-secret-value-0123456789" }, { env, home });
     expect(await savedFile()).not.toHaveProperty("awsSessionToken");
+    expect((await readSecrets(dir, { env })).values).toEqual({ "ai.awsSecretAccessKey": "new-secret-value-0123456789" });
+    expect((await resolveAiConfig({ env, home })).config).toMatchObject({ awsAccessKeyId: "AKIAIOSFODNN7NEWKEY1", awsSecretAccessKey: "new-secret-value-0123456789", awsSessionToken: null });
     await saveAiConfig({ awsAccessKeyId: ID, awsSecretAccessKey: SECRET, awsSessionToken: TOKEN }, { env, home });
     await saveAiConfig({ awsSessionToken: null }, { env, home });
-    const saved = await savedFile();
-    expect(saved).toMatchObject({ awsAccessKeyId: ID, awsSecretAccessKey: SECRET });
-    expect(saved).not.toHaveProperty("awsSessionToken");
+    expect(await savedFile()).toMatchObject({ awsAccessKeyId: ID });
+    expect(await savedFile()).not.toHaveProperty("awsSessionToken");
+    expect((await readSecrets(dir, { env })).values).toEqual({ "ai.awsSecretAccessKey": SECRET });
+    expect((await resolveAiConfig({ env, home })).config).toMatchObject({ awsAccessKeyId: ID, awsSecretAccessKey: SECRET, awsSessionToken: null });
   });
 
   it("refuses half a pair and a token without a new pair, writing nothing, and never names a value in the error", async () => {

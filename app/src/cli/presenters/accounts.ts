@@ -26,6 +26,15 @@ export function accountsStatusText(status: AccountsStatus): string {
     `A and B must not see each other's data (isolated): ${status.isolated ? "yes" : "no"} ${status.isolatedSource === "env" ? "(env: RUNHOUND_ACCOUNTS_ISOLATED)" : `(${status.isolatedSource})`}`,
   );
   lines.push(`Accounts file: ${status.file}`);
+  if (status.secretProtection) {
+    const protection =
+      status.secretProtection === "os-keychain"
+        ? "encrypted with the system keychain"
+        : status.secretProtection === "run-hound"
+          ? "encrypted by Run Hound (no system keychain)"
+          : "not saved (environment variables only)";
+    lines.push(`Saved passwords: ${protection}`);
+  }
   return lines.join("\n");
 }
 
