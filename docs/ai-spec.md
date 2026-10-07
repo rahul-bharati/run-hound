@@ -18,19 +18,19 @@ The build contract for Run Hound's optional AI layer, shipped in 0.3.0; later ch
 
 ## Configuration
 
-Resolved by `resolveAiConfig` from defaults < `<configDir>/ai.json` (non-secret settings: provider, endpoint, `apiKeyOrigin`, and for Bedrock `awsProfile` and `awsSessionToken`'s presence; written atomically with atomic rename) and `<configDir>/secrets.json` (actual key values, encrypted) < env < CLI flags. `configDir` is `$RUNHOUND_CONFIG_DIR`, else `$XDG_CONFIG_HOME/run-hound`, else `~/.config/run-hound`. Env and flag values show as locked on the Settings page. Storage details: [2026-10-06 decision](decisions/10-2026.md#2026-10-06-encrypted-secret-store).
+No default provider: AI stays off by default and can't run until a provider is chosen. Resolved by `resolveAiConfig` from defaults < `<configDir>/ai.json` (non-secret settings: provider, endpoint, `keyOrigins` (the origin each provider's key is bound to), and for Bedrock `awsProfile` and `awsSessionToken`'s presence; written atomically with atomic rename) and `<configDir>/secrets.json` (actual key values, encrypted; each provider's key in `ai.key.<provider>`, bound to the origin it was saved for) < env < CLI flags. `configDir` is `$RUNHOUND_CONFIG_DIR`, else `$XDG_CONFIG_HOME/run-hound`, else `~/.config/run-hound`. Env and flag values show as locked on the Settings page. Each provider keeps its own saved key; switching providers keeps them. Storage details: [2026-10-06 decision](decisions/10-2026.md#2026-10-06-encrypted-secret-store).
 
 | Env | Flag | Meaning |
 |---|---|---|
 | `RUNHOUND_AI` | `--ai` / `--no-ai` | on/off |
-| `RUNHOUND_AI_PROVIDER` | `--ai-provider` | `ollama`, `openai-compatible`, `bedrock` |
-| `RUNHOUND_AI_BASE_URL` | `--ai-base-url` | e.g. `http://127.0.0.1:11434/v1` |
-| `RUNHOUND_AI_MODEL` | `--ai-model` | model id |
-| `RUNHOUND_AI_API_KEY` | | Bearer key or Bedrock API key (Bedrock also reads `AWS_BEARER_TOKEN_BEDROCK`) |
+| `RUNHOUND_AI_PROVIDER` | `--ai-provider` | `anthropic`, `openai`, `gemini`, `bedrock`, `openai-compatible`, `ollama` |
+| `RUNHOUND_AI_BASE_URL` | `--ai-base-url` | base URL for `openai-compatible`, `ollama`, or `bedrock`. Anthropic, OpenAI and Gemini have fixed endpoints (api.anthropic.com, api.openai.com, generativelanguage.googleapis.com). |
+| `RUNHOUND_AI_MODEL` | `--ai-model` | model id as the provider names it |
+| `RUNHOUND_AI_API_KEY` | | API key (Anthropic, OpenAI, Gemini, openai-compatible), Bedrock API key (Bedrock also reads `AWS_BEARER_TOKEN_BEDROCK`) or bearer token. Applies to whichever provider is in effect. |
 | `RUNHOUND_AI_REGION` | | Bedrock region (else `AWS_REGION`, `AWS_DEFAULT_REGION`, then a named AWS profile's `region`) |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` | | Bedrock: an access key pair (and optional session token), standard AWS names, no `RUNHOUND_AI_AWS_*` aliases. Saved field: `awsAccessKeyId` / `awsSecretAccessKey` / `awsSessionToken`, write-only (0.6.1) |
 | `RUNHOUND_AI_AWS_PROFILE` | | Bedrock: names an AWS profile to read from `~/.aws` (saved field `awsProfile`; else `AWS_PROFILE`). No profile named, no implicit `default`: nothing under `~/.aws` is read (0.6.1) |
-| `RUNHOUND_AI_ALLOW_REMOTE` | `--ai-allow-remote` | consent for a remote endpoint |
+| `RUNHOUND_AI_ALLOW_REMOTE` | `--ai-allow-remote` | consent for a remote endpoint; Anthropic, OpenAI, Gemini and Bedrock are always remote, so they always need it |
 | `RUNHOUND_AI_FEATURES` | | comma list of `review,suggest,explain` (default all) |
 | `RUNHOUND_AI_TIMEOUT_MS` | | per request, default 120000 |
 
@@ -52,9 +52,12 @@ Temporary credentials (from `credential_process` with an expiration, or SSO) are
 
 ## Providers (no new dependencies)
 
-- **ollama** (`ai/ollama.ts`): Ollama's native `POST /api/chat` (base URL minus a trailing `/v1`) with `think: false`, `format: <schema>`, `stream: false`, `options: {temperature: 0, num_ctx: 16384}` and `keep_alive: "15m"` (Ollama's default of 5 minutes unloads the model between the plan and the explanations after the run, and reloading a large model can outlast the timeout). Thinking is off and the context raised because a reasoning model on Ollama's default 4096-token context spends it all thinking and never answers. A model without thinking control (400 mentioning "think") is retried once without `think`, remembered per model. A missing model says to run `ollama pull <model>`.
-- **openai-compatible** (`ai/openai-compatible.ts`): Chat Completions with `response_format: json_schema` (strict), temperature 0; falls back to `json_object` with the schema in the prompt when a server rejects `json_schema`. Covers LM Studio, llama.cpp, vLLM, OpenAI, OpenRouter, Groq, Together and other OpenAI-compatible endpoints. `finish_reason: "length"` with no answer (only thinking) is a `bad-output` error saying the model ran out of output space; it is not retried.
+- **anthropic** (`ai/anthropic.ts`): the Messages API (`POST /v1/messages`, `x-api-key`, `anthropic-version: 2023-06-01`) with structured outputs: `output_config.format = {type: "json_schema", schema}`. No `temperature` (the newest models reject it) and no forced tool use; the answer is the first text block. Fixed endpoint: `api.anthropic.com`.
+- **openai** (`ai/openai-compatible.ts`): Chat Completions with `response_format: json_schema` (strict), without `temperature` (reasoning models reject it); a refusal is reported as such. Fixed endpoint: `api.openai.com`.
+- **gemini** (`ai/gemini.ts`): `generateContent` (`x-goog-api-key`) with `generationConfig.responseMimeType: "application/json"` and `responseJsonSchema`; no `temperature`; an enum that allows null is sent as `anyOf`. An invalid key comes back as HTTP 400 and is reported as an authentication error. Fixed endpoint: `generativelanguage.googleapis.com`. On the free tier Google may use what is sent to improve its products, and human reviewers may read it; paid use does not ([terms](https://ai.google.dev/gemini-api/terms)).
 - **bedrock** (`ai/bedrock.ts`): Converse with one forced tool whose input schema is the answer schema.
+- **openai-compatible** (`ai/openai-compatible.ts`): Chat Completions with `response_format: json_schema` (strict), temperature 0; falls back to `json_object` with the schema in the prompt when a server rejects `json_schema`. Covers LM Studio, llama.cpp, vLLM, OpenRouter, Groq, Together and other OpenAI-compatible endpoints. `finish_reason: "length"` with no answer (only thinking) is a `bad-output` error saying the model ran out of output space; it is not retried.
+- **ollama** (`ai/ollama.ts`): Ollama's native `POST /api/chat` (base URL minus a trailing `/v1`) with `think: false`, `format: <schema>`, `stream: false`, `options: {temperature: 0, num_ctx: 16384}` and `keep_alive: "15m"` (Ollama's default of 5 minutes unloads the model between the plan and the explanations after the run, and reloading a large model can outlast the timeout). Thinking is off and the context raised because a reasoning model on Ollama's default 4096-token context spends it all thinking and never answers. A model without thinking control (400 mentioning "think") is retried once without `think`, remembered per model. A missing model says to run `ollama pull <model>`.
 - **client** (`ai/client.ts`): parse, validate, one retry with the error fed back, then `AiError("bad-output")`. Errors from the provider call itself (transport, HTTP, out of output space) are not retried.
 - Schemas use the portable subset: every property required, nullable instead of optional, `additionalProperties: false`, no numeric or length limits.
 

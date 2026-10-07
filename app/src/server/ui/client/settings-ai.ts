@@ -4,20 +4,34 @@
  */
 export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) ----------
 
+  // Mirrors FIXED_ENDPOINT_PROVIDERS and DEFAULT_BASE_URLS: these three always go to their own endpoint, so the page
+  // shows no base URL for them and sends none. keyUrl is the page where the provider hands out API keys.
+  const AI_FIXED_ENDPOINTS = {
+    anthropic: "https://api.anthropic.com/v1",
+    openai: "https://api.openai.com/v1",
+    gemini: "https://generativelanguage.googleapis.com/v1beta",
+  };
+  // Mirrors PROVIDER_LABELS (the preset's own label can say more, e.g. "Ollama (local, opt-in)").
+  const AI_PROVIDER_LABELS = { anthropic: "Anthropic", openai: "OpenAI", gemini: "Google Gemini", bedrock: "Amazon Bedrock", "openai-compatible": "OpenAI-compatible", ollama: "Ollama" };
+  // No provider is the default: the select starts on a placeholder until one is chosen. Ollama is opt-in, so it is last.
   const AI_PRESETS = [
-    { key: "ollama", label: "Ollama", provider: "ollama", baseUrl: "http://127.0.0.1:11434/v1" },
+    { key: "anthropic", label: "Anthropic", provider: "anthropic", baseUrl: AI_FIXED_ENDPOINTS.anthropic, keyUrl: "https://platform.claude.com/settings/keys" },
+    { key: "openai", label: "OpenAI", provider: "openai", baseUrl: AI_FIXED_ENDPOINTS.openai, keyUrl: "https://platform.openai.com/api-keys" },
+    { key: "gemini", label: "Google Gemini", provider: "gemini", baseUrl: AI_FIXED_ENDPOINTS.gemini, keyUrl: "https://aistudio.google.com/apikey" },
+    { key: "bedrock", label: "Amazon Bedrock", provider: "bedrock", baseUrl: "" },
     { key: "lmstudio", label: "LM Studio", provider: "openai-compatible", baseUrl: "http://127.0.0.1:1234/v1" },
     { key: "openai-compatible", label: "Other OpenAI-compatible", provider: "openai-compatible", baseUrl: "" },
-    { key: "bedrock", label: "Amazon Bedrock", provider: "bedrock", baseUrl: "" },
+    { key: "ollama", label: "Ollama (local, opt-in)", provider: "ollama", baseUrl: "http://127.0.0.1:11434/v1" },
   ];
   const OTHER_MODEL = "__other__";
   const BEDROCK_MODEL_PLACEHOLDER = "anthropic.claude-3-5-haiku-20241022-v1:0";
 
-  // Mirrors ai/config.ts isRemote and endpointHost, so the consent box can follow unsaved edits.
+  // Mirrors ai/config.ts isRemote and endpointHost, so the consent box can follow unsaved edits. A fixed provider's host
+  // is its own and always remote, whatever base URL is typed.
   const LOCAL_AI_NAMES = ["localhost", "host.docker.internal", "host.containers.internal"];
   function aiEndpointHost(provider, baseUrl, region) {
     if (provider === "bedrock" && !baseUrl) return "bedrock-runtime." + (region || "<region>") + ".amazonaws.com";
-    try { return new URL(baseUrl).host; } catch (e) { return baseUrl; }
+    try { return new URL(AI_FIXED_ENDPOINTS[provider] || baseUrl).host; } catch (e) { return baseUrl; }
   }
   function isPrivateIp(host) {
     const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
@@ -32,15 +46,15 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
     return /^f[cd][0-9a-f]{0,2}:/.test(host) || /^fe[89ab][0-9a-f]?:/.test(host);
   }
   function aiIsRemote(provider, baseUrl) {
-    if (provider === "bedrock") return true;
+    if (provider === "bedrock" || AI_FIXED_ENDPOINTS[provider]) return true;
     let host;
     try { host = new URL(baseUrl).hostname.toLowerCase().replace(/^\[|\]$/g, ""); } catch (e) { return true; }
     return !(LOCAL_AI_NAMES.includes(host) || host.endsWith(".localhost") || isPrivateIp(host));
   }
 
+  /** The preset key for a saved status: "" while no provider is chosen (the placeholder). */
   function presetOf(st) {
-    if (st.provider === "bedrock") return "bedrock";
-    if (st.provider === "ollama") return "ollama";
+    if (st.provider !== "openai-compatible") return st.provider || "";
     return /:1234(\/|$)/.test(st.baseUrl || "") ? "lmstudio" : "openai-compatible";
   }
   function modelOptionText(m) {
@@ -88,7 +102,9 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
 
     const enabled = h("input", { type: "checkbox", role: "switch", id: "ai-enabled", disabled: locked("enabled") });
     enabled.checked = st.enabled === true;
-    const preset = h("select", { id: "ai-provider", class: "input", disabled: locked("provider") }, AI_PRESETS.map((p) => h("option", { value: p.key, text: p.label })));
+    const preset = h("select", { id: "ai-provider", class: "input", disabled: locked("provider") },
+      st.provider ? null : h("option", { value: "", disabled: true, text: "Choose a provider" }),
+      AI_PRESETS.map((p) => h("option", { value: p.key, text: p.label })));
     preset.value = presetOf(st);
     const baseLabel = h("label", { class: "field-label", for: "ai-base-url", text: "Base URL" });
     const baseUrl = h("input", { id: "ai-base-url", class: "input", type: "url", spellcheck: "false", autocomplete: "off", placeholder: "http://127.0.0.1:11434/v1", disabled: locked("baseUrl") });
@@ -105,6 +121,7 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
     const keyInput = h("input", { id: "ai-key", class: "input", type: "password", autocomplete: "new-password", spellcheck: "false", placeholder: apiKeySet ? "Saved" : "Not set", disabled: locked("apiKey") });
     keyInput.value = "";
     const keyNote = h("span", { class: "field-hint key-note" });
+    const keyLink = h("span", { class: "field-hint key-link" });
     const removeBtn = apiKeySet && !locked("apiKey") ? h("button", { type: "button", class: "link-btn", id: "ai-key-remove", text: "Remove key" }) : null;
     const secretProtectionNote = st.secretProtection
       ? h("span", {
@@ -118,7 +135,7 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
         })
       : null;
     const keyField = h("div", { class: "ai-field" },
-      h("label", { class: "field-label", for: "ai-key", text: "API key" }), keyInput, lockNote("apiKey"), removeBtn, keyNote, secretProtectionNote,
+      h("label", { class: "field-label", for: "ai-key", text: "API key" }), keyInput, lockNote("apiKey"), removeBtn, keyNote, keyLink, secretProtectionNote,
       h("span", { class: "field-hint", text: "Stays on this machine; never shown again. Not needed for Ollama or LM Studio." }));
     const region = h("input", { id: "ai-region", class: "input", type: "text", spellcheck: "false", autocomplete: "off", placeholder: "us-east-1", disabled: locked("region") });
     region.value = st.region || "";
@@ -186,11 +203,18 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
     const testOut = h("p", { class: "field-hint", id: "ai-test-result" });
 
     const isBedrock = () => preset.value === "bedrock";
-    const providerOf = () => (AI_PRESETS.find((p) => p.key === preset.value) || AI_PRESETS[0]).provider;
+    // null until a provider is chosen.
+    const providerOf = () => (AI_PRESETS.find((p) => p.key === preset.value) || {}).provider || null;
+    const isFixed = () => Boolean(AI_FIXED_ENDPOINTS[providerOf()]);
+    const baseRow = h("div", { class: "ai-field" }, baseLabel, baseUrl, lockNote("baseUrl"));
+    const modelField = h("div", { class: "ai-field ai-model-field" }, modelLabel, modelRow, modelOther, lockNote("model"), modelsMsg);
     const modelValue = () => (isBedrock() || otherMode ? modelOther.value.trim() : modelSelect.value === OTHER_MODEL ? "" : modelSelect.value);
 
     function syncModelUi() {
       const bed = isBedrock();
+      // Nothing to set until a provider is chosen; the fixed providers have no base URL to set.
+      baseRow.hidden = !providerOf() || isFixed();
+      modelField.hidden = !providerOf();
       modelRow.hidden = bed;
       modelOther.hidden = !(bed || otherMode);
       modelOther.placeholder = bed ? BEDROCK_MODEL_PLACEHOLDER : "Model id as the server names it";
@@ -207,9 +231,26 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
       const bed = isBedrock();
       const method = authChoice.value;
       authRow.hidden = !bed;
-      keyField.hidden = bed && method !== "api-key";
+      keyField.hidden = !providerOf() || (bed && method !== "api-key");
       for (const row of awsKeyRows) row.hidden = !bed || method !== "access-keys";
       awsProfileRow.hidden = !bed || method !== "profile";
+    }
+    /**
+     * The key field follows the chosen provider, as each one keeps its own saved key: "Saved" for the provider in
+     * effect (the status says whether its key is set), a note for another one that has a key saved, and where to get a key.
+     */
+    function syncKeyUi() {
+      const provider = providerOf();
+      const own = provider === st.provider;
+      const set = own ? apiKeySet : Boolean(provider) && (st.savedKeys || []).includes(provider);
+      keyInput.placeholder = removeKey ? "Will be removed" : set ? "Saved" : "Not set";
+      keyNote.textContent = removeKey ? "The saved key will be removed when you save." : !own && set ? "A key is saved for " + AI_PROVIDER_LABELS[provider] + "." : "";
+      // Removing applies to the provider being saved, so only the one in effect offers it.
+      if (removeBtn) removeBtn.hidden = !own;
+      const p = AI_PRESETS.find((x) => x.key === preset.value);
+      fill(keyLink, p && p.keyUrl
+        ? h("a", { href: p.keyUrl, target: "_blank", rel: "noopener noreferrer" }, "Get your " + AI_PROVIDER_LABELS[p.provider] + " API key", h("span", { class: "visually-hidden", text: " (opens in a new tab)" }))
+        : null);
     }
     function drawModels() {
       fillModelSelect(modelSelect, list, otherMode ? "" : current);
@@ -217,7 +258,7 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
     }
     async function loadModels() {
       clearTimeout(timer);
-      if (isBedrock()) return;
+      if (isBedrock() || !providerOf()) return;
       const mine = ++seq;
       modelsMsg.className = "field-hint";
       modelsMsg.textContent = "Loading models…";
@@ -226,7 +267,7 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
       try {
         // A ticked (unsaved) consent box counts for listing models; unticked, the server uses the saved consent.
         const consented = consent && consent.checked ? "&allowRemote=1" : "";
-        res = await api("/api/ai/models?provider=" + enc(providerOf()) + "&baseUrl=" + enc(baseUrl.value.trim()) + consented);
+        res = await api("/api/ai/models?provider=" + enc(providerOf()) + "&baseUrl=" + enc(isFixed() ? "" : baseUrl.value.trim()) + consented);
       } catch (err) {
         res = { models: [], error: "Could not list the models: " + err.message };
       }
@@ -242,6 +283,7 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
     function drawConsent() {
       const provider = providerOf();
       const url = baseUrl.value.trim();
+      if (!provider) { consent = null; consentSlot.dataset.host = ""; fill(consentSlot); return; }
       const host = aiEndpointHost(provider, url, isBedrock() ? region.value.trim() : st.region);
       const remote = aiIsRemote(provider, url) || (st.remote && provider === st.provider && host === st.host);
       // Bedrock without a region has no host to name yet (the status asks for the region first).
@@ -268,13 +310,16 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
     preset.addEventListener("change", () => {
       const p = AI_PRESETS.find((x) => x.key === preset.value);
       const presetUrls = AI_PRESETS.map((x) => x.baseUrl).filter(Boolean);
-      if (!locked("baseUrl")) {
+      // A fixed provider leaves the field alone: what was typed for "Other" is there again when it is chosen again.
+      if (p && !locked("baseUrl") && !isFixed()) {
         if (p.baseUrl) baseUrl.value = p.baseUrl;
         else if (presetUrls.includes(baseUrl.value.trim())) baseUrl.value = "";
       }
       if (isBedrock()) { otherMode = false; modelOther.value = current; }
+      if (removeKey && removeBtn) { removeKey = false; removeBtn.textContent = "Remove key"; }
       list = null;
       syncModelUi();
+      syncKeyUi();
       drawModels();
       drawConsent();
       loadSoon();
@@ -300,8 +345,7 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
       removeBtn.addEventListener("click", () => {
         removeKey = !removeKey;
         removeBtn.textContent = removeKey ? "Undo remove" : "Remove key";
-        keyNote.textContent = removeKey ? "The saved key will be removed when you save." : "";
-        keyInput.placeholder = removeKey ? "Will be removed" : "Saved";
+        syncKeyUi();
       });
     }
     if (removeKeysBtn) {
@@ -319,8 +363,8 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
       saved.textContent = "";
       const patch = {};
       if (!locked("enabled")) patch.enabled = enabled.checked;
-      if (!locked("provider")) patch.provider = providerOf();
-      if (!locked("baseUrl")) patch.baseUrl = baseUrl.value.trim();
+      if (!locked("provider") && providerOf()) patch.provider = providerOf();
+      if (!locked("baseUrl") && !isFixed()) patch.baseUrl = baseUrl.value.trim();
       if (!locked("model")) patch.model = modelValue();
       if (isBedrock()) {
         // The chosen method's values, and null for each other method's value saved in ai.json, so one method is saved
@@ -404,8 +448,8 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
       h("div", { class: "option ai-switch" }, enabled, h("label", { for: "ai-enabled" }, "Use AI", h("span", { class: "desc", text: "Off by default. Planning and runs work the same without it." })), lockNote("enabled")),
       h("div", { class: "ai-fields" },
         h("div", { class: "ai-field" }, h("label", { class: "field-label", for: "ai-provider", text: "Provider" }), preset, lockNote("provider")),
-        h("div", { class: "ai-field" }, baseLabel, baseUrl, lockNote("baseUrl")),
-        h("div", { class: "ai-field ai-model-field" }, modelLabel, modelRow, modelOther, lockNote("model"), modelsMsg),
+        baseRow,
+        modelField,
         regionRow,
         authRow,
         keyField,
@@ -417,6 +461,7 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
       error, saved, noticeEl, secretNoticeEl, testOut,
       st.file ? h("p", { class: "note" }, "Saved to ", h("code", { class: "mono", text: st.file })) : null);
     syncModelUi();
+    syncKeyUi();
     drawConsent();
     if (isBedrock()) modelOther.value = current;
     drawModels();

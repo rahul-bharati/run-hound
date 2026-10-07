@@ -31,7 +31,7 @@ function withoutLiterals(text: string, literals: string[]): string {
  * and wants mixed case for sk-). Over-redacting an error snippet costs nothing; leaking a key into a report does.
  */
 const PROVIDER_KEYS: [RegExp, string][] = [
-  [/\bBearer\s+[A-Za-z0-9._~+\/=-]{6,}/gi, `Bearer ${REDACTED_KEY}`],
+  [/\bBearer\s+[A-Za-z0-9._~+/=-]{6,}/gi, `Bearer ${REDACTED_KEY}`],
   // OpenAI and look-alikes: sk-, sk-proj-, sk-or-v1- (OpenRouter), sk-ant-, lower-case or not.
   [/\bsk-[A-Za-z0-9_-]{16,}/g, REDACTED_KEY],
   // Groq, xAI, Google AI, Hugging Face, Perplexity, Replicate, NVIDIA, Fireworks.
@@ -75,16 +75,37 @@ export async function send(
   }
 }
 
+/** The readable message of a JSON error body ({"error": {"message"}} as OpenAI, Anthropic and Google send it, {"message"} as Bedrock does), else `text` itself. */
+function messageOfBody(text: string): string {
+  try {
+    const body = JSON.parse(text);
+    const message = body?.error?.message ?? body?.message;
+    if (typeof message === "string" && message.trim()) return message;
+  } catch {
+    // Not JSON: the text is the message.
+  }
+  return text;
+}
+
 /**
- * AiError for a non-2xx answer: "auth" on 401/403, else "http". The body snippet has `secrets` (the configured key,
- * when the caller passes it) removed literally, then secrets and provider key formats redacted, and is cut to 200
- * chars.
+ * AiError for a non-2xx answer: "auth" on 401/403, else "http". The message is the JSON error body's own message when
+ * it has one, else the body; with `secrets` (the configured key, when the caller passes it) removed literally, then
+ * secrets and provider key formats redacted, and cut to 200 chars.
+ * `authOn400`: a 400 whose body matches it is an "auth" error too (Google answers an invalid key with HTTP 400).
  */
-export function httpError(status: number, text: string, prefix = "The server", secrets: string[] = []): AiError {
-  const snippet = redactKeys(withoutLiterals(text, secrets.filter((s) => s.length >= 4))).replace(/\s+/g, " ").trim().slice(0, 200);
+export function httpError(status: number, text: string, prefix = "The server", secrets: string[] = [], authOn400?: RegExp): AiError {
+  const snippet = redactKeys(withoutLiterals(messageOfBody(text), secrets.filter((s) => s.length >= 4))).replace(/\s+/g, " ").trim().slice(0, 200);
   const detail = snippet ? `: ${snippet}` : "";
-  if (status === 401 || status === 403) return new AiError("auth", `${prefix} refused the credentials (HTTP ${status})${detail}`, status);
+  if (status === 401 || status === 403 || (status === 400 && authOn400?.test(text))) {
+    return new AiError("auth", `${prefix} refused the credentials (HTTP ${status})${detail}`, status);
+  }
   return new AiError("http", `${prefix} answered HTTP ${status}${detail}`, status);
+}
+
+/** The key of a provider that cannot answer without one, or AiError "not-configured" ("Enter your Anthropic API key"); nothing is sent without it. */
+export function requireKey(apiKey: string | null | undefined, provider: string): string {
+  if (!apiKey) throw new AiError("not-configured", `Enter your ${provider} API key`);
+  return apiKey;
 }
 
 /** Parses a JSON response body, or rejects with AiError "bad-output". */

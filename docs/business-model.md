@@ -15,7 +15,7 @@ Status: the open core is shipped (0.6.0, MIT). Everything in the Paid column, an
 |---|---|
 | Plan, approve, run and report, with all checks (functional, a11y, security, access checks with test accounts) | **Hosted inference:** runs without a GPU, Ollama or the user's own model API key |
 | Web UI, HTML/Markdown/JSON reports, Playwright spec export | **Hosted runner:** test a deployed app (e.g. Lovable, Bolt) behind domain-ownership verification; aimed at vibe coders |
-| BYO LLM: Ollama, Bedrock, any OpenAI-compatible endpoint | **Team dashboard:** run history, trends, regressions across runs |
+| BYO LLM: Anthropic, OpenAI, Gemini, Bedrock, any OpenAI-compatible endpoint, Ollama | **Team dashboard:** run history, trends, regressions across runs |
 | Docker image and CLI for localhost and private addresses; domain verification for live sites is planned (V4) | **CI / GitHub app:** PR comments, scheduled regression runs |
 | Kennel and Fernway fixtures and scoring ([fixtures.md](fixtures.md)) | **Compliance exports:** WCAG / European Accessibility Act conformance reports |
 | JSON run format (`report.json`); replay is planned | **Org features:** SSO, roles, audit log, priority support |

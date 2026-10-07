@@ -1,10 +1,13 @@
 import type { AiConfig, JsonRequest, LlmClient } from "./types.js";
 import { AiError } from "./types.js";
+import { anthropicJson } from "./anthropic.js";
 import { converseJson } from "./bedrock.js";
 import { endpointHost, isRemote, keyOriginFor } from "./config.js";
+import { geminiJson } from "./gemini.js";
 import { originOf } from "./http.js";
 import { ollamaChatJson } from "./ollama.js";
 import { chatJson, OUT_OF_SPACE, type ChatMessage } from "./openai-compatible.js";
+import { FIXED_ENDPOINT_PROVIDERS, PROVIDER_LABELS } from "../constants/ai-constants.js";
 
 /** Removes a ``` / ```json fence around the whole answer. */
 function stripFences(text: string): string {
@@ -15,12 +18,13 @@ function stripFences(text: string): string {
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /**
- * Builds the client for a resolved config. Throws AiError "not-configured" when disabled or no model, and
+ * Builds the client for a resolved config. Throws AiError "not-configured" when disabled, no provider or no model, and
  * "remote-not-allowed" (before any request) when isRemote(config) && !config.allowRemote, or when the consent names
  * another host (config.allowRemoteHost set and not endpointHost(config)). Throws "not-configured" (before any request)
  * when the key came from the saved file for another origin (config.apiKeyOrigin set and not keyOriginFor(config)).
- * generateJson: calls ollamaChatJson (ollama, native /api/chat), chatJson (openai-compatible) or converseJson
- * (bedrock); strips ``` fences; JSON.parse; request.validate. On a parse or validation error, one retry with the
+ * generateJson: calls anthropicJson (anthropic, Messages API), geminiJson (gemini, generateContent), chatJson (openai
+ * and openai-compatible, Chat Completions), ollamaChatJson (ollama, native /api/chat) or converseJson (bedrock);
+ * strips ``` fences; JSON.parse; request.validate. On a parse or validation error, one retry with the
  * model's answer as an assistant message and a user message "Your answer was not valid: <error>. Answer again with
  * JSON that matches the schema." A second failure → AiError "bad-output". Errors thrown by the provider call
  * (transport, HTTP, and "bad-output" such as OUT_OF_SPACE, which would only happen again) are not retried.
@@ -28,6 +32,8 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
  */
 export function createLlmClient(config: AiConfig, options: { env?: NodeJS.ProcessEnv } = {}): LlmClient {
   if (!config.enabled) throw new AiError("not-configured", "AI is off");
+  const provider = config.provider;
+  if (!provider) throw new AiError("not-configured", "Choose a provider");
   if (!config.model) throw new AiError("not-configured", "Choose a model");
   const consentHost = config.allowRemoteHost ?? null;
   if (isRemote(config) && (!config.allowRemote || (consentHost !== null && consentHost !== endpointHost(config)))) {
@@ -40,14 +46,18 @@ export function createLlmClient(config: AiConfig, options: { env?: NodeJS.Proces
   }
   const env = options.env ?? process.env;
   const call = (messages: ChatMessage[], schema: { name: string; schema: Record<string, unknown> }, signal?: AbortSignal) =>
-    config.provider === "bedrock"
-      ? converseJson(config, messages, schema, signal, env)
-      : config.provider === "ollama"
-        ? ollamaChatJson(config, messages, schema, signal)
-        : chatJson(config, messages, schema, signal);
+    provider === "anthropic"
+      ? anthropicJson(config, messages, schema, signal)
+      : provider === "gemini"
+        ? geminiJson(config, messages, schema, signal)
+        : provider === "bedrock"
+          ? converseJson(config, messages, schema, signal, env)
+          : provider === "ollama"
+            ? ollamaChatJson(config, messages, schema, signal)
+            : chatJson(config, messages, schema, signal); // openai and openai-compatible
 
   return {
-    provider: config.provider,
+    provider,
     model: config.model,
     async generateJson<T>(request: JsonRequest<T>): Promise<T> {
       const schema = { name: request.name, schema: request.schema };
@@ -77,8 +87,10 @@ export function createLlmClient(config: AiConfig, options: { env?: NodeJS.Proces
 function explain(error: unknown, config: AiConfig): string {
   if (!(error instanceof AiError)) return messageOf(error);
   const where = config.provider === "bedrock" ? endpointHost(config) : originOf(config.baseUrl);
+  const official = config.provider !== null && FIXED_ENDPOINT_PROVIDERS.has(config.provider);
   switch (error.code) {
     case "unreachable":
+      if (official) return `Could not reach ${where} — check the internet connection and any proxy or firewall.`;
       return `Nothing is answering at ${where} — is ${config.provider === "ollama" ? "Ollama" : "the server"} running?`;
     case "timeout":
       return `${where} did not answer within ${Math.round(config.timeoutMs / 1000)} s`;
@@ -86,7 +98,7 @@ function explain(error: unknown, config: AiConfig): string {
       // No HTTP status: nothing was sent, the credentials were missing or unusable (e.g. Bedrock with no API key,
       // access keys or named AWS profile), and the error says which.
       if (error.status === undefined) return error.message;
-      return `The server refused the credentials (HTTP ${error.status}); check the ${config.provider === "bedrock" ? "credentials" : "API key"}`;
+      return `${official && config.provider ? PROVIDER_LABELS[config.provider] : "The server"} refused the credentials (HTTP ${error.status}); check the ${config.provider === "bedrock" ? "credentials" : "API key"}`;
     case "bad-output":
       if (error.message === OUT_OF_SPACE) return error.message;
       return `The model answered, but not with valid JSON: ${error.message}`;

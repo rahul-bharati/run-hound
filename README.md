@@ -4,7 +4,7 @@ Open-source, AI-assisted UI testing for AI-built apps. Real checks in a real bro
 
 **Site and docs: [run-hound.rahulbharati.com](https://run-hound.rahulbharati.com/)**: the [quick start](https://run-hound.rahulbharati.com/docs/quick-start/), [every check](https://run-hound.rahulbharati.com/checks/) and the [docs](https://run-hound.rahulbharati.com/docs/).
 
-**AI plans and explains; real checks decide.** Since 0.3.0 you can bring your own model (Ollama, LM Studio, llama.cpp, vLLM, any OpenAI-compatible endpoint, or Amazon Bedrock) to review the plan, suggest extra flows and explain findings. See [Optional AI](https://run-hound.rahulbharati.com/docs/ai/).
+**AI plans and explains; real checks decide.** Since 0.3.0 you can bring your own model to review the plan, suggest extra flows and explain findings: Anthropic, OpenAI, Google Gemini, Amazon Bedrock, any OpenAI-compatible endpoint, or Ollama. See [Optional AI](https://run-hound.rahulbharati.com/docs/ai/).
 
 > **V2 preview (0.6.0): signed-in runs, access checks and write-side checks; works on AI-built UIs.** Run Hound tests one page of an app running on your own machine. New in 0.4.0: it can sign in as one of two test accounts you own, test pages behind the sign-in, and check that another account, or a visitor who isn't signed in, can't read the first account's data. New in 0.5.0: an opt-in check that another website can't change it (CSRF). New in 0.6.0: opt-in checks that another account or a signed-out visitor can't change or delete it, and that a paid plan needs a real payment; and sign-in to apps that ask for the email first or keep their session in sessionStorage.
 >

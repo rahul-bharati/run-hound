@@ -100,7 +100,7 @@ const legacyAccounts = {
 };
 
 describe("AI keys saved in plain text in ai.json", () => {
-  it("moves the API key into the store: resolve returns it, ai.json drops it and keeps apiKeyOrigin", async () => {
+  it("moves the API key into the provider's own store slot: resolve returns it, ai.json drops it and keeps the origin in keyOrigins", async () => {
     await writeFileIn("ai.json", openai);
     const resolved = await resolveAiConfig({ env, home });
     expect(resolved.config.apiKey).toBe(KEY);
@@ -108,11 +108,18 @@ describe("AI keys saved in plain text in ai.json", () => {
 
     const file = await aiJson();
     expect(file).not.toHaveProperty("apiKey");
-    expect(file).toMatchObject({ provider: "openai-compatible", baseUrl: "https://api.a.example/v1", model: "m", allowRemote: true, apiKeyOrigin: "https://api.a.example" });
+    expect(file).not.toHaveProperty("apiKeyOrigin");
+    expect(file).toMatchObject({
+      provider: "openai-compatible",
+      baseUrl: "https://api.a.example/v1",
+      model: "m",
+      allowRemote: true,
+      keyOrigins: { "openai-compatible": "https://api.a.example" },
+    });
     expect(await readFile(aiFile(), "utf8")).not.toContain(KEY);
     expect((await stat(aiFile())).mode & 0o777).toBe(0o600);
 
-    expect((await readSecrets(dir, { env })).values).toEqual({ "ai.apiKey": KEY });
+    expect((await readSecrets(dir, { env })).values).toEqual({ "ai.key.openai-compatible": KEY });
     expect(await readFile(join(dir, SECRETS_FILE), "utf8")).not.toContain(KEY);
     expect(await readFile(join(dir, KEY_FILE), "utf8")).not.toContain(KEY);
   });
@@ -147,7 +154,7 @@ describe("AI keys saved in plain text in ai.json", () => {
   it("moves all three together", async () => {
     await writeFileIn("ai.json", { ...bedrock, apiKey: KEY, apiKeyOrigin: "bedrock" });
     await resolveAiConfig({ env, home });
-    expect(Object.keys((await readSecrets(dir, { env })).values).sort()).toEqual(["ai.apiKey", "ai.awsSecretAccessKey", "ai.awsSessionToken"]);
+    expect(Object.keys((await readSecrets(dir, { env })).values).sort()).toEqual(["ai.awsSecretAccessKey", "ai.awsSessionToken", "ai.key.bedrock"]);
     expect(Object.keys(await aiJson()).filter((k) => ["apiKey", "awsSecretAccessKey", "awsSessionToken"].includes(k))).toEqual([]);
   });
 
@@ -234,7 +241,7 @@ describe("RUNHOUND_SECRETS=environment with secrets still saved in plain text", 
   });
 
   it("AI: a new key is refused where no key was saved, and nothing is created", async () => {
-    await expect(saveAiConfig({ apiKey: "sk-brand-new-key-0001", model: "m" }, { env: envOnly, home })).rejects.toThrow(KEYS_FROM_ENVIRONMENT);
+    await expect(saveAiConfig({ provider: "ollama", apiKey: "sk-brand-new-key-0001", model: "m" }, { env: envOnly, home })).rejects.toThrow(KEYS_FROM_ENVIRONMENT);
     await expect(stat(dir)).rejects.toMatchObject({ code: "ENOENT" });
   });
 

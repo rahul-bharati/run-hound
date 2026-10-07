@@ -6,7 +6,9 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { startFakeLlm, type FakeLlm } from "../../support/fake-llm.js";
 import { startFixtureServer, type FixtureServer } from "../../support/server.js";
+import type { AiStatus } from "../../../src/ai/types.js";
 import type { Plan } from "../../../src/core/types.js";
+import { aiStatusLines } from "../../../src/cli/presenters/ai.js";
 import type { CliResult } from "../../../src/interfaces/cli-test.js";
 
 // CLI surfaces of the AI layer (docs/ai-spec.md "Surfaces" → CLI).
@@ -77,11 +79,67 @@ const localEnv = (): NodeJS.ProcessEnv => ({
 });
 
 describe("run-hound ai status", () => {
-  it("says AI is off by default", async () => {
+  it("says AI is off by default, with no provider chosen", async () => {
     const r = await runCli(["ai", "status"]);
     expect(r.code, r.stderr).toBe(0);
     expect(r.stdout).toMatch(/AI is off/);
-    expect(r.stdout).toMatch(/ollama/);
+    expect(r.stdout).toMatch(/^Provider: \(none\)$/m);
+    expect(r.stdout).toMatch(/^Endpoint: \(none\)$/m);
+    expect(r.stdout).not.toMatch(/ollama|Consent to send/i);
+    expect(r.stdout).not.toMatch(/^Saved keys: (?!encrypted|not saved)/m);
+  });
+
+  it("names the missing provider and how to set it", async () => {
+    const r = await runCli(["ai", "status"], { RUNHOUND_AI: "1" });
+    expect(r.code, r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/^Provider: \(none\)$/m);
+    expect(r.stdout).toContain("Problem: Choose a provider.");
+    expect(r.stdout).toContain("--ai-provider");
+  });
+
+  it("prints the provider's label and id, and where it came from", async () => {
+    const r = await runCli(["ai", "status"], localEnv());
+    expect(r.code, r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/^Provider: Ollama \(ollama\) \(from env\)$/m);
+    const anthropic = await runCli(["ai", "status"], { RUNHOUND_AI: "1", RUNHOUND_AI_PROVIDER: "anthropic", RUNHOUND_AI_MODEL: "m" });
+    expect(anthropic.code, anthropic.stderr).toBe(0);
+    expect(anthropic.stdout).toMatch(/^Provider: Anthropic \(anthropic\) \(from env\)$/m);
+    expect(anthropic.stdout).toContain("(remote: api.anthropic.com)");
+    expect(anthropic.stdout).toContain("Problem: Enter your Anthropic API key. Set RUNHOUND_AI_API_KEY");
+  });
+
+  it("lists the providers that have a saved key, by name only", async () => {
+    // A key saved in plain text in ai.json belongs to the file's provider (what a config saved before 0.7 holds).
+    await writeFile(join(configDir, "ai.json"), JSON.stringify({ enabled: true, provider: "anthropic", model: "m", apiKey: SECRET }));
+    const r = await runCli(["ai", "status"]);
+    expect(r.code, r.stderr).toBe(0);
+    expect(r.stdout).toMatch(/^Keys saved for: anthropic$/m);
+    expect(`${r.stdout}${r.stderr}`).not.toContain(SECRET);
+  });
+
+  it("prints one 'Saved keys' line of names, and none when no key is saved", () => {
+    const status: AiStatus = {
+      enabled: true,
+      provider: "openai",
+      baseUrl: "https://api.openai.com/v1",
+      model: "m",
+      region: null,
+      allowRemote: true,
+      features: { review: true, suggest: true, explain: true },
+      timeoutMs: 120_000,
+      hasKey: true,
+      remote: true,
+      host: "api.openai.com",
+      problem: null,
+      sources: { enabled: "file", provider: "file", baseUrl: "file", model: "file", apiKey: "file", region: "default", allowRemote: "file", features: "default", timeoutMs: "default" },
+      file: "/home/me/.config/run-hound/ai.json",
+      savedKeys: ["anthropic", "openai"],
+    };
+    const lines = aiStatusLines(status);
+    expect(lines).toContain("Provider: OpenAI (openai)");
+    expect(lines.filter((l) => l.startsWith("Keys saved for: "))).toEqual(["Keys saved for: anthropic, openai"]);
+    expect(aiStatusLines({ ...status, savedKeys: [] }).some((l) => l.startsWith("Saved keys:"))).toBe(false);
+    expect(aiStatusLines({ ...status, savedKeys: undefined }).some((l) => l.startsWith("Saved keys:"))).toBe(false);
   });
 
   it("prints provider, model and endpoint, never the key", async () => {

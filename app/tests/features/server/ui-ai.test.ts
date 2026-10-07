@@ -534,6 +534,194 @@ describe("Settings → AI card: key, locks, consent, save and test", () => {
   });
 });
 
+// Bring-your-own-key providers (K1): no default provider; Anthropic, OpenAI and Gemini have one fixed endpoint each;
+// every provider keeps its own saved key.
+const FIXED = [
+  { provider: "anthropic", label: "Anthropic", url: "https://api.anthropic.com/v1", host: "api.anthropic.com", keyUrl: "https://platform.claude.com/settings/keys" },
+  { provider: "openai", label: "OpenAI", url: "https://api.openai.com/v1", host: "api.openai.com", keyUrl: "https://platform.openai.com/api-keys" },
+  { provider: "gemini", label: "Google Gemini", url: "https://generativelanguage.googleapis.com/v1beta", host: "generativelanguage.googleapis.com", keyUrl: "https://aistudio.google.com/apikey" },
+] as const;
+const fixedStatus = (f: (typeof FIXED)[number], extra: Partial<AiStatus> = {}) =>
+  status({ provider: f.provider, baseUrl: f.url, model: "m-1", remote: true, host: f.host, hasKey: true, problem: `Sending page structure to ${f.host} needs your consent`, sources: { ...status().sources, apiKey: "file" }, ...extra });
+const providerOptions = (page: Page) => page.locator("#ai-provider option").allTextContents();
+
+describe("Settings → AI card: bring-your-own-key providers", () => {
+  it("lists Anthropic, OpenAI, Google Gemini, Amazon Bedrock, LM Studio, Other OpenAI-compatible, then Ollama (opt-in) last", async () => {
+    const o = await open("#/settings", {});
+    const { page } = o;
+    await page.locator("#ai-provider").waitFor();
+    expect(await providerOptions(page)).toEqual(["Anthropic", "OpenAI", "Google Gemini", "Amazon Bedrock", "LM Studio", "Other OpenAI-compatible", "Ollama (local, opt-in)"]);
+    expect(await page.locator("#ai-provider").inputValue()).toBe("ollama");
+    expect(o.errors).toEqual([]);
+    await page.close();
+  });
+
+  it("selects each provider's own preset from the status", async () => {
+    for (const [ai, value] of [
+      [fixedStatus(FIXED[0]), "anthropic"],
+      [fixedStatus(FIXED[1]), "openai"],
+      [fixedStatus(FIXED[2]), "gemini"],
+      [status({ provider: "openai-compatible", baseUrl: LMSTUDIO_URL }), "lmstudio"],
+      [status({ provider: "openai-compatible", baseUrl: "https://llm.example.com/v1" }), "openai-compatible"],
+    ] as const) {
+      const o = await open("#/settings", { ai, models: () => ({ models: [], error: null }) });
+      await o.page.locator("#ai-provider").waitFor();
+      expect(await o.page.locator("#ai-provider").inputValue(), value).toBe(value);
+      await o.page.close();
+    }
+  });
+
+  it("starts on a 'Choose a provider' placeholder with nothing selected, and asks nothing of the server until one is chosen", async () => {
+    const o = await open("#/settings", { ai: status({ enabled: false, provider: null, baseUrl: "", model: "", remote: true, host: "", problem: "AI is off" }) });
+    const { page } = o;
+    const provider = page.getByLabel("Provider");
+    await provider.waitFor();
+    expect((await providerOptions(page))[0]).toBe("Choose a provider");
+    expect(await provider.inputValue()).toBe("");
+    expect(await provider.evaluate((e) => (e as HTMLSelectElement).selectedOptions[0]!.textContent)).toBe("Choose a provider");
+    for (const sel of ["#ai-base-url", "#ai-model", "#ai-key", "#ai-allow-remote"]) expect(await page.locator(sel).isVisible(), sel).toBe(false);
+    await page.waitForTimeout(600);
+    expect(modelCalls(o)).toHaveLength(0);
+
+    // Saving without a choice sends no provider; choosing one shows its fields.
+    await page.locator("#ai-card").getByRole("button", { name: "Save" }).click();
+    await expect.poll(() => o.calls.some((c) => c.method === "PUT")).toBe(true);
+    expect(o.calls.find((c) => c.method === "PUT")!.body).not.toHaveProperty("provider");
+    await expect.poll(() => page.locator("#ai-saved").textContent()).toMatch(/^Saved at/);
+    await provider.selectOption({ label: "Anthropic" });
+    expect(await page.locator("#ai-key").isVisible()).toBe(true);
+    expect(await page.locator("#ai-model").isVisible()).toBe(true);
+    expect(o.errors).toEqual([]);
+    await page.close();
+  });
+
+  for (const f of FIXED) {
+    it(`${f.label}: no base URL field, the consent box names ${f.host}, models are listed for it and no base URL is saved`, async () => {
+      const o = await open("#/settings", { ai: fixedStatus(f) });
+      const { page } = o;
+      await page.locator("#ai-allow-remote").waitFor();
+      expect(await page.locator("#ai-base-url").isVisible()).toBe(false);
+      expect(await page.locator('label[for="ai-allow-remote"]').innerText()).toContain(`to ${f.host}`);
+      await expect.poll(() => modelCalls(o).length).toBeGreaterThan(0);
+      expect(modelCalls(o)[0]!.query.get("provider")).toBe(f.provider);
+      expect(modelCalls(o)[0]!.query.get("baseUrl")).toBe("");
+      await page.locator("#ai-allow-remote").check();
+      await page.locator("#ai-card").getByRole("button", { name: "Save" }).click();
+      await expect.poll(() => o.calls.some((c) => c.method === "PUT")).toBe(true);
+      const put = o.calls.find((c) => c.method === "PUT")!;
+      expect(put.body).toMatchObject({ provider: f.provider, model: "m-1", allowRemote: true });
+      expect(put.body).not.toHaveProperty("baseUrl");
+      expect(o.errors).toEqual([]);
+      await page.close();
+    });
+  }
+
+  it("shows the host of a fixed provider as soon as it is picked, and gives the base URL back to the others", async () => {
+    const o = await open("#/settings", {});
+    const { page } = o;
+    const provider = page.getByLabel("Provider");
+    await page.locator("#ai-base-url").waitFor();
+    expect(await page.locator("#ai-allow-remote").count()).toBe(0);
+    for (const f of FIXED) {
+      await provider.selectOption({ label: f.label });
+      await expect.poll(() => page.locator('label[for="ai-allow-remote"]').innerText()).toContain(`to ${f.host}`);
+      expect(await page.locator("#ai-base-url").isVisible()).toBe(false);
+      expect(await page.locator("#ai-allow-remote").isChecked()).toBe(false);
+    }
+    // Back to a local one: the base URL field returns with that preset's URL and no consent box.
+    await provider.selectOption({ label: "LM Studio" });
+    expect(await page.locator("#ai-base-url").isVisible()).toBe(true);
+    expect(await page.getByLabel("Base URL").inputValue()).toBe(LMSTUDIO_URL);
+    expect(await page.locator("#ai-allow-remote").count()).toBe(0);
+    // "Other" starts empty: a fixed provider's endpoint never lands in it.
+    await provider.selectOption({ label: "Anthropic" });
+    await provider.selectOption({ label: "Other OpenAI-compatible" });
+    expect(await page.getByLabel("Base URL").inputValue()).toBe("");
+    // Typed for "Other", it stays there across a fixed provider.
+    await page.getByLabel("Base URL").fill("https://llm.example.com/v1");
+    await provider.selectOption({ label: "OpenAI" });
+    await provider.selectOption({ label: "Other OpenAI-compatible" });
+    expect(await page.getByLabel("Base URL").inputValue()).toBe("https://llm.example.com/v1");
+    await page.locator("#ai-card").getByRole("button", { name: "Save" }).click();
+    await expect.poll(() => o.calls.some((c) => c.method === "PUT")).toBe(true);
+    expect(o.calls.find((c) => c.method === "PUT")!.body).toMatchObject({ provider: "openai-compatible", baseUrl: "https://llm.example.com/v1" });
+    expect(o.errors).toEqual([]);
+    await page.close();
+  });
+
+  it("links to where each provider hands out keys, in a new tab, and to nothing for the others", async () => {
+    const o = await open("#/settings", {});
+    const { page } = o;
+    const provider = page.getByLabel("Provider");
+    await page.locator("#ai-key").waitFor();
+    for (const f of FIXED) {
+      await provider.selectOption({ label: f.label });
+      const link = page.locator(`.key-link a[href="${f.keyUrl}"]`);
+      await link.waitFor();
+      expect(await page.locator(".key-link a").count()).toBe(1);
+      expect(await link.getAttribute("target")).toBe("_blank");
+      expect(await link.getAttribute("rel")).toBe("noopener noreferrer");
+      expect(await link.innerText()).toContain(`Get your ${f.label} API key`);
+    }
+    for (const label of ["Amazon Bedrock", "LM Studio", "Other OpenAI-compatible", "Ollama (local, opt-in)"]) {
+      await provider.selectOption({ label });
+      expect(await page.locator(".key-link a").count(), label).toBe(0);
+    }
+    expect(o.errors).toEqual([]);
+    await page.close();
+  });
+
+  it("says 'A key is saved for <provider>.' on switching to one that has a saved key, and asks for no key", async () => {
+    const o = await open("#/settings", { ai: fixedStatus(FIXED[0], { savedKeys: ["anthropic", "openai"] }) });
+    const { page } = o;
+    const key = page.getByLabel("API key");
+    const note = page.locator(".key-note");
+    await key.waitFor();
+    expect(await key.getAttribute("placeholder")).toBe("Saved");
+    expect(await note.innerText()).toBe("");
+    await page.getByLabel("Provider").selectOption({ label: "OpenAI" });
+    expect(await note.innerText()).toBe("A key is saved for OpenAI.");
+    expect(await key.getAttribute("placeholder")).toBe("Saved");
+    expect(await key.inputValue()).toBe("");
+    expect(await page.locator("#ai-key-remove").isVisible()).toBe(false);
+    // One without a saved key is "Not set"; back to the saved one it says so again.
+    await page.getByLabel("Provider").selectOption({ label: "Google Gemini" });
+    expect(await note.innerText()).toBe("");
+    expect(await key.getAttribute("placeholder")).toBe("Not set");
+    await page.getByLabel("Provider").selectOption({ label: "OpenAI" });
+    expect(await note.innerText()).toBe("A key is saved for OpenAI.");
+    // Saving it sends no key (the saved one is kept); a typed one is sent with the provider it is for.
+    await page.locator("#ai-allow-remote").check();
+    await page.locator("#ai-card").getByRole("button", { name: "Save" }).click();
+    await expect.poll(() => o.calls.some((c) => c.method === "PUT")).toBe(true);
+    expect(o.calls.find((c) => c.method === "PUT")!.body).toMatchObject({ provider: "openai" });
+    expect(o.calls.find((c) => c.method === "PUT")!.body).not.toHaveProperty("apiKey");
+    expect(o.errors).toEqual([]);
+    await page.close();
+  });
+
+  it("sends a typed key with the provider chosen in the same save, and offers 'Remove key' for the provider in effect only", async () => {
+    const o = await open("#/settings", { ai: fixedStatus(FIXED[0], { savedKeys: ["anthropic"] }) });
+    const { page } = o;
+    const key = page.getByLabel("API key");
+    await key.waitFor();
+    expect(await page.locator("#ai-key-remove").isVisible()).toBe(true);
+    await page.locator("#ai-key-remove").click();
+    expect(await key.getAttribute("placeholder")).toBe("Will be removed");
+    expect(await page.locator(".key-note").innerText()).toBe("The saved key will be removed when you save.");
+    // Another provider drops the pending removal: it must not remove that provider's key.
+    await page.getByLabel("Provider").selectOption({ label: "Google Gemini" });
+    expect(await page.locator("#ai-key-remove").isVisible()).toBe(false);
+    expect(await key.getAttribute("placeholder")).toBe("Not set");
+    await key.fill("AIza-typed-key");
+    await page.locator("#ai-allow-remote").check();
+    await page.locator("#ai-card").getByRole("button", { name: "Save" }).click();
+    await expect.poll(() => o.calls.some((c) => c.method === "PUT")).toBe(true);
+    expect(o.calls.find((c) => c.method === "PUT")!.body).toMatchObject({ provider: "gemini", apiKey: "AIza-typed-key" });
+    await page.close();
+  });
+});
+
 function aiPlan(): Plan {
   const form = {
     url: "http://127.0.0.1:5173/signup",
