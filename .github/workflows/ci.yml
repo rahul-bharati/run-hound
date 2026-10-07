@@ -24,7 +24,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # integration/desktop collects the desktop release until it merges to main (docs/decisions 2026-10-07).
+    branches: [main, integration/desktop]
   pull_request:
   workflow_dispatch:
   workflow_call:
