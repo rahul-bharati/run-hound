@@ -1,3 +1,4 @@
+import type { SecretProtection } from "../types/secrets.js";
 import type { AccountId } from "../core/types.js";
 import type { AccountSource } from "../types/accounts.js";
 
@@ -17,6 +18,8 @@ export interface AccountsStatus {
   isolatedSource: AccountSource;
   accounts: Record<AccountId, AccountStatus>;
   file: string;
+  /** How saved passwords are kept here (operations/secret-store.ts). */
+  secretProtection?: SecretProtection;
 }
 
 /** PUT /api/accounts and `accounts set`: omitted fields are kept; `password: ""` removes the saved password. */

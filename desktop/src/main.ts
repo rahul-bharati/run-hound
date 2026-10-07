@@ -12,7 +12,7 @@
  * utilityProcess (Rule 6) is the next slice.
  */
 
-import { app, BrowserWindow, dialog, ipcMain, session, shell, type IpcMainInvokeEvent, type WebPreferences } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell, type IpcMainInvokeEvent, type WebPreferences } from "electron";
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -23,6 +23,7 @@ import { CHANNELS } from "./channels.js";
 import { resolveConfigDir, resolveRunsDir } from "./config.js";
 import type { DesktopEngineReady } from "./contract.js";
 import { hostPlatform, startDesktopEngine } from "./entry.js";
+import { osKeyProtector } from "./key-protector.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const platform = hostPlatform();
@@ -115,6 +116,8 @@ async function start(): Promise<void> {
   lockDownPermissions();
 
   const engine = await import("./engine.js");
+  // Saved keys and passwords are wrapped by the OS keychain when it is a real one (safeStorage works only after ready).
+  engine.useOsKeyProtector(osKeyProtector(safeStorage, process.platform));
   const { handle, info } = await startDesktopEngine(
     { configDir, runsDir, runHoundVersion: engine.RUN_HOUND_VERSION },
     (args) => engine.createApp(args),

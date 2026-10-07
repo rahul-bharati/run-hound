@@ -26,9 +26,9 @@ user, tested across its pages), the two other `paywall-trust` probes, rate limit
   "Account B"). A shared setting `isolated` (default `true`) is the user's statement that **A and B must not see each
   other's data** (different users, not teammates in one workspace); the other-account check is planned only when it
   is true.
-- Saved in `<configDir>/accounts.json` (the same folder as `ai.json`: `RUNHOUND_CONFIG_DIR`, else
-  `$XDG_CONFIG_HOME/run-hound`, else `~/.config/run-hound`), file mode `0600` in a `0700` folder, written atomically.
-  Shape: `{ "version": 1, "isolated": true, "accounts": { "a": { "loginUrl", "username", "password", "label" }, "b":
+- Passwords are saved encrypted in `<configDir>/secrets.json`; non-secret settings (`loginUrl`, `username`, `label`) and `isolated` are saved in `<configDir>/accounts.json` (the same folder as `ai.json`: `RUNHOUND_CONFIG_DIR`, else
+  `$XDG_CONFIG_HOME/run-hound`, else `~/.config/run-hound`), written atomically. See [2026-10-06 decision](docs/decisions/10-2026.md#2026-10-06-encrypted-secret-store).
+  Shape of `accounts.json`: `{ "version": 1, "isolated": true, "accounts": { "a": { "loginUrl", "username", "label" }, "b":
   {…} } }`.
 - Environment variables override the file per field: `RUNHOUND_ACCOUNT_A_LOGIN_URL`, `RUNHOUND_ACCOUNT_A_USERNAME`,
   `RUNHOUND_ACCOUNT_A_PASSWORD`, `RUNHOUND_ACCOUNT_A_LABEL`, the same with `_B_`, and `RUNHOUND_ACCOUNTS_ISOLATED`

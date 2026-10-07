@@ -7,7 +7,7 @@ import { randomBytes } from "node:crypto";
 import { chmod, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { DEFAULT_LABELS, FIELDS, MAX_LABEL_LENGTH, accountEnvName, accountsFile } from "../config/accounts.js";
-import { COMMON_PASSWORD_PROBLEM } from "../constants/accounts-constants.js";
+import { COMMON_PASSWORD_PROBLEM, passwordsFromEnvironment, plainTextPasswordNotice } from "../constants/accounts-constants.js";
 import { isCommonPassword } from "../utils/validation/common-password.js";
 import {
   ACCOUNT_IDS,
@@ -25,6 +25,18 @@ import {
   type SavedSlot,
   type TestAccount,
 } from "../interfaces/accounts.js";
+import { readSecrets, secretProtection, writeSecrets } from "./secret-store.js";
+
+/** A slot's password is saved in the encrypted store (secret-store.ts) under this name, never in the file. */
+const passwordName = (id: AccountId): string => `accounts.${id}.password`;
+
+/** A read file, with each slot's password filled in from the store (or a legacy plain-text one still in the file). */
+interface Read extends ReadResult {
+  /** The passwords the store holds, by slot. */
+  stored: Partial<Record<AccountId, string>>;
+  /** True when the file itself still holds a password in plain text. */
+  plain: boolean;
+}
 
 /** The origin of an http(s) URL, or null (empty, unparsable or another scheme). */
 function httpOrigin(url: string | undefined): string | null {
@@ -77,10 +89,12 @@ function fromFile(raw: unknown): SavedFile | null {
   return out;
 }
 
-async function readSaved(file: string): Promise<ReadResult> {
-  const nothing = (problem: string | null): ReadResult => ({
+async function readSaved(file: string, env: NodeJS.ProcessEnv): Promise<Read> {
+  const nothing = (problem: string | null): Read => ({
     saved: { accounts: {} },
     problem,
+    stored: {},
+    plain: false,
   });
   let text: string;
   try {
@@ -101,11 +115,74 @@ async function readSaved(file: string): Promise<ReadResult> {
     );
   }
   const saved = fromFile(parsed);
-  return saved
-    ? { saved, problem: null }
-    : nothing(
-        `${file} does not hold saved accounts, so nothing in it was used. Save the account again to replace it.`,
-      );
+  if (!saved)
+    return nothing(
+      `${file} does not hold saved accounts, so nothing in it was used. Save the account again to replace it.`,
+    );
+  const plain = ACCOUNT_IDS.some((id) => Boolean(saved.accounts[id]?.password));
+  const store = await readSecrets(dirname(file), { env });
+  const stored: Read["stored"] = {};
+  for (const id of ACCOUNT_IDS) {
+    const value = store.values[passwordName(id)];
+    const slot = saved.accounts[id];
+    if (value === undefined || !slot) continue; // a password whose slot is gone is not used
+    stored[id] = value;
+    if (!slot.password) slot.password = value;
+  }
+  const problem = plain && store.protection === "environment" ? plainTextPasswordNotice(file) : store.problem;
+  return { saved, problem, stored, plain };
+}
+
+/**
+ * Moves passwords still saved in plain text in the file (written before the encrypted store) into the store, then
+ * rewrites the file without them. A store that can't be written (environment only, or locked by the desktop app's OS
+ * keychain) leaves the file as it is. Runs in the file's queue.
+ */
+async function movePasswordsOut(file: string, env: NodeJS.ProcessEnv): Promise<void> {
+  if (secretProtection(env) === "environment") return;
+  let saved: SavedFile | null;
+  try {
+    saved = fromFile(JSON.parse(await readFile(file, "utf8")));
+  } catch {
+    return;
+  }
+  if (!saved) return;
+  const updates: Record<string, string> = {};
+  for (const id of ACCOUNT_IDS) {
+    const password = saved.accounts[id]?.password;
+    if (password) updates[passwordName(id)] = password;
+  }
+  if (Object.keys(updates).length === 0) return;
+  try {
+    await writeSecrets(dirname(file), updates, { env });
+  } catch {
+    return;
+  }
+  await writePrivate(file, serialise(saved, false));
+}
+
+/**
+ * Writes `next`: its passwords to the encrypted store (only those that changed from `read`), the rest to the file. In
+ * the Docker image nothing new is saved: a password that would be saved is refused, and a legacy plain-text one stays
+ * in the file until it is removed.
+ */
+async function writeSaved(file: string, next: SavedFile, read: Read, env: NodeJS.ProcessEnv): Promise<void> {
+  if (secretProtection(env) === "environment") {
+    for (const id of ACCOUNT_IDS) {
+      const password = next.accounts[id]?.password;
+      if (password && password !== read.saved.accounts[id]?.password)
+        throw new Error(passwordsFromEnvironment(accountEnvName(id, "password")));
+    }
+    await writePrivate(file, serialise(next, true));
+    return;
+  }
+  const updates: Record<string, string | null> = {};
+  for (const id of ACCOUNT_IDS) {
+    const password = next.accounts[id]?.password || null;
+    if (password !== (read.stored[id] ?? null)) updates[passwordName(id)] = password;
+  }
+  if (Object.keys(updates).length > 0) await writeSecrets(dirname(file), updates, { env });
+  await writePrivate(file, serialise(next, false));
 }
 
 /** A non-empty env value (trimmed, except passwords), or undefined. */
@@ -218,7 +295,7 @@ function resolveWith(
   }
   return {
     config: { isolated, accounts },
-    status: { isolated, isolatedSource, accounts: statuses, file },
+    status: { isolated, isolatedSource, accounts: statuses, file, secretProtection: secretProtection(env) },
   };
 }
 
@@ -231,7 +308,9 @@ export async function resolveAccounts(
 ): Promise<{ config: AccountsConfig; status: AccountsStatus }> {
   const env = options.env ?? process.env;
   const file = accountsFile(env, options.home);
-  return resolveWith(env, file, await readSaved(file));
+  const read = await readSaved(file, env);
+  if (read.plain) await oneAtATime(file, () => movePasswordsOut(file, env));
+  return resolveWith(env, file, read);
 }
 
 /**
@@ -263,8 +342,11 @@ async function writePrivate(file: string, text: string): Promise<void> {
   }
 }
 
-/** The file's text: version 1, `isolated` when set, the slots with their non-empty fields. */
-function serialise(saved: SavedFile): string {
+/**
+ * The file's text: version 1, `isolated` when set, the slots with their non-empty fields. A password is written only
+ * `withPasswords` (the Docker image's legacy plain text); its passwordOrigin always, as the binding stays in the file.
+ */
+function serialise(saved: SavedFile, withPasswords: boolean): string {
   const accounts: Partial<Record<AccountId, SavedSlot>> = {};
   for (const id of ACCOUNT_IDS) {
     const slot = saved.accounts[id];
@@ -274,7 +356,7 @@ function serialise(saved: SavedFile): string {
     if (slot.loginUrl) out.loginUrl = slot.loginUrl;
     if (slot.username) out.username = slot.username;
     if (slot.password) {
-      out.password = slot.password;
+      if (withPasswords) out.password = slot.password;
       if (slot.passwordOrigin) out.passwordOrigin = slot.passwordOrigin;
     }
     if (Object.keys(out).length > 0) accounts[id] = out;
@@ -379,7 +461,7 @@ export async function saveAccounts(
   const env = options.env ?? process.env;
   const file = accountsFile(env, options.home);
   return oneAtATime(file, async () => {
-    const read = await readSaved(file);
+    const read = await readSaved(file, env);
     const before = resolveWith(env, file, read);
     const next: SavedFile = {
       ...read.saved,
@@ -446,8 +528,8 @@ export async function saveAccounts(
       }
     }
 
-    await writePrivate(file, serialise(next));
-    return resolveWith(env, file, await readSaved(file)).status;
+    await writeSaved(file, next, read, env);
+    return resolveWith(env, file, await readSaved(file, env)).status;
   });
 }
 
@@ -461,16 +543,16 @@ export async function clearAccount(
   const env = options.env ?? process.env;
   const file = accountsFile(env, options.home);
   return oneAtATime(file, async () => {
-    const read = await readSaved(file);
+    const read = await readSaved(file, env);
     if (read.saved.accounts[id]) {
       const next: SavedFile = {
         ...read.saved,
         accounts: { ...read.saved.accounts },
       };
       delete next.accounts[id];
-      await writePrivate(file, serialise(next));
+      await writeSaved(file, next, read, env);
     }
-    return resolveWith(env, file, await readSaved(file)).status;
+    return resolveWith(env, file, await readSaved(file, env)).status;
   });
 }
 

@@ -48,6 +48,17 @@ export const SETTINGS_ACCOUNTS = String.raw`  // ---------- Settings: test accou
       isolated.disabled = false;
     });
     const slots = ACCOUNT_SLOTS.map((id) => accountSlot(id, st.accounts[id] || { id, label: defaultAccountLabel(id) }, my));
+    const secretProtectionNote = st.secretProtection
+      ? h("p", {
+          class: "muted acct-secret-note",
+          text:
+            st.secretProtection === "os-keychain"
+              ? "Saved passwords are encrypted with your system keychain."
+              : st.secretProtection === "run-hound"
+                ? "Saved passwords are encrypted by Run Hound on this computer (no system keychain is available)."
+                : "Passwords aren't saved here: set them with environment variables when you start the container.",
+        })
+      : null;
     fill(card,
       h("h2", { id: "accounts-h", class: "card-title", text: "Test accounts" }),
       h("p", { class: "muted acct-intro", text: "Two accounts on your app, so Run Hound can test pages behind a sign-in: choose one under New Run → Sign in as. Run Hound signs in with them in its own browser and never shows a saved password again." }),
@@ -65,7 +76,8 @@ export const SETTINGS_ACCOUNTS = String.raw`  // ---------- Settings: test accou
           h("span", { class: "desc", text: "Tick when they are different users, not teammates in one workspace. Run Hound only checks that Account B can't read or change Account A's data when this is ticked." })),
         lockedIsolated ? h("span", { class: "locked", text: "Set by environment" }) : null),
       isolatedMsg,
-      st.file ? h("p", { class: "note" }, "Saved to ", h("code", { class: "mono", text: st.file }), ", readable only by you.") : null);
+      st.file ? h("p", { class: "note" }, "Saved to ", h("code", { class: "mono", text: st.file }), ", readable only by you.") : null,
+      secretProtectionNote);
   }
 
   /** One account's card: a fieldset named by the account's label. Save and Test sign-in act on this account only. */

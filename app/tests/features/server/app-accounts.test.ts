@@ -5,6 +5,7 @@ import type { Hono } from "hono";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { startAccountsApp, type AccountsApp } from "../../support/accounts-app.js";
 import type { Check, CheckId, Plan, Report, Scenario } from "../../../src/core/types.js";
+import { readSecrets } from "../../../src/operations/secret-store.js";
 import { createApp } from "../../../src/server/app.js";
 
 /**
@@ -192,7 +193,11 @@ describe("PUT /api/accounts", () => {
     const again = (await (await get("/api/accounts")).json()) as AccountsView;
     expect(again.accounts.a.sources).toMatchObject({ loginUrl: "file", password: "file" });
     expect((await stat(accountsJson())).mode & 0o777).toBe(0o600);
-    expect(await readFile(accountsJson(), "utf8")).toContain(site.users.alice.password);
+    // The password is sealed in the encrypted store (secrets.json, 0600), never written to accounts.json.
+    expect(await readFile(accountsJson(), "utf8")).not.toContain(site.users.alice.password);
+    expect((await stat(join(configDir, "secrets.json"))).mode & 0o777).toBe(0o600);
+    expect(await readFile(join(configDir, "secrets.json"), "utf8")).not.toContain(site.users.alice.password);
+    expect((await readSecrets(configDir, { env: {} })).values).toEqual({ "accounts.a.password": site.users.alice.password });
   });
 
   it("keeps omitted fields and removes the password on password: \"\"", async () => {

@@ -16,6 +16,7 @@ import {
   type ResolvedAiConfig,
 } from "../../../src/ai/config.js";
 import type { AiConfig, AiStatus } from "../../../src/ai/types.js";
+import { readSecrets } from "../../../src/operations/secret-store.js";
 
 let tmp: string;
 let dir: string;
@@ -663,9 +664,14 @@ describe("saveAiConfig file permissions", () => {
     const after = await stat(file());
     expect(after.mode & 0o777).toBe(0o600);
     expect(after.ino).not.toBe(before.ino);
-    expect(JSON.parse(await readFile(file(), "utf8"))).toMatchObject({ model: "m", apiKey: "sk-new-key" });
+    // The key is sealed in the encrypted store, never written into ai.json.
+    const text = await readFile(file(), "utf8");
+    expect(JSON.parse(text)).toMatchObject({ model: "m" });
+    expect(JSON.parse(text)).not.toHaveProperty("apiKey");
+    expect(text).not.toContain("sk-new-key");
+    expect((await readSecrets(dir, { env })).values).toEqual({ "ai.apiKey": "sk-new-key" });
     const { readdir } = await import("node:fs/promises");
-    expect(await readdir(dir)).toEqual(["ai.json"]);
+    expect((await readdir(dir)).sort()).toEqual(["ai.json", "secrets.json", "secrets.key"]);
   });
 });
 
@@ -676,7 +682,9 @@ describe("a saved key is bound to the origin it was saved for (Rule 7)", () => {
 
   it("records apiKeyOrigin, the effective endpoint's origin, when a key is saved", async () => {
     await saveAiConfig({ ...remoteA, apiKey: "sk-saved-key" }, { env, home: tmp });
-    expect(await saved()).toMatchObject({ apiKey: "sk-saved-key", apiKeyOrigin: "https://api.a.example" });
+    // The key itself is in the encrypted store; ai.json keeps only the origin it is bound to.
+    expect(await saved()).toMatchObject({ apiKeyOrigin: "https://api.a.example" });
+    expect(await saved()).not.toHaveProperty("apiKey");
     const r = await resolveAiConfig({ env, home: tmp });
     expect(r.config.apiKey).toBe("sk-saved-key");
     expect(aiStatus(r, env, tmp).hasKey).toBe(true);
@@ -733,7 +741,9 @@ describe("a saved key is bound to the origin it was saved for (Rule 7)", () => {
     await saveAiConfig({ ...remoteA, apiKey: "sk-saved-key" }, { env, home: tmp });
     const moved = { ...env, RUNHOUND_AI_BASE_URL: "https://other.example/v1" };
     await saveAiConfig({ model: "m2" }, { env: moved, home: tmp });
-    expect(await saved()).toMatchObject({ apiKey: "sk-saved-key", apiKeyOrigin: "https://api.a.example" });
+    expect(await saved()).toMatchObject({ apiKeyOrigin: "https://api.a.example" });
+    expect((await readSecrets(dir, { env })).values).toEqual({ "ai.apiKey": "sk-saved-key" });
     expect((await resolveAiConfig({ env: moved, home: tmp })).config.apiKey).toBeNull();
+    expect((await resolveAiConfig({ env, home: tmp })).config.apiKey).toBe("sk-saved-key");
   });
 });

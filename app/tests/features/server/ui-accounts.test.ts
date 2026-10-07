@@ -335,6 +335,28 @@ describe("Settings → Test accounts", () => {
     expect(overflow).toBeLessThanOrEqual(0);
     await o.page.close();
   });
+
+  it("shows where saved passwords are kept when secretProtection is set", async () => {
+    const st = accounts(READY_A, slot("b"));
+    st.secretProtection = "run-hound";
+    const o = await open("#/settings", { accounts: st });
+    const { page } = o;
+    const content = await page.locator("#accounts-card").innerText();
+    expect(content).toContain("encrypted by Run Hound");
+    expect(content).toContain("no system keychain");
+    await page.close();
+  });
+
+  it("shows that passwords are not saved when using environment variables only", async () => {
+    const st = accounts(READY_A, slot("b"));
+    st.secretProtection = "environment";
+    const o = await open("#/settings", { accounts: st });
+    const { page } = o;
+    const content = await page.locator("#accounts-card").innerText();
+    expect(content).toContain("aren't saved here");
+    expect(content).toContain("environment variables");
+    await page.close();
+  });
 });
 
 function notesPlan(account?: AccountRef): Plan {

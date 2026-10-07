@@ -57,6 +57,16 @@ describe("resolveAiConfig registers the AI secrets", () => {
     expect(redactSecrets(encodeURIComponent(SECRET))).toBe(MARK);
   });
 
+  it("registers the secrets it reads from the encrypted store, where saving puts them", async () => {
+    await saveAiConfig({ enabled: true, provider: "bedrock", region: "us-east-1", model: "m", apiKey: API_KEY, awsAccessKeyId: "AKIAIOSFODNN7SAVED01", awsSecretAccessKey: SECRET, awsSessionToken: TOKEN }, { env, home: tmp });
+    expect(await readFile(join(dir, "ai.json"), "utf8")).not.toContain(SECRET);
+    // Drop the registration (an empty config dir), so only what the next resolve reads from the store can register.
+    await resolveAiConfig({ env: { RUNHOUND_CONFIG_DIR: join(tmp, "empty") }, home: tmp });
+    expect(redactSecrets(`key=${API_KEY} secret=${SECRET} token=${TOKEN}`)).toBe(`key=${API_KEY} secret=${SECRET} token=${TOKEN}`);
+    await resolveAiConfig({ env, home: tmp });
+    expect(redactSecrets(`key=${API_KEY} secret=${SECRET} token=${TOKEN}`)).toBe(`key=${MARK} secret=${MARK} token=${MARK}`);
+  });
+
   it("registers the secrets it reads from the environment", async () => {
     await writeSaved({ provider: "bedrock", region: "us-east-1" });
     const fromEnv = { ...env, RUNHOUND_AI_API_KEY: "env-ai-key-19c4e2", AWS_BEARER_TOKEN_BEDROCK: "env-bearer-66a0d1", AWS_ACCESS_KEY_ID: "AKIAIOSFODNN7ENVKEY1", AWS_SECRET_ACCESS_KEY: "env/secret+value/0011223344", AWS_SESSION_TOKEN: "env-session-token-8f2b" };

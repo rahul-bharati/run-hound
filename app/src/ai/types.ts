@@ -2,6 +2,7 @@
  * Contract for Run Hound's optional AI layer (0.3.0). A model reviews the plan, suggests flows and explains findings;
  * it never decides pass or fail. Everything here is off unless the user turns it on. See docs/ai-spec.md.
  */
+import type { SecretProtection } from "../types/secrets.js";
 
 /** Wire protocol. "ollama" is the OpenAI-compatible protocol with Ollama's defaults and its native model list. */
 export type AiProvider = "ollama" | "openai-compatible" | "bedrock";
@@ -112,6 +113,10 @@ export interface AiStatus {
   };
   /** Absolute path of the saved config file. */
   file: string;
+  /** How saved keys are kept here (operations/secret-store.ts). */
+  secretProtection?: SecretProtection;
+  /** Set when saved keys could not be read, or (Docker) a key is still saved in plain text and should move to the env. */
+  secretNotice?: string | null;
 }
 
 /**
