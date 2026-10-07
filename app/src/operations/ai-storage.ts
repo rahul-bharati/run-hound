@@ -27,7 +27,10 @@ import {
 import {
   AI_PROVIDERS,
   DEFAULT_BASE_URLS,
+  FIXED_ENDPOINT_PROVIDERS,
   KEY_REMOVED_NOTICE,
+  LEGACY_DEFAULT_PROVIDER,
+  PROVIDER_LABELS,
   KEYS_FROM_ENVIRONMENT,
   plainTextKeyNotice,
 } from "../constants/ai-constants.js";
@@ -39,10 +42,17 @@ type Layer = Partial<Omit<AiConfig, "features">> & { features?: Partial<AiFeatur
 
 const FIELDS: readonly Field[] = ["enabled", "provider", "baseUrl", "model", "apiKey", "region", "awsProfile", "allowRemote", "features", "timeoutMs"];
 const FEATURE_NAMES: readonly (keyof AiFeatures)[] = ["review", "suggest", "explain"];
-/** Saved in the encrypted store (secret-store.ts) as "ai.<field>", never in the file. */
-const SECRET_FIELDS = ["apiKey", "awsSecretAccessKey", "awsSessionToken"] as const;
+/** Bedrock's AWS secrets, saved in the encrypted store (secret-store.ts) as "ai.<field>", never in the file. */
+const SECRET_FIELDS = ["awsSecretAccessKey", "awsSessionToken"] as const;
 const secretName = (field: (typeof SECRET_FIELDS)[number]): string => `ai.${field}`;
+/** Each provider keeps its own API key in the encrypted store under this name, bound to the origin in `keyOrigins`. */
+const keyName = (provider: AiProvider): string => `ai.key.${provider}`;
+/** The one API key saved before 0.7 (in the store, or in plain text as the file's `apiKey`), for the file's provider. */
+const LEGACY_KEY = "ai.apiKey";
 const nonEmptyString = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+/** Written into every file saved since 0.7, so a file without it is known to be older (FILE_VERSION absent: before 0.7). */
+const FILE_VERSION = 2;
 
 const isProvider = (v: unknown): v is AiProvider => typeof v === "string" && (AI_PROVIDERS as readonly string[]).includes(v);
 const isTimeout = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v > 0;
@@ -76,26 +86,48 @@ function fromFile(raw: unknown): Layer {
   return out;
 }
 
+/** A provider's saved API key and the origin it was saved for (null: a key saved before 0.7 with no origin recorded). */
+interface KeySlot {
+  key: string;
+  origin: string | null;
+  /** The one key saved before 0.7, for the file's provider; it moves into that provider's own slot. */
+  legacy: boolean;
+}
+type KeySlots = Partial<Record<AiProvider, KeySlot>>;
+
 interface Saved {
-  /** The file with its secrets filled in: from the store, or a legacy plain-text value still in the file. */
+  /** The file's settings, with Bedrock's AWS secrets filled in. API keys are in `keys`, never in the layer. */
   layer: Layer;
-  /** The secrets the store holds, by field. */
+  /** Each provider's saved API key. */
+  keys: KeySlots;
+  /** The AWS secrets the store holds, by field. */
   stored: Partial<Record<(typeof SECRET_FIELDS)[number], string>>;
-  /** True when the file itself still holds a secret in plain text. */
-  plain: boolean;
+  /** True when the file still holds a secret in plain text, or the store holds the one key saved before 0.7. */
+  legacy: boolean;
+  /** True when the store holds the one key saved before 0.7 (LEGACY_KEY). */
+  legacyStored: boolean;
+  /** True when the file holds settings but names no provider: it was saved before 0.7, when Ollama was the default. */
+  implicitProvider: boolean;
+  /** A plain-text key the file still holds for a provider that has its own saved key since: unused, but redacted. */
+  superseded: string[];
   notice: string | null;
 }
+
+/** What resolve() reads instead of the file when saveAiConfig previews a patch. */
+type SavedView = Pick<Saved, "layer" | "keys" | "implicitProvider">;
+
+const NOTHING_SAVED: Saved = { layer: {}, keys: {}, stored: {}, legacy: false, legacyStored: false, implicitProvider: false, superseded: [], notice: null };
 
 async function readSaved(file: string, env: NodeJS.ProcessEnv): Promise<Saved> {
   let raw: Record<string, unknown>;
   try {
     const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return { layer: {}, stored: {}, plain: false, notice: null };
-    raw = parsed as Record<string, unknown>;
+    if (!isRecord(parsed)) return { ...NOTHING_SAVED, keys: {}, superseded: [] };
+    raw = parsed;
   } catch {
-    return { layer: {}, stored: {}, plain: false, notice: null }; // missing, unreadable or corrupt: defaults
+    return { ...NOTHING_SAVED, keys: {}, superseded: [] }; // missing, unreadable or corrupt: defaults
   }
-  const plain = SECRET_FIELDS.some((field) => nonEmptyString(raw[field]) !== null);
+  const plain = nonEmptyString(raw.apiKey) !== null || SECRET_FIELDS.some((field) => nonEmptyString(raw[field]) !== null);
   const store = await readSecrets(dirname(file), { env });
   const stored: Saved["stored"] = {};
   for (const field of SECRET_FIELDS) {
@@ -104,35 +136,75 @@ async function readSaved(file: string, env: NodeJS.ProcessEnv): Promise<Saved> {
     stored[field] = value;
     if (nonEmptyString(raw[field]) === null) raw[field] = value;
   }
+  const layer = fromFile(raw);
+  delete layer.apiKey;
+  delete layer.apiKeyOrigin;
+  const origins = isRecord(raw.keyOrigins) ? raw.keyOrigins : {};
+  const keys: KeySlots = {};
+  for (const provider of AI_PROVIDERS) {
+    const key = store.values[keyName(provider)];
+    if (key !== undefined) keys[provider] = { key, origin: nonEmptyString(origins[provider]), legacy: false };
+  }
+  const legacyStored = store.values[LEGACY_KEY] !== undefined;
+  const legacyKey = nonEmptyString(raw.apiKey) ?? store.values[LEGACY_KEY] ?? null;
+  const legacyProvider = layer.provider ?? LEGACY_DEFAULT_PROVIDER;
+  const superseded: string[] = [];
+  if (legacyKey !== null && !keys[legacyProvider]) keys[legacyProvider] = { key: legacyKey, origin: nonEmptyString(raw.apiKeyOrigin), legacy: true };
+  else if (legacyKey !== null && keys[legacyProvider]!.key !== legacyKey) superseded.push(legacyKey);
+  // Only a file from before 0.7 (no version) that names no provider meant Ollama; one saved since may name none.
+  const implicitProvider = raw.version !== FILE_VERSION && layer.provider === undefined && (Object.keys(layer).length > 0 || legacyKey !== null);
   const notice = plain && store.protection === "environment" ? plainTextKeyNotice(file) : store.problem;
-  return { layer: fromFile(raw), stored, plain, notice };
+  return { layer, keys, stored, legacy: plain || legacyStored, legacyStored, implicitProvider, superseded, notice };
 }
 
 /**
- * Moves secrets still saved in plain text in the file (written before the encrypted store) into the store, then
- * rewrites the file without them. A store that can't be written (environment only, or locked by the desktop app's OS
- * keychain) leaves the file as it is.
+ * Moves what was saved before the per-provider key store into it, then rewrites the file without it: AWS secrets and
+ * the one API key in plain text in the file, and the one key the store held under LEGACY_KEY, which becomes the file's
+ * provider's own key (bound to `apiKeyOrigin`, or the file's endpoint) unless that provider already has one. A file
+ * that names no provider gets Ollama, what it meant then. A store that can't be written (environment only, or locked
+ * by the desktop app's OS keychain) leaves everything as it is.
  */
-async function moveSecretsOut(file: string, env: NodeJS.ProcessEnv): Promise<void> {
+async function moveSecretsOut(file: string, env: NodeJS.ProcessEnv, region: string | null): Promise<void> {
   if (secretProtection(env) === "environment") return;
   let raw: Record<string, unknown>;
   try {
-    raw = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+    const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
+    if (!isRecord(parsed)) return;
+    raw = parsed;
   } catch {
     return;
   }
-  const updates: Record<string, string> = {};
+  const store = await readSecrets(dirname(file), { env });
+  const layer = fromFile(raw);
+  const provider = layer.provider ?? LEGACY_DEFAULT_PROVIDER;
+  const updates: Record<string, string | null> = {};
   for (const field of SECRET_FIELDS) {
     const value = nonEmptyString(raw[field]);
     if (value !== null) updates[secretName(field)] = value;
   }
-  if (Object.keys(updates).length === 0) return;
-  try {
-    await writeSecrets(dirname(file), updates, { env });
-  } catch {
-    return;
+  const origins: Record<string, unknown> = { ...(isRecord(raw.keyOrigins) ? raw.keyOrigins : {}) };
+  const legacyKey = nonEmptyString(raw.apiKey) ?? store.values[LEGACY_KEY] ?? null;
+  if (legacyKey !== null && store.values[keyName(provider)] === undefined) {
+    updates[keyName(provider)] = legacyKey;
+    origins[provider] = nonEmptyString(raw.apiKeyOrigin) ?? legacyKeyOrigin(layer, region);
   }
+  if (store.values[LEGACY_KEY] !== undefined) updates[LEGACY_KEY] = null;
+  const inFile = raw.apiKey !== undefined || raw.apiKeyOrigin !== undefined || SECRET_FIELDS.some((field) => raw[field] !== undefined);
+  if (Object.keys(updates).length === 0 && !inFile) return;
+  if (Object.keys(updates).length > 0) {
+    try {
+      await writeSecrets(dirname(file), updates, { env });
+    } catch {
+      return;
+    }
+  }
+  // Everything secret is in the store now (a plain-text key whose provider already had its own is dropped).
   for (const field of SECRET_FIELDS) delete raw[field];
+  delete raw.apiKey;
+  delete raw.apiKeyOrigin;
+  if (Object.keys(origins).length > 0) raw.keyOrigins = origins;
+  if (raw.provider === undefined && raw.version !== FILE_VERSION) raw.provider = provider;
+  raw.version = FILE_VERSION;
   await writePrivate(file, `${JSON.stringify(raw, null, 2)}\n`);
 }
 
@@ -188,21 +260,29 @@ interface Resolution extends ResolvedAiConfig {
    * awsSessionToken; RUNHOUND_AI_API_KEY; for Bedrock AWS_BEARER_TOKEN_BEDROCK, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN.
    */
   secrets: string[];
-  /** True when the file still holds a secret in plain text (resolveAiConfig moves it into the store). */
-  plainSecrets: boolean;
+  /** True when something saved before the per-provider key store is left (resolveAiConfig moves it). */
+  legacySecrets: boolean;
 }
 
 /** `saved` replaces the file's contents (saveAiConfig uses it to see where a patch would point before writing). */
-async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | undefined, saved?: Layer): Promise<Resolution> {
+async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | undefined, saved?: SavedView): Promise<Resolution> {
   const file = configFile(env, home);
   const { layer: envLayer, names } = fromEnv(env);
   const envNames: Resolution["envNames"] = names;
-  const read: Saved = saved ? { layer: saved, stored: {}, plain: false, notice: null } : await readSaved(file, env);
-  const fileLayer = read.layer;
+  const flagLayer = fromFlags(flags);
+  const read: Saved = saved ? { ...NOTHING_SAVED, ...saved } : await readSaved(file, env);
+  // A file saved before 0.7 that names no provider meant Ollama, the default then; otherwise there is no default.
+  const filePart: Layer = read.implicitProvider && read.layer.provider === undefined ? { ...read.layer, provider: LEGACY_DEFAULT_PROVIDER } : read.layer;
+  // The saved key is the effective provider's own, bound to the origin it was saved for. A key saved since 0.7 with no
+  // origin recorded (a hand-edited file) is bound to nothing, so it is never sent.
+  const provider = flagLayer.provider ?? envLayer.provider ?? filePart.provider ?? null;
+  const slot = provider ? read.keys[provider] : undefined;
+  const slotOrigin = slot ? (slot.origin ?? (slot.legacy ? undefined : "an unknown origin")) : undefined;
+  const fileLayer: Layer = slot ? { ...filePart, apiKey: slot.key, ...(slotOrigin ? { apiKeyOrigin: slotOrigin } : {}) } : filePart;
   const layers: [ConfigSource, Layer][] = [
     ["file", fileLayer],
     ["env", envLayer],
-    ["flag", fromFlags(flags)],
+    ["flag", flagLayer],
   ];
   const config: AiConfig = { ...DEFAULT_AI_CONFIG, features: { ...DEFAULT_AI_CONFIG.features } };
   const sources = { ...Object.fromEntries(FIELDS.map((f) => [f, "default"])), awsKeys: "default" } as Required<AiStatus["sources"]>;
@@ -220,6 +300,11 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
 
   // A provider set with no base URL from the same or a later source gets that provider's default URL.
   if (rank[sources.baseUrl] < rank[sources.provider]) {
+    config.baseUrl = config.provider ? DEFAULT_BASE_URLS[config.provider] : "";
+    sources.baseUrl = sources.provider;
+  }
+  // Anthropic, OpenAI and Gemini have one official endpoint; a saved or set base URL never moves their key elsewhere.
+  if (config.provider && FIXED_ENDPOINT_PROVIDERS.has(config.provider)) {
     config.baseUrl = DEFAULT_BASE_URLS[config.provider];
     sources.baseUrl = sources.provider;
   }
@@ -288,7 +373,8 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
   // 2026-09-30-ai-secrets-redacted). The AWS pair and the Bedrock bearer token are always registered unconditionally:
   // they are always long, so this never keeps a real secret out.
   const secrets = [fileLayer.awsSecretAccessKey, fileLayer.awsSessionToken];
-  if (looksLikeApiKey(fileLayer.apiKey)) secrets.push(fileLayer.apiKey);
+  for (const saved of Object.values(read.keys)) if (looksLikeApiKey(saved.key)) secrets.push(saved.key);
+  for (const key of read.superseded) if (looksLikeApiKey(key)) secrets.push(key);
   if (looksLikeApiKey(env.RUNHOUND_AI_API_KEY)) secrets.push(env.RUNHOUND_AI_API_KEY);
   if (config.provider === "bedrock") secrets.push(env.AWS_BEARER_TOKEN_BEDROCK, env.AWS_SECRET_ACCESS_KEY, env.AWS_SESSION_TOKEN);
 
@@ -305,7 +391,8 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
     file,
     envNames,
     secrets: secrets.filter((v): v is string => typeof v === "string" && v !== ""),
-    plainSecrets: read.plain,
+    legacySecrets: read.legacy,
+    savedKeys: AI_PROVIDERS.filter((p) => read.keys[p] !== undefined),
     ...(staleKey ? { staleKey } : {}),
     ...(read.notice ? { secretNotice: read.notice } : {}),
   };
@@ -326,8 +413,8 @@ function looksLikeApiKey(value: string | null | undefined): value is string {
 
 /** Where a legacy saved key (no apiKeyOrigin) belongs: the file's own endpoint; Bedrock without a saved region: `region`. */
 function legacyKeyOrigin(file: Layer, region: string | null): string {
-  const provider = file.provider ?? DEFAULT_AI_CONFIG.provider;
-  const baseUrl = file.baseUrl ?? (file.provider ? DEFAULT_BASE_URLS[provider] : DEFAULT_AI_CONFIG.baseUrl);
+  const provider = file.provider ?? LEGACY_DEFAULT_PROVIDER;
+  const baseUrl = file.baseUrl ?? DEFAULT_BASE_URLS[provider];
   return keyOriginFor({ provider, baseUrl, region: file.region ?? region });
 }
 
@@ -363,10 +450,23 @@ function legacyKeyOrigin(file: Layer, region: string | null): string {
  */
 export async function resolveAiConfig(options: { env?: NodeJS.ProcessEnv; flags?: AiFlags; home?: string } = {}): Promise<ResolvedAiConfig> {
   const env = options.env ?? process.env;
-  const { config, sources, file, staleKey, secrets, plainSecrets, secretNotice } = await resolve(env, options.flags ?? {}, options.home);
+  const { config, sources, file, staleKey, secrets, legacySecrets, savedKeys, secretNotice } = await resolve(env, options.flags ?? {}, options.home);
   registerAiSecrets(secrets);
-  if (plainSecrets) await moveSecretsOut(file, env);
-  return { config, sources, file, ...(staleKey ? { staleKey } : {}), ...(secretNotice ? { secretNotice } : {}) };
+  if (legacySecrets) await moveSecretsOut(file, env, config.region);
+  return { config, sources, file, ...(savedKeys ? { savedKeys } : {}), ...(staleKey ? { staleKey } : {}), ...(secretNotice ? { secretNotice } : {}) };
+}
+
+/**
+ * The saved key of `provider`, for listing its models while Settings shows it before it is saved: only for a provider
+ * with one official endpoint (Anthropic, OpenAI, Gemini), and only when the key is bound to that endpoint; else null.
+ * A provider whose endpoint the user sets never gets its key here: it is sent only once saved with that endpoint.
+ */
+export async function savedFixedProviderKey(provider: AiProvider, options: { env?: NodeJS.ProcessEnv; home?: string } = {}): Promise<string | null> {
+  if (!FIXED_ENDPOINT_PROVIDERS.has(provider)) return null;
+  const env = options.env ?? process.env;
+  const slot = (await readSaved(configFile(env, options.home), env)).keys[provider];
+  if (!slot || slot.legacy) return null;
+  return slot.origin === keyOriginFor({ provider, baseUrl: DEFAULT_BASE_URLS[provider], region: null }) ? slot.key : null;
 }
 
 /** The live registration of the AI secrets resolveAiConfig last read. */
@@ -486,10 +586,13 @@ function pairChange(patch: AiConfigPatch, current: Resolution): PairChange {
  * written when validation fails. Returns the newly resolved config.
  * Consent: allowRemote true is saved with allowRemoteHost = endpointHost of the patched config; a patch that moves the
  * endpoint to another host without allowRemote: true clears the saved consent.
- * Key: a patch that changes the provider or the endpoint origin (keyOrigin) without a new apiKey removes the saved key,
- * and the result carries `notice` (KEY_REMOVED_NOTICE). A saved key is stored with apiKeyOrigin = keyOriginFor of the
- * effective endpoint after the patch (a new key, or a kept key that applied before; a key that didn't apply keeps its
- * binding).
+ * Keys: each provider keeps its own key in the encrypted store (`ai.key.<provider>`, bound to its origin in the file's
+ * `keyOrigins`); `apiKey` sets or (null) removes the key of the provider in effect after the patch, and is refused
+ * while no provider is chosen. Switching provider keeps every key. A patch that moves the same provider to another
+ * endpoint origin (keyOrigin) without a new apiKey removes that provider's key, and the result carries `notice`
+ * (KEY_REMOVED_NOTICE). A key is bound to keyOriginFor of the effective endpoint after the patch (a new key, or a kept
+ * key that applied before; a key that didn't apply keeps its binding). A file saved before 0.7 is rewritten in this
+ * shape: its one key becomes its provider's own, and a file naming no provider gets Ollama, what it meant then.
  * AWS access keys (pairChange): awsAccessKeyId and awsSecretAccessKey are saved together; both left out or "" keep the
  * saved pair; null for either removes the pair and its token; awsSessionToken is saved only with a new pair (a new pair
  * without one removes the saved token), and null alone removes the token. A pair set by the env is locked.
@@ -520,10 +623,14 @@ export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS
   const pair = pairChange(patch, current);
 
   const read = await readSaved(current.file, env);
-  const saved = read.layer as Record<string, unknown>;
+  const saved = { ...read.layer } as Record<string, unknown>;
+  // A file saved before 0.7 without a provider meant Ollama: say so, now that there is no default.
+  if (read.implicitProvider && saved.provider === undefined) saved.provider = LEGACY_DEFAULT_PROVIDER;
   if (changes.provider !== undefined && changes.provider !== saved.provider && changes.baseUrl === undefined) delete saved.baseUrl;
+  // The key goes to its provider's own slot below, never into the file.
+  const newKey = changes.apiKey as string | null | undefined;
+  delete changes.apiKey;
   const next: Record<string, unknown> = { ...saved, ...changes };
-  if (next.apiKey === null) delete next.apiKey;
   if (next.region === null || next.region === "") delete next.region;
   if (next.awsProfile === null || next.awsProfile === "") delete next.awsProfile;
   if (pair.kind === "remove") {
@@ -541,16 +648,24 @@ export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS
 
   // Where requests went before this patch and where they will go after it.
   const before = current.config;
-  const after = (await resolve(env, {}, options.home, fromFile(next))).config;
+  const keys: KeySlots = { ...read.keys };
+  const after = (await resolve(env, {}, options.home, { layer: fromFile(next), keys, implicitProvider: false })).config;
+  const target = after.provider;
   let notice: string | undefined;
-  if (typeof next.apiKey === "string" && changes.apiKey === undefined && (before.provider !== after.provider || keyOrigin(before) !== keyOrigin(after))) {
-    delete next.apiKey;
-    notice = KEY_REMOVED_NOTICE;
+  if (newKey !== undefined && target === null) throw new Error("Choose a provider before saving an API key");
+  if (target !== null) {
+    // Each provider keeps its own key: switching provider leaves every key where it is. A new key is bound to where
+    // requests go now. Moving the same provider to another origin removes its key. A kept key that applied before
+    // follows a same-origin change (a Bedrock region); one that did not apply (env or a flag moved the endpoint)
+    // keeps its binding.
+    const slot = keys[target];
+    if (typeof newKey === "string") keys[target] = { key: newKey, origin: keyOriginFor(after), legacy: false };
+    else if (newKey === null) delete keys[target];
+    else if (slot && before.provider === target && keyOrigin(before) !== keyOrigin(after)) {
+      delete keys[target];
+      notice = KEY_REMOVED_NOTICE;
+    } else if (slot && before.provider === target && before.apiKeyOrigin) keys[target] = { ...slot, origin: keyOriginFor(after) };
   }
-  // A new key is bound to where requests go now; a kept key that applied before follows a same-origin change (a
-  // Bedrock region); a key that did not apply (env or a flag moved the endpoint) keeps its binding.
-  if (typeof next.apiKey !== "string") delete next.apiKeyOrigin;
-  else if (typeof changes.apiKey === "string" || before.apiKeyOrigin) next.apiKeyOrigin = keyOriginFor(after);
   if (changes.allowRemote === true) next.allowRemoteHost = endpointHost(after);
   else if (changes.allowRemote === false) delete next.allowRemoteHost;
   else if (endpointHost(before) !== endpointHost(after)) {
@@ -559,11 +674,20 @@ export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS
   }
 
   // Secrets go to the encrypted store, never the file. In the Docker image nothing new is saved: a key that would be
-  // saved is refused, and a legacy plain-text key stays in the file until it is removed.
+  // saved is refused, and a key saved in plain text before stays in the file, pinned to the origin it applied to,
+  // until it is removed.
+  const legacyOrigin = (slot: KeySlot): string => slot.origin ?? legacyKeyOrigin(saved as Layer, current.config.region);
   if (secretProtection(env) === "environment") {
+    if (typeof newKey === "string") throw new Error(KEYS_FROM_ENVIRONMENT);
     for (const field of SECRET_FIELDS) {
       const value = nonEmptyString(next[field]);
       if (value !== null && value !== nonEmptyString(saved[field])) throw new Error(KEYS_FROM_ENVIRONMENT);
+    }
+    const legacyProvider = (saved.provider as AiProvider | undefined) ?? LEGACY_DEFAULT_PROVIDER;
+    const kept = keys[legacyProvider];
+    if (kept?.legacy) {
+      next.apiKey = kept.key;
+      next.apiKeyOrigin = legacyOrigin(kept);
     }
   } else {
     const updates: Record<string, string | null> = {};
@@ -572,15 +696,29 @@ export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS
       delete next[field];
       if (value !== (read.stored[field] ?? null)) updates[secretName(field)] = value;
     }
+    const origins: Partial<Record<AiProvider, string>> = {};
+    for (const provider of AI_PROVIDERS) {
+      const slot = keys[provider];
+      const was = read.keys[provider];
+      if (slot) {
+        origins[provider] = legacyOrigin(slot);
+        if (!was || was.legacy || was.key !== slot.key) updates[keyName(provider)] = slot.key;
+      } else if (was && !was.legacy) updates[keyName(provider)] = null;
+    }
+    if (read.legacyStored) updates[LEGACY_KEY] = null;
     if (Object.keys(updates).length > 0) await writeSecrets(dirname(current.file), updates, { env });
+    if (Object.keys(origins).length > 0) next.keyOrigins = origins;
+    else delete next.keyOrigins;
   }
+  next.version = FILE_VERSION;
   await writePrivate(current.file, `${JSON.stringify(next, null, 2)}\n`);
   const resolved = await resolveAiConfig({ env, home: options.home });
   return notice ? { ...resolved, notice } : resolved;
 }
 
 /**
- * The status for the UI and CLI. `problem`, first match wins: "AI is off" (disabled), "Choose a model",
+ * The status for the UI and CLI. `problem`, first match wins: "AI is off" (disabled), "Choose a provider" (none chosen;
+ * there is no default), "Choose a model",
  * "Choose a Bedrock region" (bedrock without region), "Bedrock needs credentials: an API key, AWS access keys or an AWS
  * profile" (bedrock with no apiKey and nothing in the AWS chain: awsCredentialsAvailable, which checks the env keys, the
  * config's access key pair and a named profile's files without running credential_process or calling SSO, and reads
@@ -601,12 +739,15 @@ export function aiStatus(resolved: ResolvedAiConfig, env: NodeJS.ProcessEnv = pr
   const host = endpointHost(c);
   const stale = resolved.staleKey;
   let problem: string | null = null;
+  const needsKey = c.provider !== null && FIXED_ENDPOINT_PROVIDERS.has(c.provider);
   if (!c.enabled) problem = "AI is off";
+  else if (!c.provider) problem = "Choose a provider";
   else if (!c.model) problem = "Choose a model";
   else if (c.provider === "bedrock" && !c.region) problem = "Choose a Bedrock region";
-  else if (stale && ((c.provider === "openai-compatible" && remote && !c.apiKey) || (c.provider === "bedrock" && !hasKey))) {
+  else if (stale && ((((c.provider === "openai-compatible" && remote) || needsKey) && !c.apiKey) || (c.provider === "bedrock" && !hasKey))) {
     problem = `The saved API key is for ${stale.savedFor}; enter a key for ${stale.endpoint}`;
   } else if (c.provider === "bedrock" && !hasKey) problem = NO_CREDENTIALS;
+  else if (needsKey && !c.apiKey) problem = `Enter your ${PROVIDER_LABELS[c.provider!]} API key`;
   else if (remote && !c.allowRemote) problem = `Sending page structure to ${host} needs your consent`;
   return {
     enabled: c.enabled,
@@ -626,6 +767,7 @@ export function aiStatus(resolved: ResolvedAiConfig, env: NodeJS.ProcessEnv = pr
     problem,
     sources: { ...resolved.sources, awsKeys: resolved.sources.awsKeys ?? "default" },
     file: resolved.file,
+    savedKeys: resolved.savedKeys ?? [],
     secretProtection: secretProtection(env),
     secretNotice: resolved.secretNotice ?? null,
   };

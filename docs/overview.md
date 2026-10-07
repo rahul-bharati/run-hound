@@ -59,7 +59,7 @@ Full catalog with severity and detectability: [docs/research.md §3](research.md
 - TypeScript + Playwright, with `@axe-core/playwright` for accessibility rules
 - Local web UI for approving the plan, served from the container
 - Docker for delivery
-- Inference (optional, bring your own model, since 0.3.0): local via Ollama, LM Studio, llama.cpp or vLLM, or cloud via Amazon Bedrock or any OpenAI-compatible endpoint. Off by default; with AI off nothing is sent to any AI provider, and with it on only redacted page structure and finding text go to the endpoint you configure. See [AI (optional)](ai.md).
+- Inference (optional, bring your own model, since 0.3.0): Anthropic, OpenAI, Google Gemini, Amazon Bedrock, any OpenAI-compatible endpoint, or Ollama. Off by default; with AI off nothing is sent to any AI provider, and with it on only redacted page structure and finding text go to the endpoint you configure. See [AI (optional)](ai.md).
 
 ## Delivery
 

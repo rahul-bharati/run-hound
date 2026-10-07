@@ -4,7 +4,7 @@
  * wire/contract types. The fixed values (AI_PROVIDERS, DEFAULT_BASE_URLS, KEY_REMOVED_NOTICE) live in
  * constants/ai-constants.ts.
  */
-import type { AiConfig, AiStatus, ConfigSource } from "../ai/types.js";
+import type { AiConfig, AiProvider, AiStatus, ConfigSource } from "../ai/types.js";
 
 /** CLI flag overrides (`run --ai --ai-provider … --ai-model … --ai-base-url … --ai-allow-remote`). */
 export interface AiFlags {
@@ -25,6 +25,8 @@ export interface ResolvedAiConfig {
    * key was not applied. `savedFor` is the key's origin, `endpoint` the current one (keyOriginFor).
    */
   staleKey?: { savedFor: string; endpoint: string };
+  /** The providers that have their own saved API key (AiStatus.savedKeys). */
+  savedKeys?: AiProvider[];
   /** Set when saved keys could not be read, or (Docker) a key is still saved in plain text (AiStatus.secretNotice). */
   secretNotice?: string;
 }

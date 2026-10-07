@@ -4,8 +4,12 @@
  */
 import type { SecretProtection } from "../types/secrets.js";
 
-/** Wire protocol. "ollama" is the OpenAI-compatible protocol with Ollama's defaults and its native model list. */
-export type AiProvider = "ollama" | "openai-compatible" | "bedrock";
+/**
+ * Who answers. "anthropic", "openai" and "gemini" are their official APIs at one fixed endpoint, with the user's own
+ * key; "bedrock" is Amazon Bedrock; "openai-compatible" is any other endpoint speaking that protocol; "ollama" is the
+ * OpenAI-compatible protocol with Ollama's defaults and its native model list (opt-in, never the default).
+ */
+export type AiProvider = "anthropic" | "openai" | "gemini" | "bedrock" | "openai-compatible" | "ollama";
 
 export interface AiFeatures {
   /** Review the built-in plan: recommend, rank and give a reason per scenario. */
@@ -19,7 +23,8 @@ export interface AiFeatures {
 export interface AiConfig {
   /** Master switch. False by default. */
   enabled: boolean;
-  provider: AiProvider;
+  /** null until one is chosen: there is no default provider. */
+  provider: AiProvider | null;
   /**
    * OpenAI-compatible base URL including the version path, no trailing slash: "http://127.0.0.1:11434/v1" (Ollama),
    * "http://127.0.0.1:1234/v1" (LM Studio), "https://api.openai.com/v1". For bedrock: empty, or an endpoint override
@@ -78,7 +83,8 @@ export type ConfigSource = "default" | "file" | "env" | "flag";
 /** What the UI and `run-hound ai status` see: the config without the key. */
 export interface AiStatus {
   enabled: boolean;
-  provider: AiProvider;
+  /** null until one is chosen: there is no default provider. */
+  provider: AiProvider | null;
   baseUrl: string;
   model: string;
   region: string | null;
@@ -113,6 +119,8 @@ export interface AiStatus {
   };
   /** Absolute path of the saved config file. */
   file: string;
+  /** The providers that have their own saved API key; names only, never a key. */
+  savedKeys?: AiProvider[];
   /** How saved keys are kept here (operations/secret-store.ts). */
   secretProtection?: SecretProtection;
   /** Set when saved keys could not be read, or (Docker) a key is still saved in plain text and should move to the env. */

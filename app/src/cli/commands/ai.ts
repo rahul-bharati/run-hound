@@ -29,7 +29,7 @@ export async function aiCommand(args: string[], deps: IAiCommandDeps): Promise<n
   if (sub === "test") {
     const result = await deps.services.testConnection({ ...resolved.config, enabled: true });
     if (result.ok) {
-      deps.context.stdout.write(aiTestOk(status.provider, result.model, result.ms));
+      deps.context.stdout.write(aiTestOk(status.provider ?? "(none)", result.model, result.ms));
       return 0;
     }
     deps.context.stderr.write(aiTestFailed(redactSecrets(result.error), status));

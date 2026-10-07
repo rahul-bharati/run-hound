@@ -189,3 +189,123 @@ describe("chatJson", () => {
     expect(error.message).not.toContain("x".repeat(250));
   });
 });
+
+const TEMPERATURE_REJECTED = JSON.stringify({
+  error: { message: "Unsupported value: 'temperature' does not support 0 with this model. Only the default (1) value is supported.", type: "invalid_request_error", param: "temperature" },
+});
+const JSON_SCHEMA_REJECTED = JSON.stringify({ error: { message: "Invalid parameter: response_format of type json_schema is not supported" } });
+
+describe("chatJson for OpenAI itself (provider openai)", () => {
+  const openai = (overrides: Partial<{ apiKey: string | null }> = {}) => ({ ...config({ model: "gpt-test", apiKey: "sk-proj-test-key" }), provider: "openai" as const, ...overrides });
+
+  it("posts a strict json_schema chat completion without temperature or max_tokens, with the Bearer key", async () => {
+    fake.reply({ answer: 42 });
+    expect(JSON.parse(await chatJson(openai(), MESSAGES, SCHEMA))).toEqual({ answer: 42 });
+    const call = fake.calls[0]!;
+    expect(call.path).toBe("/v1/chat/completions");
+    expect(call.headers.authorization).toBe("Bearer sk-proj-test-key");
+    expect(call.body).toEqual({
+      model: "gpt-test",
+      messages: MESSAGES,
+      stream: false,
+      response_format: { type: "json_schema", json_schema: { name: "plan_review", schema: SCHEMA.schema, strict: true } },
+    });
+    expect(call.body).not.toHaveProperty("temperature");
+    expect(call.body).not.toHaveProperty("max_tokens");
+  });
+
+  it("asks for the key and sends nothing without one", async () => {
+    fake.reply({ answer: 1 });
+    const error = await caught(chatJson(openai({ apiKey: null }), MESSAGES, SCHEMA));
+    expect(error.code).toBe("not-configured");
+    expect(error.message).toBe("Enter your OpenAI API key");
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  it("does not retry a temperature complaint: it never sends one", async () => {
+    fake.reply({ status: 400, body: TEMPERATURE_REJECTED });
+    const error = await caught(chatJson(openai(), MESSAGES, SCHEMA));
+    expect(error.code).toBe("http");
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it("names OpenAI in its errors and maps 401 to auth", async () => {
+    fake.reply({ status: 401, body: JSON.stringify({ error: { message: "Incorrect API key provided: sk-proj-****" } }) });
+    const error = await caught(chatJson(openai(), MESSAGES, SCHEMA));
+    expect(error.code).toBe("auth");
+    expect(error.message).toContain("OpenAI");
+    fake.reply({ status: 429, body: JSON.stringify({ error: { message: "You exceeded your current quota." } }) });
+    const limited = await caught(chatJson(openai(), MESSAGES, SCHEMA));
+    expect(limited.code).toBe("http");
+    expect(limited.message).toBe("OpenAI answered HTTP 429: You exceeded your current quota.");
+  });
+});
+
+describe("chatJson temperature fallback (other servers)", () => {
+  it("retries once without temperature when the server rejects it, and remembers that for the base URL", async () => {
+    fake.reply({ status: 400, body: TEMPERATURE_REJECTED }, { answer: 5 });
+    expect(JSON.parse(await chatJson(config(), MESSAGES, SCHEMA))).toEqual({ answer: 5 });
+    expect(fake.calls).toHaveLength(2);
+    expect(fake.calls[0]!.body.temperature).toBe(0);
+    expect(fake.calls[1]!.body).not.toHaveProperty("temperature");
+    expect(fake.calls[1]!.body.response_format.type).toBe("json_schema");
+
+    // The same base URL leaves it out from now on.
+    fake.reply({ answer: 6 });
+    expect(JSON.parse(await chatJson(config(), MESSAGES, SCHEMA))).toEqual({ answer: 6 });
+    expect(fake.calls).toHaveLength(3);
+    expect(fake.calls[2]!.body).not.toHaveProperty("temperature");
+  });
+
+  it("copes with a server that rejects temperature and then json_schema", async () => {
+    fake.reply({ status: 400, body: TEMPERATURE_REJECTED }, { status: 400, body: JSON_SCHEMA_REJECTED }, { answer: 8 });
+    expect(JSON.parse(await chatJson(config(), MESSAGES, SCHEMA))).toEqual({ answer: 8 });
+    expect(fake.calls).toHaveLength(3);
+    expect(fake.calls[2]!.body).not.toHaveProperty("temperature");
+    expect(fake.calls[2]!.body.response_format).toEqual({ type: "json_object" });
+  });
+
+  it("gives up after one retry when the second answer is a 400 too", async () => {
+    fake.reply({ status: 400, body: TEMPERATURE_REJECTED });
+    const error = await caught(chatJson(config(), MESSAGES, SCHEMA));
+    expect(error.code).toBe("http");
+    expect(error.status).toBe(400);
+    expect(fake.calls).toHaveLength(2);
+  });
+
+  it("keeps temperature 0 for an explicit openai-compatible provider", async () => {
+    fake.reply({ answer: 1 });
+    await chatJson({ ...config(), provider: "openai-compatible" }, MESSAGES, SCHEMA);
+    expect(fake.calls[0]!.body.temperature).toBe(0);
+  });
+});
+
+describe("chatJson refusals", () => {
+  async function refusing(message: Record<string, unknown>): Promise<AiError> {
+    const server = await startFixtureServer({
+      routes: { "POST /v1/chat/completions": (_req, res) => void res.end(JSON.stringify({ choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", ...message } }] })) },
+    });
+    try {
+      return await caught(chatJson(config({ baseUrl: `${server.url}/v1` }), MESSAGES, SCHEMA));
+    } finally {
+      await server.close();
+    }
+  }
+
+  it("rejects with bad-output and the refusal text when the model refused", async () => {
+    const error = await refusing({ content: null, refusal: "I'm sorry, I can't help with that." });
+    expect(error.code).toBe("bad-output");
+    expect(error.message).toBe("The model refused: I'm sorry, I can't help with that.");
+  });
+
+  it("ignores an empty or null refusal", async () => {
+    const server = await startFixtureServer({
+      routes: { "POST /v1/chat/completions": (_req, res) => void res.end(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: '{"answer": 1}', refusal: null } }] })) },
+    });
+    try {
+      expect(JSON.parse(await chatJson(config({ baseUrl: `${server.url}/v1` }), MESSAGES, SCHEMA))).toEqual({ answer: 1 });
+    } finally {
+      await server.close();
+    }
+  });
+});

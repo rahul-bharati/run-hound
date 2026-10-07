@@ -465,6 +465,13 @@ In a container, Ollama on your machine is `http://127.0.0.1:11434/v1` with `--ne
 
 What we'd like to hear: were the reasons and suggested flows useful or noise, did a suggested flow report something that isn't a bug, and which model you used.
 
+## Live provider tests
+
+Run Hound's AI layer has a small set of live smoke tests (`app/tests/live`): per provider (Anthropic, OpenAI, Gemini, Amazon Bedrock) one tiny structured call to a cheap model, plus one call with a deliberately invalid key that must be refused as an authentication error. That is eight requests of a few tokens each, a fraction of a cent per run. They are for maintainers: normal `pnpm test` never calls a provider, and CI's `ci.yml` doesn't either.
+
+- **Locally**: save a key once with `pnpm --filter run-hound live-keys set anthropic` (also `openai`, `gemini`, `bedrock`), paste it and press Enter (nothing is echoed). It is kept in Run Hound's encrypted store (`~/.config/run-hound/secrets.json`), never in the repository or a `.env` file. `live-keys list` shows which are set (names only), `live-keys clear <provider>` removes one. Then `pnpm --filter run-hound test:live`. A provider with no key is skipped, and the skipped test's name says how to set one. The environment overrides the store: `RUNHOUND_LIVE_ANTHROPIC_KEY`, `RUNHOUND_LIVE_OPENAI_KEY`, `RUNHOUND_LIVE_GEMINI_KEY`, `RUNHOUND_LIVE_BEDROCK_TOKEN` (or `RUNHOUND_LIVE_BEDROCK_ACCESS_KEY_ID` and `RUNHOUND_LIVE_BEDROCK_SECRET_ACCESS_KEY`), `RUNHOUND_LIVE_BEDROCK_REGION` (default `us-east-1`), and `RUNHOUND_LIVE_<PROVIDER>_MODEL` to try another model.
+- **In CI**: `.github/workflows/live-providers.yml` runs on demand and on pull requests that change `app/src/ai/**` or `app/tests/live/**`, with the repository secrets `RUNHOUND_LIVE_ANTHROPIC_KEY`, `RUNHOUND_LIVE_OPENAI_KEY`, `RUNHOUND_LIVE_GEMINI_KEY`, `RUNHOUND_LIVE_BEDROCK_TOKEN` and `RUNHOUND_LIVE_BEDROCK_REGION`. A missing secret (a fork's pull request) skips that provider.
+
 ## Reading the report
 
 Every run writes a folder: `./runs/<runId>/` for Docker, `app/runs/<runId>/` from source. In it:

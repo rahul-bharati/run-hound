@@ -3,12 +3,12 @@
  * AI config, lists models, and reports whether the saved API key was used (only when the target endpoint matches the
  * saved one).
  */
-import { aiStatus, resolveAiConfig, saveAiConfig } from "../../ai/config.js";
+import { aiStatus, resolveAiConfig, saveAiConfig, savedFixedProviderKey } from "../../ai/config.js";
 import { testConnection } from "../../ai/client.js";
 import { resolveModelsList } from "./ai-models.js";
 import { redactSecrets } from "../../engine/redact.js";
 import { AI_PROVIDERS } from "../../constants/ai-constants.js";
-import type { AiConfigPatch } from "../../ai/types.js";
+import type { AiConfigPatch, AiProvider } from "../../ai/types.js";
 import type {
   AiModelsOutcome,
   AiModelsQuery,
@@ -89,11 +89,18 @@ export class AiFlow implements IAiFlow {
     if (asked && !(AI_PROVIDERS as readonly string[]).includes(asked)) {
       return { ok: false, message: `Unknown provider "${redactSecrets(asked)}".`, status: 400 };
     }
-    const resolved2 = await resolveModelsList(config, {
-      ...(asked !== undefined ? { provider: asked } : {}),
-      ...(query.baseUrl !== undefined ? { baseUrl: query.baseUrl } : {}),
-      ...(query.allowRemote !== undefined ? { allowRemote: query.allowRemote } : {}),
-    });
+    // Settings may list the models of a provider before switching to it: Anthropic, OpenAI and Gemini use their own
+    // saved key (each provider keeps one), and only at their official endpoint.
+    const savedKey = asked && asked !== config.provider ? await savedFixedProviderKey(asked as AiProvider) : null;
+    const resolved2 = await resolveModelsList(
+      config,
+      {
+        ...(asked !== undefined ? { provider: asked } : {}),
+        ...(query.baseUrl !== undefined ? { baseUrl: query.baseUrl } : {}),
+        ...(query.allowRemote !== undefined ? { allowRemote: query.allowRemote } : {}),
+      },
+      (provider) => (provider === asked ? savedKey : null),
+    );
     if (!resolved2.ok) {
       return { ok: false, message: `Unknown provider "${redactSecrets(resolved2.raw)}".`, status: 400 };
     }

@@ -123,8 +123,9 @@ describe("GET /api/ai", () => {
     expect(res.status).toBe(200);
     const status = (await res.json()) as AiStatus;
     expect(status.enabled).toBe(false);
-    expect(status.provider).toBe("ollama");
+    expect(status.provider).toBeNull();
     expect(status.hasKey).toBe(false);
+    expect(status.savedKeys).toEqual([]);
     expect(status.problem).toBe("AI is off");
     expect(status.file).toBe(join(configDir, "ai.json"));
     expect(status).not.toHaveProperty("apiKey");
