@@ -103,7 +103,7 @@ export function browserEnv(env: NodeJS.ProcessEnv, platform: NodeJS.Platform, di
   const allowed = new Set([...COMMON_VARS, ...(os === "darwin" ? MAC_VARS : LINUX_VARS)]);
   for (const [name, value] of Object.entries(env)) {
     if (!isSet(value)) continue;
-    if (allowed.has(name) || /^LC_/.test(name)) out[name] = value;
+    if (allowed.has(name) || name.startsWith("LC_")) out[name] = value;
   }
 
   // Display variables: Linux (and other POSIX) only, and only for a headed launch. macOS never gets them.
