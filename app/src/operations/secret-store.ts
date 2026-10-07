@@ -107,9 +107,10 @@ async function readText(file: string): Promise<string | null> {
  * The data key for `dir`, or null when none is saved. A Run Hound key is wrapped with the OS store once one is
  * available. A key the OS store wrapped can't be opened without it: `locked` (the desktop app's store, seen from the
  * command line) is never overwritten; a key that fails to open where it was made (a changed keychain, a damaged file)
- * is replaced on the next save, as what it sealed is lost anyway.
+ * is replaced on the next save, as what it sealed is lost anyway. `upgrade: false` reads another program's store (the
+ * command line's, imported by the desktop app) without wrapping its key, which would lock that program out.
  */
-async function loadKey(dir: string, protection: SavingProtection): Promise<KeyResult> {
+async function loadKey(dir: string, protection: SavingProtection, upgrade = true): Promise<KeyResult> {
   const file = join(dir, KEY_FILE);
   const text = await readText(file);
   if (text === null) return null;
@@ -126,7 +127,7 @@ async function loadKey(dir: string, protection: SavingProtection): Promise<KeyRe
     return { problem: UNREADABLE_KEY, locked: false };
   }
   if (key.length !== KEY_BYTES) return { problem: UNREADABLE_KEY, locked: false };
-  if (parsed.protection === "run-hound" && protection === "os-keychain") {
+  if (upgrade && parsed.protection === "run-hound" && protection === "os-keychain") {
     const upgraded = keyFileText("os-keychain", key);
     await writePrivate(file, upgraded);
     unwrapped.set(file, { text: upgraded, key });
@@ -198,7 +199,7 @@ async function readEntries(dir: string): Promise<Record<string, string>> {
  * Every saved secret in `dir` that opens. Never throws for a missing, locked or damaged store: `problem` says what
  * could not be read. With RUNHOUND_SECRETS=environment nothing is read.
  */
-export async function readSecrets(dir: string, options: { env?: NodeJS.ProcessEnv } = {}): Promise<SecretsRead> {
+export async function readSecrets(dir: string, options: { env?: NodeJS.ProcessEnv; upgrade?: boolean } = {}): Promise<SecretsRead> {
   const protection = secretProtection(options.env);
   if (protection === "environment") return { values: {}, protection, problem: null };
   const entries = await readEntries(dir);
@@ -206,7 +207,7 @@ export async function readSecrets(dir: string, options: { env?: NodeJS.ProcessEn
   if (names.length === 0) return { values: {}, protection, problem: null };
   let loaded: KeyResult;
   try {
-    loaded = await loadKey(dir, protection);
+    loaded = await loadKey(dir, protection, options.upgrade ?? true);
   } catch {
     loaded = { problem: UNREADABLE_KEY, locked: false };
   }

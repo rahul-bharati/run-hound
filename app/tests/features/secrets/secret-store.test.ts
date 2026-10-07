@@ -356,6 +356,23 @@ describe("os-keychain protection", () => {
     expect((await readSecrets(dir, normal)).values).toEqual({ "ai.apiKey": SECRET });
   });
 
+  it("reads a run-hound store without upgrading its key file with { upgrade: false }, while the default read upgrades it", async () => {
+    await writeSecrets(dir, { "ai.apiKey": SECRET }, normal);
+    const before = await readFile(join(dir, KEY_FILE));
+    const entriesBefore = await readFile(join(dir, SECRETS_FILE));
+
+    restart(fakeProtector());
+    expect(await readSecrets(dir, { ...normal, upgrade: false })).toEqual({ values: { "ai.apiKey": SECRET }, protection: "os-keychain", problem: null });
+    expect(await readFile(join(dir, KEY_FILE))).toEqual(before);
+    expect((await keyFile()).protection).toBe("run-hound");
+
+    // The default read (a new process, so no cached key) wraps the key; the entries are untouched either way.
+    restart(fakeProtector());
+    expect((await readSecrets(dir, normal)).values).toEqual({ "ai.apiKey": SECRET });
+    expect((await keyFile()).protection).toBe("os-keychain");
+    expect(await readFile(join(dir, SECRETS_FILE))).toEqual(entriesBefore);
+  });
+
   it("upgrades a run-hound key file on the first save too", async () => {
     await writeSecrets(dir, { a: "value-for-a-123" }, normal);
     restart(fakeProtector());

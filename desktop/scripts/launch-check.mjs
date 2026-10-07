@@ -1,9 +1,12 @@
 // Launch the built desktop app in Electron and check what unit tests can't: the bundled engine loads, the window
-// shows the engine's UI, the preload bridge answers, the renderer has no Node, and navigation stays on the engine.
+// shows the engine's UI, the preload bridge answers, the renderer has no Node, navigation stays on the engine, the
+// packaged app finds its own Chromium and uses it, saved keys never reach disk as plain text, and the first launch
+// imports the command line's settings.
 // Run with `pnpm test:launch` (builds first). On Linux without a display, wrap it in xvfb-run.
 import { _electron as electron } from "playwright";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -11,17 +14,32 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const scratch = mkdtempSync(join(tmpdir(), "run-hound-desktop-check-"));
+process.on("exit", () => rmSync(scratch, { recursive: true, force: true }));
 
 // CI runners can't use Chromium's setuid sandbox; the renderer sandbox the app asks for is unaffected.
 // DESKTOP_EXECUTABLE checks a packaged build (release/linux-unpacked/run-hound, say) instead of the dev checkout.
 const packaged = process.env.DESKTOP_EXECUTABLE;
 const args = [...(packaged ? [] : [root]), ...(process.env.CI ? ["--no-sandbox"] : [])];
-const app = await electron.launch({
-  ...(packaged ? { executablePath: packaged } : {}),
-  args,
-  env: { ...process.env, RUNHOUND_CONFIG_DIR: join(scratch, "config"), RUNHOUND_RUNS_DIR: join(scratch, "runs") },
-  timeout: 60_000,
-});
+
+// A packaged app must run on the Chromium it ships. Giving it an empty home puts Playwright's per-user browser cache
+// out of reach, so a planning run that opens a page can only have used the bundled one.
+const home = join(scratch, "home");
+const emptyHome = packaged
+  ? { HOME: home, USERPROFILE: home, XDG_CACHE_HOME: join(home, ".cache"), LOCALAPPDATA: join(home, "AppData", "Local"), APPDATA: join(home, "AppData", "Roaming") }
+  : {};
+
+/** The app's environment: the desktop sets its browser variables itself, so none may leak in from the caller. */
+function appEnv(extra) {
+  const env = { ...process.env, ...emptyHome, RUNHOUND_RUNS_DIR: join(scratch, "runs"), ...extra };
+  for (const name of ["RUNHOUND_FULL_CHROMIUM", "RUNHOUND_SECRETS", ...(packaged ? ["PLAYWRIGHT_BROWSERS_PATH", "PLAYWRIGHT_SKIP_BROWSER_GC"] : [])]) delete env[name];
+  for (const [name, value] of Object.entries(extra)) if (value === undefined) delete env[name];
+  return env;
+}
+
+const launch = (extra) =>
+  electron.launch({ ...(packaged ? { executablePath: packaged } : {}), args, env: appEnv(extra), timeout: 60_000 });
+
+const app = await launch({ RUNHOUND_CONFIG_DIR: join(scratch, "config") });
 
 // A one-form target page, so planning has something to open in Chromium.
 const target = createServer((_req, res) => {
@@ -60,6 +78,63 @@ try {
   await check("the engine's API answers", async () => {
     const status = await page.evaluate(async () => (await fetch("/api/runs")).status);
     assert.equal(status, 200);
+  });
+
+  /** A call to the engine's API from the page, with the header its settings routes require. */
+  const api = (method, path, body) =>
+    page.evaluate(
+      async ({ method, path, body }) => {
+        const res = await fetch(path, { method, headers: { "x-run-hound": "1", "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
+        return { status: res.status, body: await res.json() };
+      },
+      { method, path, body },
+    );
+
+  await check("the app makes headless launches use the full Chromium", async () => {
+    assert.equal(await app.evaluate(() => process.env.RUNHOUND_FULL_CHROMIUM), "1");
+  });
+
+  if (packaged) {
+    await check("the packaged app resolves its bundled Chromium, and ships no headless shell", async () => {
+      const resources = await app.evaluate(() => process.resourcesPath);
+      const browsers = await app.evaluate(() => process.env.PLAYWRIGHT_BROWSERS_PATH);
+      assert.equal(browsers, join(resources, "playwright-browsers"));
+      assert.equal(await app.evaluate(() => process.env.PLAYWRIGHT_SKIP_BROWSER_GC), "1");
+      assert.deepEqual(readdirSync(browsers).filter((name) => name.startsWith("chromium_headless_shell")), []);
+      // Playwright's own answer for that folder, asked in a fresh process so nothing is cached: the executable is
+      // inside it and exists.
+      const asked = spawnSync(
+        process.execPath,
+        ["--input-type=module", "-e", 'const { chromium } = await import("playwright"); console.log(chromium.executablePath());'],
+        { cwd: root, env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: browsers }, encoding: "utf8" },
+      );
+      assert.equal(asked.status, 0, asked.stderr);
+      const executable = asked.stdout.trim();
+      assert.ok(executable.startsWith(browsers), `${executable} is not inside ${browsers}`);
+      assert.ok(existsSync(executable), `${executable} does not exist`);
+    });
+  }
+
+  await check("settings report how saved keys are protected", async () => {
+    const reply = await api("GET", "/api/ai");
+    assert.equal(reply.status, 200);
+    assert.ok(["os-keychain", "run-hound"].includes(reply.body.secretProtection), `secretProtection was ${JSON.stringify(reply.body.secretProtection)}`);
+  });
+
+  await check("a saved key leaves no plain text in the config folder", async () => {
+    // A made-up key, never a real one.
+    const fake = "sk-ant-launch-check-FAKE-0123456789abcdefghijklmnopqrstuv";
+    const reply = await api("PUT", "/api/ai", { provider: "anthropic", apiKey: fake });
+    assert.equal(reply.status, 200, JSON.stringify(reply.body));
+    assert.ok(reply.body.savedKeys.includes("anthropic"), JSON.stringify(reply.body.savedKeys));
+    assert.ok(!JSON.stringify(reply.body).includes(fake), "the API echoed the key");
+    const configDir = join(scratch, "config");
+    const files = readdirSync(configDir, { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile());
+    assert.ok(files.some((entry) => entry.name === "secrets.json"), `no secrets.json in ${configDir}: ${files.map((entry) => entry.name)}`);
+    for (const entry of files) {
+      const text = readFileSync(join(entry.parentPath, entry.name)).toString("latin1");
+      assert.ok(!text.includes(fake), `${entry.name} holds the key in plain text`);
+    }
   });
 
   await check("planning opens the target in Playwright's Chromium from inside the app", async () => {
@@ -144,7 +219,32 @@ try {
 } finally {
   await app.close();
   target.close();
-  rmSync(scratch, { recursive: true, force: true });
+}
+
+// The first launch with no RUNHOUND_CONFIG_DIR imports what the command line saved, once, and leaves its copy alone.
+// The folders differ by OS (macOS and Windows keep the desktop app's own folder), so this runs where they are known.
+if (process.platform === "linux") {
+  const xdg = join(scratch, "xdg");
+  const cliDir = join(xdg, "run-hound");
+  const desktopDir = join(xdg, "run-hound-desktop");
+  const saved = `${JSON.stringify({ version: 2, enabled: true, provider: "openai", model: "gpt-launch-check" }, null, 2)}\n`;
+  mkdirSync(cliDir, { recursive: true });
+  writeFileSync(join(cliDir, "ai.json"), saved);
+  const imported = await launch({ RUNHOUND_CONFIG_DIR: undefined, XDG_CONFIG_HOME: xdg });
+  try {
+    const page = await imported.firstWindow();
+    await page.waitForLoadState("domcontentloaded");
+    await check("the first launch imports the command line's settings into the desktop folder, once", async () => {
+      const reply = await page.evaluate(async () => (await fetch("/api/ai", { headers: { "x-run-hound": "1" } })).json());
+      assert.equal(reply.provider, "openai");
+      assert.equal(reply.model, "gpt-launch-check");
+      assert.equal(reply.file, join(desktopDir, "ai.json"));
+      assert.ok(existsSync(join(desktopDir, "imported-from-cli.json")), "no import marker");
+      assert.equal(readFileSync(join(cliDir, "ai.json"), "utf8"), saved, "the command line's file changed");
+    });
+  } finally {
+    await imported.close();
+  }
 }
 
 console.log(results.join("\n"));

@@ -23,7 +23,8 @@
     "start": "pnpm electron:fetch && pnpm build && electron .",
     "test:launch": "pnpm electron:fetch && pnpm build && node scripts/launch-check.mjs",
     "dist": "pnpm build && node scripts/dist.mjs",
-    "dist:dir": "pnpm build && node scripts/dist.mjs --dir"
+    "dist:dir": "pnpm build && node scripts/dist.mjs --dir",
+    "browsers:fetch": "node scripts/fetch-browsers.mjs"
   },
   "dependencies": {
     "@axe-core/playwright": "4.13.0",
@@ -64,6 +65,18 @@
     },
     "win": {
       "target": "nsis"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "build/playwright-browsers",
+        "to": "playwright-browsers",
+        "filter": [
+          "**/*",
+          "!.links",
+          "!.links/**",
+          "!**/DEPENDENCIES_VALIDATED"
+        ]
+      }
+    ]
   }
 }
