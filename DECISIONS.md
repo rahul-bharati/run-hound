@@ -163,3 +163,4 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-10-05: [The automated Claude review may read the pull request and run its review subagents](docs/decisions/10-2026.md#2026-10-05-claude-review-tools)
 - 2026-10-06: [Saved keys and test-account passwords are encrypted: the OS keychain on the desktop, Run Hound's own store elsewhere, environment variables only in Docker](docs/decisions/10-2026.md#2026-10-06-encrypted-secret-store) (supersedes the `ai.json` storage in 2026-09-30-aws-only-when-a-profile-is-named)
 - 2026-10-07: [Anthropic, OpenAI, Google Gemini and Amazon Bedrock with the user's own key; no default provider, one saved key per provider, Ollama opt-in](docs/decisions/10-2026.md#2026-10-07-byok-providers)
+- 2026-10-07: [Desktop-release work merges into `integration/desktop`, which merges to `main` only when the desktop release is ready to ship](docs/decisions/10-2026.md#2026-10-07-desktop-integration-branch)
