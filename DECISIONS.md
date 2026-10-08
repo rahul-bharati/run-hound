@@ -166,3 +166,4 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-10-07: [Desktop-release work merges into `integration/desktop`, which merges to `main` only when the desktop release is ready to ship](docs/decisions/10-2026.md#2026-10-07-desktop-integration-branch)
 - 2026-10-07: [The desktop app keeps its own settings folder on every OS and imports the command line's settings once, at first launch](docs/decisions/10-2026.md#2026-10-07-desktop-settings-import)
 - 2026-10-07: [The desktop package ships only Playwright's full Chromium and runs headless on it too](docs/decisions/10-2026.md#2026-10-07-desktop-full-chromium)
+- 2026-10-08: [The desktop window draws its own title bar in brand colours, carries the Run Hound icon and has no stock Electron menu](docs/decisions/10-2026.md#2026-10-08-desktop-window-look)

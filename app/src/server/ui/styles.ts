@@ -538,6 +538,19 @@ table.groups td.good { color:var(--accent); }
   .detail-dur { margin-left: calc(32px + .75rem); }
   .plan-actions .btn { width:100%; }
 }
+/* Desktop app only. desktop/src/preload.ts marks <html data-shell="desktop"> and adds the .desktop-titlebar strip, because the
+   window's own title bar is hidden (docs: desktop shell theme). Every rule is scoped here, so a browser renders none of it. */
+html[data-shell="desktop"] { scroll-padding-top: 36px; }
+html[data-shell="desktop"] .desktop-titlebar { position:fixed; top:0; left:0; right:0; height:36px; z-index:30; -webkit-app-region:drag; user-select:none;
+  background: linear-gradient(90deg, var(--bg-deep) calc(15rem - 1px), var(--line-soft) calc(15rem - 1px), var(--line-soft) 15rem, var(--bg) 15rem); }
+html[data-shell="desktop"] #sidebar { padding-top: calc(1.5rem + 36px); }
+html[data-shell="desktop"] main#view { padding-top: calc(36px + 1.75rem); }
+@media (min-width: 68.01rem) { html[data-shell="desktop"] .results-panel { top: calc(36px + 1rem); max-height: calc(100vh - 2rem - 36px); } }
+@media (max-width: 900px) {
+  html[data-shell="desktop"] .desktop-titlebar { background: var(--bg-deep); }
+  html[data-shell="desktop"] #sidebar { padding-top: calc(.6rem + 36px); }
+  html[data-shell="desktop"] main#view { padding-top: 1.25rem; }
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }

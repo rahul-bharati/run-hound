@@ -4,7 +4,7 @@
 // neither Node nor Electron can load that source as it is. Playwright and axe stay external: they find their own
 // files and browsers at runtime, and the packaged app ships them as node_modules.
 import { build } from "esbuild";
-import { readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -67,3 +67,7 @@ await Promise.all([
     external: ["electron"],
   }),
 ]);
+
+// The window icon (a PNG on Windows and Linux), next to dist/main.js where the main process looks for it.
+mkdirSync(join(root, "dist"), { recursive: true });
+copyFileSync(join(root, "assets/icon.png"), join(root, "dist/icon.png"));

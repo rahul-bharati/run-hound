@@ -1,7 +1,7 @@
 // Launch the built desktop app in Electron and check what unit tests can't: the bundled engine loads, the window
 // shows the engine's UI, the preload bridge answers, the renderer has no Node, navigation stays on the engine, the
-// packaged app finds its own Chromium and uses it, saved keys never reach disk as plain text, and the first launch
-// imports the command line's settings.
+// packaged app finds its own Chromium and uses it, saved keys never reach disk as plain text, the first launch
+// imports the command line's settings, and the window has the Run Hound look (dark, with the UI's own 36 px title bar).
 // Run with `pnpm test:launch` (builds first). On Linux without a display, wrap it in xvfb-run.
 import { _electron as electron } from "playwright";
 import assert from "node:assert/strict";
@@ -158,6 +158,116 @@ try {
 
   await check("the bridge exposes only the contract's surface", async () => {
     assert.deepEqual(await page.evaluate(() => Object.keys(window.runHoundDesktop).sort()), ["engine", "runsDir", "version"]);
+  });
+
+  // The look (src/shell.ts, the preload, and the .desktop-titlebar rules in app/src/server/ui/styles.ts).
+  const hostPlatform = await app.evaluate(() => process.platform);
+  await page.waitForSelector("main#view > *");
+
+  await check("the window is dark before the page paints: its background is the UI's page colour", async () => {
+    const window = await app.browserWindow(page);
+    const colour = await window.evaluate((w) => w.getBackgroundColor());
+    assert.equal(colour.toLowerCase().replace(/^#ff(?=[0-9a-f]{6}$)/, "#"), "#0a1014");
+    assert.deepEqual(await app.evaluate(({ nativeTheme }) => [nativeTheme.themeSource, nativeTheme.shouldUseDarkColors], undefined), ["dark", true]);
+  });
+
+  await check("the preload marks the page as the desktop app's", async () => {
+    assert.deepEqual(await page.evaluate(() => [document.documentElement.dataset.shell, document.documentElement.dataset.platform]), ["desktop", hostPlatform]);
+  });
+
+  await check("the title bar strip is one aria-hidden, fixed, draggable, 36 px div, first in <body>, above the sidebar", async () => {
+    const strip = await page.evaluate(() => {
+      const el = document.querySelector(".desktop-titlebar");
+      const style = getComputedStyle(el);
+      const box = el.getBoundingClientRect();
+      const stack = (x) => document.elementFromPoint(x, 10)?.className;
+      return {
+        count: document.querySelectorAll(".desktop-titlebar").length,
+        first: document.body.firstElementChild === el,
+        tag: el.tagName,
+        ariaHidden: el.getAttribute("aria-hidden"),
+        position: style.position,
+        region: style.getPropertyValue("-webkit-app-region"),
+        top: box.top,
+        height: box.height,
+        width: box.width,
+        viewport: innerWidth,
+        atSidebar: stack(100),
+        atContent: stack(innerWidth - 200),
+      };
+    });
+    const { region, viewport, ...rest } = strip;
+    assert.deepEqual(rest, { count: 1, first: true, tag: "DIV", ariaHidden: "true", position: "fixed", top: 0, height: 36, width: viewport, atSidebar: "desktop-titlebar", atContent: "desktop-titlebar" });
+    assert.equal(region, "drag");
+  });
+
+  await check("nothing interactive or visible lies under the strip: the sidebar's brand and the view's first content start below 36 px", async () => {
+    const tops = await page.evaluate(() => ({
+      brand: document.querySelector("#sidebar .brand").getBoundingClientRect().top,
+      view: document.querySelector("main#view").firstElementChild.getBoundingClientRect().top,
+    }));
+    assert.ok(tops.brand >= 36, `the brand starts at ${tops.brand}`);
+    assert.ok(tops.view >= 36, `the view's first content starts at ${tops.view}`);
+  });
+
+  await check("a scrolled page never shows through the strip, and the sticky results panel sits below it", async () => {
+    const reply = await page.evaluate(async () => {
+      const filler = document.createElement("div");
+      filler.style.cssText = "height:3000px";
+      const panel = document.createElement("div");
+      panel.className = "results-panel";
+      document.querySelector("main#view").append(filler, panel);
+      scrollTo(0, 500);
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const sidebar = document.querySelector("#sidebar").getBoundingClientRect();
+      const sticky = getComputedStyle(panel);
+      const out = { scrolled: scrollY, sidebarTop: sidebar.top, sidebarHeight: sidebar.height, innerHeight, hit: document.elementFromPoint(innerWidth - 300, 20)?.className, panelPosition: sticky.position, panelTop: sticky.top, panelMaxHeight: sticky.maxHeight };
+      filler.remove();
+      panel.remove();
+      scrollTo(0, 0);
+      return out;
+    });
+    assert.equal(reply.scrolled, 500);
+    assert.equal(reply.hit, "desktop-titlebar");
+    assert.equal(reply.sidebarTop, 0);
+    assert.equal(reply.sidebarHeight, reply.innerHeight);
+    assert.deepEqual([reply.panelPosition, reply.panelTop, reply.panelMaxHeight], ["sticky", "52px", `${reply.innerHeight - 32 - 36}px`]);
+  });
+
+  await check("the application menu is minimal on macOS and absent elsewhere", async () => {
+    const labels = await app.evaluate(({ Menu }) => Menu.getApplicationMenu()?.items.map((item) => item.label) ?? null);
+    if (hostPlatform === "darwin") assert.deepEqual(labels.slice(0, 3), ["Run Hound", "Edit", "Window"]);
+    else assert.equal(labels, null);
+  });
+
+  await check("copy and paste shortcuts work in a text field (without the Edit menu on Windows and Linux)", async () => {
+    const mod = hostPlatform === "darwin" ? "Meta" : "Control";
+    await page.evaluate(() => {
+      for (const id of ["copy-from", "paste-to"]) {
+        const input = document.createElement("input");
+        input.id = id;
+        input.style.cssText = "position:fixed;top:60px;left:300px;z-index:50";
+        document.body.append(input);
+      }
+      document.querySelector("#paste-to").style.top = "100px";
+    });
+    await page.fill("#copy-from", "launch-check clipboard text");
+    await page.focus("#copy-from");
+    await page.keyboard.press(`${mod}+A`);
+    await page.keyboard.press(`${mod}+C`);
+    await page.focus("#paste-to");
+    await page.keyboard.press(`${mod}+V`);
+    assert.equal(await page.inputValue("#paste-to"), "launch-check clipboard text");
+    await page.evaluate(() => document.querySelectorAll("#copy-from, #paste-to").forEach((el) => el.remove()));
+  });
+
+  await check("the window icon ships and Electron can read it (a 512 px PNG)", async () => {
+    const icon = `${await app.evaluate(({ app }) => app.getAppPath())}/dist/icon.png`;
+    const size = await app.evaluate(({ nativeImage }, path) => {
+      const image = nativeImage.createFromPath(path);
+      return image.isEmpty() ? null : image.getSize();
+    }, icon);
+    assert.deepEqual(size, { width: 512, height: 512 });
   });
 
   // Each check reads what went to the default browser, so it fails if the app's own handlers aren't the ones acting
