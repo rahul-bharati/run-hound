@@ -5,33 +5,40 @@
  *      app that ships its own Chromium, at that browser, BEFORE the engine
  *      is imported (Rule 4 of docs/desktop-architecture.md).
  *   2. Check that the browser is there and the settings and results folders
- *      can be written; if not, say what to do in a native dialog and exit.
+ *      can be written; if not, say what to do in a branded start-up error
+ *      window (static/startup-error.html) and exit.
  *   3. Import the bundled engine (dist/engine.js), import the command line's
  *      settings once, and bind the engine to loopback.
  *   4. Open one hardened window on the engine's URL (Rule 5): no Node, an
  *      isolated sandboxed preload, navigation pinned to the engine's origin.
- *      The window is dark and has the UI's own title bar (shell.ts).
+ *      The window is dark and has the UI's own title bar (shell.ts). The report
+ *      and engine pages it opens get the same look in their own windows, and
+ *      every window has the same small right-click menu. Messages for the user
+ *      (the settings import) are queued here and shown by the UI as in-app
+ *      banners; the app opens no native message box.
  *
  * The engine runs in this process for now; moving it to a supervised
  * utilityProcess (Rule 6) is the next slice.
  */
 
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, safeStorage, session, shell, type IpcMainInvokeEvent, type WebPreferences } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, net, safeStorage, session, shell, type IpcMainInvokeEvent, type WebPreferences } from "electron";
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { BRAND } from "../../app/src/core/brand.js";
 import { applyPlaywrightEnv } from "./apply-env.js";
 import { CHANNELS } from "./channels.js";
 import { resolveCliConfigDir, resolveConfigDir, resolveRunsDir } from "./config.js";
+import { contextMenuTemplate } from "./context-menu.js";
 import type { DesktopEngineReady, DesktopVersionCheckChannel } from "./contract.js";
 import { hostPlatform, startDesktopEngine } from "./entry.js";
 import { importFailedNotice, importedNotice, type Notice } from "./import-notice.js";
 import { osKeyProtector } from "./key-protector.js";
-import { appMenuTemplate, windowOptions } from "./shell.js";
+import { createNoticeQueue, type NoticeQueue } from "./notices.js";
+import { appMenuTemplate, childWindowOptions, dialogWindowOptions, windowOptions } from "./shell.js";
 import { STARTUP_PROBLEM_TITLE, describeStartupProblems, runStartupChecks } from "./startup-checks.js";
+import { STARTUP_ERROR_PAGE, startupErrorQuery } from "./startup-error.js";
 import { createUpdateChecker, updateCheckDisabled } from "./update-check.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -55,7 +62,7 @@ process.env.RUNHOUND_FULL_CHROMIUM = "1";
 const bundledBrowsers = join(process.resourcesPath, "playwright-browsers");
 if (app.isPackaged && existsSync(bundledBrowsers)) applyPlaywrightEnv({ browsersPath: bundledBrowsers, skipBrowserGc: "1" });
 
-/** Every window, including the report windows the UI opens, gets these. Only the main window gets the preload. */
+/** Every window, including the report windows the UI opens, gets these. Each window kind adds its own preload, or none. */
 const HARDENED: WebPreferences = {
   contextIsolation: true,
   nodeIntegration: false,
@@ -97,12 +104,28 @@ function fromEngine(event: IpcMainInvokeEvent): boolean {
 
 function lockDownContents(): void {
   app.on("web-contents-created", (_event, contents) => {
-    // Engine pages (the HTML report, evidence images) open in a hardened window without the bridge; anything else
-    // goes to the default browser.
+    // Engine pages (the HTML report, evidence images) open in a hardened window with the Run Hound look and without the
+    // bridge: its preload only draws the title bar strip (chrome-preload.ts). Anything else goes to the default browser.
     contents.setWindowOpenHandler(({ url }) => {
-      if (isEngineUrl(url)) return { action: "allow", overrideBrowserWindowOptions: { webPreferences: HARDENED, backgroundColor: BRAND.bg } };
+      if (isEngineUrl(url)) {
+        return { action: "allow", overrideBrowserWindowOptions: childWindowOptions({ platform, webPreferences: { ...HARDENED, preload: join(here, "chrome-preload.cjs") }, iconPath }) };
+      }
       openOutside(url);
       return { action: "deny" };
+    });
+    // The same small right-click menu in every window (context-menu.ts); nothing pops up when it has nothing to offer.
+    contents.on("context-menu", (_event, params) => {
+      const template = contextMenuTemplate(params, {
+        copyText: (text) => void clipboard.writeText(text).catch(() => undefined),
+        // Developer tools only when run from source, like the Developer menu on macOS (shell.ts).
+        ...(app.isPackaged ? {} : { inspect: () => contents.inspectElement(params.x, params.y) }),
+      });
+      if (template.length === 0) return;
+      Menu.buildFromTemplate(template).popup({
+        window: BrowserWindow.fromWebContents(contents) ?? undefined,
+        ...(params.frame ? { frame: params.frame } : {}),
+        sourceType: params.menuSourceType,
+      });
     });
     // A top-level move off the engine goes to the default browser instead. Subframes (the UI has none) are only
     // stopped, never opened outside, so an embedded page can't launch the browser.
@@ -136,6 +159,30 @@ function applyLook(): void {
   if (!app.isPackaged) app.dock?.setIcon(iconPath);
 }
 
+/**
+ * Says what is wrong in the branded start-up error window and resolves when the user has closed it (the Quit button
+ * closes it too). If that window can't be made, falls back to the native error box, so the user is never left with
+ * nothing. The caller exits the app afterwards.
+ */
+async function showStartupFailure(problems: readonly string[], details?: string): Promise<void> {
+  // With no window-all-closed listener yet, closing the last window would start Electron's own quit (exit code 0). The
+  // caller exits with 1 right after, so the listener is never removed.
+  app.on("window-all-closed", () => undefined);
+  let win: BrowserWindow | undefined;
+  try {
+    win = new BrowserWindow(dialogWindowOptions({ platform, webPreferences: { ...HARDENED }, iconPath }));
+    const closed = new Promise<void>((resolve) => win?.once("closed", resolve));
+    await win.loadFile(join(here, STARTUP_ERROR_PAGE), { query: startupErrorQuery(STARTUP_PROBLEM_TITLE, problems, details) });
+    await closed;
+  } catch (err) {
+    // Closed before the page finished loading: the user has seen enough, so don't show a second message.
+    if (win?.isDestroyed()) return;
+    process.stderr.write(`[run-hound] could not show the start-up error window: ${err instanceof Error ? err.message : String(err)}\n`);
+    win?.destroy();
+    dialog.showErrorBox(STARTUP_PROBLEM_TITLE, [...problems, ...(details ? [details] : [])].join("\n\n"));
+  }
+}
+
 /** Step 2. Before the engine is imported, so a problem is reported here and not as a failure inside a run. */
 async function checkStartup(): Promise<boolean> {
   // The environment is applied above, so Playwright resolves the same browser the engine will launch.
@@ -149,9 +196,8 @@ async function checkStartup(): Promise<boolean> {
   })();
   const problems = await runStartupChecks({ packaged: app.isPackaged, bundledBrowsersDir: bundledBrowsers, browserExecutable, configDir, runsDir });
   if (problems.length === 0) return true;
-  const text = describeStartupProblems(problems);
-  process.stderr.write(`[run-hound] ${STARTUP_PROBLEM_TITLE}:\n${text}\n`);
-  dialog.showErrorBox(STARTUP_PROBLEM_TITLE, text);
+  process.stderr.write(`[run-hound] ${STARTUP_PROBLEM_TITLE}:\n${describeStartupProblems(problems)}\n`);
+  await showStartupFailure(problems.map((problem) => problem.message));
   return false;
 }
 
@@ -186,7 +232,10 @@ async function start(): Promise<void> {
   // Saved keys and passwords are wrapped by the OS keychain when it is a real one (safeStorage works only after ready).
   engine.useOsKeyProtector(osKeyProtector(safeStorage, process.platform));
   // After the protector, so imported keys are sealed under the keychain; before the engine serves its first request.
-  const notice = await importCliSettings(engine);
+  // Queued for the UI to take once it loads (the notices channel), not shown in a native message box.
+  const notices = createNoticeQueue();
+  const imported = await importCliSettings(engine);
+  if (imported) notices.add(imported);
   const { handle, info } = await startDesktopEngine(
     { configDir, runsDir, runHoundVersion: engine.RUN_HOUND_VERSION },
     (args) => engine.createApp(args),
@@ -197,7 +246,7 @@ async function start(): Promise<void> {
   // the same result whenever the UI asks, and off with RUNHOUND_NO_UPDATE_CHECK=1.
   // Electron's net.fetch goes through Chromium's network stack, so the check honours the system's proxy settings.
   const checkForUpdate = createUpdateChecker({ fetch: (url, init) => net.fetch(url, init), current: info.runHoundVersion, disabled: updateCheckDisabled() });
-  registerIpc(info, checkForUpdate);
+  registerIpc(info, checkForUpdate, notices);
 
   // Closing the server waits for open requests, and a plan or run request can stay open for minutes; quit after a
   // short grace period regardless. Playwright closes its browsers when the process exits.
@@ -216,8 +265,6 @@ async function start(): Promise<void> {
     win.show();
     // In the background, after the window is up: never awaited, so a slow or blocked network can't delay startup.
     void checkForUpdate();
-    // Not awaited: the message must not hold up the app, and a failure to show it is not worth a crash.
-    if (notice) void dialog.showMessageBox(win, { type: notice.type, message: notice.message, ...(notice.detail ? { detail: notice.detail } : {}), buttons: ["OK"] }).catch(() => undefined);
   });
   win.webContents.on("did-finish-load", () => win.webContents.send(CHANNELS.engineReady, info));
   win.webContents.on("render-process-gone", (_event, details) => {
@@ -226,9 +273,11 @@ async function start(): Promise<void> {
   await win.loadURL(info.url);
 }
 
-function registerIpc(info: DesktopEngineReady, checkForUpdate: () => Promise<DesktopVersionCheckChannel["response"]>): void {
+function registerIpc(info: DesktopEngineReady, checkForUpdate: () => Promise<DesktopVersionCheckChannel["response"]>, notices: NoticeQueue): void {
   // The cached result of the launch's one check; it never rejects, and a failed check answers "nothing newer".
   ipcMain.handle(CHANNELS.versionCheck, (event) => (fromEngine(event) ? checkForUpdate() : null));
+  // The UI takes the waiting notices once, when it loads; asked by anything else, nothing is handed over or cleared.
+  ipcMain.handle(CHANNELS.noticesTake, (event) => (fromEngine(event) ? notices.take() : []));
   ipcMain.handle(CHANNELS.runsDirOpen, async (event) => {
     if (!fromEngine(event)) return { ok: false, error: "refused" };
     await mkdir(info.runsDir, { recursive: true });
@@ -248,7 +297,7 @@ if (!app.requestSingleInstanceLock()) {
   start().catch((err: unknown) => {
     const message = err instanceof Error ? (err.stack ?? err.message) : String(err);
     process.stderr.write(`[run-hound] desktop failed to start: ${message}\n`);
-    dialog.showErrorBox("Run Hound could not start", message);
-    app.exit(1);
+    const firstLine = err instanceof Error ? err.message : String(err);
+    void showStartupFailure([firstLine], message === firstLine ? undefined : message).finally(() => app.exit(1));
   });
 }

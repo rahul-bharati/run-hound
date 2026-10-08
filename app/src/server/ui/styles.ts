@@ -54,6 +54,17 @@ code, pre, .mono { font-family: var(--mono); }
 .update-actions { display:flex; align-items:center; gap:1rem; margin-top:.3rem; }
 .update-actions a, .update-dismiss { display:inline-flex; align-items:center; min-height:24px; }
 .update-dismiss { background:none; border:0; padding:0; color:var(--muted); font-size:.84rem; text-decoration:underline; text-underline-offset:3px; }
+/* Desktop app only (client/desktop-notices.ts adds these, and only when the app has a one-time message, e.g. the settings import).
+   Neutral for information; the warning edge is --warn (docs/brand.md). Text only: the message and detail are never HTML. */
+.desktop-notices { display:grid; gap:.6rem; margin:0 0 1.25rem; }
+.desktop-notice { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; border:1px solid var(--line); border-left:2px solid var(--line-strong); background:var(--surface); border-radius:var(--r-md); padding:.65rem .9rem; font-size:.9rem; }
+.desktop-notice.is-warning { border-color:color-mix(in srgb, var(--warn) 35%, transparent); border-left-color:var(--warn); background:color-mix(in srgb, var(--warn) 6%, transparent); }
+.desktop-notice-text { display:grid; gap:.3rem; min-width:0; }
+.desktop-notice-label { font:600 .72rem/1.4 var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--dim); }
+.is-warning .desktop-notice-label { color:var(--warn); }
+.desktop-notice-detail { color:var(--muted); font:.8rem/1.5 var(--mono); overflow-wrap:anywhere; }
+.desktop-notice-dismiss { flex:none; display:inline-flex; align-items:center; min-height:24px; background:none; border:0; padding:0; color:var(--muted); font-size:.84rem; text-decoration:underline; text-underline-offset:3px; }
+.desktop-notice-dismiss:hover { color:var(--fg); }
 .update-dismiss:hover { color:var(--fg); }
 
 main#view { min-width:0; padding: 1.75rem clamp(1rem, 2.6vw, 2.25rem) 2.5rem; }
@@ -548,6 +559,9 @@ table.groups td.good { color:var(--accent); }
 /* Desktop app only. desktop/src/preload.ts marks <html data-shell="desktop"> and adds the .desktop-titlebar strip, because the
    window's own title bar is hidden (docs: desktop shell theme). Every rule is scoped here, so a browser renders none of it. */
 html[data-shell="desktop"] { scroll-padding-top: 36px; }
+/* Thin brand scrollbars in place of the system's: a --surface-3 thumb on a transparent track. The report in a child window gets
+   the same from desktop/src/chrome-css.ts. */
+html[data-shell="desktop"], html[data-shell="desktop"] * { scrollbar-width: thin; scrollbar-color: var(--surface-3) transparent; }
 html[data-shell="desktop"] .desktop-titlebar { position:fixed; top:0; left:0; right:0; height:36px; z-index:30; -webkit-app-region:drag; user-select:none;
   background: linear-gradient(90deg, var(--bg-deep) calc(15rem - 1px), var(--line-soft) calc(15rem - 1px), var(--line-soft) 15rem, var(--bg) 15rem); }
 html[data-shell="desktop"] #sidebar { padding-top: calc(1.5rem + 36px); }
