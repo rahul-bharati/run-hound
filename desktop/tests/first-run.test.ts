@@ -4,12 +4,16 @@ import {
   StepRecorder,
   buildEvidence,
   confirmedFindings,
+  describeFuses,
+  diagnosticsMarkdown,
+  exitCodeHex,
   expectedDataDirs,
   findPlainText,
   isolatedEnv,
   leftoverFiles,
   nameProblems,
   parseArgs,
+  parseDiagnoseArgs,
   poll,
   redact,
   reportDigest,
@@ -261,5 +265,52 @@ describe("D5 first-run check: the evidence", () => {
     expect(text).toContain("| First launch | pass | 640 ms | Run Hound 0.6.1 |");
     expect(text).toContain("| Cancellation | **FAIL** | 12.3 s | bad \\| pipe and a newline |");
     expect(text).toContain("Runs: completed `r1`, stopped `r2`");
+  });
+});
+
+describe("D5 first-run diagnostics (the installed app without Playwright)", () => {
+  it("takes fuses or direct, with the app and evidence folder, and defaults to a 25 s watch with a screenshot at 15 s", () => {
+    expect(parseDiagnoseArgs(["fuses", "--app", "a", "--evidence", "e"])).toEqual({ command: "fuses", app: "a", evidence: "e", seconds: 25, screenshotAt: 15 });
+    expect(parseDiagnoseArgs(["direct", "--app", "a", "--evidence", "e", "--seconds", "10", "--screenshot-at", "5"])).toMatchObject({ command: "direct", seconds: 10, screenshotAt: 5 });
+    expect(() => parseDiagnoseArgs(["launch", "--app", "a", "--evidence", "e"])).toThrow(/fuses or direct/);
+    expect(() => parseDiagnoseArgs(["direct", "--evidence", "e"])).toThrow(/--app/);
+    expect(() => parseDiagnoseArgs(["direct", "--app", "a"])).toThrow(/--evidence/);
+    expect(() => parseDiagnoseArgs(["direct", "--app", "a", "--evidence", "e", "--seconds", "0"])).toThrow(/positive/);
+    expect(() => parseDiagnoseArgs(["direct", "--app", "a", "--evidence", "e", "--nope", "1"])).toThrow(/Unknown argument/);
+  });
+
+  it("reads a fuse wire as named rows, and shows a fuse a newer Electron added by its index", () => {
+    const names: Record<number, string> = { 0: "RunAsNode", 3: "EnableNodeCliInspectArguments" };
+    const states: Record<number, string> = { 48: "DISABLE", 49: "ENABLE", 114: "REMOVED" };
+    expect(describeFuses({ version: "1", 0: 49, 3: 48, 8: 114 }, names, states)).toEqual({
+      version: "1",
+      fuses: [
+        { index: 0, name: "RunAsNode", state: "ENABLE" },
+        { index: 3, name: "EnableNodeCliInspectArguments", state: "DISABLE" },
+        { index: 8, name: "fuse 8", state: "REMOVED" },
+      ],
+    });
+    expect(describeFuses({ version: "1", 0: 7 }, names, states).fuses[0]?.state).toBe("byte 7");
+  });
+
+  it("writes an exit code the way Windows reports it", () => {
+    expect(exitCodeHex(2147483651)).toBe("0x80000003");
+    expect(exitCodeHex(-2147483645)).toBe("0x80000003");
+    expect(exitCodeHex(0)).toBe("0x00000000");
+    expect(exitCodeHex(null)).toBeNull();
+  });
+
+  it("summarises the fuses and each direct run for the job summary", () => {
+    const text = diagnosticsMarkdown({
+      fuses: { fuses: [{ name: "RunAsNode", state: "ENABLE" }] },
+      runs: [
+        { id: "plain", args: [], seconds: 25, running: true, screenshot: "screen.png" },
+        { id: "playwright-flags", args: ["--inspect=0"], seconds: 25, running: false, exitCode: 2147483651, exitCodeHex: "0x80000003", signal: null, screenshotNote: "screenshot failed" },
+      ],
+    });
+    expect(text).toContain("| RunAsNode | ENABLE |");
+    expect(text).toContain("| plain | none | still running after 25 s | - | screen.png |");
+    expect(text).toContain("| playwright-flags | --inspect=0 | had exited | 2147483651 (0x80000003) | screenshot failed |");
+    expect(diagnosticsMarkdown({ fuses: { error: "no sentinel", fuses: [] } })).toContain("Not read: no sentinel");
   });
 });

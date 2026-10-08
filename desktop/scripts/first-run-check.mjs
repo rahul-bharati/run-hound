@@ -164,6 +164,7 @@ const facts = {
   dataDirs: dirs,
   target: null,
   runs: { completed: null, stopped: null },
+  windowShownAfterMs: {},
   secretProtection: null,
   report: null,
   stoppedReport: null,
@@ -174,13 +175,16 @@ const pids = new Map();
 let fixture;
 
 /** Launch the installed app. On Linux, Playwright adds --no-sandbox itself (the runner has no setuid sandbox). */
-async function launch() {
+async function launch(label) {
+  const started = Date.now();
   const app = await electron.launch({ executablePath: appPath, env, timeout: 2 * MINUTE });
   apps.push(app);
   pids.set(app, await app.evaluate(() => process.pid));
-  const page = await app.firstWindow();
+  // Playwright's default of 30 s for the first window is short for a cold first launch of an app of this size.
+  const page = await app.firstWindow({ timeout: 2 * MINUTE });
   await page.waitForLoadState("domcontentloaded");
   await page.waitForSelector("main#view > *", { timeout: MINUTE });
+  facts.windowShownAfterMs[label] = Date.now() - started;
   return { app, page };
 }
 
@@ -292,7 +296,7 @@ try {
 
   // 1 ---------------------------------------------------------------------------------------------------------------
   await rec.run("First launch", async () => {
-    session = await launch();
+    session = await launch("first");
     const { app, page } = session;
     assert.match(page.url(), /^http:\/\/127\.0\.0\.1:\d+\//, `the window shows ${page.url()}, not the engine on loopback`);
     assert.match(await page.title(), /Run Hound/);
@@ -318,7 +322,7 @@ try {
       const { from, files, secrets } = JSON.parse(readFileSync(marker, "utf8"));
       assert.deepEqual([from, files, secrets], [null, [], 0], `the first launch imported settings on a clean home: ${readFileSync(marker, "utf8")}`);
     }
-    return `Run Hound ${facts.appVersion}, Electron ${facts.electron}, Chromium ${facts.chromium}; keys: ${facts.secretProtection}`;
+    return `Run Hound ${facts.appVersion}, Electron ${facts.electron}, Chromium ${facts.chromium}; window after ${(facts.windowShownAfterMs.first / 1000).toFixed(1)} s; keys: ${facts.secretProtection}`;
   });
 
   // 2 ---------------------------------------------------------------------------------------------------------------
@@ -403,7 +407,7 @@ try {
   await rec.run("Restart", async () => {
     assert.ok(session, "the app did not launch");
     await closeApp(session.app);
-    session = await launch();
+    session = await launch("restart");
     const { page } = session;
     const runs = await api(page, "GET", "/api/runs");
     assert.equal(runs.status, 200);

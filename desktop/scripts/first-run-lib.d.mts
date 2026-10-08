@@ -22,3 +22,8 @@ export function buildEvidence(facts: Record<string, unknown>, steps: Step[]): Ev
 export function summaryMarkdown(evidence: Record<string, unknown>): string;
 export const APP_NAME: string;
 export function nameProblems(facts: { platform: string; executable: string; appName: unknown; userData: unknown }): string[];
+export interface DiagnoseArgs { command: "fuses" | "direct"; app: string; evidence: string; seconds: number; screenshotAt: number }
+export function parseDiagnoseArgs(argv: string[]): DiagnoseArgs;
+export function describeFuses(wire: Record<string, unknown>, optionNames: Record<number, string>, stateNames: Record<number, string>): { version: unknown; fuses: { index: number; name: string; state: string }[] };
+export function exitCodeHex(code: unknown): string | null;
+export function diagnosticsMarkdown(parts: { fuses?: { error?: string; fuses: { name: string; state: string }[] } | null; runs?: { id: string; args: string[]; seconds: number; running: boolean; exitCode?: number | null; exitCodeHex?: string | null; signal?: string | null; screenshot?: string | null; screenshotNote?: string }[] | null }): string;

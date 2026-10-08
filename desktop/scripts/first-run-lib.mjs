@@ -235,3 +235,71 @@ export function summaryMarkdown(evidence) {
   if (evidence.runs) lines.push("", `Runs: completed \`${evidence.runs.completed ?? "-"}\`, stopped \`${evidence.runs.stopped ?? "-"}\``);
   return `${lines.join("\n")}\n`;
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// first-run-diagnose.mjs: what to look at when the installed app doesn't open (no Playwright involved).
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** `fuses` or `direct`, --app, --evidence, and for `direct` --seconds (how long to watch, 25) and --screenshot-at (15). */
+export function parseDiagnoseArgs(argv) {
+  const [command, ...rest] = argv;
+  if (command !== "fuses" && command !== "direct") throw new Error("The first argument is fuses or direct.");
+  const out = { command, app: "", evidence: "", seconds: 25, screenshotAt: 15 };
+  const takes = new Map([
+    ["--app", (v) => (out.app = v)],
+    ["--evidence", (v) => (out.evidence = v)],
+    ["--seconds", (v) => (out.seconds = Number(v))],
+    ["--screenshot-at", (v) => (out.screenshotAt = Number(v))],
+  ]);
+  for (let i = 0; i < rest.length; i += 2) {
+    const set = takes.get(rest[i]);
+    const value = rest[i + 1];
+    if (!set) throw new Error(`Unknown argument ${rest[i]}.`);
+    if (value === undefined || value.startsWith("--")) throw new Error(`${rest[i]} needs a value.`);
+    set(value);
+  }
+  if (!out.app) throw new Error("--app <the installed executable> is required.");
+  if (!out.evidence) throw new Error("--evidence <directory> is required.");
+  for (const name of ["seconds", "screenshotAt"]) if (!Number.isFinite(out[name]) || out[name] <= 0) throw new Error("--seconds and --screenshot-at must be positive numbers.");
+  return out;
+}
+
+/**
+ * The fuses of an Electron binary as rows. `wire` is what @electron/fuses' getCurrentFuseWire returns ({version, 0: 49, ...}),
+ * `optionNames` its FuseV1Options enum (index to name) and `stateNames` its FuseState (48 DISABLE, 49 ENABLE, 114 REMOVED).
+ * A fuse this list doesn't name (a newer Electron's) is shown by its index.
+ */
+export function describeFuses(wire, optionNames, stateNames) {
+  const fuses = Object.keys(wire)
+    .filter((key) => key !== "version")
+    .map(Number)
+    .sort((a, b) => a - b)
+    .map((index) => ({ index, name: optionNames[index] ?? `fuse ${index}`, state: stateNames[wire[index]] ?? `byte ${wire[index]}` }));
+  return { version: wire.version, fuses };
+}
+
+/** An exit code as Windows writes it: 2147483651 (or -2147483645) is 0x80000003. */
+export function exitCodeHex(code) {
+  return typeof code === "number" ? `0x${(code >>> 0).toString(16).toUpperCase().padStart(8, "0")}` : null;
+}
+
+/** The fuse table and the direct runs as Markdown, for the job summary. */
+export function diagnosticsMarkdown({ fuses, runs }) {
+  const lines = [];
+  if (fuses) {
+    lines.push("### Electron fuses of the installed app", "");
+    if (fuses.error) lines.push(`Not read: ${cell(fuses.error)}`);
+    else lines.push("| Fuse | State |", "| --- | --- |", ...fuses.fuses.map((fuse) => `| ${cell(fuse.name)} | ${fuse.state} |`));
+    lines.push("");
+  }
+  if (runs) {
+    lines.push("### The installed app run directly, without Playwright", "", "| Run | Flags | After the wait | Exit | Screenshot |", "| --- | --- | --- | --- | --- |");
+    for (const run of runs) {
+      const after = run.running ? `still running after ${run.seconds} s` : "had exited";
+      const exit = run.running ? "-" : `${run.exitCode ?? "-"}${run.exitCodeHex ? ` (${run.exitCodeHex})` : ""}${run.signal ? ` ${run.signal}` : ""}`;
+      lines.push(`| ${cell(run.id)} | ${cell(run.args.join(" ") || "none")} | ${after} | ${exit} | ${run.screenshot ? cell(run.screenshot) : cell(run.screenshotNote ?? "none")} |`);
+    }
+    lines.push("");
+  }
+  return `${lines.join("\n")}\n`;
+}

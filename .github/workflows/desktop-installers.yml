@@ -323,8 +323,16 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value "APP_EXE=$($exe.FullName)"
           Add-Content -Path $env:GITHUB_ENV -Value "APP_DIR=$($exe.DirectoryName)"
 
+      # What the installed binary's Electron fuses are (electron-builder applies none unless `electronFuses` is configured, and it
+      # isn't), on every platform, for comparison. Nothing is changed.
+      - name: Electron fuses of the installed app
+        if: ${{ env.APP_EXE != '' }}
+        shell: bash
+        run: node desktop/scripts/first-run-diagnose.mjs fuses --app "$APP_EXE" --evidence "$EVIDENCE"
+
       # ----- the check, on the installed app -----
       - name: First run
+        id: first_run
         shell: bash
         run: |
           set -euo pipefail
@@ -334,6 +342,49 @@ jobs:
           else
             "${check[@]}"
           fi
+
+      # ----- when the first run failed: is it the app, or Playwright's way of starting it? -----
+      # The installed app is run directly, on a fresh home, with logging on: plain, and with the two flags Playwright adds
+      # (--inspect, --remote-debugging-port). Each is watched for 25 s with a full-screen screenshot at 15 s, then killed.
+      - name: Run the installed app directly (the first run failed)
+        if: ${{ always() && steps.first_run.outcome == 'failure' }}
+        shell: bash
+        run: |
+          direct=(node desktop/scripts/first-run-diagnose.mjs direct --app "$APP_EXE" --evidence "$EVIDENCE")
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a -s "-screen 0 1280x960x24" "${direct[@]}"
+          else
+            "${direct[@]}"
+          fi
+
+      - name: Signature, Gatekeeper and system log of the installed app (macOS, the first run failed)
+        if: ${{ always() && matrix.os == 'mac' && steps.first_run.outcome == 'failure' }}
+        shell: bash
+        run: |
+          {
+            echo "## codesign -dv --verbose=4"; codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1
+            echo; echo "## codesign --verify --deep --strict --verbose=2"; codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE" 2>&1
+            echo; echo "## spctl -a -vv"; spctl -a -vv "$APP_BUNDLE" 2>&1
+            echo; echo "## xattr -l"; xattr -l "$APP_BUNDLE" 2>&1
+            echo; echo "## sw_vers"; sw_vers 2>&1
+          } > "$EVIDENCE/macos-signature.txt" || true
+          # The last 10 minutes cover the Playwright attempt and the direct runs.
+          { sudo -n log show --last 10m --style compact --predicate 'process CONTAINS "Run Hound" OR eventMessage CONTAINS "Run Hound"' || log show --last 10m --style compact --predicate 'process CONTAINS "Run Hound" OR eventMessage CONTAINS "Run Hound"'; } 2>&1 | tail -n 500 > "$EVIDENCE/macos-log.txt" || true
+          mkdir -p "$EVIDENCE/crash-reports"
+          cp ~/Library/Logs/DiagnosticReports/*Run*Hound* "$EVIDENCE/crash-reports/" 2> /dev/null || true
+          ls -la "$EVIDENCE/crash-reports" || true
+
+      - name: Application Error events and the exe's signature (Windows, the first run failed)
+        if: ${{ always() && matrix.os == 'win' && steps.first_run.outcome == 'failure' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $events = Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'Application Error', 'Windows Error Reporting' } -MaxEvents 5 -ErrorAction SilentlyContinue
+          if ($events) { $events | Format-List TimeCreated, ProviderName, Id, Message | Out-File -Encoding utf8 "$env:EVIDENCE\windows-events.txt" }
+          else { 'No Application Error or Windows Error Reporting events.' | Out-File -Encoding utf8 "$env:EVIDENCE\windows-events.txt" }
+          Get-AuthenticodeSignature $env:APP_EXE | Format-List * | Out-File -Encoding utf8 "$env:EVIDENCE\authenticode.txt"
+          (Get-Item $env:APP_EXE).VersionInfo | Format-List * | Out-File -Encoding utf8 "$env:EVIDENCE\exe-version.txt"
+          exit 0
 
       # ----- uninstall the documented way, then check the app is gone and the data is not -----
       - name: Uninstall (Linux deb)
@@ -385,6 +436,9 @@ jobs:
           else
             printf '### First run: %s\n\nNo evidence was written: the check did not start (see the log for the install step).\n' "${{ matrix.label }}" >> "$GITHUB_STEP_SUMMARY"
           fi
+          if [ -n "${EVIDENCE:-}" ] && [ -f "$EVIDENCE/diagnostics.md" ]; then
+            cat "$EVIDENCE/diagnostics.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -430,24 +484,20 @@ jobs:
           - { id: linux-x64-rpm, key: linux_x64_rpm, label: Linux x64 rpm (Fedora 44), runner: ubuntu-24.04, installers: linux_x64, advisory: true }
           - { id: linux-arm64-rpm, key: linux_arm64_rpm, label: Linux arm64 rpm (Fedora 44), runner: ubuntu-24.04-arm, installers: linux_arm64, advisory: true }
     steps:
-      # What the actions need in a bare image (checkout falls back to the REST API without git, but git is cheap).
+      # What the actions need in a bare image (checkout falls back to the REST API without git, but git is cheap). None of it
+      # is a library the app links.
       - name: Tools the actions need
         run: dnf install -y git tar gzip xz zstd which findutils
 
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-      - name: Install the harness
-        run: pnpm install --frozen-lockfile
 
       - uses: actions/download-artifact@v4
         with:
           name: installers-${{ matrix.installers }}
           path: ${{ runner.temp }}/installers
 
+      # The rpm goes in before Node, pnpm, Xvfb and the font, so that what they pull in can't hide a dependency the rpm
+      # should have declared.
       - name: Install the rpm
         run: |
           set -euo pipefail
@@ -466,13 +516,36 @@ jobs:
           echo "APP_EXE=$exe" >> "$GITHUB_ENV"
           echo "Installed $exe"
 
+      # What pnpm/action-setup needs in a bare image: it ran npm (arm64: "spawn npm ENOENT") and a binary that links
+      # libatomic (x64: "libatomic.so.1: cannot open shared object file"), and Fedora's image has neither.
+      - name: Node, npm and libatomic for pnpm
+        run: dnf install -y nodejs npm libatomic
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install the harness
+        run: pnpm install --frozen-lockfile
+
       # A container has no desktop: Xvfb gives the app its display, and a font keeps the sample page's layout comparable to the
       # other legs'.
       - name: Xvfb and a font for the harness
         run: dnf install -y xorg-x11-server-Xvfb xorg-x11-xauth dejavu-sans-fonts
 
+      # What the installed binary's Electron fuses are, for comparison with the other platforms (nothing is changed).
+      - name: Electron fuses of the installed app
+        run: node desktop/scripts/first-run-diagnose.mjs fuses --app "$APP_EXE" --evidence "$EVIDENCE"
+
       - name: First run
+        id: first_run
         run: xvfb-run -a -s "-screen 0 1280x960x24" node desktop/scripts/first-run-check.mjs --app "$APP_EXE" --evidence "$EVIDENCE" --artifact "$ARTIFACT" --home "$FIRST_RUN_HOME"
+
+      # When the first run failed, whether the installed app starts at all, started the way Playwright starts it and not.
+      - name: Run the installed app directly (the first run failed)
+        if: ${{ always() && steps.first_run.outcome == 'failure' }}
+        run: xvfb-run -a -s "-screen 0 1280x960x24" node desktop/scripts/first-run-diagnose.mjs direct --app "$APP_EXE" --evidence "$EVIDENCE"
 
       - name: Uninstall (rpm)
         if: ${{ always() && env.APP_EXE != '' }}
@@ -492,6 +565,9 @@ jobs:
             cat "$EVIDENCE/summary.md" >> "$GITHUB_STEP_SUMMARY"
           else
             printf '### First run: %s\n\nNo evidence was written: the check did not start (see the log for the install step).\n' "${{ matrix.label }}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -n "${EVIDENCE:-}" ] && [ -f "$EVIDENCE/diagnostics.md" ]; then
+            cat "$EVIDENCE/diagnostics.md" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - uses: actions/upload-artifact@v4
