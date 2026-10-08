@@ -221,7 +221,7 @@ try {
     assert.ok(tops.view >= 36, `the view's first content starts at ${tops.view}`);
   });
 
-  await check("a scrolled page never shows through the strip, and the sticky results panel sits below it", async () => {
+  await check("a scrolled page never shows through the strip, and the sticky results panel sits below it when sticky", async () => {
     const reply = await page.evaluate(async () => {
       const filler = document.createElement("div");
       filler.style.cssText = "height:3000px";
@@ -232,7 +232,7 @@ try {
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       const sidebar = document.querySelector("#sidebar").getBoundingClientRect();
       const sticky = getComputedStyle(panel);
-      const out = { scrolled: scrollY, sidebarTop: sidebar.top, sidebarHeight: sidebar.height, innerHeight, hit: document.elementFromPoint(innerWidth - 300, 20)?.className, panelPosition: sticky.position, panelTop: sticky.top, panelMaxHeight: sticky.maxHeight };
+      const out = { scrolled: scrollY, sidebarTop: sidebar.top, sidebarHeight: sidebar.height, innerHeight, hit: document.elementFromPoint(innerWidth - 300, 20)?.className, panelPosition: sticky.position, panelTop: sticky.top, panelMaxHeight: sticky.maxHeight, wide: matchMedia("(min-width: 68.01rem)").matches };
       filler.remove();
       panel.remove();
       scrollTo(0, 0);
@@ -242,7 +242,9 @@ try {
     assert.equal(reply.hit, "desktop-titlebar");
     assert.equal(reply.sidebarTop, 0);
     assert.equal(reply.sidebarHeight, reply.innerHeight);
-    assert.deepEqual([reply.panelPosition, reply.panelTop, reply.panelMaxHeight], ["sticky", "52px", `${reply.innerHeight - 32 - 36}px`]);
+    // The results panel is sticky only from 68rem wide (styles.ts); a runner with a small screen shrinks the window below that.
+    if (reply.wide) assert.deepEqual([reply.panelPosition, reply.panelTop, reply.panelMaxHeight], ["sticky", "52px", `${reply.innerHeight - 32 - 36}px`]);
+    else assert.deepEqual([reply.panelPosition, reply.panelTop, reply.panelMaxHeight], ["static", "auto", "none"]);
   });
 
   await check("the application menu is minimal on macOS and absent elsewhere", async () => {
