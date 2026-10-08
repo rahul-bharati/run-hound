@@ -7,10 +7,14 @@
 //
 // fuses   reads the Electron fuses of the binary (@electron/fuses, a dependency of electron-builder), on every platform.
 //         Writes fuses.json and fuses.txt.
-// direct  runs the app twice on a fresh home with ELECTRON_ENABLE_LOGGING=1 and RUNHOUND_NO_UPDATE_CHECK=1: once plain
-//         (app-direct.log) and once with the two flags Playwright adds (app-direct-inspect.log). Each run is watched for
-//         --seconds; a full-screen screenshot is taken at --screenshot-at (screen.png, screen-inspect.png; macOS and
-//         Windows only); then it is killed. app-direct.json records whether it was still running and its exit code.
+// direct  runs the app with ELECTRON_ENABLE_LOGGING=1 and RUNHOUND_NO_UPDATE_CHECK=1: plain (app-direct.log) and with the
+//         two flags Playwright adds (app-direct-inspect.log). Each run is watched for --seconds, or until it exits; a
+//         full-screen screenshot is taken at --screenshot-at (macOS and Windows only: screen-<run>.png); then it is
+//         killed. app-direct.json records whether it was still running and its exit code. Linux uses a fresh home; macOS and
+//         Windows use the machine's own (a fresh HOME has no login keychain on macOS, and Windows' profile is not ours to
+//         change). On Windows, where the installed app crashes at start-up, six more runs follow that isolate the cause:
+//         Chromium's own log, V8's optimizing compilers off in turn, and stock Electron running a hello-world main.js and
+//         then this repository's unpackaged app (needs `electron:fetch` and `build` first), with and without --js-flags.
 // Both append their findings to diagnostics.md, which the workflow adds to the job summary. They always exit 0: they report,
 // the first-run check decides.
 import { spawn, spawnSync } from "node:child_process";
@@ -18,7 +22,9 @@ import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, 
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { diagnosticsMarkdown, describeFuses, exitCodeHex, isolatedEnv, parseDiagnoseArgs } from "./first-run-lib.mjs";
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+import { diagnosticsMarkdown, describeFuses, exitCodeHex, inheritedEnv, isolatedEnv, parseDiagnoseArgs } from "./first-run-lib.mjs";
 
 const platform = process.platform;
 let args;
@@ -52,6 +58,8 @@ if (args.command === "fuses") {
 
 // ---- direct ----
 
+const repo = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+
 const WINDOWS_SHOT = `
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
@@ -70,7 +78,7 @@ function screenshot(path) {
         ? spawnSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_SHOT], { timeout: 30_000, env: { ...process.env, SHOT: path } })
         : null;
   if (!run) return { note: "no screenshot tool on this platform" };
-  if (run.error || run.status !== 0 || !existsSync(path)) return { note: `screenshot failed: ${run.error?.message ?? String(run.stderr ?? "").trim() ?? run.status}` };
+  if (run.error || run.status !== 0 || !existsSync(path)) return { note: `screenshot failed: ${run.error?.message ?? (String(run.stderr ?? "").trim() || run.status)}` };
   return { file: path };
 }
 
@@ -83,51 +91,107 @@ function killTree(child) {
   }
 }
 
-async function run({ id, extra, log, shot }) {
-  const home = mkdtempSync(join(tmpdir(), "run-hound-direct-"));
-  const env = { ...isolatedEnv(process.env, platform, home), ELECTRON_ENABLE_LOGGING: "1", ELECTRON_ENABLE_STACK_DUMPING: "1" };
+/** Start `exe` and watch it for --seconds (or until it exits), with a screenshot on the way, then kill it. */
+async function run({ id, what, exe, flags, log }) {
+  const ownHome = platform === "linux" ? mkdtempSync(join(tmpdir(), "run-hound-direct-")) : null;
+  const base = ownHome ? isolatedEnv(process.env, platform, ownHome) : inheritedEnv(process.env);
+  const env = { ...base, ELECTRON_ENABLE_LOGGING: "1", ELECTRON_ENABLE_STACK_DUMPING: "1" };
   // The sandbox flag Playwright adds on Linux (a runner has no setuid sandbox); nothing else is added.
-  const flags = [...extra, ...(platform === "linux" ? ["--no-sandbox"] : [])];
+  const argv = [...flags, ...(platform === "linux" ? ["--no-sandbox"] : [])];
   const fd = openSync(join(evidence, log), "w");
   const started = Date.now();
-  const child = spawn(app, flags, { env, stdio: ["ignore", fd, fd], detached: platform !== "win32" });
+  const child = spawn(exe, argv, { env, stdio: ["ignore", fd, fd], detached: platform !== "win32" });
   closeSync(fd);
-  const result = { id, args: flags, seconds: args.seconds, log, pid: child.pid ?? null, running: false, exitCode: null, exitCodeHex: null, signal: null, screenshot: null, screenshotNote: null };
+  const result = { id, what, args: argv, seconds: args.seconds, log, pid: child.pid ?? null, running: false, exitCode: null, exitCodeHex: null, signal: null, screenshot: null, screenshotNote: null };
   let exited = false;
   let killing = false;
-  child.once("error", (err) => {
-    exited = true;
-    result.error = err.message;
+  const gone = new Promise((done) => {
+    child.once("error", (err) => {
+      exited = true;
+      result.error = err.message;
+      done();
+    });
+    child.once("exit", (code, signal) => {
+      exited = true;
+      if (!killing) {
+        // our own kill is not how the app ended
+        result.exitCode = code;
+        result.exitCodeHex = exitCodeHex(code);
+        result.signal = signal;
+      }
+      done();
+    });
   });
-  child.once("exit", (code, signal) => {
-    exited = true;
-    if (killing) return; // our own kill, not how the app ended
-    result.exitCode = code;
-    result.exitCodeHex = exitCodeHex(code);
-    result.signal = signal;
-  });
-  await sleep(Math.min(args.screenshotAt, args.seconds) * 1000);
-  const shotPath = join(evidence, shot);
-  const taken = screenshot(shotPath);
-  result.screenshot = taken.file ? shot : null;
-  result.screenshotNote = taken.note ?? null;
-  await sleep(Math.max(0, args.seconds * 1000 - (Date.now() - started)));
+  await Promise.race([gone, sleep(Math.min(args.screenshotAt, args.seconds) * 1000)]);
+  if (!exited) {
+    const taken = screenshot(join(evidence, `screen-${id}.png`));
+    result.screenshot = taken.file ? `screen-${id}.png` : null;
+    result.screenshotNote = taken.note ?? null;
+  } else {
+    result.screenshotNote = "it had exited";
+  }
+  await Promise.race([gone, sleep(Math.max(0, args.seconds * 1000 - (Date.now() - started)))]);
   result.running = !exited;
   result.elapsedMs = Date.now() - started;
   if (!exited) {
     killing = true;
     killTree(child);
-    await Promise.race([new Promise((done) => child.once("exit", done)), sleep(5000)]);
+    await Promise.race([gone, sleep(5000)]);
   }
   result.logBytes = existsSync(join(evidence, log)) ? statSync(join(evidence, log)).size : 0;
-  rmSync(home, { recursive: true, force: true });
+  if (ownHome) rmSync(ownHome, { recursive: true, force: true });
   console.log(`first-run-diagnose: ${id}: ${result.running ? `still running after ${args.seconds} s` : `exited ${result.exitCode ?? result.signal} ${result.exitCodeHex ?? ""}`}`);
+  await sleep(2000); // let the single-instance lock and the ports go before the next run
   return result;
 }
 
 const runs = [];
-runs.push(await run({ id: "plain", extra: [], log: "app-direct.log", shot: "screen.png" }));
-runs.push(await run({ id: "playwright-flags", extra: ["--inspect=0", "--remote-debugging-port=0"], log: "app-direct-inspect.log", shot: "screen-inspect.png" }));
+const installed = (id, flags, extra = {}) => ({ id, what: "installed app", exe: app, flags, log: `app-direct-${id}.log`, ...extra });
+runs.push(await run({ ...installed("plain", []), log: "app-direct.log" }));
+runs.push(await run({ ...installed("playwright-flags", ["--inspect=0", "--remote-debugging-port=0"]), log: "app-direct-inspect.log" }));
+
+if (platform === "win32") {
+  // The installed app crashes at start-up on Windows (exit 0x80000003, EXCEPTION_BREAKPOINT, on a V8 background thread). V8 flags valid for this Electron's V8 (checked with --js-flags=--help): --turbofan (--opt is its
+  // alias), --maglev, --sparkplug, --concurrent-recompilation, --jitless.
+  runs.push(await run(installed("chromium-log", ["--enable-logging=file", `--log-file=${join(evidence, "chromium.log")}`, "--v=1"])));
+  runs.push(await run(installed("no-opt", ["--js-flags=--no-opt"])));
+  runs.push(await run(installed("no-maglev-turbofan", ["--js-flags=--no-maglev --no-turbofan"])));
+  runs.push(await run(installed("no-concurrent-recompilation", ["--js-flags=--no-concurrent-recompilation"])));
+  runs.push(await run(installed("jitless", ["--js-flags=--jitless"])));
+
+  // Stock Electron, from node_modules (after `pnpm --filter @run-hound/desktop electron:fetch`), on this runner.
+  let stock = null;
+  let why = null;
+  try {
+    stock = createRequire(join(repo, "desktop", "package.json"))("electron");
+    if (typeof stock !== "string" || !existsSync(stock)) throw new Error(`electron resolved to ${String(stock)}`);
+  } catch (err) {
+    why = `stock Electron is not installed (run electron:fetch first): ${err instanceof Error ? err.message : String(err)}`;
+  }
+  const desktop = join(repo, "desktop");
+  const built = existsSync(join(desktop, "dist", "main.js"));
+  const hello = mkdtempSync(join(tmpdir(), "run-hound-hello-"));
+  writeFileSync(join(hello, "package.json"), '{ "name": "hello", "main": "main.js" }\n');
+  writeFileSync(
+    join(hello, "main.js"),
+    [
+      'const { app, BrowserWindow } = require("electron");',
+      "app.whenReady().then(() => {",
+      '  new BrowserWindow({ width: 400, height: 300 }).loadURL("data:text/html,<h1>hello</h1>");',
+      '  console.log("hello");',
+      "  setTimeout(() => app.quit(), 10000);",
+      "});",
+      "",
+    ].join("\n"),
+  );
+  const stockRun = (id, what, flags, ok = true, note = "") => (stock && ok ? run({ id, what, exe: stock, flags, log: `app-direct-${id}.log` }) : { id, what, skipped: why ?? note });
+  runs.push(await stockRun("stock-hello", "stock Electron, a window that says hello (quits after 10 s)", [hello]));
+  const noMain = "the unpackaged app is not built (run pnpm --filter @run-hound/desktop build first)";
+  runs.push(await stockRun("stock-app", "stock Electron running desktop/ unpackaged", [desktop], built, noMain));
+  runs.push(await stockRun("stock-app-no-opt", "stock Electron running desktop/ unpackaged", ["--js-flags=--no-opt", desktop], built, noMain));
+  rmSync(hello, { recursive: true, force: true });
+}
+
 writeFileSync(join(evidence, "app-direct.json"), `${JSON.stringify({ app, platform, runs }, null, 2)}\n`);
 appendFileSync(join(evidence, "diagnostics.md"), diagnosticsMarkdown({ runs }));
 process.exit(0);

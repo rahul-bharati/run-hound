@@ -221,6 +221,7 @@ jobs:
       macos_arm64: ${{ steps.result.outputs.macos_arm64 }}
       macos_x64: ${{ steps.result.outputs.macos_x64 }}
       windows_x64: ${{ steps.result.outputs.windows_x64 }}
+      windows_2022_x64: ${{ steps.result.outputs.windows_2022_x64 }}
     strategy:
       fail-fast: false
       matrix:
@@ -230,6 +231,8 @@ jobs:
           - { id: macos-arm64, key: macos_arm64, os: mac, label: macOS arm64, runner: macos-15, installers: mac_arm64, advisory: true }
           - { id: macos-x64, key: macos_x64, os: mac, label: macOS x64, runner: macos-15-intel, installers: mac_x64, advisory: true }
           - { id: windows-x64, key: windows_x64, os: win, label: Windows x64, runner: windows-2025, installers: win_x64, advisory: true }
+          # The same installer (built on windows-2025) on the older image, so an OS or image difference shows up.
+          - { id: windows-2022-x64, key: windows_2022_x64, os: win, label: Windows x64 (windows-2022), runner: windows-2022, installers: win_x64, advisory: true }
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -336,16 +339,30 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          check=(node desktop/scripts/first-run-check.mjs --app "$APP_EXE" --evidence "$EVIDENCE" --artifact "$ARTIFACT" --home "$FIRST_RUN_HOME")
+          # Linux gets a fresh home. A fresh runner's own home is already clean on macOS and Windows (the check asserts it holds
+          # no Run Hound data), and a made-up HOME has no login keychain there: macOS stops with a "Keychain Not Found" dialog
+          # before the window, and Windows' profile is not ours to change.
+          check=(node desktop/scripts/first-run-check.mjs --app "$APP_EXE" --evidence "$EVIDENCE" --artifact "$ARTIFACT")
           if [ "$RUNNER_OS" = Linux ]; then
-            xvfb-run -a -s "-screen 0 1280x960x24" "${check[@]}"
+            xvfb-run -a -s "-screen 0 1280x960x24" "${check[@]}" --home "$FIRST_RUN_HOME"
           else
-            "${check[@]}"
+            "${check[@]}" --real-home
           fi
 
       # ----- when the first run failed: is it the app, or Playwright's way of starting it? -----
-      # The installed app is run directly, on a fresh home, with logging on: plain, and with the two flags Playwright adds
-      # (--inspect, --remote-debugging-port). Each is watched for 25 s with a full-screen screenshot at 15 s, then killed.
+      # On Windows the installed app crashes at start-up (0x80000003, on a V8 background thread) with or without Playwright, so
+      # the direct runs also try V8 flags and stock Electron, which needs Electron's binary (electron:fetch) and the built app.
+      - name: Stock Electron and the unpackaged app, for the comparison (Windows, the first run failed)
+        if: ${{ always() && matrix.os == 'win' && steps.first_run.outcome == 'failure' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          pnpm --filter @run-hound/desktop electron:fetch
+          pnpm --filter @run-hound/desktop build
+
+      # The installed app is run directly, with logging on: plain, and with the two flags Playwright adds (--inspect,
+      # --remote-debugging-port). Each is watched for 25 s with a full-screen screenshot at 15 s, then killed. Linux runs on a
+      # fresh home, macOS and Windows on the runner's own.
       - name: Run the installed app directly (the first run failed)
         if: ${{ always() && steps.first_run.outcome == 'failure' }}
         shell: bash
@@ -415,14 +432,14 @@ jobs:
 
       - name: Verify the uninstall (macOS)
         if: ${{ always() && matrix.os == 'mac' && env.APP_BUNDLE != '' }}
-        run: node desktop/scripts/first-run-check.mjs --after-uninstall --app "$APP_EXE" --installed-path "$APP_BUNDLE" --evidence "$EVIDENCE" --home "$FIRST_RUN_HOME"
+        run: node desktop/scripts/first-run-check.mjs --after-uninstall --app "$APP_EXE" --installed-path "$APP_BUNDLE" --evidence "$EVIDENCE" --real-home
 
       - name: Verify the uninstall (Windows)
         if: ${{ always() && matrix.os == 'win' && env.APP_EXE != '' }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          node desktop/scripts/first-run-check.mjs --after-uninstall --app $env:APP_EXE --installed-path $env:APP_DIR --evidence $env:EVIDENCE --home $env:FIRST_RUN_HOME --wait-seconds 120
+          node desktop/scripts/first-run-check.mjs --after-uninstall --app $env:APP_EXE --installed-path $env:APP_DIR --evidence $env:EVIDENCE --real-home --wait-seconds 120
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $left = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like '*Run Hound*' }
           if ($left) { throw 'The "Run Hound" entry is still in the Uninstall registry key after the uninstall' }
@@ -633,7 +650,7 @@ jobs:
             echo "| --- | --- | --- |"
           } >> "$GITHUB_STEP_SUMMARY"
           first_run_failed=()
-          for key in linux_x64_deb linux_arm64_deb linux_x64_rpm linux_arm64_rpm macos_arm64 macos_x64 windows_x64; do
+          for key in linux_x64_deb linux_arm64_deb linux_x64_rpm linux_arm64_rpm macos_arm64 macos_x64 windows_x64 windows_2022_x64; do
             value=$(jq -rs --arg key "$key" 'add | .[$key] // ""' <<< "$FIRST_RUN_OUTPUTS $FIRST_RUN_RPM_OUTPUTS")
             if [ -z "$value" ]; then kind="-"; state="no result"; else kind=${value%%:*}; state=${value#*:}; fi
             echo "| $key | $kind | $state |" >> "$GITHUB_STEP_SUMMARY"

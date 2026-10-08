@@ -7,8 +7,10 @@ import {
   describeFuses,
   diagnosticsMarkdown,
   exitCodeHex,
+  cleanMachinePaths,
   expectedDataDirs,
   findPlainText,
+  inheritedEnv,
   isolatedEnv,
   leftoverFiles,
   nameProblems,
@@ -36,6 +38,13 @@ describe("D5 first-run check: arguments", () => {
     expect(after).toMatchObject({ afterUninstall: true, installedPaths: ["p1", "p2"], waitSeconds: 90 });
     expect(() => parseArgs(["--app", "a", "--evidence", "e", "--after-uninstall"])).toThrow(/--home/);
     expect(parseArgs(["--app", "a", "--evidence", "e", "--package-files", "list.txt"]).packageFiles).toBe("list.txt");
+  });
+
+  it("takes the machine's own home with --real-home, instead of a --home, before and after an uninstall", () => {
+    expect(parseArgs(["--app", "a", "--evidence", "e"]).realHome).toBe(false);
+    expect(parseArgs(["--app", "a", "--evidence", "e", "--real-home"]).realHome).toBe(true);
+    expect(parseArgs(["--app", "a", "--evidence", "e", "--real-home", "--after-uninstall"])).toMatchObject({ realHome: true, afterUninstall: true });
+    expect(() => parseArgs(["--app", "a", "--evidence", "e", "--real-home", "--home", "h"])).toThrow(/alternatives/);
   });
 
   it("refuses what it does not know or can't use", () => {
@@ -95,6 +104,21 @@ describe("D5 first-run check: the app's environment", () => {
   it("points Windows' profile variables into the fresh home", () => {
     const env = isolatedEnv({ APPDATA: "C:\\real", LOCALAPPDATA: "C:\\real" }, "win32", "C:\\h");
     expect(env).toMatchObject({ HOME: "C:\\h", USERPROFILE: "C:\\h", APPDATA: "C:\\h\\AppData\\Roaming", LOCALAPPDATA: "C:\\h\\AppData\\Local", RUNHOUND_NO_UPDATE_CHECK: "1" });
+  });
+
+  it("keeps the machine's own profile on --real-home (a fresh macOS HOME has no login keychain) and still drops what moves the folders or hands over a key", () => {
+    const env = inheritedEnv({ PATH: "/bin", HOME: "/Users/runner", APPDATA: "C:\\real", RUNHOUND_RUNS_DIR: "/x", PLAYWRIGHT_BROWSERS_PATH: "/pw", OPENAI_API_KEY: "sk-real", RUNHOUND_NO_UPDATE_CHECK: "0" });
+    expect(env).toEqual({ PATH: "/bin", HOME: "/Users/runner", APPDATA: "C:\\real", RUNHOUND_NO_UPDATE_CHECK: "1" });
+  });
+
+  it("lists where Run Hound data would be on a machine that has used it, per platform", () => {
+    expect(cleanMachinePaths("darwin", "/Users/u")).toEqual(["/Users/u/Library/Application Support/run-hound", "/Users/u/Library/Application Support/Run Hound"]);
+    expect(cleanMachinePaths("win32", "C:\\Users\\u", { APPDATA: "C:\\Users\\u\\AppData\\Roaming", LOCALAPPDATA: "C:\\Users\\u\\AppData\\Local" })).toEqual([
+      "C:\\Users\\u\\AppData\\Roaming\\run-hound",
+      "C:\\Users\\u\\AppData\\Local\\run-hound\\runs",
+      "C:\\Users\\u\\AppData\\Roaming\\Run Hound",
+    ]);
+    expect(cleanMachinePaths("linux", "/home/u")).toEqual(["/home/u/.config/run-hound-desktop", "/home/u/.local/share/run-hound/runs", "/home/u/.config/Run Hound"]);
   });
 
   it("matches the folders the check later expects", () => {
@@ -304,13 +328,15 @@ describe("D5 first-run diagnostics (the installed app without Playwright)", () =
     const text = diagnosticsMarkdown({
       fuses: { fuses: [{ name: "RunAsNode", state: "ENABLE" }] },
       runs: [
-        { id: "plain", args: [], seconds: 25, running: true, screenshot: "screen.png" },
-        { id: "playwright-flags", args: ["--inspect=0"], seconds: 25, running: false, exitCode: 2147483651, exitCodeHex: "0x80000003", signal: null, screenshotNote: "screenshot failed" },
+        { id: "plain", args: [], seconds: 25, running: true, screenshot: "screen-plain.png" },
+        { id: "playwright-flags", args: ["--inspect=0"], seconds: 25, running: false, exitCode: 2147483651, exitCodeHex: "0x80000003", signal: null, screenshotNote: "it had exited" },
+        { id: "stock-app", what: "stock Electron running desktop/ unpackaged", skipped: "stock Electron is not installed" },
       ],
     });
     expect(text).toContain("| RunAsNode | ENABLE |");
-    expect(text).toContain("| plain | none | still running after 25 s | - | screen.png |");
-    expect(text).toContain("| playwright-flags | --inspect=0 | had exited | 2147483651 (0x80000003) | screenshot failed |");
+    expect(text).toContain("| plain | installed app | none | still running after 25 s | - | screen-plain.png |");
+    expect(text).toContain("| playwright-flags | installed app | --inspect=0 | had exited | 2147483651 (0x80000003) | it had exited |");
+    expect(text).toContain("| stock-app | stock Electron running desktop/ unpackaged | - | skipped: stock Electron is not installed | - | - |");
     expect(diagnosticsMarkdown({ fuses: { error: "no sentinel", fuses: [] } })).toContain("Not read: no sentinel");
   });
 });

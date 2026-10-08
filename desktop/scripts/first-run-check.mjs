@@ -1,7 +1,7 @@
 // D5: the first-run check of an INSTALLED Run Hound desktop app, on a clean machine (a fresh GitHub runner).
 //
-//   node scripts/first-run-check.mjs --app <installed executable> --evidence <dir> [--artifact <installer file>] [--home <dir>]
-//   node scripts/first-run-check.mjs --app <installed executable> --evidence <dir> --home <dir> --after-uninstall
+//   node scripts/first-run-check.mjs --app <installed executable> --evidence <dir> [--artifact <installer file>] [--home <dir> | --real-home]
+//   node scripts/first-run-check.mjs --app <installed executable> --evidence <dir> (--home <dir> | --real-home) --after-uninstall
 //                                    [--installed-path <what the uninstaller removes>]... [--package-files <dpkg -L / rpm -ql listing>]
 //                                    [--wait-seconds 120]
 //
@@ -26,7 +26,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { arch, release, tmpdir } from "node:os";
+import { arch, homedir, release, tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -34,8 +34,10 @@ import {
   StepRecorder,
   buildEvidence,
   confirmedFindings,
+  cleanMachinePaths,
   expectedDataDirs,
   findPlainText,
+  inheritedEnv,
   isolatedEnv,
   leftoverFiles,
   nameProblems,
@@ -91,7 +93,7 @@ function filesUnder(dir) {
 if (args.afterUninstall) {
   const evidencePath = join(evidenceDir, "first-run.json");
   const facts = JSON.parse(readFileSync(evidencePath, "utf8"));
-  const home = resolve(args.home);
+  const home = args.realHome ? homedir() : resolve(args.home);
   const dirs = facts.dataDirs ?? expectedDataDirs(platform, home, isolatedEnv({}, platform, home));
   const userDataKept = facts.userData ? existsSync(facts.userData) : null; // the Electron profile: recorded, not required
   rec.steps.push(...facts.steps.filter((step) => !step.name.startsWith("Uninstall")));
@@ -140,10 +142,12 @@ if (!existsSync(appPath)) {
   console.error(`first-run-check: ${appPath} does not exist; --app is the installed executable.`);
   process.exit(2);
 }
-const ownsHome = !args.home;
-const home = args.home ? resolve(args.home) : mkdtempSync(join(tmpdir(), "run-hound-first-run-"));
+// --real-home (macOS and Windows on a fresh runner): the machine's own home, asserted to hold no Run Hound data. A fresh HOME on
+// macOS has no login keychain, so the first safeStorage access shows a "Keychain Not Found" system dialog before the window.
+const ownsHome = !args.home && !args.realHome;
+const home = args.realHome ? homedir() : args.home ? resolve(args.home) : mkdtempSync(join(tmpdir(), "run-hound-first-run-"));
 mkdirSync(home, { recursive: true });
-const env = isolatedEnv(process.env, platform, home);
+const env = args.realHome ? inheritedEnv(process.env) : isolatedEnv(process.env, platform, home);
 const dirs = expectedDataDirs(platform, home, env);
 
 const artifactBytes = args.artifact && existsSync(args.artifact) ? readFileSync(args.artifact) : null;
@@ -161,6 +165,7 @@ const facts = {
   chromium: null,
   startedAt: new Date().toISOString(),
   home,
+  realHome: args.realHome,
   dataDirs: dirs,
   target: null,
   runs: { completed: null, stopped: null },
@@ -296,6 +301,10 @@ try {
 
   // 1 ---------------------------------------------------------------------------------------------------------------
   await rec.run("First launch", async () => {
+    if (args.realHome) {
+      const present = cleanMachinePaths(platform, home, env).filter((path) => existsSync(path));
+      assert.ok(present.length === 0, `this is not a clean machine: Run Hound data is already at ${present.join(", ")}`);
+    }
     session = await launch("first");
     const { app, page } = session;
     assert.match(page.url(), /^http:\/\/127\.0\.0\.1:\d+\//, `the window shows ${page.url()}, not the engine on loopback`);

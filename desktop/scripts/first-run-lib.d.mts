@@ -1,10 +1,12 @@
-export interface Args { app: string; evidence: string; artifact: string; home: string; installedPaths: string[]; packageFiles: string; afterUninstall: boolean; waitSeconds: number }
+export interface Args { app: string; evidence: string; artifact: string; home: string; realHome: boolean; installedPaths: string[]; packageFiles: string; afterUninstall: boolean; waitSeconds: number }
 export interface Step { name: string; ok: boolean; ms: number; detail?: string; error?: string }
 export interface Evidence { schema: number; ok: boolean; steps: Step[]; [key: string]: unknown }
 export function parseArgs(argv: string[]): Args;
 export function expectedDataDirs(platform: string, home: string, env?: Record<string, string | undefined>): { settings: string; runs: string };
 export function isolatedEnv(base: Record<string, string | undefined>, platform: string, home: string): Record<string, string>;
 export function leftoverFiles(listing: string, kind: (path: string) => "file" | "dir" | null): string[];
+export function inheritedEnv(base: Record<string, string | undefined>): Record<string, string>;
+export function cleanMachinePaths(platform: string, home: string, env?: Record<string, string | undefined>): string[];
 export function redact(text: unknown, secrets: string[]): string;
 export class StepRecorder {
   constructor(options?: { now?: () => number; secrets?: string[] });
@@ -26,4 +28,4 @@ export interface DiagnoseArgs { command: "fuses" | "direct"; app: string; eviden
 export function parseDiagnoseArgs(argv: string[]): DiagnoseArgs;
 export function describeFuses(wire: Record<string, unknown>, optionNames: Record<number, string>, stateNames: Record<number, string>): { version: unknown; fuses: { index: number; name: string; state: string }[] };
 export function exitCodeHex(code: unknown): string | null;
-export function diagnosticsMarkdown(parts: { fuses?: { error?: string; fuses: { name: string; state: string }[] } | null; runs?: { id: string; args: string[]; seconds: number; running: boolean; exitCode?: number | null; exitCodeHex?: string | null; signal?: string | null; screenshot?: string | null; screenshotNote?: string }[] | null }): string;
+export function diagnosticsMarkdown(parts: { fuses?: { error?: string; fuses: { name: string; state: string }[] } | null; runs?: { id: string; what?: string; skipped?: string; args?: string[]; seconds?: number; running?: boolean; exitCode?: number | null; exitCodeHex?: string | null; signal?: string | null; screenshot?: string | null; screenshotNote?: string }[] | null }): string;

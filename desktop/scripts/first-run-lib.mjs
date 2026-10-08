@@ -5,7 +5,7 @@ import { posix, win32 } from "node:path";
 
 /** What the check accepts; see first-run-check.mjs for what each is for. */
 export function parseArgs(argv) {
-  const out = { app: "", evidence: "", artifact: "", home: "", installedPaths: [], packageFiles: "", afterUninstall: false, waitSeconds: 0 };
+  const out = { app: "", evidence: "", artifact: "", home: "", realHome: false, installedPaths: [], packageFiles: "", afterUninstall: false, waitSeconds: 0 };
   const takes = new Map([
     ["--app", (v) => (out.app = v)],
     ["--evidence", (v) => (out.evidence = v)],
@@ -21,6 +21,10 @@ export function parseArgs(argv) {
       out.afterUninstall = true;
       continue;
     }
+    if (flag === "--real-home") {
+      out.realHome = true;
+      continue;
+    }
     const set = takes.get(flag);
     if (!set) throw new Error(`Unknown argument ${flag}.`);
     const value = argv[i + 1];
@@ -31,7 +35,8 @@ export function parseArgs(argv) {
   if (!out.app) throw new Error("--app <path to the installed executable> is required.");
   if (!out.evidence) throw new Error("--evidence <directory> is required.");
   if (!Number.isFinite(out.waitSeconds) || out.waitSeconds < 0) throw new Error("--wait-seconds must be a number of seconds.");
-  if (out.afterUninstall && !out.home) throw new Error("--after-uninstall needs the --home the first run used.");
+  if (out.realHome && out.home) throw new Error("--real-home and --home are alternatives.");
+  if (out.afterUninstall && !out.home && !out.realHome) throw new Error("--after-uninstall needs the --home the first run used, or --real-home.");
   return out;
 }
 
@@ -114,6 +119,36 @@ export function nameProblems({ platform, executable, appName, userData }) {
   const folder = String(userData).replace(/\\/g, "/").split("/").pop();
   if (folder !== APP_NAME) problems.push(`the profile folder is ${userData}, which should be named ${APP_NAME}`);
   return problems;
+}
+
+/**
+ * The environment of the app under test on the machine's own home (--real-home): what isolatedEnv leaves out (the variables
+ * that would move the app's folders or hand it a key), and nothing added but the update check switched off. A fresh GitHub
+ * runner is already a clean machine; on macOS a fresh HOME has no login keychain, so the first safeStorage access shows a
+ * system dialog ("Keychain Not Found") before the window, and on Windows a changed profile is not what a user has.
+ */
+export function inheritedEnv(base) {
+  const env = {};
+  for (const [name, value] of Object.entries(base)) {
+    if (value === undefined) continue;
+    if (name.toUpperCase() === "RUNHOUND_NO_UPDATE_CHECK") continue;
+    if (LEAKING.some((pattern) => pattern.test(name.toUpperCase()))) continue;
+    env[name] = value;
+  }
+  env.RUNHOUND_NO_UPDATE_CHECK = "1";
+  return env;
+}
+
+/**
+ * Where Run Hound would have left data on this machine, to assert none is there before a first run on the machine's own
+ * home: its settings and reports folders (docs/desktop-install.md) and the app's profile folder named after the product.
+ */
+export function cleanMachinePaths(platform, home, env = {}) {
+  const dirs = expectedDataDirs(platform, home, env);
+  // On macOS the reports folder is inside the settings folder.
+  if (platform === "darwin") return [dirs.settings, posix.join(home, "Library", "Application Support", "Run Hound")];
+  if (platform === "win32") return [dirs.settings, dirs.runs, win32.join(env.APPDATA || win32.join(home, "AppData", "Roaming"), "Run Hound")];
+  return [dirs.settings, dirs.runs, posix.join(env.XDG_CONFIG_HOME || posix.join(home, ".config"), "Run Hound")];
 }
 
 /** Replace every secret in a message, so a failure never prints a key. */
@@ -293,11 +328,16 @@ export function diagnosticsMarkdown({ fuses, runs }) {
     lines.push("");
   }
   if (runs) {
-    lines.push("### The installed app run directly, without Playwright", "", "| Run | Flags | After the wait | Exit | Screenshot |", "| --- | --- | --- | --- | --- |");
+    lines.push("### Run directly, without Playwright", "", "| Run | What | Flags | After the wait | Exit | Screenshot |", "| --- | --- | --- | --- | --- | --- |");
     for (const run of runs) {
+      const what = cell(run.what ?? "installed app");
+      if (run.skipped) {
+        lines.push(`| ${cell(run.id)} | ${what} | - | skipped: ${cell(run.skipped)} | - | - |`);
+        continue;
+      }
       const after = run.running ? `still running after ${run.seconds} s` : "had exited";
       const exit = run.running ? "-" : `${run.exitCode ?? "-"}${run.exitCodeHex ? ` (${run.exitCodeHex})` : ""}${run.signal ? ` ${run.signal}` : ""}`;
-      lines.push(`| ${cell(run.id)} | ${cell(run.args.join(" ") || "none")} | ${after} | ${exit} | ${run.screenshot ? cell(run.screenshot) : cell(run.screenshotNote ?? "none")} |`);
+      lines.push(`| ${cell(run.id)} | ${what} | ${cell((run.args ?? []).join(" ") || "none")} | ${after} | ${exit} | ${run.screenshot ? cell(run.screenshot) : cell(run.screenshotNote ?? "none")} |`);
     }
     lines.push("");
   }

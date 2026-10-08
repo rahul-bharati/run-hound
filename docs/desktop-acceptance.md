@@ -4,7 +4,7 @@ How a desktop installer is validated before the maintainer accepts the milestone
 
 ## What CI proves
 
-Every run of [`desktop-installers.yml`](../.github/workflows/desktop-installers.yml) builds the installers, then the `first-run` and `first-run-rpm` jobs take each one to a fresh GitHub runner, which is the clean machine: no Run Hound, no settings, no browser cache. Each leg installs the real artifact, drives the installed app with [`desktop/scripts/first-run-check.mjs`](../desktop/scripts/first-run-check.mjs) (Playwright's Electron support, `_electron.launch({ executablePath })`, on a fresh home with `RUNHOUND_NO_UPDATE_CHECK=1`), uninstalls it, and checks what is left. The app under test is only the installed artifact; the harness (the checkout, `pnpm install`, Playwright and the spa-fetch sample app) comes from the repository.
+Every run of [`desktop-installers.yml`](../.github/workflows/desktop-installers.yml) builds the installers, then the `first-run` and `first-run-rpm` jobs take each one to a fresh GitHub runner, which is the clean machine: no Run Hound, no settings, no browser cache. Each leg installs the real artifact, drives the installed app with [`desktop/scripts/first-run-check.mjs`](../desktop/scripts/first-run-check.mjs) (Playwright's Electron support, `_electron.launch({ executablePath })`, with `RUNHOUND_NO_UPDATE_CHECK=1`), uninstalls it, and checks what is left. On Linux the app gets a fresh home. On macOS and Windows it runs on the runner's own home, which is already clean, and the check first asserts that no Run Hound data is there (the settings, reports and profile folders): a made-up `HOME` has no login keychain on macOS, so the first access to the keychain stops with a system dialog before the window opens, and a changed profile is not what a Windows user has. The app under test is only the installed artifact; the harness (the checkout, `pnpm install`, Playwright and the spa-fetch sample app) comes from the repository.
 
 | Step | What it proves |
 |---|---|
@@ -32,8 +32,11 @@ The commands are the silent equivalents of the user steps in [desktop-install.md
 | macOS arm64 | `macos-15` | `hdiutil attach` the dmg, copy the `.app` to `/Applications` | delete the `.app` | `first-run-macos-arm64` | not yet |
 | macOS x64 | `macos-15-intel` | the same | the same | `first-run-macos-x64` | not yet |
 | Windows x64 | `windows-2025` | the NSIS installer with `/S` (per user, `%LOCALAPPDATA%\Programs`) | `Uninstall Run Hound.exe /S` from the install folder | `first-run-windows-x64` | not yet |
+| Windows x64, older image | `windows-2022` | the same installer, built on `windows-2025` | the same | `first-run-windows-2022-x64` | not yet |
 
 "Not yet" legs report in the job summary and in the artifact, but a failure does not fail the workflow, because no run has shown them green (as the launch check was). When one has, set `advisory: false` for it in the workflow's matrix. The release gate reads every leg's result: a failed blocking leg stops publishing ("first run failed (…)" in the gate's summary), and advisory legs are listed there but block nothing. The Fedora legs are the closest to a bare system: the rpm's declared dependencies are installed before anything else, and the harness is added afterwards. The Ubuntu runner image already has many libraries, so the deb legs prove the install and the first run, and less about missing dependencies.
+
+When a leg's first run fails, the leg also runs the installed app directly, without Playwright, and records it (see below), so a start-up failure can be told from a failure of Playwright's way of starting the app. On Windows it also runs V8 flags and stock Electron on the runner, to isolate a crash.
 
 Each artifact holds:
 
@@ -41,6 +44,8 @@ Each artifact holds:
 - `summary.md`: the same as a table, as shown in the job summary.
 - `report.html` and `report.json` of the representative run, `report-stopped.json` of the cancelled one.
 - `window-first-launch.png` and `window-after-restart.png`.
+- `fuses.txt` and `fuses.json` (the Electron fuses of the installed binary, on every leg) and `diagnostics.md`.
+- After a failed first run: one row per direct run in `diagnostics.md`, `app-direct*.log`, `app-direct.json` and `screen-*.png` (macOS and Windows); on macOS `macos-signature.txt`, `macos-log.txt` and `crash-reports/`; on Windows `windows-events.txt`, `chromium.log`, `authenticode.txt` and `exe-version.txt`.
 - `installed.txt` (what the package manager or the OS says was installed, with its version) and, on Linux, `package-files.txt`.
 
 ### What CI cannot prove
@@ -49,6 +54,7 @@ Each artifact holds:
 - **Gatekeeper and SmartScreen.** A file from a workflow artifact has no quarantine or "downloaded from the internet" mark, so neither warns. The unsigned first launch in [desktop-install.md](desktop-install.md) is checked by hand.
 - **A real provider key.** The check never sends a request to a provider.
 - **A real desktop session**: a system keychain that asks for access, a desktop that has a display scaling or a theme. The runners use their own session, and Xvfb on Linux.
+- **A Mac with no usable login keychain.** The runner has one. Without it macOS shows a system dialog, "Keychain Not Found: A keychain cannot be found to store 'Run Hound Key'", before the window opens, and the window waits for it. Cancelling lets Run Hound fall back to its own store. This is a manual-check item below, not a CI blocker.
 - **An update over an older install.** There is no older release yet.
 
 ### The names the check asserts
@@ -92,6 +98,10 @@ Use the installers from the workflow run you are accepting (private artifacts `i
 - [ ] macOS: Gatekeeper's prompt and the **Open Anyway** (macOS 15) or Control-click **Open** (macOS 14) steps in [desktop-install.md](desktop-install.md) work as written, and the bundle and folder names match what the document says.
 - [ ] Windows: SmartScreen's **More info** and **Run anyway** steps work as written.
 - [ ] A signed and notarized build, when there is one, opens with the usual "downloaded from the internet" prompt only.
+
+**3b. A Mac with no usable login keychain (a fresh user account, or a deleted keychain).**
+
+- [ ] On the first launch macOS may show "Keychain Not Found: A keychain cannot be found to store 'Run Hound Key'" before the window. Choose **Cancel**: the window opens and saved keys use Run Hound's own store (**Settings** shows which).
 
 **4. Uninstall and data cleanup.** With the uninstall steps in [desktop-install.md](desktop-install.md):
 
