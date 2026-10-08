@@ -20,7 +20,8 @@
 # A platform with an incomplete set builds unsigned and says why in the log and the job summary. Linux packages are not
 # signed by this pipeline.
 #
-# Publishing (tag v*.*.* only): the publish job runs when the gate job finds every macOS and Windows build signed, and
+# Publishing (tag v*.*.* only): the publish job runs when the gate job finds every macOS and Windows build signed and no
+# blocking first-run leg (the install-and-run checks of the first-run jobs) failed, and
 # then attaches the installers and a combined SHA256SUMS to the GitHub Release of the tag. Otherwise the gate's summary
 # says "not published: ..." and nothing leaves the workflow artifacts. release-images.yml creates and publishes the
 # GitHub Release once its images are on GHCR; the publish job adds to that release if it exists, or creates it as a
@@ -155,11 +156,9 @@ jobs:
           sudo apt-get install -y ./release/*.deb
           DESKTOP_EXECUTABLE="/opt/Run Hound/run-hound" xvfb-run -a node scripts/launch-check.mjs
 
-      # The launch check has not run on macOS or Windows runners before, so these two are advisory (a failure shows
-      # as an annotation but does not fail the build) until a run has shown them green.
-      - name: Launch the packaged app (macOS, advisory)
+      # macOS and Windows keep the runner's real profile (see launch-check.mjs); both block the build.
+      - name: Launch the packaged app (macOS)
         if: matrix.os == 'mac'
-        continue-on-error: true
         timeout-minutes: 10
         shell: bash
         working-directory: desktop
@@ -168,9 +167,8 @@ jobs:
           exe=$(find "$app/Contents/MacOS" -type f -perm -u+x -print -quit)
           DESKTOP_EXECUTABLE=$(node -p 'require("path").resolve(process.argv[1])' "$exe") node scripts/launch-check.mjs
 
-      - name: Launch the packaged app (Windows, advisory)
+      - name: Launch the packaged app (Windows)
         if: matrix.os == 'win'
-        continue-on-error: true
         timeout-minutes: 10
         shell: bash
         working-directory: desktop
@@ -190,11 +188,430 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # D5 (issue #48): the first-run check on a clean machine. A fresh GitHub runner is the clean machine: each leg downloads the
+  # installer the build leg of its platform made, installs it the way docs/desktop-install.md tells a user to, drives the
+  # INSTALLED app through desktop/scripts/first-run-check.mjs (first launch, model setup with a fake key, a representative
+  # URL run against fixtures/samples/spa-fetch, cancellation, restart), uninstalls it, and checks that the app is gone and
+  # the user's data is not. Only the harness (this checkout, pnpm install, Playwright) comes from the repo; the app under test
+  # is the artifact. Evidence per leg (first-run.json, summary.md, the reports, two window screenshots, the package listing)
+  # is the artifact first-run-<os>-<arch>[-<format>], kept 30 days; the job summary shows each step's result.
+  #
+  # Where a platform installs (desktop/package.json "build", app-builder-lib's NSIS templates and fpm targets, electron-builder 26.15.3):
+  #   Linux deb/rpm  /opt/Run Hound/run-hound (symlinked from /usr/bin)   macOS  /Applications/Run Hound.app
+  #   Windows        per-user one-click NSIS: %LOCALAPPDATA%\Programs\run-hound-desktop\Run Hound.exe (the folder is the package
+  #                  name that build.extraMetadata sets; the search below doesn't depend on it)
+  # Every leg has run green (PR #49), so all block. A new leg starts advisory (continue-on-error) and is flipped to
+  # false once a run shows it green. The release gate
+  # reads each leg's result (the `first_run_*` outputs) and refuses to publish when a blocking leg failed.
+  first-run:
+    name: First run (${{ matrix.label }})
+    needs: build
+    if: ${{ !cancelled() && needs.build.result != 'skipped' }}
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.advisory }}
+    timeout-minutes: 30
+    # One output per leg, <blocking|advisory>:<result>, for the release gate (an output of one name would be overwritten by
+    # whichever leg finishes last, as for signing_* in the build job). A leg sets only its own; the others stay empty.
+    outputs:
+      linux_x64_deb: ${{ steps.result.outputs.linux_x64_deb }}
+      linux_arm64_deb: ${{ steps.result.outputs.linux_arm64_deb }}
+      macos_arm64: ${{ steps.result.outputs.macos_arm64 }}
+      macos_x64: ${{ steps.result.outputs.macos_x64 }}
+      windows_x64: ${{ steps.result.outputs.windows_x64 }}
+      windows_2022_x64: ${{ steps.result.outputs.windows_2022_x64 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: linux-x64-deb, key: linux_x64_deb, os: linux, label: Linux x64 deb, runner: ubuntu-24.04, installers: linux_x64, advisory: false }
+          - { id: linux-arm64-deb, key: linux_arm64_deb, os: linux, label: Linux arm64 deb, runner: ubuntu-24.04-arm, installers: linux_arm64, advisory: false }
+          - { id: macos-arm64, key: macos_arm64, os: mac, label: macOS arm64, runner: macos-15, installers: mac_arm64, advisory: false }
+          - { id: macos-x64, key: macos_x64, os: mac, label: macOS x64, runner: macos-15-intel, installers: mac_x64, advisory: false }
+          - { id: windows-x64, key: windows_x64, os: win, label: Windows x64, runner: windows-2025, installers: win_x64, advisory: false }
+          # The same installer (built on windows-2025) on the older image, so an OS or image difference shows up.
+          - { id: windows-2022-x64, key: windows_2022_x64, os: win, label: Windows x64 (windows-2022), runner: windows-2022, installers: win_x64, advisory: false }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install the harness
+        run: pnpm install --frozen-lockfile
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: installers-${{ matrix.installers }}
+          path: ${{ runner.temp }}/installers
+
+      - name: Prepare the evidence folder
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/first-run-evidence"
+          {
+            echo "EVIDENCE=$RUNNER_TEMP/first-run-evidence"
+            echo "FIRST_RUN_HOME=$RUNNER_TEMP/first-run-home"
+            echo "INSTALLERS=$RUNNER_TEMP/installers"
+          } >> "$GITHUB_ENV"
+
+      # ----- install: the documented way, on this runner's clean user -----
+      - name: Xvfb for the harness (Linux)
+        if: matrix.os == 'linux'
+        run: command -v xvfb-run > /dev/null || { sudo apt-get update && sudo apt-get install -y xvfb; }
+
+      # `apt-get install ./<deb>` resolves the dependencies the package declares, which is the proof they suffice.
+      - name: Install the deb (Linux)
+        if: matrix.os == 'linux'
+        run: |
+          set -euo pipefail
+          deb=$(ls "$INSTALLERS"/*.deb)
+          sudo apt-get update
+          sudo apt-get install -y "$deb"
+          dpkg -L run-hound > "$EVIDENCE/package-files.txt"
+          dpkg-query -W -f='${Package} ${Version} ${Architecture}\n' run-hound | tee "$EVIDENCE/installed.txt"
+          exe=$(grep -m1 '^/opt/.*/run-hound$' "$EVIDENCE/package-files.txt")
+          echo "ARTIFACT=$deb" >> "$GITHUB_ENV"
+          echo "APP_EXE=$exe" >> "$GITHUB_ENV"
+          echo "Installed $exe"
+
+      # A dmg downloaded from Actions carries no quarantine mark, so Gatekeeper's prompt (an unsigned build's first launch) is
+      # the maintainer's manual check (docs/desktop-acceptance.md), not this one's.
+      - name: Install the dmg (macOS)
+        if: matrix.os == 'mac'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg=$(ls "$INSTALLERS"/*.dmg)
+          mnt="$RUNNER_TEMP/dmg"
+          mkdir -p "$mnt"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg"
+          app=$(find "$mnt" -maxdepth 1 -name '*.app' -print -quit)
+          if [ -z "$app" ]; then echo "::error::no .app in $dmg"; ls -la "$mnt"; exit 1; fi
+          installed="/Applications/$(basename "$app")"
+          ditto "$app" "$installed" || sudo ditto "$app" "$installed"
+          hdiutil detach "$mnt" || hdiutil detach -force "$mnt"
+          exe=$(find "$installed/Contents/MacOS" -type f -perm -u+x -print -quit)
+          {
+            plutil -p "$installed/Contents/Info.plist" | grep -E 'CFBundle(Name|DisplayName|ShortVersionString|Version|Executable)|LSMinimumSystemVersion'
+            codesign -dv "$installed" 2>&1 || true
+          } | tee "$EVIDENCE/installed.txt"
+          echo "ARTIFACT=$dmg" >> "$GITHUB_ENV"
+          echo "APP_EXE=$exe" >> "$GITHUB_ENV"
+          echo "APP_BUNDLE=$installed" >> "$GITHUB_ENV"
+          echo "Installed $installed"
+
+      # The NSIS installer defaults (oneClick, per user), so it needs no elevation and installs under
+      # %LOCALAPPDATA%\Programs. The folder is named from the package, not the product, so the exe is searched for.
+      - name: Install the NSIS installer (Windows)
+        if: matrix.os == 'win'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = (Get-ChildItem $env:INSTALLERS -Filter *.exe | Select-Object -First 1).FullName
+          $p = Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "The installer exited with $($p.ExitCode)" }
+          $programs = Join-Path $env:LOCALAPPDATA 'Programs'
+          Get-ChildItem $programs | Format-Table Name, FullName
+          $exe = Get-ChildItem $programs -Recurse -Depth 2 -Filter 'Run Hound.exe' | Select-Object -First 1
+          if (-not $exe) { throw "Run Hound.exe is not under $programs" }
+          # What Settings > Apps > Installed apps lists: the uninstall docs rely on this entry.
+          $entry = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' | Where-Object { $_.DisplayName -like '*Run Hound*' }
+          if (-not $entry) { throw 'No "Run Hound" entry in the per-user Uninstall registry key' }
+          $entry | Select-Object DisplayName, DisplayVersion, InstallLocation, UninstallString | Format-List | Out-String | Tee-Object -FilePath "$env:EVIDENCE\installed.txt"
+          Add-Content -Path $env:GITHUB_ENV -Value "ARTIFACT=$installer"
+          Add-Content -Path $env:GITHUB_ENV -Value "APP_EXE=$($exe.FullName)"
+          Add-Content -Path $env:GITHUB_ENV -Value "APP_DIR=$($exe.DirectoryName)"
+
+      # What the installed binary's Electron fuses are (electron-builder applies none unless `electronFuses` is configured, and it
+      # isn't), on every platform, for comparison. Nothing is changed.
+      - name: Electron fuses of the installed app
+        if: ${{ env.APP_EXE != '' }}
+        shell: bash
+        run: node desktop/scripts/first-run-diagnose.mjs fuses --app "$APP_EXE" --evidence "$EVIDENCE"
+
+      # ----- the check, on the installed app -----
+      - name: First run
+        id: first_run
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Linux gets a fresh home. A fresh runner's own home is already clean on macOS and Windows (the check asserts it holds
+          # no Run Hound data), and a made-up HOME has no login keychain there: macOS stops with a "Keychain Not Found" dialog
+          # before the window, and Windows' profile is not ours to change.
+          check=(node desktop/scripts/first-run-check.mjs --app "$APP_EXE" --evidence "$EVIDENCE" --artifact "$ARTIFACT")
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a -s "-screen 0 1280x960x24" "${check[@]}" --home "$FIRST_RUN_HOME"
+          else
+            "${check[@]}" --real-home
+          fi
+
+      # ----- when the first run failed: is it the app, or Playwright's way of starting it? -----
+      # On Windows the installed app crashes at start-up (0x80000003, on a V8 background thread) with or without Playwright, so
+      # the direct runs also try V8 flags and stock Electron, which needs Electron's binary (electron:fetch) and the built app.
+      - name: Stock Electron and the unpackaged app, for the comparison (Windows, the first run failed)
+        if: ${{ always() && matrix.os == 'win' && steps.first_run.outcome == 'failure' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          pnpm --filter @run-hound/desktop electron:fetch
+          pnpm --filter @run-hound/desktop build
+
+      # The installed app is run directly, with logging on: plain, and with the two flags Playwright adds (--inspect,
+      # --remote-debugging-port). Each is watched for 25 s with a full-screen screenshot at 15 s, then killed. Linux runs on a
+      # fresh home, macOS and Windows on the runner's own.
+      - name: Run the installed app directly (the first run failed)
+        if: ${{ always() && steps.first_run.outcome == 'failure' }}
+        shell: bash
+        run: |
+          direct=(node desktop/scripts/first-run-diagnose.mjs direct --app "$APP_EXE" --evidence "$EVIDENCE")
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a -s "-screen 0 1280x960x24" "${direct[@]}"
+          else
+            "${direct[@]}"
+          fi
+
+      - name: Signature, Gatekeeper and system log of the installed app (macOS, the first run failed)
+        if: ${{ always() && matrix.os == 'mac' && steps.first_run.outcome == 'failure' }}
+        shell: bash
+        run: |
+          {
+            echo "## codesign -dv --verbose=4"; codesign -dv --verbose=4 "$APP_BUNDLE" 2>&1
+            echo; echo "## codesign --verify --deep --strict --verbose=2"; codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE" 2>&1
+            echo; echo "## spctl -a -vv"; spctl -a -vv "$APP_BUNDLE" 2>&1
+            echo; echo "## xattr -l"; xattr -l "$APP_BUNDLE" 2>&1
+            echo; echo "## sw_vers"; sw_vers 2>&1
+          } > "$EVIDENCE/macos-signature.txt" || true
+          # The last 10 minutes cover the Playwright attempt and the direct runs.
+          { sudo -n log show --last 10m --style compact --predicate 'process CONTAINS "Run Hound" OR eventMessage CONTAINS "Run Hound"' || log show --last 10m --style compact --predicate 'process CONTAINS "Run Hound" OR eventMessage CONTAINS "Run Hound"'; } 2>&1 | tail -n 500 > "$EVIDENCE/macos-log.txt" || true
+          mkdir -p "$EVIDENCE/crash-reports"
+          cp ~/Library/Logs/DiagnosticReports/*Run*Hound* "$EVIDENCE/crash-reports/" 2> /dev/null || true
+          ls -la "$EVIDENCE/crash-reports" || true
+
+      - name: Application Error events and the exe's signature (Windows, the first run failed)
+        if: ${{ always() && matrix.os == 'win' && steps.first_run.outcome == 'failure' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $events = Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'Application Error', 'Windows Error Reporting' } -MaxEvents 5 -ErrorAction SilentlyContinue
+          if ($events) { $events | Format-List TimeCreated, ProviderName, Id, Message | Out-File -Encoding utf8 "$env:EVIDENCE\windows-events.txt" }
+          else { 'No Application Error or Windows Error Reporting events.' | Out-File -Encoding utf8 "$env:EVIDENCE\windows-events.txt" }
+          Get-AuthenticodeSignature $env:APP_EXE | Format-List * | Out-File -Encoding utf8 "$env:EVIDENCE\authenticode.txt"
+          (Get-Item $env:APP_EXE).VersionInfo | Format-List * | Out-File -Encoding utf8 "$env:EVIDENCE\exe-version.txt"
+          exit 0
+
+      # ----- uninstall the documented way, then check the app is gone and the data is not -----
+      - name: Uninstall (Linux deb)
+        if: ${{ always() && matrix.os == 'linux' && env.APP_EXE != '' }}
+        run: sudo apt-get remove -y run-hound
+
+      - name: Uninstall (macOS)
+        if: ${{ always() && matrix.os == 'mac' && env.APP_BUNDLE != '' }}
+        run: rm -rf "$APP_BUNDLE" || sudo rm -rf "$APP_BUNDLE"
+
+      # The uninstaller copies itself to a temp folder and exits at once, so it is started without waiting; the next step
+      # waits for the files to go.
+      - name: Uninstall (Windows)
+        if: ${{ always() && matrix.os == 'win' && env.APP_EXE != '' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $uninstaller = Get-ChildItem $env:APP_DIR -Filter 'Uninstall*.exe' | Select-Object -First 1
+          if (-not $uninstaller) { throw "No uninstaller in $env:APP_DIR" }
+          Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S'
+
+      - name: Verify the uninstall (Linux deb)
+        if: ${{ always() && matrix.os == 'linux' && env.APP_EXE != '' }}
+        run: |
+          set -euo pipefail
+          if dpkg -l run-hound 2> /dev/null | grep -q '^ii'; then echo "::error::run-hound is still installed after apt-get remove"; exit 1; fi
+          node desktop/scripts/first-run-check.mjs --after-uninstall --app "$APP_EXE" --evidence "$EVIDENCE" --home "$FIRST_RUN_HOME" --package-files "$EVIDENCE/package-files.txt"
+
+      - name: Verify the uninstall (macOS)
+        if: ${{ always() && matrix.os == 'mac' && env.APP_BUNDLE != '' }}
+        run: node desktop/scripts/first-run-check.mjs --after-uninstall --app "$APP_EXE" --installed-path "$APP_BUNDLE" --evidence "$EVIDENCE" --real-home
+
+      - name: Verify the uninstall (Windows)
+        if: ${{ always() && matrix.os == 'win' && env.APP_EXE != '' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node desktop/scripts/first-run-check.mjs --after-uninstall --app $env:APP_EXE --installed-path $env:APP_DIR --evidence $env:EVIDENCE --real-home --wait-seconds 120
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The silent uninstaller removes the files first and its Installed-apps entry last, so wait for the entry too
+          # (up to 60 s); one that stays is a real defect, a ghost in Settings > Apps.
+          $deadline = (Get-Date).AddSeconds(60)
+          do {
+            $left = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like '*Run Hound*' }
+            if (-not $left) { break }
+            Start-Sleep -Seconds 2
+          } while ((Get-Date) -lt $deadline)
+          if ($left) { throw 'The "Run Hound" entry is still in the Uninstall registry key 60 s after the uninstall' }
+
+      - name: Show each step's result
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${EVIDENCE:-}" ] && [ -f "$EVIDENCE/summary.md" ]; then
+            cat "$EVIDENCE/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '### First run: %s\n\nNo evidence was written: the check did not start (see the log for the install step).\n' "${{ matrix.label }}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -n "${EVIDENCE:-}" ] && [ -f "$EVIDENCE/diagnostics.md" ]; then
+            cat "$EVIDENCE/diagnostics.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: first-run-${{ matrix.id }}
+          path: ${{ runner.temp }}/first-run-evidence
+          if-no-files-found: warn
+          retention-days: 30
+
+      # Last, so that every step above counts. job.status is success, failure or cancelled.
+      - name: Record this leg's result for the release gate
+        id: result
+        if: always()
+        shell: bash
+        run: echo "${{ matrix.key }}=${{ matrix.advisory && 'advisory' || 'blocking' }}:${{ job.status }}" >> "$GITHUB_OUTPUT"
+
+  # The rpm, in a Fedora container on the same two runners: a bare system, with none of the runner image's preinstalled
+  # libraries, so `dnf install ./<rpm>` proves the dependencies the rpm declares are enough. Container jobs need an Ubuntu
+  # runner (GitHub's "Running jobs in a container": "If you are using GitHub-hosted runners, you must use an Ubuntu runner"),
+  # which ubuntu-24.04-arm is, and the fedora image is published for amd64 and arm64. The default shell in a container is sh,
+  # so bash is asked for. Chromium needs more shared memory than Docker's 64 MB default. The harness (Node, pnpm, Xvfb) is
+  # installed after the rpm, so what it pulls in can't hide a missing dependency of the app.
+  first-run-rpm:
+    name: First run (${{ matrix.label }})
+    needs: build
+    if: ${{ !cancelled() && needs.build.result != 'skipped' }}
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: fedora:44
+      options: --shm-size=1g
+    continue-on-error: ${{ matrix.advisory }}
+    timeout-minutes: 30
+    outputs:
+      linux_x64_rpm: ${{ steps.result.outputs.linux_x64_rpm }}
+      linux_arm64_rpm: ${{ steps.result.outputs.linux_arm64_rpm }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: linux-x64-rpm, key: linux_x64_rpm, label: Linux x64 rpm (Fedora 44), runner: ubuntu-24.04, installers: linux_x64, advisory: false }
+          - { id: linux-arm64-rpm, key: linux_arm64_rpm, label: Linux arm64 rpm (Fedora 44), runner: ubuntu-24.04-arm, installers: linux_arm64, advisory: false }
+    steps:
+      # What the actions need in a bare image (checkout falls back to the REST API without git, but git is cheap). None of it
+      # is a library the app links.
+      - name: Tools the actions need
+        run: dnf install -y git tar gzip xz zstd which findutils
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: installers-${{ matrix.installers }}
+          path: ${{ runner.temp }}/installers
+
+      # The rpm goes in before Node, pnpm, Xvfb and the font, so that what they pull in can't hide a dependency the rpm
+      # should have declared.
+      - name: Install the rpm
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/first-run-evidence"
+          {
+            echo "EVIDENCE=$RUNNER_TEMP/first-run-evidence"
+            echo "FIRST_RUN_HOME=$RUNNER_TEMP/first-run-home"
+          } >> "$GITHUB_ENV"
+          evidence="$RUNNER_TEMP/first-run-evidence"
+          rpm=$(ls "$RUNNER_TEMP"/installers/*.rpm)
+          dnf install -y "$rpm"
+          rpm -ql run-hound > "$evidence/package-files.txt"
+          rpm -q --qf '%{NAME} %{VERSION}-%{RELEASE} %{ARCH}\n' run-hound | tee "$evidence/installed.txt"
+          exe=$(grep -m1 '^/opt/.*/run-hound$' "$evidence/package-files.txt")
+          echo "ARTIFACT=$rpm" >> "$GITHUB_ENV"
+          echo "APP_EXE=$exe" >> "$GITHUB_ENV"
+          echo "Installed $exe"
+
+      # What pnpm/action-setup needs in a bare image: it ran npm (arm64: "spawn npm ENOENT") and a binary that links
+      # libatomic (x64: "libatomic.so.1: cannot open shared object file"), and Fedora's image has neither.
+      - name: Node, npm and libatomic for pnpm
+        run: dnf install -y nodejs npm libatomic
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install the harness
+        run: pnpm install --frozen-lockfile
+
+      # A container has no desktop: Xvfb gives the app its display, and a font keeps the sample page's layout comparable to the
+      # other legs'.
+      - name: Xvfb and a font for the harness
+        run: dnf install -y xorg-x11-server-Xvfb xorg-x11-xauth dejavu-sans-fonts
+
+      # What the installed binary's Electron fuses are, for comparison with the other platforms (nothing is changed).
+      - name: Electron fuses of the installed app
+        run: node desktop/scripts/first-run-diagnose.mjs fuses --app "$APP_EXE" --evidence "$EVIDENCE"
+
+      - name: First run
+        id: first_run
+        run: xvfb-run -a -s "-screen 0 1280x960x24" node desktop/scripts/first-run-check.mjs --app "$APP_EXE" --evidence "$EVIDENCE" --artifact "$ARTIFACT" --home "$FIRST_RUN_HOME"
+
+      # When the first run failed, whether the installed app starts at all, started the way Playwright starts it and not.
+      - name: Run the installed app directly (the first run failed)
+        if: ${{ always() && steps.first_run.outcome == 'failure' }}
+        run: xvfb-run -a -s "-screen 0 1280x960x24" node desktop/scripts/first-run-diagnose.mjs direct --app "$APP_EXE" --evidence "$EVIDENCE"
+
+      - name: Uninstall (rpm)
+        if: ${{ always() && env.APP_EXE != '' }}
+        run: dnf remove -y run-hound
+
+      - name: Verify the uninstall (rpm)
+        if: ${{ always() && env.APP_EXE != '' }}
+        run: |
+          set -euo pipefail
+          if rpm -q run-hound > /dev/null 2>&1; then echo "::error::run-hound is still installed after dnf remove"; exit 1; fi
+          node desktop/scripts/first-run-check.mjs --after-uninstall --app "$APP_EXE" --evidence "$EVIDENCE" --home "$FIRST_RUN_HOME" --package-files "$EVIDENCE/package-files.txt"
+
+      - name: Show each step's result
+        if: always()
+        run: |
+          if [ -n "${EVIDENCE:-}" ] && [ -f "$EVIDENCE/summary.md" ]; then
+            cat "$EVIDENCE/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '### First run: %s\n\nNo evidence was written: the check did not start (see the log for the install step).\n' "${{ matrix.label }}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -n "${EVIDENCE:-}" ] && [ -f "$EVIDENCE/diagnostics.md" ]; then
+            cat "$EVIDENCE/diagnostics.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: first-run-${{ matrix.id }}
+          path: ${{ runner.temp }}/first-run-evidence
+          if-no-files-found: warn
+          retention-days: 30
+
+      # Last, so that every step above counts. job.status is success, failure or cancelled.
+      - name: Record this leg's result for the release gate
+        id: result
+        if: always()
+        shell: bash
+        run: echo "${{ matrix.key }}=${{ matrix.advisory && 'advisory' || 'blocking' }}:${{ job.status }}" >> "$GITHUB_OUTPUT"
+
   # Decides whether to publish, and says why not. Every macOS and Windows build must have reported `signed` (Linux
-  # reports not-required), the whole matrix must have succeeded, and the run must be a release tag.
+  # reports not-required), the whole matrix must have succeeded, no blocking first-run leg may have failed (the legs
+  # still marked advisory in their matrix report here but never block), and the run must be a release tag.
   gate:
     name: Release gate
-    needs: build
+    needs: [build, first-run, first-run-rpm]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -206,6 +623,10 @@ jobs:
         env:
           BUILD_RESULT: ${{ needs.build.result }}
           BUILD_OUTPUTS: ${{ toJSON(needs.build.outputs) }}
+          FIRST_RUN_RESULT: ${{ needs.first-run.result }}
+          FIRST_RUN_RPM_RESULT: ${{ needs.first-run-rpm.result }}
+          FIRST_RUN_OUTPUTS: ${{ toJSON(needs.first-run.outputs) }}
+          FIRST_RUN_RPM_OUTPUTS: ${{ toJSON(needs.first-run-rpm.outputs) }}
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
         run: |
@@ -224,7 +645,32 @@ jobs:
               mac_* | win_*) [ "$state" = signed ] || unsigned+=("$id") ;;
             esac
           done
+          # First run on clean machines (D5): each leg reported <blocking|advisory>:<result>. A blocking leg that did not
+          # succeed stops publishing; an advisory one is listed and nothing more. A blocking leg that died without
+          # reporting still fails its job, which the job-level result catches.
+          {
+            echo
+            echo "| First run | Kind | Result |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          first_run_failed=()
+          for key in linux_x64_deb linux_arm64_deb linux_x64_rpm linux_arm64_rpm macos_arm64 macos_x64 windows_x64 windows_2022_x64; do
+            value=$(jq -rs --arg key "$key" 'add | .[$key] // ""' <<< "$FIRST_RUN_OUTPUTS $FIRST_RUN_RPM_OUTPUTS")
+            if [ -z "$value" ]; then kind="-"; state="no result"; else kind=${value%%:*}; state=${value#*:}; fi
+            echo "| $key | $kind | $state |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$kind" = blocking ] && [ "$state" != success ]; then first_run_failed+=("$key: $state"); fi
+          done
+          if [ "${#first_run_failed[@]}" = 0 ]; then
+            for job in "first-run:$FIRST_RUN_RESULT" "first-run-rpm:$FIRST_RUN_RPM_RESULT"; do
+              case "${job#*:}" in failure | cancelled) first_run_failed+=("${job%%:*} job: ${job#*:}") ;; esac
+            done
+          fi
+          echo "Advisory first-run legs report in their own job summaries and artifacts, and block nothing until \`advisory\` is false in their matrix." >> "$GITHUB_STEP_SUMMARY"
           reasons=()
+          if [ "${#first_run_failed[@]}" != 0 ]; then
+            printf -v failed_list '%s, ' "${first_run_failed[@]}"
+            reasons+=("first run failed (${failed_list%, })")
+          fi
           if [ "$REF_TYPE" != tag ]; then reasons+=("not a release tag ($REF_NAME), so the installers stay workflow artifacts for 7 days"); fi
           if [ "$BUILD_RESULT" != success ]; then reasons+=("a build did not succeed ($BUILD_RESULT)"); fi
           if [ "${#unsigned[@]}" != 0 ]; then reasons+=("unsigned builds (${unsigned[*]})"); fi

@@ -9,7 +9,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -21,10 +21,13 @@ process.on("exit", () => rmSync(scratch, { recursive: true, force: true }));
 const packaged = process.env.DESKTOP_EXECUTABLE;
 const args = [...(packaged ? [] : [root]), ...(process.env.CI ? ["--no-sandbox"] : [])];
 
-// A packaged app must run on the Chromium it ships. Giving it an empty home puts Playwright's per-user browser cache
-// out of reach, so a planning run that opens a page can only have used the bundled one.
+// A packaged app must run on the Chromium it ships. On Linux an empty home puts Playwright's per-user browser cache out of
+// reach, so a planning run that opens a page can only have used the bundled one. macOS and Windows keep the real profile:
+// a fake one has no login keychain on macOS (a blocking "Keychain Not Found" dialog before the window) and crashes the app
+// on Windows (an empty USERPROFILE and AppData), which no user has. There, the check that Playwright's executable path
+// lies inside the app's resources, on a runner with no per-user browser cache, is the proof.
 const home = join(scratch, "home");
-const emptyHome = packaged
+const emptyHome = packaged && process.platform === "linux"
   ? { HOME: home, USERPROFILE: home, XDG_CACHE_HOME: join(home, ".cache"), LOCALAPPDATA: join(home, "AppData", "Local"), APPDATA: join(home, "AppData", "Roaming") }
   : {};
 
@@ -90,6 +93,13 @@ try {
       },
       { method, path, body },
     );
+
+  await check("the app is named Run Hound, so its profile folder and its keychain item are", async () => {
+    // desktop/package.json "productName": Electron prefers it to the package's own (scoped, lowercase) name.
+    const [name, userData] = await app.evaluate(({ app }) => [app.getName(), app.getPath("userData")]);
+    assert.equal(name, "Run Hound");
+    assert.equal(basename(userData), "Run Hound");
+  });
 
   await check("the app makes headless launches use the full Chromium", async () => {
     assert.equal(await app.evaluate(() => process.env.RUNHOUND_FULL_CHROMIUM), "1");
@@ -211,7 +221,7 @@ try {
     assert.ok(tops.view >= 36, `the view's first content starts at ${tops.view}`);
   });
 
-  await check("a scrolled page never shows through the strip, and the sticky results panel sits below it", async () => {
+  await check("a scrolled page never shows through the strip, and the sticky results panel sits below it when sticky", async () => {
     const reply = await page.evaluate(async () => {
       const filler = document.createElement("div");
       filler.style.cssText = "height:3000px";
@@ -222,7 +232,7 @@ try {
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       const sidebar = document.querySelector("#sidebar").getBoundingClientRect();
       const sticky = getComputedStyle(panel);
-      const out = { scrolled: scrollY, sidebarTop: sidebar.top, sidebarHeight: sidebar.height, innerHeight, hit: document.elementFromPoint(innerWidth - 300, 20)?.className, panelPosition: sticky.position, panelTop: sticky.top, panelMaxHeight: sticky.maxHeight };
+      const out = { scrolled: scrollY, sidebarTop: sidebar.top, sidebarHeight: sidebar.height, innerHeight, hit: document.elementFromPoint(innerWidth - 300, 20)?.className, panelPosition: sticky.position, panelTop: sticky.top, panelMaxHeight: sticky.maxHeight, wide: matchMedia("(min-width: 68.01rem)").matches };
       filler.remove();
       panel.remove();
       scrollTo(0, 0);
@@ -232,7 +242,9 @@ try {
     assert.equal(reply.hit, "desktop-titlebar");
     assert.equal(reply.sidebarTop, 0);
     assert.equal(reply.sidebarHeight, reply.innerHeight);
-    assert.deepEqual([reply.panelPosition, reply.panelTop, reply.panelMaxHeight], ["sticky", "52px", `${reply.innerHeight - 32 - 36}px`]);
+    // The results panel is sticky only from 68rem wide (styles.ts); a runner with a small screen shrinks the window below that.
+    if (reply.wide) assert.deepEqual([reply.panelPosition, reply.panelTop, reply.panelMaxHeight], ["sticky", "52px", `${reply.innerHeight - 32 - 36}px`]);
+    else assert.deepEqual([reply.panelPosition, reply.panelTop, reply.panelMaxHeight], ["static", "auto", "none"]);
   });
 
   await check("the application menu is minimal on macOS and absent elsewhere", async () => {

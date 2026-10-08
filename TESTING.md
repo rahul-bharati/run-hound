@@ -138,6 +138,8 @@ When the same problem affects several elements (no visible focus on 6 controls),
 
 ## Install
 
+The desktop app (internal testing builds) installs as [docs/desktop-install.md](docs/desktop-install.md) says, and [docs/desktop-acceptance.md](docs/desktop-acceptance.md) records how each installer is validated on clean machines.
+
 ### Docker or Podman (no clone)
 
 Pull the image and run it, from any folder:
