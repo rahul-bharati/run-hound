@@ -4,8 +4,11 @@
  *   1. Point the engine at the desktop's config folder and, in a packaged
  *      app that ships its own Chromium, at that browser, BEFORE the engine
  *      is imported (Rule 4 of docs/desktop-architecture.md).
- *   2. Import the bundled engine (dist/engine.js) and bind it to loopback.
- *   3. Open one hardened window on the engine's URL (Rule 5): no Node, an
+ *   2. Check that the browser is there and the settings and results folders
+ *      can be written; if not, say what to do in a native dialog and exit.
+ *   3. Import the bundled engine (dist/engine.js), import the command line's
+ *      settings once, and bind the engine to loopback.
+ *   4. Open one hardened window on the engine's URL (Rule 5): no Node, an
  *      isolated sandboxed preload, navigation pinned to the engine's origin.
  *
  * The engine runs in this process for now; moving it to a supervised
@@ -20,21 +23,29 @@ import { fileURLToPath } from "node:url";
 
 import { applyPlaywrightEnv } from "./apply-env.js";
 import { CHANNELS } from "./channels.js";
-import { resolveConfigDir, resolveRunsDir } from "./config.js";
+import { resolveCliConfigDir, resolveConfigDir, resolveRunsDir } from "./config.js";
 import type { DesktopEngineReady } from "./contract.js";
 import { hostPlatform, startDesktopEngine } from "./entry.js";
+import { importFailedNotice, importedNotice, type Notice } from "./import-notice.js";
 import { osKeyProtector } from "./key-protector.js";
+import { STARTUP_PROBLEM_TITLE, describeStartupProblems, runStartupChecks } from "./startup-checks.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const platform = hostPlatform();
+// The command line's settings folder, read from the environment as it is now: once RUNHOUND_CONFIG_DIR is set below
+// it would name the desktop's own folder.
+const cliConfigDir = resolveCliConfigDir();
 const configDir = resolveConfigDir(platform);
 const runsDir = resolveRunsDir(platform);
 
 // Step 1, before the engine is imported. The engine reads RUNHOUND_CONFIG_DIR for its saved AI and account settings;
 // an empty value counts as unset on both sides, so the engine and the reported configDir always agree.
 if (!process.env.RUNHOUND_CONFIG_DIR) process.env.RUNHOUND_CONFIG_DIR = configDir;
-// A packaged app looks for its own Chromium under resources/playwright-browsers (D3 puts it there). Without one,
-// Playwright keeps its default per-user browser cache, which is what a development checkout uses.
+// The desktop ships only the full Chromium (manual sign-in needs a visible browser, Rule 3), so the engine's headless
+// launches use that build too instead of Playwright's separate headless shell (app/src/engine/isolation.ts).
+process.env.RUNHOUND_FULL_CHROMIUM = "1";
+// A packaged app ships its own Chromium under resources/playwright-browsers (scripts/fetch-browsers.mjs, copied by
+// electron-builder's extraResources). A development checkout keeps Playwright's default per-user browser cache.
 const bundledBrowsers = join(process.resourcesPath, "playwright-browsers");
 if (app.isPackaged && existsSync(bundledBrowsers)) applyPlaywrightEnv({ browsersPath: bundledBrowsers, skipBrowserGc: "1" });
 
@@ -110,14 +121,54 @@ function lockDownPermissions(): void {
   session.defaultSession.setPermissionCheckHandler((_contents, permission, requestingOrigin) => allowed(permission, requestingOrigin));
 }
 
+/** Step 2. Before the engine is imported, so a problem is reported here and not as a failure inside a run. */
+async function checkStartup(): Promise<boolean> {
+  // The environment is applied above, so Playwright resolves the same browser the engine will launch.
+  const { chromium } = await import("playwright");
+  const browserExecutable = ((): string | undefined => {
+    try {
+      return chromium.executablePath() || undefined;
+    } catch {
+      return undefined;
+    }
+  })();
+  const problems = await runStartupChecks({ packaged: app.isPackaged, bundledBrowsersDir: bundledBrowsers, browserExecutable, configDir, runsDir });
+  if (problems.length === 0) return true;
+  const text = describeStartupProblems(problems);
+  process.stderr.write(`[run-hound] ${STARTUP_PROBLEM_TITLE}:\n${text}\n`);
+  dialog.showErrorBox(STARTUP_PROBLEM_TITLE, text);
+  return false;
+}
+
+/** Imports the command line's settings once (nothing happens on later launches). Never throws: the app starts either way. */
+async function importCliSettings(engine: typeof import("./engine.js")): Promise<Notice | null> {
+  try {
+    const imported = await engine.importCliSettingsOnce(cliConfigDir, configDir);
+    if (imported === null) return null;
+    process.stderr.write(`[run-hound] imported settings from ${imported.from}: ${imported.files.join(", ") || "no files"}, ${imported.secrets} saved key(s)\n`);
+    if (imported.problem) process.stderr.write(`[run-hound] saved keys were not imported: ${imported.problem}\n`);
+    return importedNotice(imported);
+  } catch (err) {
+    process.stderr.write(`[run-hound] could not import settings from ${cliConfigDir}: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`);
+    return importFailedNotice(cliConfigDir, err);
+  }
+}
+
 async function start(): Promise<void> {
   lockDownContents();
   await app.whenReady();
   lockDownPermissions();
 
+  if (!(await checkStartup())) {
+    app.exit(1);
+    return;
+  }
+
   const engine = await import("./engine.js");
   // Saved keys and passwords are wrapped by the OS keychain when it is a real one (safeStorage works only after ready).
   engine.useOsKeyProtector(osKeyProtector(safeStorage, process.platform));
+  // After the protector, so imported keys are sealed under the keychain; before the engine serves its first request.
+  const notice = await importCliSettings(engine);
   const { handle, info } = await startDesktopEngine(
     { configDir, runsDir, runHoundVersion: engine.RUN_HOUND_VERSION },
     (args) => engine.createApp(args),
@@ -147,7 +198,11 @@ async function start(): Promise<void> {
     show: false,
     webPreferences: { ...HARDENED, preload: join(here, "preload.cjs") },
   });
-  win.once("ready-to-show", () => win.show());
+  win.once("ready-to-show", () => {
+    win.show();
+    // Not awaited: the message must not hold up the app, and a failure to show it is not worth a crash.
+    if (notice) void dialog.showMessageBox(win, { type: notice.type, message: notice.message, ...(notice.detail ? { detail: notice.detail } : {}), buttons: ["OK"] }).catch(() => undefined);
+  });
   win.webContents.on("did-finish-load", () => win.webContents.send(CHANNELS.engineReady, info));
   win.webContents.on("render-process-gone", (_event, details) => {
     process.stderr.write(`[run-hound] renderer gone: ${details.reason}\n`);

@@ -12,7 +12,8 @@
 #   - checks: type-checks every package, validates the compose files, and runs Kennel's and Fernway's own tests (short
 #     on their own, so not worth a job each).
 #   - desktop: builds the Electron app, launches it under Xvfb and checks the window, the bridge, the navigation lock
-#     and a Chromium plan run, then packages it unpacked for Linux and runs the same checks against the packaged build.
+#     and a Chromium plan run, then packages it unpacked for Linux (with the Chromium it ships) and runs the same checks
+#     against the packaged build, which also proves it runs on that bundled browser with no per-user cache.
 # The rest is as before: images builds the four Docker images (amd64, nothing pushed) and smoke-tests them in the
 # compose test lab; site lints and builds the marketing site (site/, its own pnpm project); site-lab runs its
 # Playwright lab, now as a 4-way matrix too (site/scripts/lab/run.mjs --shard, greedy-packed by measured spec weight).
@@ -216,8 +217,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # The planning check opens a page in Playwright's Chromium; --with-deps also brings the libraries Electron needs.
+      # The desktop app launches only the full Chromium (headless too), so the headless shell is not installed.
       - name: Install Chromium and its system dependencies
-        run: pnpm --filter run-hound exec playwright install --with-deps chromium
+        run: pnpm --filter run-hound exec playwright install --with-deps --no-shell chromium
 
       - name: Install Xvfb
         run: command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y xvfb)
@@ -232,6 +234,7 @@ jobs:
         working-directory: desktop
         run: xvfb-run -a node scripts/launch-check.mjs
 
+      # dist.mjs first downloads the Chromium the package ships (scripts/fetch-browsers.mjs), then packages it.
       - name: Package for Linux (unpacked)
         working-directory: desktop
         run: node scripts/dist.mjs --dir

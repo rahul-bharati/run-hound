@@ -10,6 +10,9 @@
  *   it, and removes the folder when the browser closes, crashes or fails to start. It also wraps the returned
  *   browser's newContext and newPage so every context it opens gets ISOLATED_CONTEXT last (after the caller's own
  *   options), whatever the caller passes: no call site can opt a context back into accepting downloads.
+ * - RUNHOUND_FULL_CHROMIUM=1 (set by the desktop app, which ships only the full Chromium): headless launches use that
+ *   build too, as Playwright's `channel: "chromium"` (new headless mode), instead of the separate chromium-headless-shell
+ *   they use by default. Unset, every launch is Playwright's default, as for the command line and the Docker images.
  * - ISOLATED_CONTEXT: `{ acceptDownloads: false }`, applied by every launchChromium browser automatically. Call sites
  *   still spread it explicitly too, as documentation of the rule, and because a test's own browser (not from
  *   launchChromium) gets no automatic wrapping.
@@ -31,6 +34,9 @@ export const BROWSER_FOLDER_PREFIX = "run-hound-browser-";
  * where a call site forgets to spread it.
  */
 export const ISOLATED_CONTEXT: Readonly<{ acceptDownloads?: boolean }> = { acceptDownloads: false };
+
+/** Set to "1" by the desktop app so headless launches use the full Chromium it ships. Any other value changes nothing. */
+export const FULL_CHROMIUM_ENV = "RUNHOUND_FULL_CHROMIUM";
 
 /** Variables kept on every platform, when set and not empty (docs/launch-spec.md "1.2 browserEnv"). */
 const COMMON_VARS = ["PATH", "LANG", "LANGUAGE", "LC_ALL", "TZ"];
@@ -97,7 +103,7 @@ export function browserEnv(env: NodeJS.ProcessEnv, platform: NodeJS.Platform, di
   const allowed = new Set([...COMMON_VARS, ...(os === "darwin" ? MAC_VARS : LINUX_VARS)]);
   for (const [name, value] of Object.entries(env)) {
     if (!isSet(value)) continue;
-    if (allowed.has(name) || /^LC_/.test(name)) out[name] = value;
+    if (allowed.has(name) || name.startsWith("LC_")) out[name] = value;
   }
 
   // Display variables: Linux (and other POSIX) only, and only for a headed launch. macOS never gets them.
@@ -202,9 +208,12 @@ export async function launchChromium(options: LaunchOptions = {}, deps: LaunchDe
   }
 
   let browser: Browser;
+  // An explicit channel or executablePath from the caller always wins over the desktop's full-Chromium default.
+  const fullChromium = env[FULL_CHROMIUM_ENV] === "1" && options.channel === undefined && options.executablePath === undefined;
   try {
     browser = await launcher.launch({
       ...options,
+      ...(fullChromium ? { channel: "chromium" } : {}),
       env: browserEnv(env, platform, folder, { headed: options.headless === false }),
       artifactsDir: joinPath(folder, "artifacts"),
     });
