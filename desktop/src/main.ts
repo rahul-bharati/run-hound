@@ -16,7 +16,7 @@
  * utilityProcess (Rule 6) is the next slice.
  */
 
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, safeStorage, session, shell, type IpcMainInvokeEvent, type WebPreferences } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, safeStorage, session, shell, type IpcMainInvokeEvent, type WebPreferences } from "electron";
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -26,12 +26,13 @@ import { BRAND } from "../../app/src/core/brand.js";
 import { applyPlaywrightEnv } from "./apply-env.js";
 import { CHANNELS } from "./channels.js";
 import { resolveCliConfigDir, resolveConfigDir, resolveRunsDir } from "./config.js";
-import type { DesktopEngineReady } from "./contract.js";
+import type { DesktopEngineReady, DesktopVersionCheckChannel } from "./contract.js";
 import { hostPlatform, startDesktopEngine } from "./entry.js";
 import { importFailedNotice, importedNotice, type Notice } from "./import-notice.js";
 import { osKeyProtector } from "./key-protector.js";
 import { appMenuTemplate, windowOptions } from "./shell.js";
 import { STARTUP_PROBLEM_TITLE, describeStartupProblems, runStartupChecks } from "./startup-checks.js";
+import { createUpdateChecker, updateCheckDisabled } from "./update-check.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const platform = hostPlatform();
@@ -192,7 +193,11 @@ async function start(): Promise<void> {
     { startServer: (args) => engine.startServerWithApp(args) },
   );
   engineOrigin = new URL(info.url).origin;
-  registerIpc(info);
+  // One version check per launch (docs/desktop-architecture.md Rule 8): started once the window shows, answered from
+  // the same result whenever the UI asks, and off with RUNHOUND_NO_UPDATE_CHECK=1.
+  // Electron's net.fetch goes through Chromium's network stack, so the check honours the system's proxy settings.
+  const checkForUpdate = createUpdateChecker({ fetch: (url, init) => net.fetch(url, init), current: info.runHoundVersion, disabled: updateCheckDisabled() });
+  registerIpc(info, checkForUpdate);
 
   // Closing the server waits for open requests, and a plan or run request can stay open for minutes; quit after a
   // short grace period regardless. Playwright closes its browsers when the process exits.
@@ -209,6 +214,8 @@ async function start(): Promise<void> {
   const win = new BrowserWindow(windowOptions({ platform, webPreferences: { ...HARDENED, preload: join(here, "preload.cjs") }, iconPath }));
   win.once("ready-to-show", () => {
     win.show();
+    // In the background, after the window is up: never awaited, so a slow or blocked network can't delay startup.
+    void checkForUpdate();
     // Not awaited: the message must not hold up the app, and a failure to show it is not worth a crash.
     if (notice) void dialog.showMessageBox(win, { type: notice.type, message: notice.message, ...(notice.detail ? { detail: notice.detail } : {}), buttons: ["OK"] }).catch(() => undefined);
   });
@@ -219,9 +226,9 @@ async function start(): Promise<void> {
   await win.loadURL(info.url);
 }
 
-function registerIpc(info: DesktopEngineReady): void {
-  // No release feed is wired yet (D4), so the latest version is unknown rather than guessed.
-  ipcMain.handle(CHANNELS.versionCheck, (event) => (fromEngine(event) ? { latest: null, current: info.runHoundVersion } : null));
+function registerIpc(info: DesktopEngineReady, checkForUpdate: () => Promise<DesktopVersionCheckChannel["response"]>): void {
+  // The cached result of the launch's one check; it never rejects, and a failed check answers "nothing newer".
+  ipcMain.handle(CHANNELS.versionCheck, (event) => (fromEngine(event) ? checkForUpdate() : null));
   ipcMain.handle(CHANNELS.runsDirOpen, async (event) => {
     if (!fromEngine(event)) return { ok: false, error: "refused" };
     await mkdir(info.runsDir, { recursive: true });

@@ -1,0 +1,314 @@
+# Builds the desktop installers on a native runner for each target and, for a release tag, publishes them -- but only
+# when they are signed (docs/desktop-architecture.md Rule 7: an unsigned installer is not a supported release).
+#
+#   macOS arm64    dmg   macos-15          Windows x64   NSIS   windows-2025
+#   macOS x64      dmg   macos-15-intel    Linux x64     deb, rpm   ubuntu-24.04
+#                                          Linux arm64   deb, rpm   ubuntu-24.04-arm
+# Each target is built on its own platform and architecture because the Chromium the app bundles
+# (desktop/scripts/fetch-browsers.mjs) is the host's. Runner labels are from GitHub's documentation
+# (docs.github.com/en/actions/reference/runners/github-hosted-runners, 8 October 2026): standard runners are free for
+# public repositories, including the arm64 and Intel ones; the macOS pair is pinned to macos-15 so both sides of the
+# dmg pair are the same macOS (macos-latest is macos-26).
+#
+# Build now, sign later: every build produces installers as private workflow artifacts (7 days), named
+# Run-Hound-<version>-<os>-<arch>[-unsigned].<ext>. Signing and notarization switch on by themselves when the secrets
+# exist; desktop/scripts/signing.mjs decides, from electron-builder's own variables:
+#   macOS    MACOS_CSC_LINK (base64 .p12 of a Developer ID Application certificate) and MACOS_CSC_KEY_PASSWORD, and
+#            notarization by either APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID, or
+#            APPLE_API_KEY_P8 (the .p8 file's text) + APPLE_API_KEY_ID + APPLE_API_ISSUER
+#   Windows  WIN_CSC_LINK (base64 .pfx) and WIN_CSC_KEY_PASSWORD
+# A platform with an incomplete set builds unsigned and says why in the log and the job summary. Linux packages are not
+# signed by this pipeline.
+#
+# Publishing (tag v*.*.* only): the publish job runs when the gate job finds every macOS and Windows build signed, and
+# then attaches the installers and a combined SHA256SUMS to the GitHub Release of the tag. Otherwise the gate's summary
+# says "not published: ..." and nothing leaves the workflow artifacts. release-images.yml creates and publishes the
+# GitHub Release once its images are on GHCR; the publish job adds to that release if it exists, or creates it as a
+# DRAFT, which release-images.yml then finds, completes and publishes, so a release page never goes public ahead of
+# the images its compose file names.
+name: Desktop installers
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, integration/desktop]
+    # Path filters are not evaluated for tag pushes (GitHub workflow syntax), so every release tag builds.
+    paths: ["desktop/**", "app/src/**", ".github/workflows/desktop-installers.yml"]
+    tags: ["v*.*.*"]
+  # A pull request that changes the pipeline itself builds the whole matrix before it merges; the gate only ever passes on
+  # a tag, so nothing is published from a pull request. workflow_dispatch can't help here: it needs the workflow on main.
+  pull_request:
+    paths: [".github/workflows/desktop-installers.yml", "desktop/scripts/**", "desktop/package.json"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-installers-${{ github.ref }}
+  # A newer push replaces a branch build, but a release tag's build is never cancelled.
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  build:
+    name: Installers (${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: mac_arm64, os: mac, label: macOS arm64, runner: macos-15 }
+          - { id: mac_x64, os: mac, label: macOS x64, runner: macos-15-intel }
+          - { id: win_x64, os: win, label: Windows x64, runner: windows-2025 }
+          - { id: linux_x64, os: linux, label: Linux x64, runner: ubuntu-24.04 }
+          - { id: linux_arm64, os: linux, label: Linux arm64, runner: ubuntu-24.04-arm }
+    # One output name per matrix leg (signing_mac_arm64, ...), as GitHub documents for matrix jobs ("jobs.<job_id>.outputs"):
+    # outputs of one name would be overwritten by whichever leg finishes last. A leg sets only its own; the others stay
+    # empty and the gate job reads the combined set. Each is signed, unsigned or not-required (Linux).
+    outputs:
+      signing_mac_arm64: ${{ steps.record.outputs.signing_mac_arm64 }}
+      signing_mac_x64: ${{ steps.record.outputs.signing_mac_x64 }}
+      signing_win_x64: ${{ steps.record.outputs.signing_win_x64 }}
+      signing_linux_x64: ${{ steps.record.outputs.signing_linux_x64 }}
+      signing_linux_arm64: ${{ steps.record.outputs.signing_linux_arm64 }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # rpmbuild is what electron-builder's rpm target runs; Xvfb gives the launch check a display.
+      - name: Install rpm and Xvfb
+        if: matrix.os == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm xvfb
+
+      # electron-builder's notarization wants APPLE_API_KEY to be the path of the .p8 file.
+      - name: Write the App Store Connect API key
+        if: matrix.os == 'mac'
+        shell: bash
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          if [ -n "$APPLE_API_KEY_P8" ]; then
+            umask 077
+            printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+            echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+          fi
+
+      # fetch-browsers (run by dist) downloads this runner's Chromium, then electron-builder packages for this runner's
+      # platform and architecture. Only this platform's secrets reach the step; unset ones arrive as empty strings, and
+      # dist.mjs treats those as absent. It writes `signing` to this step's outputs and builds unsigned (and says so)
+      # when the secrets are incomplete.
+      - name: Build the installers
+        id: dist
+        env:
+          CSC_LINK: ${{ matrix.os == 'mac' && secrets.MACOS_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.os == 'mac' && secrets.MACOS_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ matrix.os == 'mac' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.os == 'mac' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.os == 'mac' && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_API_KEY_ID: ${{ matrix.os == 'mac' && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ matrix.os == 'mac' && secrets.APPLE_API_ISSUER || '' }}
+          WIN_CSC_LINK: ${{ matrix.os == 'win' && secrets.WIN_CSC_LINK || '' }}
+          WIN_CSC_KEY_PASSWORD: ${{ matrix.os == 'win' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+        run: pnpm --filter @run-hound/desktop dist
+
+      - name: Record whether this build signed
+        id: record
+        shell: bash
+        env:
+          SIGNING: ${{ steps.dist.outputs.signing }}
+        run: echo "signing_${{ matrix.id }}=$SIGNING" >> "$GITHUB_OUTPUT"
+
+      - name: Checksums and summary
+        shell: bash
+        working-directory: desktop
+        env:
+          SIGNING: ${{ steps.dist.outputs.signing }}
+          LABEL: ${{ matrix.label }}
+        run: |
+          node scripts/checksums.mjs release
+          {
+            echo "### Installers: $LABEL"
+            echo
+            echo "Signing: **$SIGNING**"
+            echo
+            echo '```'
+            cat release/SHA256SUMS
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The deb is installed with apt, which resolves the dependencies the package declares (the proof that they
+      # suffice), and the installed app runs the same launch checks as CI's packaged build, including planning on the
+      # bundled Chromium with no per-user cache. Linux x64 and arm64 are blocking.
+      - name: Install the deb and launch it
+        if: matrix.os == 'linux'
+        working-directory: desktop
+        run: |
+          dpkg-deb -I release/*.deb | grep -E '^ (Package|Version|Architecture|Depends):'
+          rpm -qp --requires release/*.rpm
+          sudo apt-get install -y ./release/*.deb
+          DESKTOP_EXECUTABLE="/opt/Run Hound/run-hound" xvfb-run -a node scripts/launch-check.mjs
+
+      # The launch check has not run on macOS or Windows runners before, so these two are advisory (a failure shows
+      # as an annotation but does not fail the build) until a run has shown them green.
+      - name: Launch the packaged app (macOS, advisory)
+        if: matrix.os == 'mac'
+        continue-on-error: true
+        timeout-minutes: 10
+        shell: bash
+        working-directory: desktop
+        run: |
+          app=$(find release -maxdepth 2 -name '*.app' -print -quit)
+          exe=$(find "$app/Contents/MacOS" -type f -perm -u+x -print -quit)
+          DESKTOP_EXECUTABLE=$(node -p 'require("path").resolve(process.argv[1])' "$exe") node scripts/launch-check.mjs
+
+      - name: Launch the packaged app (Windows, advisory)
+        if: matrix.os == 'win'
+        continue-on-error: true
+        timeout-minutes: 10
+        shell: bash
+        working-directory: desktop
+        run: |
+          exe=$(find release/win-unpacked -maxdepth 1 -name '*.exe' -print -quit)
+          DESKTOP_EXECUTABLE=$(node -p 'require("path").resolve(process.argv[1])' "$exe") node scripts/launch-check.mjs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.id }}
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.exe
+            desktop/release/*.deb
+            desktop/release/*.rpm
+            desktop/release/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
+  # Decides whether to publish, and says why not. Every macOS and Windows build must have reported `signed` (Linux
+  # reports not-required), the whole matrix must have succeeded, and the run must be a release tag.
+  gate:
+    name: Release gate
+    needs: build
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      publish: ${{ steps.gate.outputs.publish }}
+    steps:
+      - name: Signed, and a release tag?
+        id: gate
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          BUILD_OUTPUTS: ${{ toJSON(needs.build.outputs) }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          publish=false
+          unsigned=()
+          {
+            echo "### Release gate"
+            echo
+            echo "| Build | Signing |"
+            echo "| --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for id in mac_arm64 mac_x64 win_x64 linux_x64 linux_arm64; do
+            state=$(jq -r --arg key "signing_$id" '.[$key] // "" | if . == "" then "no result" else . end' <<< "$BUILD_OUTPUTS")
+            echo "| $id | $state |" >> "$GITHUB_STEP_SUMMARY"
+            case "$id" in
+              mac_* | win_*) [ "$state" = signed ] || unsigned+=("$id") ;;
+            esac
+          done
+          reasons=()
+          if [ "$REF_TYPE" != tag ]; then reasons+=("not a release tag ($REF_NAME), so the installers stay workflow artifacts for 7 days"); fi
+          if [ "$BUILD_RESULT" != success ]; then reasons+=("a build did not succeed ($BUILD_RESULT)"); fi
+          if [ "${#unsigned[@]}" != 0 ]; then reasons+=("unsigned builds (${unsigned[*]})"); fi
+          if [ "${#reasons[@]}" = 0 ]; then
+            verdict="publishing $REF_NAME: every macOS and Windows build is signed"
+            publish=true
+          else
+            verdict="not published: ${reasons[0]}"
+            for reason in "${reasons[@]:1}"; do verdict="$verdict; $reason"; done
+          fi
+          echo "$verdict"
+          printf '\n**%s**\n' "$verdict" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$publish" = true ]; then echo "::notice::$verdict"; else echo "::warning::$verdict"; fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
+  # The only job that can write to the repository.
+  publish:
+    name: Attach to the GitHub Release
+    needs: [build, gate]
+    if: ${{ needs.gate.outputs.publish == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/downloaded
+          pattern: installers-*
+
+      - name: Collect the installers, write SHA256SUMS and the notes, and attach them
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(jq -r .version app/package.json)
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error file=app/package.json::Tag $TAG does not match app/package.json ($version)"
+            exit 1
+          fi
+
+          assets="$RUNNER_TEMP/assets"
+          notes="$RUNNER_TEMP/notes.md"
+          mkdir -p "$assets"
+          find "$RUNNER_TEMP/downloaded" -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.deb' -o -name '*.rpm' \) -exec cp {} "$assets/" \;
+
+          # Belt and braces after the gate: the full set is here (2 dmg, 1 exe, 2 deb, 2 rpm) and none is named unsigned.
+          count() { find "$assets" -maxdepth 1 -name "*.$1" | wc -l; }
+          if [ "$(count dmg)" != 2 ] || [ "$(count exe)" != 1 ] || [ "$(count deb)" != 2 ] || [ "$(count rpm)" != 2 ]; then
+            echo "::error::Expected 2 dmg, 1 exe, 2 deb and 2 rpm installers, found: $(ls "$assets" | tr '\n' ' ')"
+            exit 1
+          fi
+          if find "$assets" -name '*-unsigned.*' | grep -q .; then
+            echo "::error::An installer is named unsigned: not published"
+            exit 1
+          fi
+
+          node desktop/scripts/checksums.mjs "$assets"
+          node desktop/scripts/release-notes.mjs --version "$version" --tag "$TAG" --assets "$assets" --out "$notes"
+
+          if [[ "$version" == *-* ]]; then flags=(--prerelease); else flags=(); fi
+          files=("$assets"/*)
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber
+            where="the existing release"
+          elif gh release create "$TAG" "${files[@]}" --draft --verify-tag --title "Run Hound $version" --notes-file "$notes" "${flags[@]}"; then
+            where="a new draft release (release-images.yml publishes it with the images)"
+          else
+            # release-images.yml created it between the check and the create.
+            gh release upload "$TAG" "${files[@]}" --clobber
+            where="the release created meanwhile"
+          fi
+          {
+            echo "### Published"
+            echo
+            echo "Attached ${#files[@]} files to $where for $TAG:"
+            echo
+            echo '```'
+            cat "$assets/SHA256SUMS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

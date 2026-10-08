@@ -167,3 +167,4 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-10-07: [The desktop app keeps its own settings folder on every OS and imports the command line's settings once, at first launch](docs/decisions/10-2026.md#2026-10-07-desktop-settings-import)
 - 2026-10-07: [The desktop package ships only Playwright's full Chromium and runs headless on it too](docs/decisions/10-2026.md#2026-10-07-desktop-full-chromium)
 - 2026-10-08: [The desktop window draws its own title bar in brand colours, carries the Run Hound icon and has no stock Electron menu](docs/decisions/10-2026.md#2026-10-08-desktop-window-look)
+- 2026-10-08: [Desktop installers build unsigned now for the full matrix, publish only when signed, and the app only checks for a newer version](docs/decisions/10-2026.md#2026-10-08-desktop-installers)
