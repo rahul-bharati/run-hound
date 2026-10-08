@@ -10,17 +10,19 @@
  *      settings once, and bind the engine to loopback.
  *   4. Open one hardened window on the engine's URL (Rule 5): no Node, an
  *      isolated sandboxed preload, navigation pinned to the engine's origin.
+ *      The window is dark and has the UI's own title bar (shell.ts).
  *
  * The engine runs in this process for now; moving it to a supervised
  * utilityProcess (Rule 6) is the next slice.
  */
 
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell, type IpcMainInvokeEvent, type WebPreferences } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, safeStorage, session, shell, type IpcMainInvokeEvent, type WebPreferences } from "electron";
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { BRAND } from "../../app/src/core/brand.js";
 import { applyPlaywrightEnv } from "./apply-env.js";
 import { CHANNELS } from "./channels.js";
 import { resolveCliConfigDir, resolveConfigDir, resolveRunsDir } from "./config.js";
@@ -28,6 +30,7 @@ import type { DesktopEngineReady } from "./contract.js";
 import { hostPlatform, startDesktopEngine } from "./entry.js";
 import { importFailedNotice, importedNotice, type Notice } from "./import-notice.js";
 import { osKeyProtector } from "./key-protector.js";
+import { appMenuTemplate, windowOptions } from "./shell.js";
 import { STARTUP_PROBLEM_TITLE, describeStartupProblems, runStartupChecks } from "./startup-checks.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -37,6 +40,8 @@ const platform = hostPlatform();
 const cliConfigDir = resolveCliConfigDir();
 const configDir = resolveConfigDir(platform);
 const runsDir = resolveRunsDir(platform);
+/** The mark on a rounded square, copied next to this file by scripts/build.mjs. */
+const iconPath = join(here, "icon.png");
 
 // Step 1, before the engine is imported. The engine reads RUNHOUND_CONFIG_DIR for its saved AI and account settings;
 // an empty value counts as unset on both sides, so the engine and the reported configDir always agree.
@@ -94,7 +99,7 @@ function lockDownContents(): void {
     // Engine pages (the HTML report, evidence images) open in a hardened window without the bridge; anything else
     // goes to the default browser.
     contents.setWindowOpenHandler(({ url }) => {
-      if (isEngineUrl(url)) return { action: "allow", overrideBrowserWindowOptions: { webPreferences: HARDENED } };
+      if (isEngineUrl(url)) return { action: "allow", overrideBrowserWindowOptions: { webPreferences: HARDENED, backgroundColor: BRAND.bg } };
       openOutside(url);
       return { action: "deny" };
     });
@@ -119,6 +124,15 @@ function lockDownPermissions(): void {
   const allowed = (permission: string, origin: string): boolean => permission === "clipboard-sanitized-write" && isEngineUrl(origin);
   session.defaultSession.setPermissionRequestHandler((_contents, permission, callback, details) => callback(allowed(permission, details.requestingUrl)));
   session.defaultSession.setPermissionCheckHandler((_contents, permission, requestingOrigin) => allowed(permission, requestingOrigin));
+}
+
+/** Dark native chrome, the application menu and, when run from source on macOS, the dock icon. Needs a ready app. */
+function applyLook(): void {
+  nativeTheme.themeSource = "dark";
+  const template = appMenuTemplate(platform, "Run Hound", app.isPackaged);
+  Menu.setApplicationMenu(template ? Menu.buildFromTemplate(template) : null);
+  // A packaged macOS app takes its icon from the bundle; only a development run needs it set.
+  if (!app.isPackaged) app.dock?.setIcon(iconPath);
 }
 
 /** Step 2. Before the engine is imported, so a problem is reported here and not as a failure inside a run. */
@@ -158,6 +172,8 @@ async function start(): Promise<void> {
   lockDownContents();
   await app.whenReady();
   lockDownPermissions();
+  // Before any window exists, so none is created in the light theme.
+  applyLook();
 
   if (!(await checkStartup())) {
     app.exit(1);
@@ -165,6 +181,7 @@ async function start(): Promise<void> {
   }
 
   const engine = await import("./engine.js");
+  app.setAboutPanelOptions({ applicationName: "Run Hound", applicationVersion: engine.RUN_HOUND_VERSION });
   // Saved keys and passwords are wrapped by the OS keychain when it is a real one (safeStorage works only after ready).
   engine.useOsKeyProtector(osKeyProtector(safeStorage, process.platform));
   // After the protector, so imported keys are sealed under the keychain; before the engine serves its first request.
@@ -189,15 +206,7 @@ async function start(): Promise<void> {
   });
   app.on("window-all-closed", () => app.quit());
 
-  const win = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 960,
-    minHeight: 600,
-    title: "Run Hound",
-    show: false,
-    webPreferences: { ...HARDENED, preload: join(here, "preload.cjs") },
-  });
+  const win = new BrowserWindow(windowOptions({ platform, webPreferences: { ...HARDENED, preload: join(here, "preload.cjs") }, iconPath }));
   win.once("ready-to-show", () => {
     win.show();
     // Not awaited: the message must not hold up the app, and a failure to show it is not worth a crash.
