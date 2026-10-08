@@ -88,12 +88,18 @@ describe("D2 contract: IPC channel names", () => {
   it("declares the version-check request and response shapes", () => {
     const channels: DesktopIpcChannels["desktop:version:check"] = {
       request: undefined,
-      response: { latest: "0.6.6", current: "0.6.5" },
+      response: { latest: "0.6.6", current: "0.6.5", newer: true, url: "https://github.com/rahul-bharati/run-hound/releases/tag/v0.6.6" },
     };
     expect(channels.request).toBeUndefined();
     const response: DesktopVersionCheckChannel["response"] = channels.response;
     expect(response.current).toBe("0.6.5");
     expect(typeof response.latest === "string" || response.latest === null).toBe(true);
+    expect(response.newer).toBe(true);
+  });
+
+  it("a failed version check is latest null, not newer and without a link, with a short reason", () => {
+    const failed: DesktopVersionCheckChannel["response"] = { latest: null, current: "0.6.5", newer: false, url: null, error: "offline" };
+    expect(failed).toEqual({ latest: null, current: "0.6.5", newer: false, url: null, error: "offline" });
   });
 
   it("engine-ready channel carries a single payload", () => {
@@ -113,7 +119,7 @@ describe("D2 contract: IPC channel names", () => {
 describe("D2 contract: preload bridge surface", () => {
   it("exposes only the agreed channels, no Node integration", () => {
     const bridge: DesktopPreloadBridge = {
-      version: { check: async () => ({ latest: null, current: "0.6.5" }) },
+      version: { check: async () => ({ latest: null, current: "0.6.5", newer: false, url: null }) },
       runsDir: { open: async () => ({ ok: true }) },
       engine: { onReady: () => () => {} },
     };

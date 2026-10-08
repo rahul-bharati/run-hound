@@ -25,6 +25,8 @@ Then open <http://localhost:4000> and enter a page of an app on your machine as 
 
 The Windows PowerShell notes and installing from source are in [Install](https://run-hound.rahulbharati.com/docs/install/), and the command line in a container in [CLI and CI](https://run-hound.rahulbharati.com/docs/cli/).
 
+**Desktop app (internal testing builds):** install, first launch, update and uninstall for macOS, Windows and Linux are in [docs/desktop-install.md](docs/desktop-install.md).
+
 ## Try it on the demo apps
 
 One compose file starts Run Hound with every test app: Kennel (broken and clean), Fernway (a Lovable-style SaaS app, clean and with planted bugs) and five well-built sample apps. In an empty folder:

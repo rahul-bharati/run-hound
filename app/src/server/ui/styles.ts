@@ -48,6 +48,13 @@ code, pre, .mono { font-family: var(--mono); }
 .side-foot .dot { width:.55rem; height:.55rem; border-radius:50%; background:var(--accent); flex:none; box-shadow:0 0 0 3px rgb(94 230 163 / .15); }
 .side-foot b { display:block; font-weight:600; font-size:.88rem; }
 .side-foot span { display:block; font:.74rem/1.5 var(--mono); color:var(--dim); }
+/* Desktop app only (client/desktop-update.ts adds the notice, and only when a newer release exists). The accent is the edge. */
+.update-note { margin-top:auto; border:1px solid var(--line); border-left:2px solid var(--accent-edge); background:var(--surface); border-radius:var(--r-md); padding:.65rem .85rem; font-size:.86rem; color:var(--fg); }
+.update-note + .side-foot { margin-top:0; }
+.update-actions { display:flex; align-items:center; gap:1rem; margin-top:.3rem; }
+.update-actions a, .update-dismiss { display:inline-flex; align-items:center; min-height:24px; }
+.update-dismiss { background:none; border:0; padding:0; color:var(--muted); font-size:.84rem; text-decoration:underline; text-underline-offset:3px; }
+.update-dismiss:hover { color:var(--fg); }
 
 main#view { min-width:0; padding: 1.75rem clamp(1rem, 2.6vw, 2.25rem) 2.5rem; }
 main#view:focus { outline: none; }
@@ -498,7 +505,7 @@ table.groups td.good { color:var(--accent); }
   #menu-button { display:inline-flex; }
   #main-nav { display:none; position:absolute; left:0; right:0; top:100%; background:var(--bg-deep); border-bottom:1px solid var(--line); padding:.6rem 1rem 1rem; box-shadow:0 20px 40px rgb(0 0 0 / .4); }
   #sidebar.open #main-nav { display:block; }
-  .side-foot { display:none; }
+  .side-foot, .update-note { display:none; }
   main#view { padding: 1.25rem 1rem 2rem; }
   .two { grid-template-columns: minmax(0, 1fr); }
   .evidence-viewer { grid-template-columns: minmax(0, 1fr); }

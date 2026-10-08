@@ -2,6 +2,7 @@
   "name": "@run-hound/desktop",
   "private": true,
   "description": "Run Hound desktop app",
+  "homepage": "https://run-hound.rahulbharati.com/",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -42,6 +43,7 @@
   "build": {
     "appId": "dev.runhound.desktop",
     "productName": "Run Hound",
+    "artifactName": "Run-Hound-${version}-${os}-${arch}${env.RUNHOUND_UNSIGNED_SUFFIX}.${ext}",
     "executableName": "run-hound",
     "files": [
       "dist/**/*",
@@ -56,12 +58,47 @@
         "rpm"
       ],
       "category": "Development",
-      "icon": "assets/icon.png"
+      "maintainer": "Run Hound <noreply@run-hound.rahulbharati.com>",
+      "icon": "assets/icon.png",
+      "synopsis": "AI-assisted UI testing for AI-built apps"
+    },
+    "deb": {
+      "packageName": "run-hound",
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0",
+        "libasound2",
+        "libgbm1",
+        "libdrm2"
+      ]
+    },
+    "rpm": {
+      "packageName": "run-hound",
+      "depends": [
+        "gtk3",
+        "libnotify",
+        "nss",
+        "libXScrnSaver",
+        "(libXtst or libXtst6)",
+        "xdg-utils",
+        "at-spi2-core",
+        "(libuuid or libuuid1)",
+        "(alsa-lib or libasound2)",
+        "(mesa-libgbm or libgbm1)",
+        "(libdrm or libdrm2)"
+      ]
     },
     "mac": {
       "target": "dmg",
       "category": "public.app-category.developer-tools",
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "icon": "assets/icon.png"
     },

@@ -30,7 +30,8 @@ const emptyHome = packaged
 
 /** The app's environment: the desktop sets its browser variables itself, so none may leak in from the caller. */
 function appEnv(extra) {
-  const env = { ...process.env, ...emptyHome, RUNHOUND_RUNS_DIR: join(scratch, "runs"), ...extra };
+  // RUNHOUND_NO_UPDATE_CHECK: the version check would call GitHub; CI never does.
+  const env = { ...process.env, ...emptyHome, RUNHOUND_RUNS_DIR: join(scratch, "runs"), RUNHOUND_NO_UPDATE_CHECK: "1", ...extra };
   for (const name of ["RUNHOUND_FULL_CHROMIUM", "RUNHOUND_SECRETS", ...(packaged ? ["PLAYWRIGHT_BROWSERS_PATH", "PLAYWRIGHT_SKIP_BROWSER_GC"] : [])]) delete env[name];
   for (const [name, value] of Object.entries(extra)) if (value === undefined) delete env[name];
   return env;

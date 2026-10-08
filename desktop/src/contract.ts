@@ -55,7 +55,7 @@ export interface DesktopEngineHandle {
 
 /** Names of the IPC channels the desktop shell uses. */
 export interface DesktopIpcChannels {
-  /** Renderer requests a fresh version check; main returns the latest release tag, if known. */
+  /** Renderer asks for the version check; main answers with the latest release, if known (one check per launch). */
   readonly "desktop:version:check": DesktopVersionCheckChannel;
   /** Main notifies the renderer that the engine is ready. */
   readonly "desktop:engine:ready": DesktopEngineReadyChannel;
@@ -66,8 +66,19 @@ export interface DesktopIpcChannels {
 export interface DesktopVersionCheckChannel {
   /** Renderer → main: void. */
   readonly request: void;
-  /** Main → renderer: latest known release tag, or null if unavailable. */
-  readonly response: { readonly latest: string | null; readonly current: string };
+  /**
+   * Main → renderer: the latest published version (no leading "v"), or null if it could not be learned. `newer` is true
+   * only when `latest` is a higher version than `current`; `url` is then the release page on this repository's GitHub
+   * Releases, to open in the default browser. `error` is a short reason when the check failed or is turned off; a
+   * failed check is never an error to the user (D4, docs/desktop-architecture.md Rule 8).
+   */
+  readonly response: {
+    readonly latest: string | null;
+    readonly current: string;
+    readonly newer: boolean;
+    readonly url: string | null;
+    readonly error?: string;
+  };
 }
 
 export interface DesktopEngineReadyChannel {
