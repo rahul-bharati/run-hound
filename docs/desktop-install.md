@@ -2,6 +2,8 @@
 
 The desktop app is Run Hound in its own window: the same engine and checks as the web UI and the command line, plus its own settings folder and the Chromium it tests with, so it needs no Docker and no separate browser. It runs on your machine and tests pages of apps that run on your machine, as the other ways do.
 
+How each installer is validated on clean machines, and how the maintainer accepts a build, is in [desktop-acceptance.md](desktop-acceptance.md).
+
 > **Internal testing builds only.** Until code signing is set up, the installers are not signed (macOS) or not signed by a publisher Windows knows, and nothing unsigned is published. A release is published only after signing, as the [architecture rules](desktop-architecture.md) require (Rule 7). If you have an installer, it came from the maintainers for testing. Don't pass it on.
 
 ## Where it runs
@@ -48,7 +50,7 @@ A signed and notarized build opens with the usual "downloaded from the internet"
 
 ## Windows
 
-**Install.** Run the installer and follow it. Run Hound then appears in the Start menu.
+**Install.** Run the installer and follow it. It installs for your user only (no administrator prompt), in `%LOCALAPPDATA%\Programs\run-hound-desktop`, and Run Hound then appears in the Start menu.
 
 **First launch (unsigned build).** SmartScreen shows **Windows protected your PC** because the installer has no publisher it knows. Choose **More info**, then **Run anyway**. If the file is marked as downloaded, you can also open its **Properties** and tick **Unblock**. A signed build shows the publisher's name instead. Windows may still warn about a newly signed app until it has built up a reputation.
 

@@ -1,6 +1,7 @@
 {
   "name": "@run-hound/desktop",
   "private": true,
+  "productName": "Run Hound",
   "description": "Run Hound desktop app",
   "homepage": "https://run-hound.rahulbharati.com/",
   "license": "MIT",
@@ -43,8 +44,10 @@
   "build": {
     "appId": "dev.runhound.desktop",
     "productName": "Run Hound",
+    "extraMetadata": {
+      "name": "run-hound-desktop"
+    },
     "artifactName": "Run-Hound-${version}-${os}-${arch}${env.RUNHOUND_UNSIGNED_SUFFIX}.${ext}",
-    "executableName": "run-hound",
     "files": [
       "dist/**/*",
       "package.json"
@@ -57,6 +60,7 @@
         "deb",
         "rpm"
       ],
+      "executableName": "run-hound",
       "category": "Development",
       "maintainer": "Run Hound <contact@rahulbharati.dev>",
       "icon": "assets/icon.png",

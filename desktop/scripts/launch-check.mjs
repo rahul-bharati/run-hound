@@ -9,7 +9,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -90,6 +90,13 @@ try {
       },
       { method, path, body },
     );
+
+  await check("the app is named Run Hound, so its profile folder and its keychain item are", async () => {
+    // desktop/package.json "productName": Electron prefers it to the package's own (scoped, lowercase) name.
+    const [name, userData] = await app.evaluate(({ app }) => [app.getName(), app.getPath("userData")]);
+    assert.equal(name, "Run Hound");
+    assert.equal(basename(userData), "Run Hound");
+  });
 
   await check("the app makes headless launches use the full Chromium", async () => {
     assert.equal(await app.evaluate(() => process.env.RUNHOUND_FULL_CHROMIUM), "1");
