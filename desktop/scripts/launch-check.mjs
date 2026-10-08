@@ -21,10 +21,13 @@ process.on("exit", () => rmSync(scratch, { recursive: true, force: true }));
 const packaged = process.env.DESKTOP_EXECUTABLE;
 const args = [...(packaged ? [] : [root]), ...(process.env.CI ? ["--no-sandbox"] : [])];
 
-// A packaged app must run on the Chromium it ships. Giving it an empty home puts Playwright's per-user browser cache
-// out of reach, so a planning run that opens a page can only have used the bundled one.
+// A packaged app must run on the Chromium it ships. On Linux an empty home puts Playwright's per-user browser cache out of
+// reach, so a planning run that opens a page can only have used the bundled one. macOS and Windows keep the real profile:
+// a fake one has no login keychain on macOS (a blocking "Keychain Not Found" dialog before the window) and crashes the app
+// on Windows (an empty USERPROFILE and AppData), which no user has. There, the check that Playwright's executable path
+// lies inside the app's resources, on a runner with no per-user browser cache, is the proof.
 const home = join(scratch, "home");
-const emptyHome = packaged
+const emptyHome = packaged && process.platform === "linux"
   ? { HOME: home, USERPROFILE: home, XDG_CACHE_HOME: join(home, ".cache"), LOCALAPPDATA: join(home, "AppData", "Local"), APPDATA: join(home, "AppData", "Roaming") }
   : {};
 

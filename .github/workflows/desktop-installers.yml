@@ -156,11 +156,9 @@ jobs:
           sudo apt-get install -y ./release/*.deb
           DESKTOP_EXECUTABLE="/opt/Run Hound/run-hound" xvfb-run -a node scripts/launch-check.mjs
 
-      # The launch check has not run on macOS or Windows runners before, so these two are advisory (a failure shows
-      # as an annotation but does not fail the build) until a run has shown them green.
-      - name: Launch the packaged app (macOS, advisory)
+      # macOS and Windows keep the runner's real profile (see launch-check.mjs); both block the build.
+      - name: Launch the packaged app (macOS)
         if: matrix.os == 'mac'
-        continue-on-error: true
         timeout-minutes: 10
         shell: bash
         working-directory: desktop
@@ -169,9 +167,8 @@ jobs:
           exe=$(find "$app/Contents/MacOS" -type f -perm -u+x -print -quit)
           DESKTOP_EXECUTABLE=$(node -p 'require("path").resolve(process.argv[1])' "$exe") node scripts/launch-check.mjs
 
-      - name: Launch the packaged app (Windows, advisory)
+      - name: Launch the packaged app (Windows)
         if: matrix.os == 'win'
-        continue-on-error: true
         timeout-minutes: 10
         shell: bash
         working-directory: desktop
@@ -203,8 +200,8 @@ jobs:
   #   Linux deb/rpm  /opt/Run Hound/run-hound (symlinked from /usr/bin)   macOS  /Applications/Run Hound.app
   #   Windows        per-user one-click NSIS: %LOCALAPPDATA%\Programs\run-hound-desktop\Run Hound.exe (the folder is the package
   #                  name that build.extraMetadata sets; the search below doesn't depend on it)
-  # The legs that no run has shown green yet are advisory (continue-on-error), as the launch check was: macOS, Windows and the
-  # Fedora container. Flip `advisory` to false for each once its run is green. The Linux deb legs block, and the release gate
+  # Every leg has run green (PR #49), so all block. A new leg starts advisory (continue-on-error) and is flipped to
+  # false once a run shows it green. The release gate
   # reads each leg's result (the `first_run_*` outputs) and refuses to publish when a blocking leg failed.
   first-run:
     name: First run (${{ matrix.label }})
@@ -228,11 +225,11 @@ jobs:
         include:
           - { id: linux-x64-deb, key: linux_x64_deb, os: linux, label: Linux x64 deb, runner: ubuntu-24.04, installers: linux_x64, advisory: false }
           - { id: linux-arm64-deb, key: linux_arm64_deb, os: linux, label: Linux arm64 deb, runner: ubuntu-24.04-arm, installers: linux_arm64, advisory: false }
-          - { id: macos-arm64, key: macos_arm64, os: mac, label: macOS arm64, runner: macos-15, installers: mac_arm64, advisory: true }
-          - { id: macos-x64, key: macos_x64, os: mac, label: macOS x64, runner: macos-15-intel, installers: mac_x64, advisory: true }
-          - { id: windows-x64, key: windows_x64, os: win, label: Windows x64, runner: windows-2025, installers: win_x64, advisory: true }
+          - { id: macos-arm64, key: macos_arm64, os: mac, label: macOS arm64, runner: macos-15, installers: mac_arm64, advisory: false }
+          - { id: macos-x64, key: macos_x64, os: mac, label: macOS x64, runner: macos-15-intel, installers: mac_x64, advisory: false }
+          - { id: windows-x64, key: windows_x64, os: win, label: Windows x64, runner: windows-2025, installers: win_x64, advisory: false }
           # The same installer (built on windows-2025) on the older image, so an OS or image difference shows up.
-          - { id: windows-2022-x64, key: windows_2022_x64, os: win, label: Windows x64 (windows-2022), runner: windows-2022, installers: win_x64, advisory: true }
+          - { id: windows-2022-x64, key: windows_2022_x64, os: win, label: Windows x64 (windows-2022), runner: windows-2022, installers: win_x64, advisory: false }
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -498,8 +495,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { id: linux-x64-rpm, key: linux_x64_rpm, label: Linux x64 rpm (Fedora 44), runner: ubuntu-24.04, installers: linux_x64, advisory: true }
-          - { id: linux-arm64-rpm, key: linux_arm64_rpm, label: Linux arm64 rpm (Fedora 44), runner: ubuntu-24.04-arm, installers: linux_arm64, advisory: true }
+          - { id: linux-x64-rpm, key: linux_x64_rpm, label: Linux x64 rpm (Fedora 44), runner: ubuntu-24.04, installers: linux_x64, advisory: false }
+          - { id: linux-arm64-rpm, key: linux_arm64_rpm, label: Linux arm64 rpm (Fedora 44), runner: ubuntu-24.04-arm, installers: linux_arm64, advisory: false }
     steps:
       # What the actions need in a bare image (checkout falls back to the REST API without git, but git is cheap). None of it
       # is a library the app links.

@@ -27,14 +27,14 @@ The commands are the silent equivalents of the user steps in [desktop-install.md
 |---|---|---|---|---|---|
 | Linux x64 deb | `ubuntu-24.04` | `sudo apt-get install -y ./<file>.deb`, under `xvfb-run` | `sudo apt-get remove -y run-hound` | `first-run-linux-x64-deb` | yes |
 | Linux arm64 deb | `ubuntu-24.04-arm` | the same | the same | `first-run-linux-arm64-deb` | yes |
-| Linux x64 rpm | `ubuntu-24.04`, in a `fedora:44` container | `dnf install -y <file>.rpm`, under `xvfb-run` | `dnf remove -y run-hound` | `first-run-linux-x64-rpm` | not yet |
-| Linux arm64 rpm | `ubuntu-24.04-arm`, in a `fedora:44` container | the same | the same | `first-run-linux-arm64-rpm` | not yet |
-| macOS arm64 | `macos-15` | `hdiutil attach` the dmg, copy the `.app` to `/Applications` | delete the `.app` | `first-run-macos-arm64` | not yet |
-| macOS x64 | `macos-15-intel` | the same | the same | `first-run-macos-x64` | not yet |
-| Windows x64 | `windows-2025` | the NSIS installer with `/S` (per user, `%LOCALAPPDATA%\Programs`) | `Uninstall Run Hound.exe /S` from the install folder | `first-run-windows-x64` | not yet |
-| Windows x64, older image | `windows-2022` | the same installer, built on `windows-2025` | the same | `first-run-windows-2022-x64` | not yet |
+| Linux x64 rpm | `ubuntu-24.04`, in a `fedora:44` container | `dnf install -y <file>.rpm`, under `xvfb-run` | `dnf remove -y run-hound` | `first-run-linux-x64-rpm` | yes |
+| Linux arm64 rpm | `ubuntu-24.04-arm`, in a `fedora:44` container | the same | the same | `first-run-linux-arm64-rpm` | yes |
+| macOS arm64 | `macos-15` | `hdiutil attach` the dmg, copy the `.app` to `/Applications` | delete the `.app` | `first-run-macos-arm64` | yes |
+| macOS x64 | `macos-15-intel` | the same | the same | `first-run-macos-x64` | yes |
+| Windows x64 | `windows-2025` | the NSIS installer with `/S` (per user, `%LOCALAPPDATA%\Programs`) | `Uninstall Run Hound.exe /S` from the install folder | `first-run-windows-x64` | yes |
+| Windows x64, older image | `windows-2022` | the same installer, built on `windows-2025` | the same | `first-run-windows-2022-x64` | yes |
 
-"Not yet" legs report in the job summary and in the artifact, but a failure does not fail the workflow, because no run has shown them green (as the launch check was). When one has, set `advisory: false` for it in the workflow's matrix. The release gate reads every leg's result: a failed blocking leg stops publishing ("first run failed (…)" in the gate's summary), and advisory legs are listed there but block nothing. The Fedora legs are the closest to a bare system: the rpm's declared dependencies are installed before anything else, and the harness is added afterwards. The Ubuntu runner image already has many libraries, so the deb legs prove the install and the first run, and less about missing dependencies.
+Every leg has run green ([PR #49](https://github.com/rahul-bharati/run-hound/pull/49)), so a failure in any of them fails the workflow. A new leg starts with `advisory: true` (it reports without failing) until a run shows it green. The release gate reads every leg's result: a failed blocking leg stops publishing ("first run failed (…)" in the gate's summary), and advisory legs are listed there but block nothing. The Fedora legs are the closest to a bare system: the rpm's declared dependencies are installed before anything else, and the harness is added afterwards. The Ubuntu runner image already has many libraries, so the deb legs prove the install and the first run, and less about missing dependencies.
 
 When a leg's first run fails, the leg also runs the installed app directly, without Playwright, and records it (see below), so a start-up failure can be told from a failure of Playwright's way of starting the app. On Windows it also runs V8 flags and stock Electron on the runner, to isolate a crash.
 
