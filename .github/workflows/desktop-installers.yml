@@ -438,8 +438,15 @@ jobs:
           $ErrorActionPreference = 'Stop'
           node desktop/scripts/first-run-check.mjs --after-uninstall --app $env:APP_EXE --installed-path $env:APP_DIR --evidence $env:EVIDENCE --real-home --wait-seconds 120
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $left = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like '*Run Hound*' }
-          if ($left) { throw 'The "Run Hound" entry is still in the Uninstall registry key after the uninstall' }
+          # The silent uninstaller removes the files first and its Installed-apps entry last, so wait for the entry too
+          # (up to 60 s); one that stays is a real defect, a ghost in Settings > Apps.
+          $deadline = (Get-Date).AddSeconds(60)
+          do {
+            $left = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like '*Run Hound*' }
+            if (-not $left) { break }
+            Start-Sleep -Seconds 2
+          } while ((Get-Date) -lt $deadline)
+          if ($left) { throw 'The "Run Hound" entry is still in the Uninstall registry key 60 s after the uninstall' }
 
       - name: Show each step's result
         if: always()
