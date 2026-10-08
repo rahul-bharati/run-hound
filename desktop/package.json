@@ -58,7 +58,7 @@
         "rpm"
       ],
       "category": "Development",
-      "maintainer": "Run Hound <noreply@run-hound.rahulbharati.com>",
+      "maintainer": "Run Hound <contact@rahulbharati.dev>",
       "icon": "assets/icon.png",
       "synopsis": "AI-assisted UI testing for AI-built apps"
     },
