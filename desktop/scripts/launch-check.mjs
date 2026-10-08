@@ -7,9 +7,10 @@
 // Run with `pnpm test:launch` (builds first). On Linux without a display, wrap it in xvfb-run.
 import { _electron as electron } from "playwright";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -334,11 +335,17 @@ try {
     await page.fill("#probe-input", "launch-check text");
   });
 
-  await check("right-click on selected text: Copy only; on plain text, a button or a script link: nothing", async () => {
+  await check("right-click on selected text: Copy only; on plain text, a button or a script link: nothing (macOS: Copy for the word the click selects)", async () => {
     await page.evaluate(() => { const range = document.createRange(); range.selectNodeContents(document.querySelector("#probe-text")); const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range); });
     assert.deepEqual(shown(await rightClick("#probe-text")).map((item) => [item.role, item.enabled]), [["copy", true]]);
-    await page.evaluate(() => getSelection().removeAllRanges());
-    for (const selector of ["#probe-text", "#probe-button", "#probe-js"]) assert.deepEqual(shown(await rightClick(selector)), [], selector);
+    for (const selector of ["#probe-text", "#probe-button", "#probe-js"]) {
+      await page.evaluate(() => getSelection().removeAllRanges());
+      const menu = shown(await rightClick(selector)).map((item) => [item.role, item.enabled]);
+      // On macOS a right-click on text selects the word under the pointer, as in Safari, so Copy is offered for it.
+      const selected = await page.evaluate(() => getSelection().toString().trim() !== "");
+      if (process.platform !== "darwin") assert.equal(selected, false, `${selector}: a right-click selected text`);
+      assert.deepEqual(menu, selected ? [["copy", true]] : [], selector);
+    }
   });
 
   await check("right-click on a web link: Copy Link Address, and choosing it puts the address on the clipboard", async () => {
@@ -609,8 +616,6 @@ if (process.platform === "linux") {
   const broken = await launch({ RUNHOUND_CONFIG_DIR: join(scratch, "config-broken"), RUNHOUND_RUNS_DIR: blocker });
   const proc = broken.process();
   const exited = new Promise((resolve) => proc.once("exit", (code, signal) => resolve({ code, signal })));
-  let stderr = "";
-  proc.stderr?.on("data", (chunk) => { stderr += chunk; });
   try {
     await broken.evaluate(({ dialog }) => {
       globalThis.__dialogs = [];
@@ -664,19 +669,49 @@ if (process.platform === "linux") {
       if (process.platform !== "linux") assert.deepEqual([state.minimizable, state.maximizable], [false, false]);
       assert.equal(state.bg.toLowerCase().replace(/^#ff(?=[0-9a-f]{6}$)/, "#"), "#0a1014");
     });
-    await check("quitting from the error window ends the app with exit code 1, and the problem is still logged to stderr", async () => {
+    await check("quitting from the error window ends the app with exit code 1", async () => {
       // Quit closes the window and ends the app, so the click may report the page as closed while it completes.
       await page.click("#quit", { noWaitAfter: true }).catch((error) => {
         if (!/closed/i.test(String(error))) throw error;
       });
       const { code, signal } = await Promise.race([exited, new Promise((_resolve, reject) => setTimeout(() => reject(new Error("the app was still running 20 s after Quit")), 20_000))]);
       assert.deepEqual([code, signal], [1, null]);
-      assert.match(stderr, /\[run-hound\] Run Hound can't start:\n/);
-      assert.ok(stderr.includes(blocker), stderr);
     });
   } finally {
     await broken.close().catch(() => undefined);
   }
+
+  // Playwright reads the app's output only once launch() returns, after the problem is logged, so this launch (once the
+  // one above has quit and freed the single-instance lock) reads stderr from the first byte, then ends the app.
+  await check("the start-up problem is also logged to stderr", async () => {
+    const executable = packaged ?? createRequire(import.meta.url)("electron");
+    const child = spawn(executable, args, { env: appEnv({ RUNHOUND_CONFIG_DIR: join(scratch, "config-broken"), RUNHOUND_RUNS_DIR: blocker }), stdio: ["ignore", "ignore", "pipe"] });
+    const ended = new Promise((resolve) => child.once("exit", resolve));
+    let stderr = "";
+    try {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`nothing logged within 30 s:\n${stderr}`)), 30_000);
+        child.stderr.on("data", (chunk) => {
+          stderr += chunk;
+          if (stderr.includes(blocker)) {
+            clearTimeout(timer);
+            resolve();
+          }
+        });
+        void ended.then((code) => {
+          clearTimeout(timer);
+          reject(new Error(`the app exited (${code}) without logging the problem:\n${stderr}`));
+        });
+      });
+    } finally {
+      // The app ends on SIGTERM; SIGKILL only if it hasn't within 10 s, so this check can't hold the run up.
+      child.kill();
+      const forced = setTimeout(() => child.kill("SIGKILL"), 10_000);
+      await ended;
+      clearTimeout(forced);
+    }
+    assert.match(stderr, /\[run-hound\] Run Hound can't start:\r?\n/);
+  });
 }
 
 console.log(results.join("\n"));
