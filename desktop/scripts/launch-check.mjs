@@ -538,11 +538,13 @@ if (process.platform === "linux") {
       assert.equal(readFileSync(join(cliDir, "ai.json"), "utf8"), saved, "the command line's file changed");
     });
     await check("the import's notice appears in the page as an info banner at the top of the view, and no native dialog opens", async () => {
-      await page.locator("#desktop-notices .desktop-notice").waitFor({ timeout: 15_000 });
+      // Wait for the message itself, not only the banner: a slow machine can see the banner a moment before its text.
+      await page.locator("#desktop-notices .desktop-notice").filter({ hasText: "Imported your settings from" }).waitFor({ timeout: 15_000 });
+      await page.waitForFunction(() => (document.getElementById("announcer")?.textContent ?? "") !== "", undefined, { timeout: 5_000 }).catch(() => undefined);
       const banner = await page.evaluate(() => ({
         first: document.querySelector("main#view")?.firstElementChild?.id,
         types: [...document.querySelectorAll("#desktop-notices .desktop-notice")].map((el) => el.getAttribute("data-type")),
-        text: document.querySelector("#desktop-notices .desktop-notice p")?.textContent,
+        text: document.querySelector("#desktop-notices .desktop-notice p:not(.desktop-notice-detail):not(.desktop-notice-label)")?.textContent,
         label: document.querySelector("#desktop-notices .desktop-notice-label")?.textContent,
         announced: document.getElementById("announcer")?.textContent,
         top: document.querySelector("#desktop-notices")?.getBoundingClientRect().top,
@@ -663,7 +665,10 @@ if (process.platform === "linux") {
       assert.equal(state.bg.toLowerCase().replace(/^#ff(?=[0-9a-f]{6}$)/, "#"), "#0a1014");
     });
     await check("quitting from the error window ends the app with exit code 1, and the problem is still logged to stderr", async () => {
-      await page.click("#quit");
+      // Quit closes the window and ends the app, so the click may report the page as closed while it completes.
+      await page.click("#quit", { noWaitAfter: true }).catch((error) => {
+        if (!/closed/i.test(String(error))) throw error;
+      });
       const { code, signal } = await Promise.race([exited, new Promise((_resolve, reject) => setTimeout(() => reject(new Error("the app was still running 20 s after Quit")), 20_000))]);
       assert.deepEqual([code, signal], [1, null]);
       assert.match(stderr, /\[run-hound\] Run Hound can't start:\n/);
