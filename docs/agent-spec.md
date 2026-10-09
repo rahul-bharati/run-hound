@@ -103,7 +103,7 @@ The agent drives one page, opened through a `RunningCheckContext` the run create
 `runNavigationTool` (`app/src/agent/tools.ts`) runs `observe`, `navigate` and `back`. Each call first checks the run's abort signal, and fails as `cancelled` when it is set.
 
 - **`observe`:** a fresh observation. It is not a browser action.
-- **`navigate`:** checks that the path passes `isBriefPath` (else `invalid-input`), and that it lies within the brief's scope paths when there are any (the path equals one, or starts with one followed by `/`; else `off-target`). Then it opens the path on the target's origin, waiting for `load` and then, briefly, for network idle. The observation carries the response's status. A navigation the guard refuses, or a redirect that escapes, fails as `off-target`. A network error or timeout fails as `page-error`.
+- **`navigate`:** checks that the path passes `isBriefPath` (else `invalid-input`), and that it lies within the brief's scope paths when there are any (the path equals one, or starts with one followed by `/`; else `off-target`). Then it opens the path on the target's origin, waiting for `load` and then, briefly, for network idle. The observation carries the response's status. A navigation the guard refuses, or a redirect that escapes, fails as `off-target`. A network error or timeout fails as `page-error`, and a load still in progress is stopped first, so the next observation doesn't wait on it.
 - **`back`:** goes back one page. With no earlier page it fails as `invalid-input`.
 
 `navigate` and `back` are browser actions, counted whether they succeed or not. The action class of all three is `observation`. Every result carries the new observation, a failure included when the page is still usable.
