@@ -367,7 +367,8 @@ export interface IBriefFlow {
 
 export interface BriefFlowDeps {
   store: { set(id: string, draft: import("./agent.js").BriefDraft): void; get(id: string): import("./agent.js").BriefDraft | undefined };
-  aiForRequest: (wanted: boolean | undefined) => Promise<{ ai?: AiSession; warning?: string }>;
+  /** The AI session as the saved settings and the environment allow now, or the plain-language reason there is none. */
+  aiSession: () => Promise<{ session: AiSession } | { problem: string }>;
   resolveAccounts: ResolveAccounts;
   /** Hosts the safety gate allows besides loopback and private addresses, as the server resolves them now. */
   allowedHosts: () => string[] | undefined;

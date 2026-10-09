@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import {
   registerAccountsRoutes,
   registerAiRoutes,
+  registerBriefRoutes,
   registerPlanRoutes,
   registerRunsRoutes,
   registerUiRoutes,
@@ -35,6 +36,11 @@ import {
   saveAccounts,
 } from "../operations/accounts-storage.js";
 import { aiForRequest } from "./models/ai-session.js";
+import { BriefFlow } from "./models/brief-flow.js";
+import { BriefsModel } from "./models/briefs.js";
+import { resolveAiConfig } from "../ai/config.js";
+import { aiSession } from "../ai/session.js";
+import { agentEnabled, BRIEF_DRAFT_BUDGET_MS } from "../config/agent.js";
 import { discoverAndPlan } from "../engine/runner.js";
 import type { ServerOptions } from "../interfaces/server.js";
 
@@ -53,7 +59,7 @@ export function createApp(options: ServerOptions = {}): Hono {
   app.use("*", securityHeaders());
   app.use("*", hostAllow(models.host.hostAllowed));
 
-  const uiFlow = new UiFlow({ version: models.version, canShowBrowser: models.canShowBrowser });
+  const uiFlow = new UiFlow({ version: models.version, canShowBrowser: models.canShowBrowser, agent: options.agent ?? agentEnabled() });
   registerUiRoutes(app, { flow: uiFlow });
 
   app.use("/api/*", jsonOnlyApi());
@@ -112,6 +118,24 @@ export function createApp(options: ServerOptions = {}): Hono {
   registerRunsRoutes(app, { flow: runsFlow });
   registerAiRoutes(app, { flow: aiFlow });
   registerAccountsRoutes(app, { flow: accountsFlow });
+
+  // The agent's features (A2) exist only when it is enabled; without it these routes are not found.
+  if (options.agent ?? agentEnabled()) {
+    const briefsGuard = headerGuard("/api/briefs");
+    app.use("/api/briefs", briefsGuard);
+    app.use("/api/briefs/*", briefsGuard);
+    const briefFlow = new BriefFlow({
+      store: new BriefsModel(),
+      aiSession: async () => {
+        const out = aiSession(await resolveAiConfig());
+        return "session" in out ? { session: out.session } : { problem: out.problem };
+      },
+      resolveAccounts,
+      allowedHosts: () => options.allowedHosts ?? models.host.allowedHosts(),
+      draftBudgetMs: options.aiPlanBudgetMs ?? BRIEF_DRAFT_BUDGET_MS,
+    });
+    registerBriefRoutes(app, { flow: briefFlow });
+  }
 
   app.notFound((c) => c.json({ error: "Not found." }, 404));
   return app;

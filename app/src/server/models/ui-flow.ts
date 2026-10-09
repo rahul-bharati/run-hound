@@ -9,6 +9,8 @@ import type { IUiFlow } from "../../interfaces/server.js";
 export interface UiFlowDeps {
   version: string;
   canShowBrowser: boolean;
+  /** Whether the agent's features are on (RUNHOUND_AGENT=1, or createApp({ agent: true })): the New run page then offers briefs (A2). */
+  agent: boolean;
 }
 
 /** UI flow: serves GET / with its pre-rendered HTML and pre-computed CSP. */
@@ -17,7 +19,7 @@ export class UiFlow implements IUiFlow {
   readonly #policy: string;
 
   constructor(deps: UiFlowDeps) {
-    this.#html = renderUi({ version: deps.version, canShowBrowser: deps.canShowBrowser });
+    this.#html = renderUi({ version: deps.version, canShowBrowser: deps.canShowBrowser, agent: deps.agent });
     this.#policy = uiCsp(this.#html);
   }
 

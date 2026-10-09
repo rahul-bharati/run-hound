@@ -259,7 +259,7 @@ Each request must send `X-Run-Hound: 1`, as the AI settings and test accounts do
 
 The engine goes first:
 
-- The URL goes through the safety gate, as planning does. The brief keeps its origin and its path as `startPath`. The query and hash are dropped, because they can carry tokens.
+- The URL goes through the safety gate, as planning does. The brief keeps its origin and its path as `startPath`. The query and hash are dropped, because they can carry tokens, and the draft gets a warning saying so.
 - A named account must be ready, as planning requires.
 - Each list line in the ticket text (`- `, `* `, `• `, `1. `, `- [ ] `) becomes a supplied expectation: at most 20, each cut to 300 characters.
 - The goal and the ticket text are redacted before they are kept or sent.

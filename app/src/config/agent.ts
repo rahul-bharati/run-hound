@@ -58,3 +58,6 @@ export const BRIEF_LIMITS = {
 
 /** What a new brief permits before the user changes it. The model can't add to it (A2). */
 export const DEFAULT_BRIEF_ACTIONS: readonly ActionClass[] = ["observation", "test-data-creation"];
+
+/** How long drafting a brief may wait for the model: one call, so the same as one AI request. */
+export const BRIEF_DRAFT_BUDGET_MS = 120_000;
