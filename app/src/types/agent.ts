@@ -87,3 +87,10 @@ export type AgentBudgetName = "browserActions" | "durationMs" | "modelCalls" | "
 
 /** Where an expectation in the brief came from (A2): the user said it, or the brief inferred it. */
 export type ExpectationSource = "supplied" | "inferred";
+
+/**
+ * What a brief's clarifying question asks for, which fixes how its answer is applied (A2): `expectation` adds a
+ * supplied expectation, `start-path` sets the start path, `scope` adds a scope path, `test-data` sets the named value,
+ * `account` picks the account, `permission` allows or refuses changing existing records.
+ */
+export type BriefQuestionKind = "expectation" | "start-path" | "scope" | "test-data" | "account" | "permission";

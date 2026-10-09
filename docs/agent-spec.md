@@ -1,6 +1,6 @@
 # Agent spec: goal-driven investigation (E2)
 
-The contract for Run Hound's goal-driven agent: the user states a goal ("make sure my tasks and profile changes save correctly"), and an agent works through the target app with typed browser tools, runs the built-in checks on the pages it reaches, and reports. This is ticket A1. It changes no runtime behaviour: it adds this spec and the types in `app/src/types/agent.ts`, `app/src/interfaces/agent.ts`, `app/src/types/grant.ts`, `app/src/interfaces/grant.ts`, `app/src/config/agent.ts` and `app/src/constants/agent-constants.ts`, which nothing imports yet. A2 builds the brief, A3 the tools, A4 the loop ([Tickets](#tickets)).
+The contract for Run Hound's goal-driven agent: the user states a goal ("make sure my tasks and profile changes save correctly"), and an agent works through the target app with typed browser tools, runs the built-in checks on the pages it reaches, and reports. This is ticket A1's contract, extended by A2 ([Briefs](#briefs)). A1 changed no runtime behaviour: it adds this spec and the types in `app/src/types/agent.ts`, `app/src/interfaces/agent.ts`, `app/src/types/grant.ts`, `app/src/interfaces/grant.ts`, `app/src/config/agent.ts` and `app/src/constants/agent-constants.ts`, which nothing imports yet. A2 builds the brief, A3 the tools, A4 the loop ([Tickets](#tickets)).
 
 Everything in [ai-spec.md](ai-spec.md), [execution-grants.md](execution-grants.md) (G1), [team-workflow.md](team-workflow.md) (T1) and [hosted-sync-privacy.md](hosted-sync-privacy.md) (T2) still holds, except where [Decisions this needs](#decisions-this-needs) says a rule must be superseded first.
 
@@ -220,17 +220,98 @@ For comparison: Run Hound already confirms all three bugs without the agent, whe
 
 ## Decisions this needs
 
-The maintainer's 2026-10-06 decisions keep the findings decisions as they are. Three AI rules, all from the [2026-09-25 decision](decisions/09-2026.md#2026-09-25-ai-optional-off-by-default), don't fit an agent as written. Each needs an explicit superseding decision, limited to agent runs, before the work it blocks lands:
+The maintainer's 2026-10-06 decisions keep the findings decisions as they are. Three AI rules, all from the [2026-09-25 decision](decisions/09-2026.md#2026-09-25-ai-optional-off-by-default), didn't fit an agent as written. On 2026-10-09 the maintainer approved replacing each for agent runs only ([decision](decisions/10-2026.md#2026-10-09-agent-ai-rules)); runs without the agent keep them unchanged:
 
-1. **Only redacted page structure is sent** ([ai-spec rule 4](ai-spec.md#rules)). An observation carries accessible names and the visible text of nodes (a task's title in a list, a status message), because a goal about what saves can't be followed from field labels alone. The proposal: allow this in agent runs only, redacted and capped as above. Everything rule 4 rules out stays ruled out (selectors, typed values, cookies, headers, bodies and screenshots), and remote consent is unchanged. **This blocks A3a.**
-2. **A fixed step vocabulary, and a bound on prompt injection** ([ai-spec rules 1 and 5](ai-spec.md#rules)). Today the model composes form flows that are validated before a run. The agent chooses each action during the run. The proposal: in agent runs, the vocabulary is the typed tool set. Prompt injection can do no more than the grant permits, within the budgets, and it can never confirm a finding. **This blocks A3b.**
-3. **AI failure never blocks** ([ai-spec rule 6](ai-spec.md#rules)). A model failure ends an agent run as incomplete, and the run keeps the findings so far. Runs without the agent are unchanged. **This blocks A4a.**
+1. **Only redacted page structure is sent** ([ai-spec rule 4](ai-spec.md#rules)). In agent runs, an observation also carries accessible names and the visible text of nodes (a task's title in a list, a status message), redacted and capped as above, because a goal about what saves can't be followed from field labels alone. Everything rule 4 rules out stays ruled out: selectors, typed values, cookies, headers, bodies and screenshots. Remote consent is unchanged.
+2. **A fixed step vocabulary, and a bound on prompt injection** ([ai-spec rules 1 and 5](ai-spec.md#rules)). In agent runs, the vocabulary is the typed tool set, chosen turn by turn. Prompt injection can do no more than the grant permits, within the budgets, and it can never confirm a finding.
+3. **AI failure never blocks** ([ai-spec rule 6](ai-spec.md#rules)). A model failure ends an agent run as incomplete, and the run keeps the findings so far.
 
 Nothing else is superseded:
 
 - Destructive actions stay opt-in, and an agent grant isn't widened by `--allow-destructive`.
 - Local stays local (T1).
 - Model consent stays separate from workspace sync (T2).
+
+## Briefs
+
+A2 turns what the user asks for into an approved `TestingBrief`. Until A4 can run one, everything here is available only with `RUNHOUND_AGENT=1` ([decision](decisions/10-2026.md#2026-10-09-a2-testing-briefs)): without it the routes don't exist and the UI shows nothing new.
+
+On the New run page, beside the URL and the account it already asks for, the user describes what to test:
+
+- the goal (required, at most 2,000 characters);
+- ticket text or acceptance criteria (optional, at most 8,000);
+- the name of the feature it concerns (optional, at most 80).
+
+"Draft a brief" asks the model once. The user then edits the brief, answers its questions, and approves it.
+
+### API
+
+Each request must send `X-Run-Hound: 1`, as the AI settings and test accounts do.
+
+| Route | Body | Answer | Refusals |
+|---|---|---|---|
+| `POST /api/briefs` | `BriefRequest`: `{goal, url, ticketContext?, feature?, signInAs?}` | 201 `BriefDraft` | 400 for invalid input, a refused target or an account that isn't ready; 409 when no model can be used |
+| `GET /api/briefs/:id` | none | 200 `BriefDraft` | 404 |
+| `PUT /api/briefs/:id` | `BriefEdit` | 200 `BriefDraft` | 400 naming the problems (nothing applied), 404 |
+| `POST /api/briefs/:id/approve` | none | 200 `BriefDraft`, approved, with its `hash` | 400 naming what is missing, 404 |
+
+### Drafting
+
+The engine goes first:
+
+- The URL goes through the safety gate, as planning does. The brief keeps its origin and its path as `startPath`. The query and hash are dropped, because they can carry tokens, and the draft gets a warning saying so.
+- A named account must be ready, as planning requires.
+- Each list line in the ticket text (`- `, `* `, `• `, `1. `, `- [ ] `) becomes a supplied expectation: at most 20, each cut to 300 characters.
+- The goal and the ticket text are redacted before they are kept or sent.
+
+Then the model answers once (`brief_draft`):
+
+- **What it sees:** the goal, the ticket text, the feature name, and the start page's path (with the origin when the model is local), plus which of accounts A and B are ready. It sees no page and no account names.
+- **What it may answer:** up to 8 expectations, up to 5 scope paths, up to 8 named test-data values, and up to 3 questions.
+- **What is dropped:** a scope path that doesn't start with `/` or that holds a scheme, `//` or `..`; a test-data name that looks like a credential (`password`, `secret`, `token`, `key`); a question of an unknown kind or beyond the third. Each drop adds a warning.
+- **If the call fails or times out:** the draft keeps the ticket's expectations and gains a warning, and the user can fill in the rest. With no usable model at all, `POST` answers 409 with the reason, because an agent run needs a model anyway.
+
+The model's answer never changes what the brief permits. A new brief permits observation and test-data creation (`DEFAULT_BRIEF_ACTIONS`). Changing existing records is added only when the user allows it, by ticking it or by answering a permission question yes. Deletion, credential changes and external writes are not offered.
+
+### Supplied and inferred
+
+The server decides each expectation's `source`, and the client can't set it:
+
+- **Supplied:** ticket lines, expectations the user added or reworded, and answers to expectation questions.
+- **Inferred:** the model's expectations, as long as the user leaves their text unchanged.
+
+On an edit, an expectation whose text matches an existing one keeps that one's source. Any other text is supplied.
+
+### Questions
+
+`BriefQuestion.kind` fixes how an answer is applied:
+
+| Kind | The answer |
+|---|---|
+| `expectation` | becomes a supplied expectation |
+| `start-path` | sets `startPath`; it must be a path |
+| `scope` | adds a scope path |
+| `test-data` | sets the value named by `dataName` |
+| `account` | `a`, `b` or `signed-out`; the account must be ready |
+| `permission` | `yes` or `no`: whether existing records may be changed |
+
+A question offers up to 6 `options`, or takes free text. An answer of `null` dismisses it. Approval needs every question answered or dismissed.
+
+### Approval
+
+Approval needs:
+
+- a goal;
+- at least one expectation;
+- no open question;
+- a target the safety gate still allows;
+- a ready account, if one is named.
+
+It sets `approval: {by: "self", at}` and `hash`: the SHA-256 of the brief with `approval: null`, as JSON with keys sorted. A4 uses the hash as the grant's `planVersion`. Any later edit or answer clears both, so an edited brief needs a new approval.
+
+### Storage
+
+Drafts live in memory: at most `MAX_BRIEFS` (50), the oldest dropped first, and none kept across a restart. A4 writes the approved brief into the run's folder when the run starts. M1 adds lasting storage.
 
 ## Tickets
 
