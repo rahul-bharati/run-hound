@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BRAND } from "../../app/src/core/brand.js";
 import { STYLES } from "../../app/src/server/ui/styles.js";
-import { appMenuTemplate, TITLE_BAR_HEIGHT, windowOptions } from "../src/shell.js";
+import { appMenuTemplate, childWindowOptions, CHILD_STRIP_COLOR, DIALOG_SIZE, dialogWindowOptions, TITLE_BAR_HEIGHT, windowOptions } from "../src/shell.js";
 
 const webPreferences = { sandbox: true, contextIsolation: true, preload: "/app/dist/preload.cjs" };
 const iconPath = "/app/dist/icon.png";
@@ -41,7 +41,39 @@ describe("windowOptions", () => {
     const block = STYLES.slice(start, STYLES.indexOf("@media (prefers-reduced-motion")).replace(/\/\*[\s\S]*?\*\//g, "");
     const preludes = [...block.matchAll(/([^{}]+)\{/g)].map((match) => match[1]!.trim()).filter((prelude) => !prelude.startsWith("@media"));
     expect(preludes.length).toBeGreaterThan(5);
-    for (const prelude of preludes) expect(prelude).toMatch(/^html\[data-shell="desktop"\](\s|$)/);
+    // A selector list is scoped selector by selector.
+    for (const selector of preludes.flatMap((prelude) => prelude.split(",").map((part) => part.trim()))) expect(selector).toMatch(/^html\[data-shell="desktop"\](\s|$)/);
+  });
+});
+
+describe("childWindowOptions (report and engine pages)", () => {
+  it.each(["darwin", "win32", "linux"] as const)("%s: the main window's look in a roomier window that shows at once, with its own preload", (platform) => {
+    const childPreferences = { sandbox: true, contextIsolation: true, preload: "/app/dist/chrome-preload.cjs" };
+    const main = windowOptions({ platform, webPreferences, iconPath });
+    const child = childWindowOptions({ platform, webPreferences: childPreferences, iconPath });
+    expect(child).toMatchObject({ width: 1100, height: 800, minWidth: 640, minHeight: 420, title: "Run Hound", show: true, backgroundColor: BRAND.bg });
+    expect(child.webPreferences).toBe(childPreferences);
+    expect(child.titleBarStyle).toBe(main.titleBarStyle);
+    expect(child.trafficLightPosition).toEqual(main.trafficLightPosition);
+    expect(child.icon).toBe(main.icon);
+  });
+
+  it.each(["win32", "linux"] as const)("%s: window controls drawn in the report's top bar colour", (platform) => {
+    const child = childWindowOptions({ platform, webPreferences, iconPath });
+    expect(CHILD_STRIP_COLOR).toBe(BRAND.bgDeep);
+    expect(child.titleBarOverlay).toEqual({ color: BRAND.bgDeep, symbolColor: BRAND.muted, height: TITLE_BAR_HEIGHT });
+  });
+});
+
+describe("dialogWindowOptions (the start-up error window)", () => {
+  it.each(["darwin", "win32", "linux"] as const)("%s: 600 by 380 content pixels, fixed, with the same look", (platform) => {
+    const dialog = dialogWindowOptions({ platform, webPreferences, iconPath });
+    expect(DIALOG_SIZE).toEqual({ width: 600, height: 380 });
+    expect(dialog).toMatchObject({ width: 600, height: 380, minWidth: 600, minHeight: 380, useContentSize: true, resizable: false, minimizable: false, maximizable: false, fullscreenable: false, show: true, title: "Run Hound", backgroundColor: BRAND.bg });
+    expect(dialog.webPreferences).toBe(webPreferences);
+    expect(dialog.titleBarStyle).toBe(platform === "darwin" ? "hiddenInset" : "hidden");
+    if (platform !== "darwin") expect(dialog.titleBarOverlay).toMatchObject({ color: BRAND.bgDeep, height: TITLE_BAR_HEIGHT });
+    expect(dialog.icon).toBe(platform === "darwin" ? undefined : iconPath);
   });
 });
 

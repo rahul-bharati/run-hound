@@ -5,4 +5,5 @@ export const CHANNELS = {
   versionCheck: "desktop:version:check",
   engineReady: "desktop:engine:ready",
   runsDirOpen: "desktop:runs-dir:open",
+  noticesTake: "desktop:notices:take",
 } as const satisfies Record<string, keyof DesktopIpcChannels>;

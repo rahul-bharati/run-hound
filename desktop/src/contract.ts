@@ -61,6 +61,8 @@ export interface DesktopIpcChannels {
   readonly "desktop:engine:ready": DesktopEngineReadyChannel;
   /** Renderer asks the main process to open the user's runs directory. */
   readonly "desktop:runs-dir:open": DesktopOpenRunsDirChannel;
+  /** Renderer asks for the one-time messages the app has for the user (D8); main answers with them once and forgets them. */
+  readonly "desktop:notices:take": DesktopTakeNoticesChannel;
 }
 
 export interface DesktopVersionCheckChannel {
@@ -93,6 +95,22 @@ export interface DesktopOpenRunsDirChannel {
   readonly response: { readonly ok: boolean; readonly error?: string };
 }
 
+/** A one-time message from the app to the user, shown in the UI as a banner (D8). Plain text: the UI never renders it as HTML. */
+export interface DesktopNotice {
+  /** "info" is neutral; "warning" is for something the user may need to act on. */
+  readonly type: "info" | "warning";
+  readonly message: string;
+  /** A second line shown under the message, when there is one. */
+  readonly detail?: string;
+}
+
+export interface DesktopTakeNoticesChannel {
+  /** Renderer → main: void. */
+  readonly request: void;
+  /** Main → renderer: every notice waiting, oldest first. They are cleared by this call, so a second call answers []. */
+  readonly response: readonly DesktopNotice[];
+}
+
 /**
  * The minimum surface the preload exposes to the renderer. No Node
  * integration, no other channels, no other globals. Rule 5 of
@@ -102,4 +120,5 @@ export interface DesktopPreloadBridge {
   readonly version: { check(): Promise<DesktopVersionCheckChannel["response"]> };
   readonly runsDir: { open(): Promise<DesktopOpenRunsDirChannel["response"]> };
   readonly engine: { onReady(cb: (info: DesktopEngineReady) => void): () => void };
+  readonly notices: { take(): Promise<DesktopTakeNoticesChannel["response"]> };
 }

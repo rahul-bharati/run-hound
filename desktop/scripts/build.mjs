@@ -1,10 +1,11 @@
-// Build the desktop app into dist/: the Electron main process, the sandboxed preload and the engine bundle.
+// Build the desktop app into dist/: the Electron main process, the sandboxed preloads (the main window's and the child
+// windows') and the engine bundle, and copy the window icon and the static start-up error page next to main.js.
 //
 // The engine is bundled from app/src because the app imports its .ts files by .js specifiers (it runs under tsx), so
 // neither Node nor Electron can load that source as it is. Playwright and axe stay external: they find their own
 // files and browsers at runtime, and the packaged app ships them as node_modules.
 import { build } from "esbuild";
-import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -66,8 +67,18 @@ await Promise.all([
     format: "cjs",
     external: ["electron"],
   }),
+  // The child windows' preload: the Run Hound look and nothing else, no bridge (src/chrome-preload.ts).
+  build({
+    ...common,
+    entryPoints: ["src/chrome-preload.ts"],
+    outfile: "dist/chrome-preload.cjs",
+    format: "cjs",
+    external: ["electron"],
+  }),
 ]);
 
 // The window icon (a PNG on Windows and Linux), next to dist/main.js where the main process looks for it.
 mkdirSync(join(root, "dist"), { recursive: true });
 copyFileSync(join(root, "assets/icon.png"), join(root, "dist/icon.png"));
+// Static pages (static/startup-error.html), loaded by the main process from next to main.js.
+for (const name of readdirSync(join(root, "static"))) copyFileSync(join(root, "static", name), join(root, "dist", name));

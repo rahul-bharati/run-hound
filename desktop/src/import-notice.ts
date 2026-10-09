@@ -1,8 +1,11 @@
 /**
  * The one message the desktop app shows about the one-time import of the command line's settings
- * (docs/decisions 2026-10-07-desktop-settings-import), as plain text for a native message box. Kept apart from
- * main.ts so the wording is tested.
+ * (docs/decisions 2026-10-07-desktop-settings-import), as plain text. It reaches the user as an in-app banner
+ * (main.ts queues it, the UI takes it over the notices channel, D8), not as a native dialog. Kept apart from main.ts so
+ * the wording is tested.
  */
+
+import type { DesktopNotice } from "./contract.js";
 
 /** The part of the import's result the message needs (`SettingsImport` in app/src/operations/settings-import.ts). */
 export interface ImportedSettings {
@@ -12,14 +15,9 @@ export interface ImportedSettings {
   readonly problem: string | null;
 }
 
-export interface Notice {
-  readonly type: "info" | "warning";
-  readonly message: string;
-  /** A second line shown under the message, when there is one. */
-  readonly detail?: string;
-}
+export type Notice = DesktopNotice;
 
-/** Shown once after the window opens, when settings were imported. */
+/** Shown once when the window loads, when settings were imported. */
 export function importedNotice(result: ImportedSettings): Notice {
   const message = `Imported your settings from ${result.from}.`;
   if (result.problem === null) return { type: "info", message };
@@ -29,7 +27,7 @@ export function importedNotice(result: ImportedSettings): Notice {
   };
 }
 
-/** Shown once after the window opens, when the import itself failed (the app still starts). */
+/** Shown once when the window loads, when the import itself failed (the app still starts). */
 export function importFailedNotice(cliDir: string, error: unknown): Notice {
   return {
     type: "warning",
