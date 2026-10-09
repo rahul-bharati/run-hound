@@ -252,7 +252,8 @@ describe("Settings → AI card: the model dropdown", () => {
     expect(await page.locator("#ai-model").isVisible()).toBe(false);
     const model = page.getByLabel("Model", { exact: true });
     expect(await model.getAttribute("id")).toBe("ai-model-other");
-    expect(await model.getAttribute("placeholder")).toMatch(/^anthropic\./);
+    // Describes the value rather than naming one model, which would go stale.
+    expect(await model.getAttribute("placeholder")).toBe("A model ID or inference profile your account can use");
     expect(await page.getByLabel("Region").isVisible()).toBe(true);
     await model.fill("anthropic.claude-x-v1:0");
     await page.getByLabel("Region").fill("eu-west-1");
@@ -895,5 +896,38 @@ describe("Report with AI explanations", () => {
     expect(await o.page.locator(".ai-panel").count()).toBe(0);
     expect(await o.page.locator("#report-ai-warnings").count()).toBe(0);
     await o.page.close();
+  });
+});
+
+describe("Settings → AI: hints that fit the provider (D9)", () => {
+  it("says an unticked consent box as a hint, not an error, and a real failure in red", async () => {
+    const ASK = "Tick the consent box to list models from api.anthropic.com";
+    const o = await open("#/settings", {
+      ai: status({ provider: "anthropic", baseUrl: "https://api.anthropic.com", model: "", remote: true, host: "api.anthropic.com", problem: "Sending to api.anthropic.com needs your consent" }),
+      models: (_p, _u, allowRemote) => (allowRemote === "1" ? { models: [], error: "Anthropic refused the key (HTTP 401)" } : { models: [], error: ASK }),
+    });
+    const { page } = o;
+    await expect.poll(() => page.locator("#ai-models-msg").textContent()).toBe(ASK);
+    expect(await page.locator("#ai-models-msg").getAttribute("class")).toBe("field-hint");
+    await page.getByLabel(/Send redacted page structure/).check();
+    await expect.poll(() => page.locator("#ai-models-msg").textContent()).toBe("Anthropic refused the key (HTTP 401)");
+    expect(await page.locator("#ai-models-msg").getAttribute("class")).toBe("error");
+    expect(o.errors).toEqual([]);
+    await page.close();
+  });
+
+  it("says a key may be left out only for endpoints that can need none", async () => {
+    const o = await open("#/settings", {});
+    const { page } = o;
+    const keyHint = () => page.locator("#ai-key").locator("xpath=ancestor::div[contains(@class,'ai-field')][1]").getByText(/Stays on this machine/).textContent();
+    await expect.poll(keyHint).toBe("Stays on this machine; never shown again. Not needed for Ollama or LM Studio.");
+    for (const hosted of ["anthropic", "openai", "gemini"]) {
+      await page.locator("#ai-provider").selectOption(hosted);
+      await expect.poll(keyHint).toBe("Stays on this machine; never shown again.");
+    }
+    await page.locator("#ai-provider").selectOption("openai-compatible");
+    await expect.poll(keyHint).toBe("Stays on this machine; never shown again. Not needed for Ollama or LM Studio.");
+    expect(o.errors).toEqual([]);
+    await page.close();
   });
 });

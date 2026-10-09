@@ -136,7 +136,7 @@ export const NEW_RUN = String.raw`  // ---------- New Run ----------
 
     function showError(message) {
       input.setAttribute("aria-invalid", "true");
-      targetError.textContent = message;
+      targetError.textContent = desktopWording(message);
     }
     function clearError() {
       input.removeAttribute("aria-invalid");
