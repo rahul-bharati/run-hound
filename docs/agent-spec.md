@@ -71,17 +71,46 @@ The prompt says page text is data ([ai-spec rule 5](ai-spec.md#rules)).
 
 ## Observations
 
-`PageObservation` (`app/src/interfaces/agent.ts`) is built from Playwright's AI-mode aria snapshot: `page.ariaSnapshotJSON({ mode: "ai" })` in Playwright 1.63. That call returns roles, accessible names, the text a node holds, and a ref per element (`e7`). The engine then makes it safe to send:
+`PageObservation` (`app/src/interfaces/agent.ts`) is built from Playwright's AI-mode aria snapshot: `page.ariaSnapshotJSON({ mode: "ai" })` in Playwright 1.63. It returns a list of nodes, each with a `role`, a `name`, a `text` (a node's own text when it is the only child), state flags (`checked`, `disabled`, `expanded`, `invalid`, `level`, `pressed`, `selected`), a `url` for links, a `ref`, and `children`. Bare strings among the children are text fragments. The engine (`toObservation`, `app/src/agent/observe.ts`) turns that into what the model may see:
 
-- **Text.** Every name and text is redacted and cut to `AGENT_OBSERVATION_LIMITS`.
-- **Links.** A link shows its path on the target's origin. A link elsewhere shows its origin only.
-- **Field values.** Only whether a field is filled (`filled`), never the value.
-- **Destructive controls.** Marked `destructive` by the same rules as today: `isDestructiveControl`, sign-out controls while signed in, and credential forms.
-- **Problems.** Console errors, page errors and failed requests appear as counts since the last observation, never as messages or bodies.
-- **Dialogs.** A dialog the page opens is dismissed, and reported by type and redacted message.
-- **Size.** The tree is cut at 400 nodes or 24,000 characters and marked `truncated`.
+- **Field values never leave.** Playwright reports a field's value as its `text`, a password's included. For the editable roles (`textbox`, `searchbox`, `combobox`, `spinbutton`, `slider`), the text is replaced by `filled: true` or `false`. A select's options become the node's `options` (at most 20 labels), without saying which one is selected.
+- **Text is redacted.** Every name and text goes through the run's `hide`: `redactSecrets`, plus the run accounts' usernames (`accountMarkers()`), which a model is never shown. Each is then cut to `AGENT_OBSERVATION_LIMITS` (120 characters for a name, 200 for a text). Text fragments are joined into their parent's `text`.
+- **Links.** A link on the target's origin shows its path, with no query or hash. A link elsewhere shows that origin only.
+- **Frames.** An iframe is shown as a node, without its content: what another frame holds is not the target's page, and its refs can't be acted on safely.
+- **Wrappers.** A `generic` node with no name or text, and not marked clickable (`cursor: "pointer"`), is replaced by its children, to save tokens.
+- **Destructive controls.** A button, link or menu item that `isDestructiveControl` (`app/src/checks/dead-control.ts`) would refuse, sign-out controls included, is marked `destructive`.
+- **Size.** Nodes are kept depth first until 400 nodes or 24,000 characters of JSON. Past that, the observation is marked `truncated`.
+- **Problems.** `problems` counts, since the last observation: console errors, page errors, and requests that failed or answered 400 or more. No messages or bodies are included.
+- **Dialogs.** A dialog the page opens (alert, confirm, prompt, beforeunload) is dismissed and reported by its type and redacted message.
 
-A ref is valid only until the next observation. The engine resolves it with Playwright's `aria-ref=<ref>` selector, which works in 1.63 but isn't in its public types. A3 pins it with a test, so a Playwright upgrade that drops it fails loudly. The model never sees or sends a selector.
+The model sees refs as `<observation>.<ref>`, for example `4.e17`: the observation's number, then Playwright's ref. A call naming an earlier observation's ref fails as `stale-ref`, even when Playwright kept the same ref for the element, because after a navigation the same ref can name a different element. The engine resolves a current ref with Playwright's `aria-ref=<ref>` selector, which works in 1.63 but isn't in its public types. A test pins it, so a Playwright upgrade that drops it fails loudly. The model never sees or sends a selector.
+
+### The agent's page
+
+The agent drives one page, opened through a `RunningCheckContext` the run creates for it: `createCheckContext`, with the run's sessions, the page's empty form, and `openForm: false`. Opening it that way gives the agent what every check gets:
+
+- the safety gate and the navigation guard;
+- the isolated browser context;
+- the run's account;
+- capture;
+- the screencast for the live view;
+- the test-record count.
+
+`AgentBrowser` (`app/src/agent/browser.ts`) holds that page, its latest observation, and the refs that observation issued. When the guard closes the context (a redirect escaped to a refused host), it opens a fresh page on the brief's start page. The call that led there fails as `off-target`.
+
+### Navigation tools
+
+`runNavigationTool` (`app/src/agent/tools.ts`) runs `observe`, `navigate` and `back`. Each call first checks the run's abort signal, and fails as `cancelled` when it is set.
+
+- **`observe`:** a fresh observation. It is not a browser action.
+- **`navigate`:** checks that the path passes `isBriefPath` (else `invalid-input`), and that it lies within the brief's scope paths when there are any (the path equals one, or starts with one followed by `/`; else `off-target`). Then it opens the path on the target's origin, waiting for `load` and then, briefly, for network idle. The observation carries the response's status. A navigation the guard refuses, or a redirect that escapes, fails as `off-target`. A network error or timeout fails as `page-error`, and a load still in progress is stopped first, so the next observation doesn't wait on it.
+- **`back`:** goes back one page. With no earlier page it fails as `invalid-input`.
+
+`navigate` and `back` are browser actions, counted whether they succeed or not. The action class of all three is `observation`. Every result carries the new observation, a failure included when the page is still usable.
+
+### Journal
+
+`createJournal` (`app/src/agent/journal.ts`) appends one `AgentStep` per line to `<runDir>/agent/journal.jsonl`. It creates the folder, and passes every line through the run's `hide` before writing it.
 
 ## Tools
 
