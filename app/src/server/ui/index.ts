@@ -50,7 +50,7 @@ export interface UiOptions {
 }
 
 const HEADED_DESC = {
-  on: "Opens a visible Chromium window on the machine running Run Hound. The live preview works either way.",
+  on: "Opens a visible Chromium window where Run Hound runs, so you can watch the browser work. The live preview works either way.",
   off: "Not available here: the machine running Run Hound has no display (as in a container). The live preview shows the page under test.",
 };
 
@@ -123,7 +123,7 @@ export function renderUi(options: UiOptions): string {
 <button class="btn primary" id="plan-button" type="submit">Plan checks</button>
 </div>
 <p class="error" id="target-error"></p>
-<p class="field-hint" id="target-hint">Use localhost or a private network address. Add other hosts you own with RUNHOUND_ALLOWED_HOSTS.</p>
+<p class="field-hint" id="target-hint">Use localhost or a private network address.<span class="not-desktop"> Add other hosts you own with RUNHOUND_ALLOWED_HOSTS.</span></p>
 </form>
 </section>
 <section class="card" id="plan-section" aria-labelledby="plan-h" hidden>

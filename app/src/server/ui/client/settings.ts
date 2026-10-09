@@ -11,7 +11,7 @@ export const SETTINGS = String.raw`  // ---------- Settings ----------
     destructive.checked = d.allowDestructive;
     const headed = h("input", { type: "checkbox", id: "default-headed", disabled: !CONFIG.canShowBrowser });
     headed.checked = d.headed;
-    const saved = h("p", { class: "saved", text: "Saved in this browser only. Each plan starts with these, and you can still change them per run." });
+    const saved = h("p", { class: "saved", text: (onDesktop ? "Saved on this computer." : "Saved in this browser only.") + " Each plan starts with these, and you can still change them per run." });
     const save = () => {
       const ok = saveDefaults({ allowDestructive: destructive.checked, headed: headed.checked });
       saved.textContent = ok ? "Saved in this browser at " + hms(new Date().toISOString()) + "." : "This browser would not let Run Hound save settings (storage is blocked).";
@@ -25,7 +25,7 @@ export const SETTINGS = String.raw`  // ---------- Settings ----------
       h("li", {}, h("a", { class: "btn", href: "https://github.com/rahul-bharati/run-hound/blob/main/TESTING.md", target: "_blank", rel: "noopener" }, icon("file"), "TESTING.md", h("span", { class: "visually-hidden", text: " (opens in a new tab)" }))),
       h("li", {}, h("a", { class: "btn", href: "https://github.com/rahul-bharati/run-hound/issues/new/choose", target: "_blank", rel: "noopener" }, icon("external"), "Feedback form", h("span", { class: "visually-hidden", text: " (opens in a new tab)" }))));
     view.append(h("div", { class: "page" },
-      h("header", { class: "page-head" }, h("h1", { text: "Settings" }), h("p", { text: "Defaults for new runs, and how this Run Hound server is set up." })),
+      h("header", { class: "page-head" }, h("h1", { text: "Settings" }), h("p", { text: onDesktop ? "Defaults for new runs, and how Run Hound is set up on this computer." : "Defaults for new runs, and how this Run Hound server is set up." })),
       h("section", { class: "card", "aria-labelledby": "defaults-h" },
         h("h2", { id: "defaults-h", class: "card-title" }, "Defaults"),
         h("div", { class: "options flush" },
@@ -35,7 +35,7 @@ export const SETTINGS = String.raw`  // ---------- Settings ----------
       accountsCard(my),
       aiCard(my),
       h("section", { class: "card", "aria-labelledby": "server-h" },
-        h("h2", { id: "server-h", class: "card-title" }, "This server"),
+        h("h2", { id: "server-h", class: "card-title" }, onDesktop ? "This computer" : "This server"),
         info),
       h("section", { class: "card", "aria-labelledby": "help-h" },
         h("h2", { id: "help-h", class: "card-title" }, "Help and feedback"),
@@ -47,8 +47,9 @@ export const SETTINGS = String.raw`  // ---------- Settings ----------
       fill(info, 
         h("dt", { text: "Version" }), h("dd", {}, h("code", { text: s.version })),
         h("dt", { text: "Runs folder" }), h("dd", {}, h("code", { text: s.runsDir })),
-        h("dt", { text: "Allowed extra hosts" }), h("dd", {}, list(s.allowedHosts, "None. Only localhost and private network addresses (set RUNHOUND_ALLOWED_HOSTS to add hosts you own).")),
-        h("dt", { text: "Accepted server host names" }), h("dd", {}, list(s.serverHosts, "Loopback names and addresses only (set RUNHOUND_SERVER_HOSTS to add names or addresses).")));
+        h("dt", { text: "Allowed extra hosts" }), h("dd", {}, list(s.allowedHosts, onDesktop ? "None. Run Hound tests this computer (localhost) and private network addresses." : "None. Only localhost and private network addresses (set RUNHOUND_ALLOWED_HOSTS to add hosts you own).")),
+        // The desktop's engine answers on this computer only, behind a per-launch token: nothing to configure.
+        onDesktop ? null : h("dt", { text: "Accepted server host names" }), onDesktop ? null : h("dd", {}, list(s.serverHosts, "Loopback names and addresses only (set RUNHOUND_SERVER_HOSTS to add names or addresses).")));
     }).catch((err) => {
       if (my !== gen) return;
       info.append(h("dt", { text: "Server settings" }), h("dd", { class: "error", text: "Could not load them: " + err.message }));

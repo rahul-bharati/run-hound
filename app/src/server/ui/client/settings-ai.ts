@@ -24,7 +24,7 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
     { key: "ollama", label: "Ollama (local, opt-in)", provider: "ollama", baseUrl: "http://127.0.0.1:11434/v1" },
   ];
   const OTHER_MODEL = "__other__";
-  const BEDROCK_MODEL_PLACEHOLDER = "anthropic.claude-3-5-haiku-20241022-v1:0";
+  const BEDROCK_MODEL_PLACEHOLDER = "A model ID or inference profile your account can use";
 
   // Mirrors ai/config.ts isRemote and endpointHost, so the consent box can follow unsaved edits. A fixed provider's host
   // is its own and always remote, whatever base URL is typed.
@@ -134,9 +134,10 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
                 : "Keys aren't saved here: set them with environment variables when you start the container.",
         })
       : null;
+    const keyHint = h("span", { class: "field-hint", text: "Stays on this machine; never shown again. Not needed for Ollama or LM Studio." });
     const keyField = h("div", { class: "ai-field" },
       h("label", { class: "field-label", for: "ai-key", text: "API key" }), keyInput, lockNote("apiKey"), removeBtn, keyNote, keyLink, secretProtectionNote,
-      h("span", { class: "field-hint", text: "Stays on this machine; never shown again. Not needed for Ollama or LM Studio." }));
+      keyHint);
     const region = h("input", { id: "ai-region", class: "input", type: "text", spellcheck: "false", autocomplete: "off", placeholder: "us-east-1", disabled: locked("region") });
     region.value = st.region || "";
     const regionRow = h("div", { class: "ai-field" }, h("label", { class: "field-label", for: "ai-region", text: "Region" }), region, lockNote("region"));
@@ -144,7 +145,7 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
     awsProfile.value = st.awsProfile || "";
     const awsProfileRow = h("div", { class: "ai-field ai-aws-profile-field" },
       h("label", { class: "field-label", for: "ai-aws-profile", text: "AWS profile" }), awsProfile, lockNote("awsProfile"),
-      h("span", { class: "field-hint", id: "ai-aws-profile-hint", text: "Uses ~/.aws on the machine running Run Hound: static keys, credential_process or SSO (run \u0060aws sso login\u0060 first). Only a named profile is read: type default to use your [default] profile." }));
+      h("span", { class: "field-hint", id: "ai-aws-profile-hint", text: "Uses ~/.aws " + (onDesktop ? "on this computer" : "on the machine running Run Hound") + ": static keys, credential_process or SSO (run \u0060aws sso login\u0060 first). Only a named profile is read: type default to use your [default] profile." }));
     // Bedrock credentials (0.6.1): one method at a time, the first one the status says is set. A select, not radio
     // buttons: their labels would share words with the "API key" and "AWS profile" fields' labels.
     const authChoice = h("select", { id: "ai-aws-auth", class: "input", "aria-describedby": "ai-aws-auth-hint" },
@@ -232,6 +233,8 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
       const method = authChoice.value;
       authRow.hidden = !bed;
       keyField.hidden = !providerOf() || (bed && method !== "api-key");
+      // A hosted provider always needs its key; only a local or self-hosted endpoint may need none.
+      keyHint.textContent = "Stays on this machine; never shown again." + (isFixed() ? "" : " Not needed for Ollama or LM Studio.");
       for (const row of awsKeyRows) row.hidden = !bed || method !== "access-keys";
       awsProfileRow.hidden = !bed || method !== "profile";
     }
@@ -274,7 +277,8 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
       if (mine !== seq || my !== gen || !card.isConnected) return;
       refresh.disabled = locked("model");
       list = { models: Array.isArray(res.models) ? res.models : [], error: res.error || null };
-      if (list.error) { modelsMsg.className = "error"; modelsMsg.textContent = list.error; }
+      // Unticked consent is a step still to take, not a failure: said as a hint, not in red.
+      if (list.error) { modelsMsg.className = consent && !consent.checked ? "field-hint" : "error"; modelsMsg.textContent = list.error; }
       else { modelsMsg.className = "field-hint"; modelsMsg.textContent = list.models.length ? plural(list.models.length, "model") + " on this server." : "The server lists no models."; }
       drawModels();
     }

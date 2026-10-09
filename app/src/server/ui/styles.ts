@@ -559,6 +559,8 @@ table.groups td.good { color:var(--accent); }
 /* Desktop app only. desktop/src/preload.ts marks <html data-shell="desktop"> and adds the .desktop-titlebar strip, because the
    window's own title bar is hidden (docs: desktop shell theme). Every rule is scoped here, so a browser renders none of it. */
 html[data-shell="desktop"] { scroll-padding-top: 36px; }
+/* Server-only copy (a RUNHOUND_* variable to set): a desktop user has no environment to configure. */
+html[data-shell="desktop"] .not-desktop { display: none; }
 /* Thin brand scrollbars in place of the system's: a --surface-3 thumb on a transparent track. The report in a child window gets
    the same from desktop/src/chrome-css.ts. */
 html[data-shell="desktop"], html[data-shell="desktop"] * { scrollbar-width: thin; scrollbar-color: var(--surface-3) transparent; }

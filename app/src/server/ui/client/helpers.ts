@@ -29,6 +29,18 @@ export const HELPERS = String.raw`
 
   // ---------- small helpers ----------
 
+  /**
+   * The desktop app (desktop/src/preload.ts marks <html data-shell="desktop"> before any script runs). There, Run Hound
+   * runs on this computer with no environment to configure, so copy about servers, browsers and RUNHOUND_* variables
+   * is said the desktop's way.
+   */
+  const onDesktop = document.documentElement.dataset.shell === "desktop";
+  /** An engine message as the desktop says it: no RUNHOUND_ALLOWED_HOSTS, which a desktop user can't set. */
+  function desktopWording(text) {
+    if (!onDesktop || typeof text !== "string") return text;
+    return text.replace(/,? ?(?:private addresses )?or hosts listed in RUNHOUND_ALLOWED_HOSTS/g, (m) => (m.includes("private") ? " and private network addresses" : ""));
+  }
+
   function h(tag, attrs) {
     const el = document.createElement(tag);
     if (attrs) {
