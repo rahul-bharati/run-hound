@@ -12,6 +12,7 @@ import type {
   AgentStopReason,
   AgentToolCall,
   AgentToolErrorCode,
+  BriefQuestionKind,
   ElementRef,
   ExpectationSource,
 } from "../types/agent.js";
@@ -186,4 +187,65 @@ export interface AgentReport {
   checksRun: { check: CheckId; path: string; scenarioIds: string[] }[];
   suspicions: AgentSuspicion[];
   resumedFrom: string[];
+}
+
+/** A question the brief asks before it can be approved (A2). The model proposes at most three; the engine applies the answer. */
+export interface BriefQuestion {
+  id: string;
+  kind: BriefQuestionKind;
+  text: string;
+  /** Answers to pick from (at most 6); null = a free-text answer. */
+  options: string[] | null;
+  /** For `test-data`: the value's name. Null for every other kind. */
+  dataName: string | null;
+  /** The answer as applied; null while open or when dismissed. */
+  answer: string | null;
+  /** True once answered or dismissed. Approval needs every question settled. */
+  settled: boolean;
+}
+
+/** A brief being drafted, edited or approved, as the API returns it (A2). Kept in memory until a run takes it (A4). */
+export interface BriefDraft {
+  id: string;
+  brief: TestingBrief;
+  questions: BriefQuestion[];
+  /** Why the draft is thinner than it could be (the model failed, an answer was dropped), redacted. */
+  warnings: string[];
+  /** SHA-256 of the brief without its approval, set when it is approved; null otherwise. */
+  hash: string | null;
+}
+
+/** POST /api/briefs: what the user typed on the New run page. */
+export interface BriefRequest {
+  goal: string;
+  url: string;
+  ticketContext?: string | null;
+  feature?: string | null;
+  signInAs?: AccountId | null;
+}
+
+/**
+ * PUT /api/briefs/:id: the fields the user changed (absent = unchanged), and answers by question id (null = dismissed).
+ * Expectations are sent as text only: the server decides which are supplied and which are still inferred.
+ */
+export interface BriefEdit {
+  goal?: string;
+  feature?: string | null;
+  ticketContext?: string | null;
+  startPath?: string;
+  scopePaths?: string[];
+  expectations?: string[];
+  account?: AccountId | null;
+  testData?: Record<string, string>;
+  /** Whether the agent may change records that existed before the run. */
+  allowModification?: boolean;
+  answers?: Record<string, string | null>;
+}
+
+/** The model's answer for a brief, as validated for shape; applyModelDraft applies the limits. */
+export interface BriefDraftAnswer {
+  expectations: string[];
+  scopePaths: string[];
+  testData: { name: string; value: string }[];
+  questions: { kind: string; text: string; options: string[] | null; dataName: string | null }[];
 }

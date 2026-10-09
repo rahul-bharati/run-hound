@@ -54,6 +54,8 @@ export interface ServerOptions extends Pick<RunOptions, "checks" | "runsDir" | "
   boundHost?: string;
   /** How long the AI part of planning (review + suggest) may take per plan. Default AI_PLAN_BUDGET_MS (4 minutes). */
   aiPlanBudgetMs?: number;
+  /** Whether the agent's features (/api/briefs, the brief on the New run page) are on. Default: RUNHOUND_AGENT=1 (agentEnabled). */
+  agent?: boolean;
 }
 
 /** Result of starting a run (202 Accepted). */
@@ -349,3 +351,30 @@ export interface ReadyAccount {
 export type AccountReadiness =
   | { ok: true; account: ReadyAccount }
   | { ok: false; message: string };
+
+/** A brief flow result: the draft with its HTTP status, or a user-facing error (already redacted). */
+export type BriefFlowOutcome =
+  | { ok: true; status: 200 | 201; draft: import("./agent.js").BriefDraft }
+  | { ok: false; status: 400 | 404 | 409; error: string };
+
+/** The /api/briefs operations (A2), present only when the agent is enabled (RUNHOUND_AGENT=1). */
+export interface IBriefFlow {
+  create(request: import("./agent.js").BriefRequest, signal: AbortSignal): Promise<BriefFlowOutcome>;
+  get(id: string): BriefFlowOutcome;
+  edit(id: string, edit: import("./agent.js").BriefEdit): Promise<BriefFlowOutcome>;
+  approve(id: string): Promise<BriefFlowOutcome>;
+}
+
+export interface BriefFlowDeps {
+  store: { set(id: string, draft: import("./agent.js").BriefDraft): void; get(id: string): import("./agent.js").BriefDraft | undefined };
+  aiForRequest: (wanted: boolean | undefined) => Promise<{ ai?: AiSession; warning?: string }>;
+  resolveAccounts: ResolveAccounts;
+  /** Hosts the safety gate allows besides loopback and private addresses, as the server resolves them now. */
+  allowedHosts: () => string[] | undefined;
+  /** DNS lookup for the safety gate, injectable for tests. */
+  lookup?: (hostname: string) => Promise<string[]>;
+  /** How long the one drafting call may take. */
+  draftBudgetMs: number;
+  now?: () => Date;
+  newId?: () => string;
+}
