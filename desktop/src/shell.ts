@@ -4,7 +4,8 @@
  *
  * The title bar is the page's own (a 36 px strip drawn by the preload and styled by the UI's stylesheet, or by
  * chrome-css.ts in the child windows); the system draws only the window buttons on top of it. Every window the app
- * opens gets this look: the main window, the report and engine pages in child windows, and the start-up error window.
+ * opens gets this look: the main window, the report and engine pages in child windows, and the start-up error window and
+ * the error window (D11), which are the same small dialog.
  */
 
 import type { BrowserWindowConstructorOptions, MenuItemConstructorOptions, WebPreferences } from "electron";
@@ -67,12 +68,13 @@ export function childWindowOptions(input: Omit<WindowOptionsInput, "stripColor">
   return { ...windowOptions({ ...input, stripColor: CHILD_STRIP_COLOR }), width: 1100, height: 800, minWidth: 640, minHeight: 420, show: true };
 }
 
-/** Size of the start-up error window, in content pixels. */
+/** Size of the start-up error window and the error window, in content pixels. */
 export const DIALOG_SIZE = { width: 600, height: 380 } as const;
 
 /**
- * The start-up error window: the same look, small and fixed. It can't be resized, minimised, maximised or made full
- * screen, so on Windows and Linux its window controls are just the close button.
+ * The start-up error window and the error window for a problem after start-up (D11): the same look, small and fixed. It
+ * can't be resized, minimised, maximised or made full screen, so on Windows and Linux its window controls are just the
+ * close button.
  */
 export function dialogWindowOptions(input: Omit<WindowOptionsInput, "stripColor">): BrowserWindowConstructorOptions {
   const { width, height } = DIALOG_SIZE;
