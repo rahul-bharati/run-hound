@@ -3,7 +3,9 @@
 // packaged app finds its own Chromium and uses it, saved keys never reach disk as plain text, the first launch
 // imports the command line's settings, and every window the app shows has the Run Hound look (dark, with the page's own
 // 36 px title bar): the main window, the report and engine pages in child windows (which have no bridge), and the
-// start-up error window, with a small right-click menu everywhere and no native message box or error box.
+// start-up error window, with a small right-click menu everywhere and no native message box or error box. After start-up
+// too: an error in the main process, a page that fails to load and a renderer that crashes all show a Run Hound window or
+// page with the choices to keep going or quit, never Electron's error box or Chromium's error page.
 // Run with `pnpm test:launch` (builds first). On Linux without a display, wrap it in xvfb-run.
 import { _electron as electron } from "playwright";
 import assert from "node:assert/strict";
@@ -65,6 +67,24 @@ async function check(name, fn) {
     results.push(`FAIL ${name}\n     ${err instanceof Error ? err.message : String(err)}`);
   }
 }
+
+/**
+ * Polls `done()` until it is truthy, or fails after `ms`. A predicate that throws, or takes over 2 s (a script run in a
+ * page whose renderer has just crashed never answers), counts as not yet.
+ */
+async function until(what, done, ms = 15_000) {
+  for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 100))) {
+    const answer = await Promise.race([Promise.resolve().then(done).catch(() => false), new Promise((r) => setTimeout(() => r(false), 2_000))]);
+    if (answer) return;
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+
+/**
+ * Presses a button on a problem page by clicking it from inside the page: a click from Playwright would wait for any
+ * navigation the page had cancelled (the lock-down check), and the window may close in answer.
+ */
+const press = (win, id) => win.evaluate((buttonId) => document.getElementById(buttonId).click(), id).catch((error) => { if (!/closed|destroyed/i.test(String(error))) throw error; });
 
 try {
   const page = await app.firstWindow();
@@ -512,9 +532,251 @@ try {
     assert.deepEqual(await opened(), []);
     assert.equal(page.frames().some((f) => f.url().startsWith("https://example.net")), false);
   });
+
+  // Problems after start-up (src/error-reporter.ts, src/problem-page.ts, static/problem.html): Run Hound's own window or page,
+  // never Electron's error box or Chromium's error page. Native error boxes are recorded here instead of shown, and stderr
+  // is read from now on (Playwright reads it only once launch() returns).
+  await app.evaluate(({ dialog }) => {
+    globalThis.__errorBoxes = [];
+    dialog.showErrorBox = (...boxArgs) => void globalThis.__errorBoxes.push(boxArgs);
+  });
+  let stderr = "";
+  app.process().stderr.on("data", (chunk) => (stderr += chunk));
+  const errorBoxes = () => app.evaluate(() => globalThis.__errorBoxes);
+  /** What the problem page shows, as text, and what its window can reach. */
+  const problemView = (win) =>
+    win.evaluate(() => ({
+      h1: document.querySelector("h1")?.textContent,
+      title: document.title,
+      paragraphs: [...document.querySelectorAll("#problems p")].map((p) => p.textContent),
+      details: document.querySelector("#details")?.textContent ?? null,
+      buttons: [...document.querySelectorAll("footer button")].map((b) => b.textContent),
+      focused: document.activeElement?.id,
+      node: [typeof require, typeof process],
+    }));
+
+  // (a) An uncaught exception in the main process.
+  const windowsBeforeError = app.windows().length;
+  let errorWindow;
+  await check("an uncaught error in the main process opens a branded window with the problem in plain words, two choices and no native error box", async () => {
+    [errorWindow] = await Promise.all([
+      app.waitForEvent("window", { timeout: 15_000 }),
+      app.evaluate(() => void setTimeout(() => { throw new Error("launch-check boom"); }, 0)),
+    ]);
+    await errorWindow.waitForLoadState("load");
+    assert.ok(new URL(errorWindow.url()).pathname.endsWith("/problem.html"), errorWindow.url());
+    const view = await problemView(errorWindow);
+    assert.equal(view.h1, "Run Hound ran into a problem");
+    assert.equal(view.title, "Run Hound ran into a problem");
+    assert.equal(view.paragraphs[0], "Something unexpected went wrong inside Run Hound.");
+    assert.ok(view.paragraphs.includes("The error was: launch-check boom"), JSON.stringify(view.paragraphs));
+    assert.match(view.details, /^Error: launch-check boom\n\s+at /);
+    assert.deepEqual(view.buttons, ["Keep using Run Hound", "Quit Run Hound"]);
+    assert.equal(view.focused, "dismiss");
+    assert.deepEqual(view.node, ["undefined", "undefined"]);
+    assert.equal(await errorWindow.evaluate(() => typeof window.runHoundDesktop), "undefined", "the error window has no preload");
+    assert.equal(app.windows().length, windowsBeforeError + 1);
+    assert.deepEqual(await errorBoxes(), [], "a native error box opened");
+    await until("the error on stderr", () => stderr.includes("[run-hound] uncaught exception: Error: launch-check boom\n"));
+  });
+
+  await check("the error window has the Run Hound look: brand colours, the 36 px drag strip, fixed 600 by 380, the main choice in the accent colour", async () => {
+    const look = await errorWindow.evaluate(() => {
+      const strip = document.querySelector(".desktop-titlebar");
+      const box = strip.getBoundingClientRect();
+      const [keep, quit] = ["#dismiss", "#quit"].map((id) => getComputedStyle(document.querySelector(id)));
+      return {
+        strip: [document.querySelectorAll(".desktop-titlebar").length, box.top, box.height, box.width === innerWidth, getComputedStyle(strip).getPropertyValue("-webkit-app-region"), getComputedStyle(strip).backgroundColor],
+        body: getComputedStyle(document.body).backgroundColor,
+        keep: [keep.backgroundColor, keep.color],
+        quit: [quit.backgroundColor, quit.color],
+      };
+    });
+    assert.deepEqual(look.strip, [1, 0, 36, true, "drag", BG_DEEP]);
+    assert.equal(look.body, BG);
+    assert.deepEqual(look.keep, ["rgb(94, 230, 163)", "rgb(4, 21, 13)"]); // BRAND.accent on BRAND.accentInk
+    assert.deepEqual(look.quit, ["rgba(0, 0, 0, 0)", "rgb(233, 239, 236)"]); // outlined, BRAND.fg
+    const win = await app.browserWindow(errorWindow);
+    const state = await win.evaluate((w) => ({ resizable: w.isResizable(), size: w.getContentSize(), bg: w.getBackgroundColor() }));
+    assert.deepEqual([state.resizable, state.size], [false, [600, 380]]);
+    assert.equal(state.bg.toLowerCase().replace(/^#ff(?=[0-9a-f]{6}$)/, "#"), "#0a1014");
+  });
+
+  await check("a second error while the window is open is logged and adds no window", async () => {
+    await app.evaluate(() => void setTimeout(() => { throw new Error("launch-check second"); }, 0));
+    await until("the second error on stderr", () => stderr.includes("[run-hound] uncaught exception: Error: launch-check second\n"));
+    await page.waitForTimeout(500);
+    assert.equal(app.windows().length, windowsBeforeError + 1);
+    assert.deepEqual(await errorBoxes(), []);
+    assert.ok(!(await problemView(errorWindow)).paragraphs.some((text) => text.includes("second")), "the open window changed");
+  });
+
+  await check("Keep using Run Hound closes the error window, and the main window still works", async () => {
+    await Promise.all([errorWindow.waitForEvent("close", { timeout: 10_000 }), errorWindow.click("#dismiss", { noWaitAfter: true })]);
+    assert.equal(app.windows().length, windowsBeforeError);
+    assert.equal(await page.evaluate(async () => (await fetch("/api/runs")).status), 200);
+    assert.match(await page.evaluate(() => document.title), /Run Hound/);
+  });
+
+  // (b) An unhandled rejection, also after an earlier window was closed: a later error gets a new window.
+  await check("an unhandled rejection opens the same window, in words about the background, and Keep using Run Hound closes it", async () => {
+    const [rejected] = await Promise.all([
+      app.waitForEvent("window", { timeout: 15_000 }),
+      app.evaluate(() => void Promise.reject(new Error("launch-check rejected"))),
+    ]);
+    await rejected.waitForLoadState("load");
+    const view = await problemView(rejected);
+    assert.equal(view.h1, "Run Hound ran into a problem");
+    assert.equal(view.paragraphs[0], "Something Run Hound was doing in the background failed.");
+    assert.ok(view.paragraphs.includes("The error was: launch-check rejected"), JSON.stringify(view.paragraphs));
+    assert.deepEqual(view.buttons, ["Keep using Run Hound", "Quit Run Hound"]);
+    assert.deepEqual(await errorBoxes(), [], "a native error box opened");
+    await until("the rejection on stderr", () => stderr.includes("[run-hound] unhandled rejection: Error: launch-check rejected\n"));
+    await Promise.all([rejected.waitForEvent("close", { timeout: 10_000 }), rejected.click("#dismiss", { noWaitAfter: true })]);
+    assert.equal(app.windows().length, windowsBeforeError);
+    assert.equal(await page.evaluate(async () => (await fetch("/api/runs")).status), 200);
+  });
+
+  // (c) A window whose page fails to load. The engine's address is refused for main-frame loads, as when the engine has stopped;
+  // the address carries a made-up token that must never be shown.
+  const refuseEngine = (on) =>
+    app.evaluate(({ session }, [engine, refuse]) => session.defaultSession.webRequest.onBeforeRequest(refuse ? { urls: [`${engine}/*`] } : null, refuse ? (details, callback) => callback({ cancel: details.resourceType === "mainFrame" }) : undefined), [origin, on]);
+  const secretUrl = `${origin}/?token=launch-check-secret#frag`;
+  const mainWindow = await app.browserWindow(page);
+  try {
+    await refuseEngine(true);
+    await check("a main window whose page fails to load shows the branded load-failure page: the error and the path only, Try again and Quit Run Hound, never Chromium's error page", async () => {
+      await mainWindow.evaluate((w, url) => w.webContents.loadURL(url).catch(() => undefined), secretUrl);
+      await page.waitForURL(/\/problem\.html\?/, { timeout: 15_000 });
+      const view = await problemView(page);
+      assert.equal(view.h1, "This page didn't load");
+      assert.equal(view.paragraphs[0], "Something stopped the page from loading.");
+      assert.equal(view.details, "Error: ERR_BLOCKED_BY_CLIENT (-20)\nPage: /");
+      assert.deepEqual(view.buttons, ["Try again", "Quit Run Hound"]);
+      assert.equal(view.focused, "retry");
+      assert.ok(!JSON.stringify(view).includes("launch-check-secret") && !page.url().includes("launch-check-secret"), "the token was shown");
+      assert.ok(!stderr.split("\n").some((line) => line.startsWith("[run-hound]") && line.includes("launch-check-secret")), "the token was logged");
+      assert.ok(stderr.includes("[run-hound] a window could not load /: ERR_BLOCKED_BY_CLIENT (-20)\n"), stderr);
+      assert.deepEqual(await errorBoxes(), [], "a native error box opened");
+      assert.equal(app.windows().length, windowsBeforeError);
+      // The look: the page's own strip is the only one, in the main window as in the dialog.
+      assert.deepEqual(await page.evaluate(() => [document.querySelectorAll(".desktop-titlebar").length, getComputedStyle(document.body).backgroundColor, getComputedStyle(document.documentElement).colorScheme]), [1, BG, "dark"]);
+    });
+
+    await check("the load-failure page in the main window gets nothing from the desktop bridge the window carries: the main process answers only the engine's own pages", async () => {
+      const replies = await page.evaluate(async () => [await window.runHoundDesktop.version.check(), await window.runHoundDesktop.notices.take(), await window.runHoundDesktop.runsDir.open()]);
+      assert.deepEqual(replies, [null, [], { ok: false, error: "refused" }]);
+    });
+
+    await check("the load-failure page is locked down like every page: a navigation off it goes to the default browser, and the page stays", async () => {
+      await page.evaluate(() => { location.href = "https://example.net/"; });
+      await page.waitForTimeout(500);
+      assert.ok(new URL(page.url()).pathname.endsWith("/problem.html"), page.url());
+      assert.deepEqual(await opened(), ["https://example.net/"]);
+    });
+  } finally {
+    // Whatever happened above, the engine is reachable again before Try again is pressed.
+    await refuseEngine(false);
+  }
+
+  await check("Try again loads the engine's page again from its original address, and the window works", async () => {
+    await press(page, "retry");
+    await page.waitForURL((url) => url.href.startsWith(`${origin}/?token=launch-check-secret`), { timeout: 15_000 });
+    await page.waitForSelector("main#view > *");
+    assert.equal(await page.evaluate(async () => (await fetch("/api/runs")).status), 200);
+    assert.match((await page.evaluate(() => window.runHoundDesktop.version.check())).current, /^\d+\.\d+\.\d+/, "the bridge answers on the engine's page again");
+    assert.deepEqual(await errorBoxes(), []);
+  });
+
+  await check("a child window whose page fails to load shows the same page with Try again only, and Try again loads it", async () => {
+    let child;
+    try {
+      await refuseEngine(true);
+      child = await openChild("/api/runs");
+      await child.waitForURL(/\/problem\.html\?/, { timeout: 15_000 });
+      const view = await problemView(child);
+      assert.equal(view.h1, "This page didn't load");
+      assert.equal(view.details, "Error: ERR_BLOCKED_BY_CLIENT (-20)\nPage: /api/runs");
+      assert.deepEqual(view.buttons, ["Try again"]);
+      assert.deepEqual(await child.evaluate(() => [document.querySelectorAll(".desktop-titlebar").length, typeof window.runHoundDesktop, getComputedStyle(document.body).backgroundColor]), [1, "undefined", BG]);
+    } finally {
+      await refuseEngine(false);
+    }
+    try {
+      await press(child, "retry");
+      await child.waitForURL(`${origin}/api/runs`, { timeout: 15_000 });
+      assert.equal(await child.evaluate(() => typeof JSON.parse(document.body.innerText)), "object");
+    } finally {
+      await child.close();
+    }
+  });
 } finally {
   await app.close();
   target.close();
+}
+
+// (d) A renderer that crashes (webContents.forcefullyCrashRenderer) leaves the window with the branded page, not a blank one.
+// Playwright treats a crashed page as dead for good, so this launch is read and driven from the main process. Pressing Quit on a
+// load-failure page ends the app, which is the one thing the launch above can't do and go on.
+{
+  const crashed = await launch({ RUNHOUND_CONFIG_DIR: join(scratch, "config-crash") });
+  const proc = crashed.process();
+  const exited = new Promise((resolve) => proc.once("exit", (code, signal) => resolve({ code, signal })));
+  let log = "";
+  proc.stderr.on("data", (chunk) => (log += chunk));
+  /** Runs `js` in the window's page from the main process. */
+  const inWindow = (js) => crashed.evaluate(({ BrowserWindow }, source) => BrowserWindow.getAllWindows()[0].webContents.executeJavaScript(source), js);
+  const problem = async () =>
+    JSON.parse(await inWindow(`JSON.stringify({ path: location.pathname, h1: document.querySelector("h1")?.textContent, paragraphs: [...document.querySelectorAll("#problems p")].map((p) => p.textContent), details: document.querySelector("#details")?.textContent ?? null, buttons: [...document.querySelectorAll("footer button")].map((b) => b.textContent) })`));
+  try {
+    await crashed.evaluate(({ dialog }) => {
+      globalThis.__errorBoxes = [];
+      dialog.showErrorBox = (...boxArgs) => void globalThis.__errorBoxes.push(boxArgs);
+    });
+    const first = await crashed.firstWindow();
+    await first.waitForLoadState("load");
+    await first.waitForSelector("main#view > *");
+    const engine = new URL(first.url()).origin;
+    // Let Playwright's own commands finish: one still in flight when the page dies fails inside Playwright.
+    await new Promise((r) => setTimeout(r, 1500));
+
+    await check("a renderer crash shows the branded page with Reload and Quit Run Hound, not a blank window or a native error box", async () => {
+      await crashed.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer());
+      await until("the crash page", async () => (await problem()).path.endsWith("/problem.html"));
+      const view = await problem();
+      assert.equal(view.h1, "This page stopped working");
+      assert.equal(view.paragraphs[0], "The page in this window crashed.");
+      assert.match(view.details, /^Reason: (?!clean-exit)[\w-]+\nPage: \/$/);
+      assert.deepEqual(view.buttons, ["Reload", "Quit Run Hound"]);
+      assert.match(log, /\[run-hound\] renderer gone: (?!clean-exit)[\w-]+\n/);
+      assert.deepEqual(await crashed.evaluate(() => globalThis.__errorBoxes), [], "a native error box opened");
+      assert.equal(crashed.windows().length, 1);
+    });
+
+    await check("Reload on the crash page brings the engine's page back, and the window works", async () => {
+      await inWindow(`document.getElementById("reload").click()`);
+      await until("the engine's page", async () => (await inWindow("location.origin")) === engine);
+      await until("the UI", () => inWindow(`document.querySelector("main#view > *") !== null`));
+      assert.equal(await inWindow(`fetch("/api/runs").then((res) => res.status)`), 200);
+      assert.match(await inWindow(`window.runHoundDesktop.version.check().then((reply) => reply.current)`), /^\d+\.\d+\.\d+/);
+    });
+
+    await check("Quit Run Hound on the main window's load-failure page ends the app", async () => {
+      await crashed.evaluate(({ session, BrowserWindow }, address) => {
+        session.defaultSession.webRequest.onBeforeRequest({ urls: [`${address}/*`] }, (details, callback) => callback({ cancel: details.resourceType === "mainFrame" }));
+        void BrowserWindow.getAllWindows()[0].webContents.loadURL(`${address}/`).catch(() => undefined);
+      }, engine);
+      await until("the load-failure page", async () => (await problem()).h1 === "This page didn't load");
+      assert.deepEqual((await problem()).buttons, ["Try again", "Quit Run Hound"]);
+      await inWindow(`document.getElementById("quit").click()`);
+      const { code, signal } = await Promise.race([exited, new Promise((_resolve, reject) => setTimeout(() => reject(new Error("the app was still running 20 s after Quit")), 20_000))]);
+      assert.deepEqual([code, signal], [0, null]);
+    });
+  } catch (err) {
+    results.push(`FAIL the crash launch\n     ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    await crashed.close().catch(() => undefined);
+  }
 }
 
 // The first launch with no RUNHOUND_CONFIG_DIR imports what the command line saved, once, and leaves its copy alone.
