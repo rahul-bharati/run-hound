@@ -17,6 +17,11 @@ export interface ErrorReporterDeps {
   show(problem: Problem): Promise<void>;
   /** The native error box, for when the window can't be shown. */
   fallback(title: string, text: string): void;
+  /**
+   * Hides secrets in what is logged and shown (the engine's redactSecrets once it has loaded: an error from the engine,
+   * which runs in this process, could carry a key or a token). Read at every report; absent = text as it is.
+   */
+  redact?(text: string): string;
 }
 
 export interface ErrorReporter {
@@ -36,8 +41,21 @@ export function createErrorReporter(deps: ErrorReporterDeps): ErrorReporter {
   };
   return {
     report(reason, origin) {
-      const { problem, log: line } = uncaughtProblem(reason, origin);
-      log(line);
+      const raw = uncaughtProblem(reason, origin);
+      const hide = (text: string): string => {
+        try {
+          return deps.redact ? deps.redact(text) : text;
+        } catch {
+          return text;
+        }
+      };
+      const problem: Problem = {
+        ...raw.problem,
+        title: hide(raw.problem.title),
+        paragraphs: raw.problem.paragraphs.map(hide),
+        ...(raw.problem.details ? { details: hide(raw.problem.details) } : {}),
+      };
+      log(hide(raw.log));
       if (open) return;
       open = true;
       let shown: Promise<void>;

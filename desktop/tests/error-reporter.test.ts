@@ -88,3 +88,26 @@ describe("the error reporter", () => {
     expect(shown).toHaveLength(1);
   });
 });
+
+describe("secrets in an error", () => {
+  it("are hidden by the redactor in the log line and everything the window shows, and a throwing redactor changes nothing", () => {
+    const SECRET = "sk-ant-api03-SECRETSECRETSECRET";
+    const logged: string[] = [];
+    const shown: Problem[] = [];
+    const reporter = createErrorReporter({
+      log: (text) => void logged.push(text),
+      show: (problem) => (shown.push(problem), new Promise<void>(() => undefined)),
+      fallback: () => undefined,
+      redact: (text) => text.split(SECRET).join("[redacted]"),
+    });
+    reporter.report(new Error(`the provider refused ${SECRET}`), "uncaughtException");
+    expect(logged.join("")).not.toContain(SECRET);
+    expect(logged.join("")).toContain("[redacted]");
+    const shownText = JSON.stringify(shown);
+    expect(shownText).not.toContain(SECRET);
+    expect(shownText).toContain("[redacted]");
+
+    const failing = createErrorReporter({ log: () => undefined, show: () => Promise.resolve(), fallback: () => undefined, redact: () => { throw new Error("redactor broke"); } });
+    expect(() => failing.report(new Error("plain"), "uncaughtException")).not.toThrow();
+  });
+});

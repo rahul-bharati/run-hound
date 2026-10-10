@@ -59,10 +59,13 @@ const iconPath = join(here, "icon.png");
 
 // After start-up, an error in this process is shown in a Run Hound window, never in Electron's own error box (which a
 // listener of ours on uncaughtException replaces). Registered first, so an error in the rest of this file is covered.
+/** The engine's redactSecrets once the engine is loaded (start()); before that there is nothing of it to hide. */
+let redactText: ((text: string) => string) | null = null;
 const errors = createErrorReporter({
   log: (text) => void process.stderr.write(text),
   show: (problem) => showErrorWindow(problem),
   fallback: (title, text) => dialog.showErrorBox(title, text),
+  redact: (text) => (redactText ? redactText(text) : text),
 });
 process.on("uncaughtException", (err, origin) => errors.report(err, origin));
 process.on("unhandledRejection", (reason) => errors.report(reason, "unhandledRejection"));
@@ -345,6 +348,7 @@ async function start(): Promise<void> {
   }
 
   const engine = await import("./engine.js");
+  redactText = engine.redactSecrets;
   app.setAboutPanelOptions({ applicationName: "Run Hound", applicationVersion: engine.RUN_HOUND_VERSION });
   // Saved keys and passwords are wrapped by the OS keychain when it is a real one (safeStorage works only after ready).
   engine.useOsKeyProtector(osKeyProtector(safeStorage, process.platform));
