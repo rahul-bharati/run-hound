@@ -35,10 +35,14 @@ import { STYLES } from "./styles.js";
  *                      viewer (main image + thumbnail strip, served from /api/runs/<id>/artifacts/), "Reproduction steps",
  *                      "Key facts", "Why it matters", "What to ask your AI", "Generated Playwright test" with a Copy button;
  *                      then a "Results by group" table, "Pages tested" and "Not visible from outside").
- *     #/settings      Defaults (saved in localStorage) and read-only settings from GET /api/settings; a region "Test
- *                      accounts" (#accounts-card) with the checkbox #acct-isolated and one fieldset per slot, #acct-a and
- *                      #acct-b (inputs #acct-<id>-label, -loginUrl, -username and the write-only -password; buttons
- *                      #acct-<id>-save and #acct-<id>-test).
+ *     #/settings      Five cards in order, each a region named by its h2 and reachable from the "On this page" nav at the
+ *                      top: "AI model" (#ai-card), "Test accounts" (#accounts-card), "Keys and passwords" (#keys-card),
+ *                      "Run defaults" (#defaults-card; saved in localStorage) and "About" (#about-card; read-only
+ *                      settings from GET /api/settings, and the help links). The accounts card has the checkbox
+ *                      #acct-isolated and one fieldset per slot, #acct-a and #acct-b, with a status chip (#acct-<id>-status)
+ *                      and inputs #acct-<id>-loginUrl, -username, the write-only -password (with a Show / Hide button)
+ *                      and -label; buttons #acct-<id>-save and #acct-<id>-test, whose answer is #acct-<id>-test-result.
+ *                      How secrets are kept is said once, in the Keys and passwords card.
  * - Unknown hashes fall back to #/new; the old "#run=<id>" links open #/runs/<id>. Everything works at 360 px (the
  *   sidebar becomes a top bar with a "Menu" button).
  * - One polite live region (#announcer) announces scenario and group changes and the end of a run; nothing else is live.

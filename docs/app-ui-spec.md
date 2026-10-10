@@ -129,22 +129,31 @@ running. Clicking a row opens its Running or Report view.
 
 ## Settings (`#/settings`)
 
-Five cards, in this order:
+A row of links under the heading ("AI model", "Test accounts", "Keys and passwords", "Run defaults", "About") moves
+focus to each card's heading without changing the route. Five cards, in this order (D10, [decision](decisions/10-2026.md#2026-10-10-settings-page)):
 
-- **Defaults** (saved in this browser): "Allow destructive scenarios" and "Show the browser window" (greyed out
-  without a display).
-- **Test accounts** (0.4.0): what the accounts are for and what the access checks do (use accounts you own, made for
-  testing). One card per account (A and B): label, sign-in page URL, username and a write-only password ("Password
-  saved", with Remove), a warning when a new sign-in page on another site would drop the saved password, **Save** and
-  **Test sign-in** with its result. The "A and B must not see each other's data" checkbox saves at once. Values set by
-  environment variables are locked ("Set by environment"). The card names the file the accounts are saved to.
-- **AI** (0.3.0): the **Use AI** switch, provider presets, base URL, a model dropdown with Refresh and "Other…", a
-  write-only API key (with Remove key), region and AWS profile for Bedrock, "What the model does" (review, suggest,
-  explain), a consent box naming the host for a remote endpoint, **Save** and **Test connection**. Details in
+- **AI model** (0.3.0): the **Use AI** switch, provider presets, base URL, a model dropdown with Refresh and "Other…", a
+  write-only API key (with Remove key) and a link to the Keys card, region and AWS profile for Bedrock, "What the model
+  does" (review, suggest, explain), a consent box naming the host for a remote endpoint, **Save** and **Test
+  connection**. With a key saved in Settings, models are listed only on Refresh, a provider change or Save, never on
+  load: listing uses the key, and opening Settings must not make the OS ask for the keychain. Details in
   [ai-spec.md](ai-spec.md) "Surfaces".
-- **This server** (read-only): the version, the runs folder, allowed extra hosts (`RUNHOUND_ALLOWED_HOSTS`) and
-  accepted server host names (`RUNHOUND_SERVER_HOSTS`).
-- **Help and feedback:** links to TESTING.md and the feedback form.
+- **Test accounts** (0.4.0): what the accounts are for (use accounts made for testing, never a real customer's), with
+  what the access and write-side checks do in a collapsed "What Run Hound does with two accounts". One card per account
+  (A and B) with a status chip (Ready, Not set up, or what is missing) and its next step; sign-in page URL, username,
+  a write-only password with Show/Hide while typing ("Saved", with Remove), and an optional name for plans and reports;
+  a warning when a new sign-in page on another site would drop the saved password; **Save** and **Test sign-in**, whose
+  result is a notice. The "A and B must not see each other's data" checkbox saves at once. Values set by environment
+  variables are locked ("Set by environment").
+- **Keys and passwords**: the one place that says how keys and passwords are kept (the system keychain, Run Hound's
+  own store, or environment variables only), what that means, how to change or delete one, and the folder that holds
+  the encrypted files. In the desktop app with the keychain, a note says the OS may ask once (macOS: Always Allow;
+  Linux: unlock the keyring).
+- **Run defaults** (saved in this browser, or on this computer in the desktop app): "Allow destructive scenarios" and
+  "Show the browser window" (greyed out without a display).
+- **About** (read-only): the version, the runs and settings folders, allowed extra hosts, accepted server host names
+  (not in the desktop app), and links to the testing guide and the feedback form. In a browser it names
+  `RUNHOUND_ALLOWED_HOSTS` and `RUNHOUND_SERVER_HOSTS`; the desktop app names no variable.
 
 ## API used by the UI
 

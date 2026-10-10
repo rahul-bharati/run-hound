@@ -4,7 +4,9 @@
  * - Settings → AI card: provider presets, the model dropdown filled from /api/ai/models (debounced, Refresh, "id —
  *   details", unsuitable models disabled, a saved model the server doesn't list kept and marked, the list's error
  *   inline, "Other…" with a text input, a text input for Bedrock), the key field that is never prefilled, locked
- *   fields, the consent box naming the host, Save (PUT) and Test connection.
+ *   fields, the consent box naming the host, Save (PUT) and Test connection. With a saved key the card lists no
+ *   models by itself (listing uses the key, and the OS may ask for keychain access): Refresh, a provider change and
+ *   Save do. How keys are kept is said once, in the Keys and passwords card (ui-settings.test.ts).
  * - New Run: "Review with AI" sent as `ai`, the AI and "Suggested by AI" chips, rationales, suggested steps in plain
  *   words, plan.ai warnings and "Reviewed by <provider>/<model>".
  * - Report: the "AI explanation" panel after "What to ask your AI", and Report.ai warnings.
@@ -515,12 +517,18 @@ describe("Settings → AI card: key, locks, consent, save and test", () => {
     await o.page.close();
   });
 
-  it("shows where saved keys are kept when secretProtection is set", async () => {
+  it("leaves how keys are kept to the Keys and passwords card: the key field only links there", async () => {
     const o = await open("#/settings", { ai: status({ secretProtection: "run-hound" }) });
     const { page } = o;
-    const keyFieldText = await page.locator('label:has-text("API key")').locator("..").innerText();
-    expect(keyFieldText).toContain("encrypted by Run Hound");
-    expect(keyFieldText).toContain("no system keychain");
+    const keyField = page.locator("#ai-key").locator("xpath=ancestor::div[contains(@class,'ai-field')][1]");
+    await keyField.waitFor();
+    expect(await keyField.innerText()).not.toMatch(/encrypted|keychain|ai\.json/i);
+    expect(await page.locator("#ai-card").innerText()).not.toMatch(/encrypted|keychain|ai\.json/i);
+    await keyField.getByRole("link", { name: "Kept safe on this machine" }).click();
+    // The link jumps to the Keys and passwords card and puts focus on its heading; it does not leave the page's route.
+    await expect.poll(() => page.evaluate(() => document.activeElement && document.activeElement.id)).toBe("keys-h");
+    expect(await page.evaluate(() => location.hash)).toBe("#/settings");
+    expect(await page.locator("#keys-card").innerText()).toContain("encrypted by Run Hound");
     await page.close();
   });
 
@@ -597,12 +605,16 @@ describe("Settings → AI card: bring-your-own-key providers", () => {
   });
 
   for (const f of FIXED) {
-    it(`${f.label}: no base URL field, the consent box names ${f.host}, models are listed for it and no base URL is saved`, async () => {
+    it(`${f.label}: no base URL field, the consent box names ${f.host}, models are listed for it (on Refresh, with its key saved) and no base URL is saved`, async () => {
       const o = await open("#/settings", { ai: fixedStatus(f) });
       const { page } = o;
       await page.locator("#ai-allow-remote").waitFor();
       expect(await page.locator("#ai-base-url").isVisible()).toBe(false);
       expect(await page.locator('label[for="ai-allow-remote"]').innerText()).toContain(`to ${f.host}`);
+      // A key is saved: nothing is listed until Refresh (listing would use the key).
+      await page.waitForTimeout(600);
+      expect(modelCalls(o)).toHaveLength(0);
+      await page.getByRole("button", { name: "Refresh" }).click();
       await expect.poll(() => modelCalls(o).length).toBeGreaterThan(0);
       expect(modelCalls(o)[0]!.query.get("provider")).toBe(f.provider);
       expect(modelCalls(o)[0]!.query.get("baseUrl")).toBe("");
@@ -919,14 +931,14 @@ describe("Settings → AI: hints that fit the provider (D9)", () => {
   it("says a key may be left out only for endpoints that can need none", async () => {
     const o = await open("#/settings", {});
     const { page } = o;
-    const keyHint = () => page.locator("#ai-key").locator("xpath=ancestor::div[contains(@class,'ai-field')][1]").getByText(/Stays on this machine/).textContent();
-    await expect.poll(keyHint).toBe("Stays on this machine; never shown again. Not needed for Ollama or LM Studio.");
+    const keyHint = () => page.locator("#ai-key").locator("xpath=ancestor::div[contains(@class,'ai-field')][1]").locator(".key-kept").textContent();
+    await expect.poll(keyHint).toBe("Kept safe on this machine. Not needed for Ollama or LM Studio.");
     for (const hosted of ["anthropic", "openai", "gemini"]) {
       await page.locator("#ai-provider").selectOption(hosted);
-      await expect.poll(keyHint).toBe("Stays on this machine; never shown again.");
+      await expect.poll(keyHint).toBe("Kept safe on this machine.");
     }
     await page.locator("#ai-provider").selectOption("openai-compatible");
-    await expect.poll(keyHint).toBe("Stays on this machine; never shown again. Not needed for Ollama or LM Studio.");
+    await expect.poll(keyHint).toBe("Kept safe on this machine. Not needed for Ollama or LM Studio.");
     expect(o.errors).toEqual([]);
     await page.close();
   });

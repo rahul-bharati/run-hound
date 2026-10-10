@@ -10,9 +10,12 @@ import {
   Copy,
   Download,
   ExternalLink,
+  Eye,
+  EyeOff,
   FileText,
   Globe,
   Info,
+  KeyRound,
   List,
   ListOrdered,
   LoaderCircle,
@@ -21,9 +24,12 @@ import {
   RotateCw,
   Settings,
   ShieldAlert,
+  SlidersHorizontal,
   Sparkles,
   Square,
   Timer,
+  TriangleAlert,
+  UsersRound,
 } from "lucide-static";
 
 /** The one stroke width every icon uses, matching the site's Icon component (site/src/components/icon.tsx). */
@@ -72,6 +78,13 @@ export const ICONS = {
   info: lucide(Info),
   shield: lucide(ShieldAlert),
   sparkle: lucide(Sparkles),
+  // Settings: card titles, the password's show and hide, and the notices' warning
+  key: lucide(KeyRound),
+  users: lucide(UsersRound),
+  sliders: lucide(SlidersHorizontal),
+  eye: lucide(Eye),
+  eyeOff: lucide(EyeOff),
+  alert: lucide(TriangleAlert),
   // Status (rendered inside .ring, coloured per status by CSS)
   statusPass: lucide(CircleCheck),
   statusFail: lucide(CircleAlert),

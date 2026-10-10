@@ -169,7 +169,8 @@ describe("the report view's other-account line when write-access sent the app's 
 
 describe("Settings → Test accounts, under 'A and B must not see each other's data'", () => {
   it("says the tick gates Account B reading or changing Account A's data (write-access's other-account scenario too)", () => {
-    expect(HTML).toContain("Run Hound only checks that Account B can't read or change Account A's data when this is ticked.");
-    expect(HTML).not.toContain("can't read Account A's data when this is ticked");
+    expect(HTML).toContain("Run Hound then checks that Account B can't read or change Account A's data.");
+    // The tick gates reading and changing alike, not reading alone.
+    expect(HTML).not.toContain("checks that Account B can't read Account A's data");
   });
 });
