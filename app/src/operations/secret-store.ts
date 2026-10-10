@@ -23,7 +23,11 @@ import type { SecretProtection } from "../types/secrets.js";
 
 export type { SecretProtection };
 
-/** Wraps and unwraps the data key with the OS credential store. Both throw when the store refuses. */
+/**
+ * Wraps and unwraps the data key with the OS credential store. Both throw when the store refuses, and
+ * KeyStoreUnavailableError when it can't be used at all. A protector touches the store only inside these calls, so
+ * handing one over (useOsKeyProtector) asks the OS for nothing.
+ */
 export interface KeyProtector {
   wrap(key: Buffer): Buffer;
   unwrap(wrapped: Buffer): Buffer;
@@ -48,6 +52,35 @@ export const LOCKED_BY_OS_KEYCHAIN =
 export const UNREADABLE_KEY =
   "Saved keys and passwords can't be unlocked on this machine (the OS keychain changed, or secrets.key is damaged). Enter them again.";
 export const DAMAGED_ENTRIES = "Some saved keys or passwords were damaged and could not be read. Enter them again.";
+export const KEYCHAIN_REFUSED =
+  "Run Hound couldn't use your system keychain, so saved keys and passwords can't be opened right now. Allow Run Hound to use the keychain when your system asks, then try again.";
+
+/**
+ * What a sealed read (readSecrets with `open: false`) gives for every saved secret instead of its value: enough to
+ * say a key or password is saved, never usable as one. The model client and sign-in refuse it (isSealed).
+ */
+export const SEALED_SECRET = "\u0000run-hound:sealed\u0000";
+
+/** Whether `value` is SEALED_SECRET: a saved secret whose value was not opened. */
+export const isSealed = (value: unknown): boolean => value === SEALED_SECRET;
+
+/**
+ * Thrown by a KeyProtector when the OS credential store can't be used at all (no keychain, the keyring stays locked).
+ * The store then falls back to its own key for a new store, and treats a key that store wrapped as locked: it is
+ * never replaced, so saying no to a keychain prompt can't wipe what was saved.
+ */
+export class KeyStoreUnavailableError extends Error {
+  constructor(message = "The OS credential store is not available.") {
+    super(message);
+    this.name = "KeyStoreUnavailableError";
+  }
+}
+
+/**
+ * Whether `error` says the OS store can't be used. Matched by name, not class: the desktop app's protector lives in
+ * another bundle (desktop/src/key-protector.ts in main.js, this module in engine.js), so its class is a different one.
+ */
+const storeUnavailable = (error: unknown): boolean => error instanceof Error && error.name === "KeyStoreUnavailableError";
 
 const KEY_BYTES = 32;
 const IV_BYTES = 12;
@@ -123,12 +156,21 @@ async function loadKey(dir: string, protection: SavingProtection, upgrade = true
   try {
     const stored = Buffer.from(parsed.key, "base64");
     key = parsed.protection === "os-keychain" ? osProtector!.unwrap(stored) : stored;
-  } catch {
+  } catch (error) {
+    if (storeUnavailable(error)) return { problem: KEYCHAIN_REFUSED, locked: true };
     return { problem: UNREADABLE_KEY, locked: false };
   }
   if (key.length !== KEY_BYTES) return { problem: UNREADABLE_KEY, locked: false };
+  let upgraded: string | null = null;
   if (upgrade && parsed.protection === "run-hound" && protection === "os-keychain") {
-    const upgraded = keyFileText("os-keychain", key);
+    try {
+      upgraded = keyFileText("os-keychain", key);
+    } catch (error) {
+      if (!storeUnavailable(error)) throw error;
+      osProtector = null;
+    }
+  }
+  if (upgraded !== null) {
     await writePrivate(file, upgraded);
     unwrapped.set(file, { text: upgraded, key });
   } else {
@@ -198,13 +240,18 @@ async function readEntries(dir: string): Promise<Record<string, string>> {
 /**
  * Every saved secret in `dir` that opens. Never throws for a missing, locked or damaged store: `problem` says what
  * could not be read. With RUNHOUND_SECRETS=environment nothing is read.
+ *
+ * `open: false` is a sealed read, for status only: every saved secret's value is SEALED_SECRET and the data key is
+ * not loaded, so the OS keychain is never asked (opening the app or a settings page must not make the OS prompt).
+ * It can't tell a damaged or locked store; the read that uses the secrets says so.
  */
-export async function readSecrets(dir: string, options: { env?: NodeJS.ProcessEnv; upgrade?: boolean } = {}): Promise<SecretsRead> {
+export async function readSecrets(dir: string, options: { env?: NodeJS.ProcessEnv; upgrade?: boolean; open?: boolean } = {}): Promise<SecretsRead> {
   const protection = secretProtection(options.env);
   if (protection === "environment") return { values: {}, protection, problem: null };
   const entries = await readEntries(dir);
   const names = Object.keys(entries);
   if (names.length === 0) return { values: {}, protection, problem: null };
+  if (options.open === false) return { values: Object.fromEntries(names.map((name) => [name, SEALED_SECRET])), protection, problem: null };
   let loaded: KeyResult;
   try {
     loaded = await loadKey(dir, protection, options.upgrade ?? true);
@@ -256,7 +303,14 @@ export function writeSecrets(
         if (reset || orphaned) await rm(join(dir, SECRETS_FILE), { force: true });
         return;
       }
-      loaded = { key: await createKey(dir, protection) };
+      try {
+        loaded = { key: await createKey(dir, protection) };
+      } catch (error) {
+        if (!storeUnavailable(error)) throw error;
+        // No usable keychain after all: keep the secret in Run Hound's own store, as when there is none.
+        osProtector = null;
+        loaded = { key: await createKey(dir, "run-hound") };
+      }
     }
     for (const [name, value] of Object.entries(updates)) {
       if (typeof value === "string" && value !== "") entries[name] = seal(loaded.key, name, value);

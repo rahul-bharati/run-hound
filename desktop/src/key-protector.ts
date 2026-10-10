@@ -18,14 +18,32 @@ export interface SafeStorageLike {
 const WEAK_LINUX_BACKENDS = new Set(["basic_text", "unknown"]);
 
 /**
- * A KeyProtector over `storage`, or null when encryption isn't available or (Linux) the selected backend is no real
- * keychain; the engine then keeps the key in its own store instead of trusting a weak one. Call after `ready`.
+ * The OS credential store as Run Hound's key protector, or null when there is none worth using: a weak Linux backend
+ * (basic_text, or unknown before ready), which saves the "secret" in the clear. Asks the OS for nothing until the store
+ * first wraps or unwraps a key (D10): isEncryptionAvailable() itself reads the keychain item on macOS and fetches the
+ * secret key on Linux, so calling it at launch made the OS prompt before the user had done anything. The first wrap
+ * or unwrap checks it once; when it says no, both throw an error named KeyStoreUnavailableError (by name: the engine
+ * is a separate bundle), and the store falls back to its own key or reports the saved one as locked, never wiping it.
  */
 export function osKeyProtector(storage: SafeStorageLike, platform: NodeJS.Platform): KeyProtector | null {
-  if (!storage.isEncryptionAvailable()) return null;
   if (platform === "linux" && WEAK_LINUX_BACKENDS.has(storage.getSelectedStorageBackend?.() ?? "unknown")) return null;
+  let available: boolean | undefined;
+  const ensure = (): void => {
+    available ??= storage.isEncryptionAvailable();
+    if (!available) {
+      const error = new Error("The system keychain is not available to Run Hound.");
+      error.name = "KeyStoreUnavailableError";
+      throw error;
+    }
+  };
   return {
-    wrap: (key) => storage.encryptString(key.toString("base64")),
-    unwrap: (wrapped) => Buffer.from(storage.decryptString(wrapped), "base64"),
+    wrap: (key) => {
+      ensure();
+      return storage.encryptString(key.toString("base64"));
+    },
+    unwrap: (wrapped) => {
+      ensure();
+      return Buffer.from(storage.decryptString(wrapped), "base64");
+    },
   };
 }

@@ -153,7 +153,7 @@ describe("the UI under its CSP", () => {
     await page.goto(`${base}/#/settings`);
     await page.getByRole("heading", { name: "Settings" }).waitFor();
     await page.locator(".settings-list code").first().waitFor();
-    // The Defaults options sit flush under the heading (a class, not a style attribute).
+    // The Run defaults options sit flush under the heading (a class, not a style attribute).
     expect(await page.locator(".options.flush").evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe("none");
 
     expect(violations).toEqual([]);

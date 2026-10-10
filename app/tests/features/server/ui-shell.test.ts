@@ -641,8 +641,8 @@ describe("app shell UI", () => {
 
     await destructive.check();
     await headed.check();
-    // The Defaults card's own Save, if it has one (the test-accounts cards below have theirs).
-    const save = page.getByRole("region", { name: "Defaults" }).getByRole("button", { name: /save/i });
+    // The Run defaults card's own Save, if it has one (the test-accounts cards have theirs).
+    const save = page.getByRole("region", { name: "Run defaults" }).getByRole("button", { name: /save/i });
     if (await save.count()) await save.first().click();
     await expect.poll(() => page.evaluate(() => Object.keys(localStorage).length)).toBeGreaterThan(0);
 

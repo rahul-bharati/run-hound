@@ -8,6 +8,7 @@ import { originOf } from "./http.js";
 import { ollamaChatJson } from "./ollama.js";
 import { chatJson, OUT_OF_SPACE, type ChatMessage } from "./openai-compatible.js";
 import { FIXED_ENDPOINT_PROVIDERS, PROVIDER_LABELS } from "../constants/ai-constants.js";
+import { isSealed } from "../operations/secret-store.js";
 
 /** Removes a ``` / ```json fence around the whole answer. */
 function stripFences(text: string): string {
@@ -32,6 +33,8 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
  */
 export function createLlmClient(config: AiConfig, options: { env?: NodeJS.ProcessEnv } = {}): LlmClient {
   if (!config.enabled) throw new AiError("not-configured", "AI is off");
+  // A status read's sealed secret (D10) is a marker, never a credential: never send it.
+  if (Object.values(config).some(isSealed)) throw new AiError("not-configured", "The saved key wasn't opened for this request");
   const provider = config.provider;
   if (!provider) throw new AiError("not-configured", "Choose a provider");
   if (!config.model) throw new AiError("not-configured", "Choose a model");

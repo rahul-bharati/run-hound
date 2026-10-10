@@ -172,3 +172,5 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-10-08: [On macOS and Windows the first-run and launch checks use the clean runner's real profile, and every first-run leg blocks a release](docs/decisions/10-2026.md#2026-10-08-desktop-first-run-real-profile) (supersedes the advisory legs of 2026-10-08-desktop-first-run-and-names)
 - 2026-10-08: [Run Hound's own notices and start-up errors appear in Run Hound's style, and every app window looks like the main one](docs/decisions/10-2026.md#2026-10-08-desktop-dialogs-and-windows)
 - 2026-10-09: [In the desktop app the UI speaks of this computer and names no RUNHOUND_* variable, and AI settings hints fit the provider](docs/decisions/10-2026.md#2026-10-09-desktop-wording)
+- 2026-10-10: [The OS keychain is asked only when a saved key or password is used, never because the app or a settings page opened](docs/decisions/10-2026.md#2026-10-10-keychain-only-when-used)
+- 2026-10-10: [Settings is reorganised around what a desktop user sets up: AI model, test accounts, then one card that says how keys and passwords are kept](docs/decisions/10-2026.md#2026-10-10-settings-page)
