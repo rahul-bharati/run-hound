@@ -45,7 +45,8 @@ export class AccountsFlow implements IAccountsFlow {
   }
 
   async status(): Promise<AccountsStatus> {
-    return (await this.#deps.resolveAccounts()).status;
+    // Status only: opening Settings or New run must not make the OS ask for the keychain (D10).
+    return (await this.#deps.resolveAccounts({ sealed: true })).status;
   }
 
   async save(patch: unknown): Promise<SaveAccountsOutcome> {

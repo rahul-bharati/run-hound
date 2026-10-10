@@ -89,7 +89,8 @@ function fromFile(raw: unknown): SavedFile | null {
   return out;
 }
 
-async function readSaved(file: string, env: NodeJS.ProcessEnv): Promise<Read> {
+/** `open: false` reads the store sealed (status only): saved passwords are SEALED_SECRET and the OS keychain isn't asked. */
+async function readSaved(file: string, env: NodeJS.ProcessEnv, open = true): Promise<Read> {
   const nothing = (problem: string | null): Read => ({
     saved: { accounts: {} },
     problem,
@@ -120,7 +121,7 @@ async function readSaved(file: string, env: NodeJS.ProcessEnv): Promise<Read> {
       `${file} does not hold saved accounts, so nothing in it was used. Save the account again to replace it.`,
     );
   const plain = ACCOUNT_IDS.some((id) => Boolean(saved.accounts[id]?.password));
-  const store = await readSecrets(dirname(file), { env });
+  const store = await readSecrets(dirname(file), { env, open });
   const stored: Read["stored"] = {};
   for (const id of ACCOUNT_IDS) {
     const value = store.values[passwordName(id)];
@@ -304,12 +305,15 @@ function resolveWith(
  * malformed file reads as nothing saved, with a problem on each slot.
  */
 export async function resolveAccounts(
-  options: { env?: NodeJS.ProcessEnv; home?: string } = {},
+  options: { env?: NodeJS.ProcessEnv; home?: string; sealed?: boolean } = {},
 ): Promise<{ config: AccountsConfig; status: AccountsStatus }> {
   const env = options.env ?? process.env;
   const file = accountsFile(env, options.home);
-  const read = await readSaved(file, env);
-  if (read.plain) await oneAtATime(file, () => movePasswordsOut(file, env));
+  // sealed (status only, D10): passwords resolve to SEALED_SECRET without the OS keychain being asked, and the move
+  // out of plain text (which writes the store) waits for a read that opens it. signIn refuses a sealed password.
+  const sealed = options.sealed === true;
+  const read = await readSaved(file, env, !sealed);
+  if (read.plain && !sealed) await oneAtATime(file, () => movePasswordsOut(file, env));
   return resolveWith(env, file, read);
 }
 

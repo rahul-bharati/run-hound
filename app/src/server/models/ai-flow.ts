@@ -38,12 +38,12 @@ export class AiFlow implements IAiFlow {
       runsDir: this.#deps.host.runsDir,
       allowedHosts: this.#deps.host.allowedHosts(),
       serverHosts: this.#deps.host.extraHosts,
-      ai: aiStatus(await resolveAiConfig()),
+      ai: aiStatus(await resolveAiConfig({ sealed: true })),
     };
   }
 
   async getAi(): Promise<unknown> {
-    return aiStatus(await resolveAiConfig());
+    return aiStatus(await resolveAiConfig({ sealed: true }));
   }
 
   async putAi(patch: unknown): Promise<PutAiOutcome> {

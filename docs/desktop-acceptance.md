@@ -54,7 +54,7 @@ Each artifact holds:
 - **Gatekeeper and SmartScreen.** A file from a workflow artifact has no quarantine or "downloaded from the internet" mark, so neither warns. The unsigned first launch in [desktop-install.md](desktop-install.md) is checked by hand.
 - **A real provider key.** The check never sends a request to a provider.
 - **A real desktop session**: a system keychain that asks for access, a desktop that has a display scaling or a theme. The runners use their own session, and Xvfb on Linux.
-- **A Mac with no usable login keychain.** The runner has one. Without it macOS shows a system dialog, "Keychain Not Found: A keychain cannot be found to store 'Run Hound Key'", before the window opens, and the window waits for it. Cancelling lets Run Hound fall back to its own store. This is a manual-check item below, not a CI blocker.
+- **A Mac with no usable login keychain.** The runner has one. Without it macOS shows a system dialog, "Keychain Not Found: A keychain cannot be found to store 'Run Hound Key'", the first time Run Hound needs the keychain: when a key or password is first saved or used, never at launch ([decision](decisions/10-2026.md#2026-10-10-keychain-only-when-used)). Cancelling lets Run Hound fall back to its own store. This is a manual-check item below, not a CI blocker.
 - **An update over an older install.** There is no older release yet.
 
 ### The names the check asserts
@@ -101,7 +101,7 @@ Use the installers from the workflow run you are accepting (private artifacts `i
 
 **3b. A Mac with no usable login keychain (a fresh user account, or a deleted keychain).**
 
-- [ ] On the first launch macOS may show "Keychain Not Found: A keychain cannot be found to store 'Run Hound Key'" before the window. Choose **Cancel**: the window opens and saved keys use Run Hound's own store (**Settings** shows which).
+- [ ] Opening the app, New run and Settings make the OS ask nothing about the keychain. The first save of a key or password (or the first plan once one is saved) may: macOS "Run Hound wants to use your confidential information…" (choose **Always Allow**), or on a Mac without a login keychain "Keychain Not Found…" (choose **Cancel**: saved keys then use Run Hound's own store, and **Settings** shows which).
 
 **4. Uninstall and data cleanup.** With the uninstall steps in [desktop-install.md](desktop-install.md):
 

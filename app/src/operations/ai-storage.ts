@@ -118,7 +118,8 @@ type SavedView = Pick<Saved, "layer" | "keys" | "implicitProvider">;
 
 const NOTHING_SAVED: Saved = { layer: {}, keys: {}, stored: {}, legacy: false, legacyStored: false, implicitProvider: false, superseded: [], notice: null };
 
-async function readSaved(file: string, env: NodeJS.ProcessEnv): Promise<Saved> {
+/** `open: false` reads the store sealed (status only): saved secrets are SEALED_SECRET and the OS keychain isn't asked. */
+async function readSaved(file: string, env: NodeJS.ProcessEnv, open = true): Promise<Saved> {
   let raw: Record<string, unknown>;
   try {
     const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
@@ -128,7 +129,7 @@ async function readSaved(file: string, env: NodeJS.ProcessEnv): Promise<Saved> {
     return { ...NOTHING_SAVED, keys: {}, superseded: [] }; // missing, unreadable or corrupt: defaults
   }
   const plain = nonEmptyString(raw.apiKey) !== null || SECRET_FIELDS.some((field) => nonEmptyString(raw[field]) !== null);
-  const store = await readSecrets(dirname(file), { env });
+  const store = await readSecrets(dirname(file), { env, open });
   const stored: Saved["stored"] = {};
   for (const field of SECRET_FIELDS) {
     const value = store.values[secretName(field)];
@@ -265,12 +266,12 @@ interface Resolution extends ResolvedAiConfig {
 }
 
 /** `saved` replaces the file's contents (saveAiConfig uses it to see where a patch would point before writing). */
-async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | undefined, saved?: SavedView): Promise<Resolution> {
+async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | undefined, saved?: SavedView, open = true): Promise<Resolution> {
   const file = configFile(env, home);
   const { layer: envLayer, names } = fromEnv(env);
   const envNames: Resolution["envNames"] = names;
   const flagLayer = fromFlags(flags);
-  const read: Saved = saved ? { ...NOTHING_SAVED, ...saved } : await readSaved(file, env);
+  const read: Saved = saved ? { ...NOTHING_SAVED, ...saved } : await readSaved(file, env, open);
   // A file saved before 0.7 that names no provider meant Ollama, the default then; otherwise there is no default.
   const filePart: Layer = read.implicitProvider && read.layer.provider === undefined ? { ...read.layer, provider: LEGACY_DEFAULT_PROVIDER } : read.layer;
   // The saved key is the effective provider's own, bound to the origin it was saved for. A key saved since 0.7 with no
@@ -447,12 +448,20 @@ function legacyKeyOrigin(file: Layer, region: string | null): string {
  * session token and Bedrock bearer token are always registered: they are always long. The module holds one such
  * registration: each call registers its set and then drops the previous call's, so there is no gap and a secret the
  * config no longer holds stops being registered.
+ *
+ * `sealed: true` is for status only (GET /api/ai and /api/settings): saved secrets resolve to SEALED_SECRET without
+ * the OS keychain being asked, nothing is registered or moved, and createLlmClient refuses the result's key.
  */
-export async function resolveAiConfig(options: { env?: NodeJS.ProcessEnv; flags?: AiFlags; home?: string } = {}): Promise<ResolvedAiConfig> {
+export async function resolveAiConfig(options: { env?: NodeJS.ProcessEnv; flags?: AiFlags; home?: string; sealed?: boolean } = {}): Promise<ResolvedAiConfig> {
   const env = options.env ?? process.env;
-  const { config, sources, file, staleKey, secrets, legacySecrets, savedKeys, secretNotice } = await resolve(env, options.flags ?? {}, options.home);
-  registerAiSecrets(secrets);
-  if (legacySecrets) await moveSecretsOut(file, env, config.region);
+  const sealed = options.sealed === true;
+  const { config, sources, file, staleKey, secrets, legacySecrets, savedKeys, secretNotice } = await resolve(env, options.flags ?? {}, options.home, undefined, !sealed);
+  // A sealed read (status only, D10) holds no secret to register, and must not drop what a real read registered; the
+  // move out of plain text writes the store, which needs the keychain, so it waits for a read that opens it.
+  if (!sealed) {
+    registerAiSecrets(secrets);
+    if (legacySecrets) await moveSecretsOut(file, env, config.region);
+  }
   return { config, sources, file, ...(savedKeys ? { savedKeys } : {}), ...(staleKey ? { staleKey } : {}), ...(secretNotice ? { secretNotice } : {}) };
 }
 

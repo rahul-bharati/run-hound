@@ -44,7 +44,7 @@ The app keeps your settings, saved keys and reports in folders of its own, apart
 
 A signed and notarized build opens with the usual "downloaded from the internet" prompt only.
 
-**Update.** Download the newer `.dmg`, quit Run Hound, drag the new **Run Hound** onto **Applications** and choose **Replace**. Your settings, keys and reports stay. An unsigned build can make macOS ask again for access to the keychain after an update. Choose **Always Allow**. If a saved key can't be read, enter it again in **Settings**.
+**Update.** Download the newer `.dmg`, quit Run Hound, drag the new **Run Hound** onto **Applications** and choose **Replace**. Your settings, keys and reports stay. An unsigned build can make macOS ask again for access to the keychain after an update, the first time a saved key or password is used. Choose **Always Allow**. If you choose **Deny**, nothing is lost: Run Hound says the saved keys are locked, and the next time it asks you can allow it.
 
 **Uninstall.** Quit Run Hound and drag it from Applications to the Trash. That leaves your settings, keys and reports in place. To remove them as well, delete the two folders above (the reports are inside the settings folder) and, if you like, the app's browser profile `~/Library/Application Support/Run Hound`. Deleting the folders also deletes the saved keys. macOS may keep a "Run Hound Safe Storage" item in Keychain Access; you can delete it, because it is useless without the folder.
 
