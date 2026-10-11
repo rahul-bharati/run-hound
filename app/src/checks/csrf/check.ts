@@ -6,7 +6,7 @@ import { crossSitePage, type ForgeEncoding, type ForgeOutcome, type TargetCookie
 import { redactValues, withoutQueryCredentials, type DroppedParam } from "../lib/cross-site-query.js";
 import { TOKEN_FIELD } from "../lib/csrf-tokens.js";
 import { endpointOf, errorResult, guarded, result } from "../lib/functional-finding.js";
-import { canaryValues, createRequests, fillForm, settle, submitControl, submitForm, waitForCreates, type FieldValue } from "../lib/functional-form.js";
+import { canaryValues, createRequests, fillForm, settle, submitControl, submitForm, waitForCreates, waitForQuiet, type FieldValue } from "../lib/functional-form.js";
 import {
   editsExistingRecord,
   EXISTING_RECORD,
@@ -77,6 +77,9 @@ export const check: Check = {
         await fillForm(page, values);
         await submitForm(page, form);
         await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
+        // What the page does once its save has answered (its own reload, its update of the new record) comes a moment
+        // later: the reload below would race it, and a page reload that wins leaves nothing read back (as write-access).
+        await waitForQuiet(capture);
       } finally {
         await hold.release();
       }
