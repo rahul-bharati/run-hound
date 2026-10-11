@@ -110,4 +110,20 @@ describe("secrets in an error", () => {
     const failing = createErrorReporter({ log: () => undefined, show: () => Promise.resolve(), fallback: () => undefined, redact: () => { throw new Error("redactor broke"); } });
     expect(() => failing.report(new Error("plain"), "uncaughtException")).not.toThrow();
   });
+
+  it("are hidden before the summary is cut, so a secret across the cut leaves no part of itself", () => {
+    const SECRET = "sk-ant-api03-SECRETSECRETSECRET";
+    const shown: Problem[] = [];
+    const reporter = createErrorReporter({
+      log: () => undefined,
+      show: (problem) => (shown.push(problem), new Promise<void>(() => undefined)),
+      fallback: () => undefined,
+      redact: (text) => text.split(SECRET).join("[redacted]"),
+    });
+    // The summary keeps 300 characters: the secret starts at 290 and runs past the cut.
+    reporter.report(new Error(`${"x".repeat(290)}${SECRET} after`), "uncaughtException");
+    const summary = shown[0]!.paragraphs.at(-1)!;
+    expect(summary).not.toContain(SECRET.slice(0, 10));
+    expect(summary).toContain("[redacted]");
+  });
 });

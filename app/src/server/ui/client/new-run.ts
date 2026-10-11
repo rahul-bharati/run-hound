@@ -5,7 +5,7 @@
 export const NEW_RUN = String.raw`  // ---------- New Run ----------
 
   /** Kept across views, so going to Runs and back keeps the plan you were looking at. */
-  const newState = { url: "", resp: null, selected: null, options: null, aiReview: null, signInAs: "" };
+  const newState = { url: "", resp: null, selected: null, options: null, aiReview: null, signInAs: "", brief: null, briefText: { goal: "", ticket: "", feature: "" } };
 
   /** A form field's name as a person reads it on the page. */
   function fieldName(form, key) {
@@ -68,9 +68,11 @@ export const NEW_RUN = String.raw`  // ---------- New Run ----------
     const slotOf = (id) => (accounts && accounts.accounts && accounts.accounts[id]) || null;
     const slotReady = (id) => Boolean(slotOf(id) && slotOf(id).ready);
     const slotName = (id) => accountName({ id, label: slotOf(id) ? slotOf(id).label : "" });
+    /** "Account A", or "Alex (Account A)" when the account has a label of its own. */
+    const slotChoiceName = (id) => (slotName(id) === defaultAccountLabel(id) ? slotName(id) : slotName(id) + " (" + defaultAccountLabel(id) + ")");
     function fillSignIn() {
       fill(signIn, h("option", { value: "", text: "Not signed in" }), ACCOUNT_SLOTS.map((id) => {
-        const name = slotName(id) === defaultAccountLabel(id) ? slotName(id) : slotName(id) + " (" + defaultAccountLabel(id) + ")";
+        const name = slotChoiceName(id);
         return h("option", { value: id, disabled: !slotReady(id), text: slotReady(id) ? name : name + " · Set it up in Settings" });
       }));
       signIn.value = slotReady(newState.signInAs) ? newState.signInAs : "";
@@ -105,6 +107,10 @@ export const NEW_RUN = String.raw`  // ---------- New Run ----------
       if (my === gen) signInHint.textContent = "Could not load the test accounts: " + err.message;
       return null;
     });
+    // "Describe what to test" (A2, a preview): only when the agent is on. It reads the URL field and "Sign in as" above.
+    if (CONFIG.agent) {
+      setupBrief({ my, $, input, signIn, accountsLoaded, accountChoiceName: slotChoiceName, accountReady: slotReady, accountsKnown: () => accounts !== null });
+    }
     api("/api/ai").then((st) => {
       if (my !== gen || !st || !st.enabled || st.problem) return;
       aiName = st.provider + "/" + st.model;
