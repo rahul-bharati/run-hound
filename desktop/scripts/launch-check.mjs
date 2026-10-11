@@ -768,7 +768,10 @@ try {
       }, engine);
       await until("the load-failure page", async () => (await problem()).h1 === "This page didn't load");
       assert.deepEqual((await problem()).buttons, ["Try again", "Quit Run Hound"]);
-      await inWindow(`document.getElementById("quit").click()`);
+      // Quit ends the app, so the script can lose its context before it reports back (as with press): the exit is the check.
+      await inWindow(`document.getElementById("quit").click()`).catch((error) => {
+        if (!/closed|destroyed/i.test(String(error))) throw error;
+      });
       const { code, signal } = await Promise.race([exited, new Promise((_resolve, reject) => setTimeout(() => reject(new Error("the app was still running 20 s after Quit")), 20_000))]);
       assert.deepEqual([code, signal], [0, null]);
     });
