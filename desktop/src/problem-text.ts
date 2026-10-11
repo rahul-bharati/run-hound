@@ -40,10 +40,13 @@ function summaryOf(message: string): string {
 
 /**
  * An uncaught exception or an unhandled rejection in the main process. `log` is the line for stderr (without the
- * `[run-hound] ` prefix); the problem is what the window says.
+ * `[run-hound] ` prefix); the problem is what the window says. `hide` redacts what the error says before the summary
+ * is cut: cut first, a secret across the cut would lose its end and no longer match the redactor.
  */
-export function uncaughtProblem(reason: unknown, origin: string): { problem: Problem; log: string } {
-  const { message, text } = describe(reason);
+export function uncaughtProblem(reason: unknown, origin: string, hide: (text: string) => string = (text) => text): { problem: Problem; log: string } {
+  const described = describe(reason);
+  const message = hide(described.message);
+  const text = hide(described.text);
   const summary = summaryOf(message);
   const background = origin === "unhandledRejection";
   return {

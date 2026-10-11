@@ -36,6 +36,16 @@ describe("uncaughtProblem", () => {
     expect(problem.paragraphs.at(-1)).toBe(`The error was: ${"x".repeat(300)}…`);
   });
 
+  it("redacts with `hide` before cutting the summary, and hides the stack and the log line too", () => {
+    const hide = (text: string) => text.split("TOKEN-123456").join("[redacted]");
+    const { problem, log } = uncaughtProblem(new Error(`${"y".repeat(295)}TOKEN-123456`), "uncaughtException", hide);
+    expect(problem.paragraphs.at(-1)).not.toContain("TOKEN");
+    expect(problem.paragraphs.at(-1)!.endsWith("…")).toBe(true);
+    expect(problem.details).not.toContain("TOKEN-123456");
+    expect(log).not.toContain("TOKEN-123456");
+    expect(log).toContain("[redacted]");
+  });
+
   it("never throws, even for a value that can't be printed", () => {
     const hostile = new Proxy({}, { ownKeys: () => { throw new Error("no"); }, getPrototypeOf: () => { throw new Error("no"); } });
     expect(() => uncaughtProblem(hostile, "uncaughtException")).not.toThrow();

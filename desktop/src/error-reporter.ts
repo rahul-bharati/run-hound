@@ -41,7 +41,6 @@ export function createErrorReporter(deps: ErrorReporterDeps): ErrorReporter {
   };
   return {
     report(reason, origin) {
-      const raw = uncaughtProblem(reason, origin);
       const hide = (text: string): string => {
         try {
           return deps.redact ? deps.redact(text) : text;
@@ -49,13 +48,8 @@ export function createErrorReporter(deps: ErrorReporterDeps): ErrorReporter {
           return text;
         }
       };
-      const problem: Problem = {
-        ...raw.problem,
-        title: hide(raw.problem.title),
-        paragraphs: raw.problem.paragraphs.map(hide),
-        ...(raw.problem.details ? { details: hide(raw.problem.details) } : {}),
-      };
-      log(hide(raw.log));
+      const { problem, log: line } = uncaughtProblem(reason, origin, hide);
+      log(line);
       if (open) return;
       open = true;
       let shown: Promise<void>;
