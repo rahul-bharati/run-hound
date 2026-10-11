@@ -469,13 +469,17 @@ export async function resolveAiConfig(options: { env?: NodeJS.ProcessEnv; flags?
  * The saved key of `provider`, for listing its models while Settings shows it before it is saved: only for a provider
  * with one official endpoint (Anthropic, OpenAI, Gemini), and only when the key is bound to that endpoint; else null.
  * A provider whose endpoint the user sets never gets its key here: it is sent only once saved with that endpoint.
+ * The store is read sealed first (D10), so the OS keychain is asked only when there is such a key to send.
  */
 export async function savedFixedProviderKey(provider: AiProvider, options: { env?: NodeJS.ProcessEnv; home?: string } = {}): Promise<string | null> {
   if (!FIXED_ENDPOINT_PROVIDERS.has(provider)) return null;
   const env = options.env ?? process.env;
-  const slot = (await readSaved(configFile(env, options.home), env)).keys[provider];
-  if (!slot || slot.legacy) return null;
-  return slot.origin === keyOriginFor({ provider, baseUrl: DEFAULT_BASE_URLS[provider], region: null }) ? slot.key : null;
+  const file = configFile(env, options.home);
+  const usable = (slot: KeySlot | undefined): slot is KeySlot =>
+    slot !== undefined && !slot.legacy && slot.origin === keyOriginFor({ provider, baseUrl: DEFAULT_BASE_URLS[provider], region: null });
+  if (!usable((await readSaved(file, env, false)).keys[provider])) return null;
+  const slot = (await readSaved(file, env)).keys[provider];
+  return usable(slot) ? slot.key : null;
 }
 
 /** The live registration of the AI secrets resolveAiConfig last read. */

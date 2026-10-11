@@ -1,13 +1,14 @@
 /**
  * Opening the app never makes the OS ask for the keychain (D10): the status the UI reads on every page load
  * (GET /api/ai, /api/settings, /api/accounts) comes from sealed reads of the secret store, so the OS key protector is
- * not asked; only what uses a secret opens the store. A sealed value can never be sent: the model client and sign-in
+ * not asked; only what uses a secret opens the store. Settings also lists models as it draws (GET /api/ai/models): that
+ * opens the store only when the listing sends a saved key. A sealed value can never be sent: the model client and sign-in
  * refuse it.
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveAiConfig, resolveAiConfig } from "../../../src/ai/config.js";
 import { createLlmClient } from "../../../src/ai/client.js";
 import { saveAccounts, resolveAccounts } from "../../../src/operations/accounts-storage.js";
@@ -79,6 +80,56 @@ describe("opening the app asks the keychain nothing", () => {
     useOsKeyProtector(keychain);
     expect((await resolveAiConfig()).config.apiKey).toBe(KEY);
     expect((await resolveAccounts()).config.accounts.a?.password).toBe(PASSWORD);
+    expect(keychain.asked).toBe(1);
+  });
+});
+
+describe("listing models opens the store only to send a saved key", () => {
+  const OLLAMA = "http://127.0.0.1:11434";
+  const listed = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+  const models = (app: ReturnType<typeof createApp>, query: string) => app.request(`/api/ai/models?${query}`, { headers: { "x-run-hound": "1" } });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("Settings drawn for Ollama, with a key and a password saved, asks the keychain nothing, nor does switching to a provider with no key", async () => {
+    await saveAiConfig({ provider: "ollama", baseUrl: OLLAMA, model: "llama3" });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => listed({ models: [{ name: "llama3" }] }));
+    const keychain = countingKeychain();
+    useOsKeyProtector(keychain);
+    const app = createApp({ canShowBrowser: false });
+    expect((await models(app, `provider=ollama&baseUrl=${encodeURIComponent(OLLAMA)}`)).status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(1); // the listing really ran
+    expect((await models(app, "provider=openai&baseUrl=&allowRemote=1")).status).toBe(200);
+    expect(keychain.asked).toBe(0);
+  });
+
+  it("listing the saved provider's models opens the store once and sends the real key, never the sealed marker", async () => {
+    const sent: Array<string | null> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      sent.push(new Headers(init?.headers).get("x-api-key"));
+      return listed({ data: [{ id: "claude-x" }] });
+    });
+    const keychain = countingKeychain();
+    useOsKeyProtector(keychain);
+    const app = createApp({ canShowBrowser: false });
+    expect((await models(app, "provider=anthropic&baseUrl=")).status).toBe(200);
+    expect(sent).toEqual([KEY]);
+    expect(keychain.asked).toBe(1);
+  });
+
+  it("switching to a provider whose key is saved opens the store to send that key", async () => {
+    await saveAiConfig({ provider: "ollama", baseUrl: OLLAMA, model: "llama3" });
+    const sent: Array<string | null> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      sent.push(new Headers(init?.headers).get("x-api-key"));
+      return listed({ data: [{ id: "claude-x" }] });
+    });
+    const keychain = countingKeychain();
+    useOsKeyProtector(keychain);
+    const app = createApp({ canShowBrowser: false });
+    expect((await models(app, "provider=anthropic&baseUrl=&allowRemote=1")).status).toBe(200);
+    expect(sent).toEqual([KEY]);
     expect(keychain.asked).toBe(1);
   });
 });

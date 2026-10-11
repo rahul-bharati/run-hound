@@ -53,7 +53,7 @@ export const UNREADABLE_KEY =
   "Saved keys and passwords can't be unlocked on this machine (the OS keychain changed, or secrets.key is damaged). Enter them again.";
 export const DAMAGED_ENTRIES = "Some saved keys or passwords were damaged and could not be read. Enter them again.";
 export const KEYCHAIN_REFUSED =
-  "Run Hound couldn't use your system keychain, so saved keys and passwords can't be opened right now. Allow Run Hound to use the keychain when your system asks, then try again.";
+  "Run Hound couldn't use your system keychain, so saved keys and passwords can't be opened right now. Allow Run Hound to use the keychain when your system asks, then quit Run Hound and open it again.";
 
 /**
  * What a sealed read (readSecrets with `open: false`) gives for every saved secret instead of its value: enough to
