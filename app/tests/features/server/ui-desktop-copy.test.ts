@@ -88,10 +88,12 @@ describe("in the desktop app", () => {
 
   it("Settings: this computer, not a server or a browser, and no variables to set", async () => {
     const { page, errors } = await open("#/settings", true);
-    await page.locator("#server-h").waitFor();
+    await page.locator("#about-h").waitFor();
+    // Where the keys and passwords are kept is said in "this computer" terms too.
+    await expect.poll(() => page.locator("#keys-card").innerText()).toContain("this computer");
+    await expect.poll(() => visibleText(page)).toContain("None. Run Hound tests this computer");
     const text = await visibleText(page);
-    expect(await page.locator("#server-h").innerText()).toBe("This computer");
-    expect(text).toContain("Defaults for new runs, and how Run Hound is set up on this computer.");
+    expect(text).toContain("how Run Hound is set up on this computer.");
     expect(text).toContain("Saved on this computer.");
     expect(text).toContain("None. Run Hound tests this computer (localhost) and private network addresses.");
     for (const gone of ["RUNHOUND_", "this browser only", "Run Hound server", "Accepted server host names"]) expect(text).not.toContain(gone);
@@ -112,9 +114,10 @@ describe("in a browser (Docker, CLI)", () => {
 
   it("Settings keeps the server wording and its variables", async () => {
     const { page } = await open("#/settings", false);
-    await page.locator("#server-h").waitFor();
+    await page.locator("#about-h").waitFor();
+    await expect.poll(() => page.locator("#keys-card").innerText()).toContain("this machine");
+    await expect.poll(() => visibleText(page)).toContain("Accepted server host names");
     const text = await visibleText(page);
-    expect(await page.locator("#server-h").innerText()).toBe("This server");
     for (const kept of ["Saved in this browser only.", "how this Run Hound server is set up", "RUNHOUND_ALLOWED_HOSTS", "Accepted server host names", "RUNHOUND_SERVER_HOSTS"]) expect(text).toContain(kept);
     await page.close();
   });

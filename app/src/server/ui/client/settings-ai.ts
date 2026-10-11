@@ -75,20 +75,28 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
     select.value = current || "";
   }
 
-  function aiCard(my) {
+  // Where the Keys and passwords card says how a key is kept: the key field only points there.
+  const KEPT_SAFE = () => (onDesktop ? "Kept safe on this computer" : "Kept safe on this machine");
+
+  function aiCard(my, known) {
     const card = h("section", { class: "card ai-card", id: "ai-card", "aria-labelledby": "ai-h" },
-      h("h2", { id: "ai-h", class: "card-title" }, icon("sparkle"), "AI"),
+      h("h2", { id: "ai-h", class: "card-title" }, icon("sparkle"), "AI model"),
       h("p", { class: "loading", text: "Loading…" }));
     api("/api/ai").then((st) => {
-      if (my === gen) drawAi(card, st, my, "", "");
+      if (my !== gen) return;
+      known.report("ai", st);
+      // The first draw lists no models when a key is saved: listing uses the key, and the OS may ask for keychain access
+      // just because Settings opened. Refresh, a provider change and Save list.
+      drawAi(card, st, my, "", "", true);
     }).catch((err) => {
       if (my !== gen) return;
+      known.report("ai", null);
       fill(card, card.firstChild, h("p", { class: "error", text: "Could not load the AI settings: " + err.message }));
     });
     return card;
   }
 
-  function drawAi(card, st, my, message, notice) {
+  function drawAi(card, st, my, message, notice, first) {
     const sources = st.sources || {};
     const locked = (k) => sources[k] === "env" || sources[k] === "flag";
     const lockNote = (k) => (locked(k) ? h("span", { class: "locked", text: "Set by environment" }) : null);
@@ -123,20 +131,10 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
     const keyNote = h("span", { class: "field-hint key-note" });
     const keyLink = h("span", { class: "field-hint key-link" });
     const removeBtn = apiKeySet && !locked("apiKey") ? h("button", { type: "button", class: "link-btn", id: "ai-key-remove", text: "Remove key" }) : null;
-    const secretProtectionNote = st.secretProtection
-      ? h("span", {
-          class: "field-hint",
-          text:
-            st.secretProtection === "os-keychain"
-              ? "Saved keys are encrypted with your system keychain."
-              : st.secretProtection === "run-hound"
-                ? "Saved keys are encrypted by Run Hound on this computer (no system keychain is available)."
-                : "Keys aren't saved here: set them with environment variables when you start the container.",
-        })
-      : null;
-    const keyHint = h("span", { class: "field-hint", text: "Stays on this machine; never shown again. Not needed for Ollama or LM Studio." });
+    // Filled by syncAuthUi: a link to the Keys and passwords card, and whether a key may be left out.
+    const keyHint = h("span", { class: "field-hint key-kept" });
     const keyField = h("div", { class: "ai-field" },
-      h("label", { class: "field-label", for: "ai-key", text: "API key" }), keyInput, lockNote("apiKey"), removeBtn, keyNote, keyLink, secretProtectionNote,
+      h("label", { class: "field-label", for: "ai-key", text: "API key" }), keyInput, lockNote("apiKey"), removeBtn, keyNote, keyLink,
       keyHint);
     const region = h("input", { id: "ai-region", class: "input", type: "text", spellcheck: "false", autocomplete: "off", placeholder: "us-east-1", disabled: locked("region") });
     region.value = st.region || "";
@@ -168,7 +166,7 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
         h("label", { class: "field-label", for: "ai-aws-key-id", text: "Access key ID" }), awsKeyId, lockNote("awsKeys")),
       h("div", { class: "ai-field ai-aws-keys-field" },
         h("label", { class: "field-label", for: "ai-aws-secret", text: "Secret access key" }), awsSecret, lockNote("awsKeys"), removeKeysBtn, keysNote,
-        h("span", { class: "field-hint", text: "Stays on this machine in ai.json; never shown again." })),
+        h("span", { class: "field-hint" }, jumpLink("keys-card", KEPT_SAFE()), ".")),
       h("div", { class: "ai-field ai-aws-keys-field" },
         h("label", { class: "field-label", for: "ai-aws-session-token", text: "Session token (optional)" }), awsToken, lockNote("awsKeys")),
     ];
@@ -198,9 +196,9 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
     const test = h("button", { type: "button", class: "btn", id: "ai-test" }, testLabel);
     const error = h("p", { class: "error", id: "ai-error" });
     const saved = h("p", { class: "saved", id: "ai-saved", text: message || "" });
-    const noticeEl = notice ? h("p", { class: "warning ai-notice", id: "ai-notice", role: "status", text: notice }) : null;
+    const noticeEl = notice ? noticeBox("warn", notice, { id: "ai-notice", class: "ai-notice", role: "status" }) : null;
     // Saved keys that could not be read, or (Docker) a key still saved in plain text.
-    const secretNoticeEl = st.secretNotice ? h("p", { class: "warning", id: "ai-secret-notice", text: st.secretNotice }) : null;
+    const secretNoticeEl = st.secretNotice ? noticeBox("warn", st.secretNotice, { id: "ai-secret-notice" }) : null;
     const testOut = h("p", { class: "field-hint", id: "ai-test-result" });
 
     const isBedrock = () => preset.value === "bedrock";
@@ -234,7 +232,7 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
       authRow.hidden = !bed;
       keyField.hidden = !providerOf() || (bed && method !== "api-key");
       // A hosted provider always needs its key; only a local or self-hosted endpoint may need none.
-      keyHint.textContent = "Stays on this machine; never shown again." + (isFixed() ? "" : " Not needed for Ollama or LM Studio.");
+      fill(keyHint, jumpLink("keys-card", KEPT_SAFE()), isFixed() ? "." : ". Not needed for Ollama or LM Studio.");
       for (const row of awsKeyRows) row.hidden = !bed || method !== "access-keys";
       awsProfileRow.hidden = !bed || method !== "profile";
     }
@@ -445,9 +443,9 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
     });
 
     fill(card, 
-      h("h2", { id: "ai-h", class: "card-title" }, icon("sparkle"), "AI"),
+      h("h2", { id: "ai-h", class: "card-title" }, icon("sparkle"), "AI model"),
       h("p", { class: "muted ai-intro", text: "Optional. A model reviews the plan, suggests extra flows and explains findings in plain words. It never decides pass or fail: the checks do." }),
-      st.problem ? h("p", { class: "warning ai-problem", id: "ai-problem", text: st.problem }) : null,
+      st.problem ? noticeBox(st.enabled === true ? "warn" : "info", st.problem, { id: "ai-problem", class: "ai-problem" }) : null,
       migrationNote,
       h("div", { class: "option ai-switch" }, enabled, h("label", { for: "ai-enabled" }, "Use AI", h("span", { class: "desc", text: "Off by default. Planning and runs work the same without it." })), lockNote("enabled")),
       h("div", { class: "ai-fields" },
@@ -462,14 +460,17 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
       h("fieldset", { class: "ai-features" }, h("legend", { class: "field-label", text: "What the model does" }), fReview.row, fSuggest.row, fExplain.row, lockNote("features")),
       consentSlot,
       h("div", { class: "ai-actions" }, save, test),
-      error, saved, noticeEl, secretNoticeEl, testOut,
-      st.file ? h("p", { class: "note" }, "Saved to ", h("code", { class: "mono", text: st.file })) : null);
+      error, saved, noticeEl, secretNoticeEl, testOut);
     syncModelUi();
     syncKeyUi();
     drawConsent();
     if (isBedrock()) modelOther.value = current;
     drawModels();
-    loadModels();
+    // Only a key saved in Settings sits behind the OS keychain; one from the environment or a flag asks the OS nothing.
+    if (first && st.hasKey === true && sources.apiKey === "file" && providerOf() && !isBedrock()) {
+      // A saved key: show the saved model and leave listing to Refresh (see aiCard).
+      if (!locked("model")) modelsMsg.textContent = "Choose Refresh to list the models your key can use.";
+    } else loadModels();
   }
 
 `;

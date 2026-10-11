@@ -5,9 +5,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DAMAGED_ENTRIES,
   ENVIRONMENT_ONLY,
+  isSealed,
   KEY_FILE,
+  KEYCHAIN_REFUSED,
   LOCKED_BY_OS_KEYCHAIN,
   readSecrets,
+  SEALED_SECRET,
   SECRETS_FILE,
   secretProtection,
   UNREADABLE_KEY,
@@ -446,5 +449,93 @@ describe("os-keychain protection", () => {
     await Promise.all(Array.from({ length: 8 }, (_, i) => writeSecrets(dir, { [`n${i}`]: `value-number-${i}` }, normal)));
     restart(fakeProtector());
     expect((await readSecrets(dir, normal)).values).toEqual(Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`n${i}`, `value-number-${i}`])));
+  });
+});
+
+/** A keychain that can't be used at all, as the desktop's lazy protector reports it: an error named KeyStoreUnavailableError. */
+function unavailableProtector(): KeyProtector & { asked: number } {
+  const refuse = (): never => {
+    unavailable.asked += 1;
+    const error = new Error("The system keychain is not available to Run Hound.");
+    error.name = "KeyStoreUnavailableError";
+    throw error;
+  };
+  const unavailable = { asked: 0, wrap: refuse, unwrap: refuse };
+  return unavailable;
+}
+
+/** A working keychain that counts every time it is asked. */
+function countingProtector(): KeyProtector & { asked: number } {
+  const inner = fakeProtector();
+  const counting = {
+    asked: 0,
+    wrap: (key: Buffer) => (counting.asked += 1, inner.wrap(key)),
+    unwrap: (wrapped: Buffer) => (counting.asked += 1, inner.unwrap(wrapped)),
+  };
+  return counting;
+}
+
+describe("sealed reads (status only, D10)", () => {
+  it("says which secrets are saved without asking the keychain: every value is SEALED_SECRET", async () => {
+    useOsKeyProtector(fakeProtector());
+    await writeSecrets(dir, { "ai.key.anthropic": SECRET, "accounts.a.password": "pw-123456789" }, normal);
+    const keychain = countingProtector();
+    restart(keychain);
+    const sealed = await readSecrets(dir, { ...normal, open: false });
+    expect(sealed).toEqual({ values: { "ai.key.anthropic": SEALED_SECRET, "accounts.a.password": SEALED_SECRET }, protection: "os-keychain", problem: null });
+    expect(Object.values(sealed.values).every(isSealed)).toBe(true);
+    expect(keychain.asked).toBe(0);
+    // The read that uses them opens them, and asks once.
+    expect((await readSecrets(dir, normal)).values["ai.key.anthropic"]).toBe(SECRET);
+    expect(keychain.asked).toBe(1);
+  });
+
+  it("reads nothing sealed where nothing is saved, and never with RUNHOUND_SECRETS=environment", async () => {
+    expect(await readSecrets(dir, { ...normal, open: false })).toEqual({ values: {}, protection: "run-hound", problem: null });
+    await writeSecrets(dir, { a: "1" }, normal);
+    expect((await readSecrets(dir, { ...environment, open: false })).values).toEqual({});
+  });
+
+  it("doesn't upgrade a run-hound key to the keychain: only an opening read does", async () => {
+    await writeSecrets(dir, { a: SECRET }, normal);
+    const keychain = countingProtector();
+    restart(keychain);
+    await readSecrets(dir, { ...normal, open: false });
+    expect((await keyFile()).protection).toBe("run-hound");
+    expect(keychain.asked).toBe(0);
+  });
+});
+
+describe("a keychain that can't be used (D10: the lazy protector says no on first use)", () => {
+  it("a new store falls back to Run Hound's own key, and the process stops offering the keychain", async () => {
+    const keychain = unavailableProtector();
+    useOsKeyProtector(keychain);
+    expect(secretProtection(normal.env)).toBe("os-keychain");
+    await writeSecrets(dir, { a: SECRET }, normal);
+    expect((await keyFile()).protection).toBe("run-hound");
+    expect(secretProtection(normal.env)).toBe("run-hound");
+    expect((await readSecrets(dir, normal)).values).toEqual({ a: SECRET });
+    expect(keychain.asked).toBe(1);
+  });
+
+  it("a key the keychain wrapped is KEYCHAIN_REFUSED and locked: a save is refused and both files stay byte-identical", async () => {
+    useOsKeyProtector(fakeProtector());
+    await writeSecrets(dir, { a: SECRET }, normal);
+    const before = [await readFile(join(dir, KEY_FILE), "utf8"), await readFile(join(dir, SECRETS_FILE), "utf8")];
+    restart(unavailableProtector());
+    expect(await readSecrets(dir, normal)).toEqual({ values: {}, protection: "os-keychain", problem: KEYCHAIN_REFUSED });
+    await expect(writeSecrets(dir, { b: "other" }, normal)).rejects.toThrow(KEYCHAIN_REFUSED);
+    expect([await readFile(join(dir, KEY_FILE), "utf8"), await readFile(join(dir, SECRETS_FILE), "utf8")]).toEqual(before);
+    // Once the keychain answers again, nothing was lost.
+    restart(fakeProtector());
+    expect((await readSecrets(dir, normal)).values).toEqual({ a: SECRET });
+  });
+
+  it("a run-hound key stays run-hound when the upgrade can't wrap it, and still opens", async () => {
+    await writeSecrets(dir, { a: SECRET }, normal);
+    restart(unavailableProtector());
+    expect(await readSecrets(dir, normal)).toEqual({ values: { a: SECRET }, protection: "os-keychain", problem: null });
+    expect((await keyFile()).protection).toBe("run-hound");
+    expect(secretProtection(normal.env)).toBe("run-hound");
   });
 });

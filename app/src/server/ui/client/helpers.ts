@@ -75,6 +75,27 @@ export const HELPERS = String.raw`
     s.innerHTML = ICONS[name] || "";
     return s;
   }
+  /**
+   * A notice: an icon and a line of text, edged and tinted by its kind (ok, warn, err or info). Text only, never HTML.
+   * setNotice re-uses one element (a result slot): no text empties it, and CSS hides an empty notice.
+   */
+  const NOTICE_ICON = { ok: "statusPass", warn: "alert", err: "statusFail", info: "info" };
+  function setNotice(el, kind, text) {
+    for (const k of Object.keys(NOTICE_ICON)) el.classList.remove(k);
+    fill(el);
+    if (!text) return el;
+    el.classList.add(kind);
+    fill(el, icon(NOTICE_ICON[kind]), h("span", { class: "notice-text", text }));
+    return el;
+  }
+  function noticeBox(kind, text, attrs) {
+    const a = Object.assign({}, attrs || {});
+    a.class = "notice" + (a.class ? " " + a.class : "");
+    return setNotice(h("div", a), kind, text);
+  }
+  /** A small status chip (kind: ok, warn or nothing for neutral). */
+  const chip = (kind, text, attrs) => h("span", Object.assign({ class: "chip" + (kind ? " " + kind : ""), text }, attrs || {}));
+
   /** Lucide status icons (CONFIG.icons); the big verdict variants reuse them at 64 px. */
   const RINGS = {
     pass: ICONS.statusPass,

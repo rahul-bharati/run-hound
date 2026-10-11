@@ -20,9 +20,28 @@ function fakeStorage(options: { available?: boolean; backend?: string | "absent"
 }
 
 describe("osKeyProtector", () => {
-  it("is null when the OS can't encrypt, on every platform", () => {
+  it("asks the OS nothing until a key is wrapped or unwrapped, then checks once (D10: no keychain prompt at launch)", () => {
     for (const platform of ["linux", "darwin", "win32"] as const) {
-      expect(osKeyProtector(fakeStorage({ available: false, backend: "gnome_libsecret" }), platform)).toBeNull();
+      let asked = 0;
+      const storage = fakeStorage({ backend: "gnome_libsecret" });
+      const counted: SafeStorageLike = { ...storage, isEncryptionAvailable: () => (asked += 1, storage.isEncryptionAvailable()) };
+      const protector = osKeyProtector(counted, platform)!;
+      expect(protector, platform).not.toBeNull();
+      expect(asked, platform).toBe(0);
+      const wrapped = protector.wrap(Buffer.from("k".repeat(32)));
+      protector.unwrap(wrapped);
+      protector.wrap(Buffer.from("k".repeat(32)));
+      expect(asked, platform).toBe(1);
+    }
+  });
+
+  it("throws an error named KeyStoreUnavailableError from wrap and unwrap when the OS can't encrypt, on every platform", () => {
+    for (const platform of ["linux", "darwin", "win32"] as const) {
+      const protector = osKeyProtector(fakeStorage({ available: false, backend: "gnome_libsecret" }), platform)!;
+      expect(protector, platform).not.toBeNull();
+      for (const use of [() => protector.wrap(Buffer.alloc(32)), () => protector.unwrap(Buffer.from("x"))]) {
+        expect(use, platform).toThrow(expect.objectContaining({ name: "KeyStoreUnavailableError" }));
+      }
     }
   });
 
