@@ -7,4 +7,4 @@ export { registerUiRoutes } from "./ui-controller.js";
 export { registerPlanRoutes } from "./plan-controller.js";
 export { registerRunsRoutes } from "./runs-controller.js";
 export { registerAiRoutes } from "./ai-controller.js";
-export { registerAccountsRoutes } from "./accounts-controller.js";
+export { registerAccountsRoutes } from "./accounts-controller.js";export { registerBriefRoutes } from "./brief-controller.js";
