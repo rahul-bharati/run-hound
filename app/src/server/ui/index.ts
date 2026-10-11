@@ -1,5 +1,6 @@
 import { MARK_DATA_URI } from "../../core/brand.js";
 import { CHECK_GROUPS, V1_CHECK_IDS } from "../../core/types.js";
+import { BRIEF_CLIENT_LIMITS, briefTemplate } from "./brief-template.js";
 import { CLIENT } from "./client.js";
 import { ICONS } from "./icons.js";
 import { STYLES } from "./styles.js";
@@ -22,7 +23,13 @@ import { STYLES } from "./styles.js";
  *                      scenarios selected ("Back to test plan"), as the run's account. Under the URL, a <select
  *                      id="sign-in-as"> labelled "Sign in as" ("Not signed in", then Account A and B; a slot that isn't
  *                      set up is disabled) with #sign-in-hint under it; a signed-in plan shows #plan-account ("Signed in
- *                      as <label>") after .plan-head.
+ *                      as <label>") after .plan-head. With the agent enabled (UiOptions.agent, A2, a preview) two more
+ *                      cards follow the plan: #brief-section "Describe what to test" (a Preview badge; #brief-form with
+ *                      textareas #brief-goal and #brief-ticket, input #brief-feature, button #brief-draft-button "Draft
+ *                      a brief", the polite #brief-progress and the alert #brief-error), and #brief-editor, hidden
+ *                      until a draft exists (heading #brief-editor-h "Testing brief", the fields in #brief-body, the
+ *                      alert #brief-edit-error, #brief-save "Save changes", #brief-approve "Approve brief"). Without it
+ *                      the document holds none of this and the script never calls /api/briefs.
  *     #/runs          Runs list (#runs-list): one link per run, href="#/runs/<id>", newest first.
  *     #/runs/<id>     Running view while running (#running: "Running tests…", #counter "3 / 15", #elapsed (mm:ss, not a
  *                      live region) in the elapsed card, #browser-card, <ol id="scenario-list"> numbered rows with
@@ -47,6 +54,8 @@ export interface UiOptions {
   version: string;
   /** False when the machine has no display: "Show the browser window" is disabled with an explanation. */
   canShowBrowser: boolean;
+  /** True when the agent's features are on (RUNHOUND_AGENT=1): the New run page then offers testing briefs (A2). */
+  agent?: boolean;
 }
 
 const HEADED_DESC = {
@@ -63,9 +72,12 @@ export function renderUi(options: UiOptions): string {
   const version = options.version.replace(/[^\w.+-]/g, "");
   const headedAttrs = options.canShowBrowser ? "" : " disabled";
   const headedDesc = options.canShowBrowser ? HEADED_DESC.on : HEADED_DESC.off;
+  const agent = options.agent === true;
   const config = inlineJson({
     version,
     canShowBrowser: options.canShowBrowser,
+    agent,
+    briefLimits: agent ? BRIEF_CLIENT_LIMITS : null,
     headedDesc,
     groups: CHECK_GROUPS.map((g) => ({ id: g.id, label: g.label, categories: g.categories })),
     v1Checks: V1_CHECK_IDS,
@@ -144,7 +156,7 @@ export function renderUi(options: UiOptions): string {
 </div>
 <div class="plan-actions"><p class="error" id="plan-error"></p><button class="btn primary" id="run-button" type="submit">Start run</button></div>
 </form>
-</section>
+</section>${agent ? `\n${briefTemplate()}` : ""}
 </div>
 </template>
 
