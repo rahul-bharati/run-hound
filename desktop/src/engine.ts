@@ -16,4 +16,5 @@ export { createApp } from "../../app/src/server/app.js";
 export { startServerWithApp } from "../../app/src/cli/adapters/server.js";
 export { RUN_HOUND_VERSION } from "../../app/src/engine/runner/options.js";
 export { useOsKeyProtector } from "../../app/src/operations/secret-store.js";
+export { redactSecrets } from "../../app/src/engine/redact.js";
 export { importCliSettingsOnce } from "../../app/src/operations/settings-import.js";
