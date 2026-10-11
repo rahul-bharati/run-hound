@@ -86,6 +86,15 @@ async function until(what, done, ms = 15_000) {
  */
 const press = (win, id) => win.evaluate((buttonId) => document.getElementById(buttonId).click(), id).catch((error) => { if (!/closed|destroyed/i.test(String(error))) throw error; });
 
+/**
+ * For a click on a button that closes its window or navigates its page: the click's own answer may never come back
+ * ("closed", "destroyed"), so that error is let go and the check that follows (the close, the exit, the page that loads)
+ * decides. Any other error is thrown.
+ */
+const lettingGo = (error) => {
+  if (!/closed|destroyed/i.test(String(error))) throw error;
+};
+
 try {
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
@@ -612,7 +621,7 @@ try {
   });
 
   await check("Keep using Run Hound closes the error window, and the main window still works", async () => {
-    await Promise.all([errorWindow.waitForEvent("close", { timeout: 10_000 }), errorWindow.click("#dismiss", { noWaitAfter: true })]);
+    await Promise.all([errorWindow.waitForEvent("close", { timeout: 10_000 }), errorWindow.click("#dismiss", { noWaitAfter: true }).catch(lettingGo)]);
     assert.equal(app.windows().length, windowsBeforeError);
     assert.equal(await page.evaluate(async () => (await fetch("/api/runs")).status), 200);
     assert.match(await page.evaluate(() => document.title), /Run Hound/);
@@ -632,7 +641,7 @@ try {
     assert.deepEqual(view.buttons, ["Keep using Run Hound", "Quit Run Hound"]);
     assert.deepEqual(await errorBoxes(), [], "a native error box opened");
     await until("the rejection on stderr", () => stderr.includes("[run-hound] unhandled rejection: Error: launch-check rejected\n"));
-    await Promise.all([rejected.waitForEvent("close", { timeout: 10_000 }), rejected.click("#dismiss", { noWaitAfter: true })]);
+    await Promise.all([rejected.waitForEvent("close", { timeout: 10_000 }), rejected.click("#dismiss", { noWaitAfter: true }).catch(lettingGo)]);
     assert.equal(app.windows().length, windowsBeforeError);
     assert.equal(await page.evaluate(async () => (await fetch("/api/runs")).status), 200);
   });
@@ -754,7 +763,7 @@ try {
     });
 
     await check("Reload on the crash page brings the engine's page back, and the window works", async () => {
-      await inWindow(`document.getElementById("reload").click()`);
+      await inWindow(`document.getElementById("reload").click()`).catch(lettingGo);
       await until("the engine's page", async () => (await inWindow("location.origin")) === engine);
       await until("the UI", () => inWindow(`document.querySelector("main#view > *") !== null`));
       assert.equal(await inWindow(`fetch("/api/runs").then((res) => res.status)`), 200);
@@ -768,10 +777,8 @@ try {
       }, engine);
       await until("the load-failure page", async () => (await problem()).h1 === "This page didn't load");
       assert.deepEqual((await problem()).buttons, ["Try again", "Quit Run Hound"]);
-      // Quit ends the app, so the script can lose its context before it reports back (as with press): the exit is the check.
-      await inWindow(`document.getElementById("quit").click()`).catch((error) => {
-        if (!/closed|destroyed/i.test(String(error))) throw error;
-      });
+      // Quit ends the app, so the script can lose its context before it reports back: the exit is the check.
+      await inWindow(`document.getElementById("quit").click()`).catch(lettingGo);
       const { code, signal } = await Promise.race([exited, new Promise((_resolve, reject) => setTimeout(() => reject(new Error("the app was still running 20 s after Quit")), 20_000))]);
       assert.deepEqual([code, signal], [0, null]);
     });
