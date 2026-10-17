@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AccountStatus, AccountsStatus } from "../../../src/interfaces/accounts.js";
 import type { AiModelList, AiStatus } from "../../../src/ai/types.js";
 import type { Finding, Plan, Report } from "../../../src/core/types.js";
+import { AI_KEY_URLS } from "../../../src/constants/ai-constants.js";
 import { renderUi } from "../../../src/server/ui/index.js";
 
 const ORIGIN = "http://rh.test";
@@ -676,7 +677,10 @@ describe("Settings → AI card: bring-your-own-key providers", () => {
       expect(await link.getAttribute("rel")).toBe("noopener noreferrer");
       expect(await link.innerText()).toContain(`Get your ${f.label} API key`);
     }
-    for (const label of ["Amazon Bedrock", "LM Studio", "Other OpenAI-compatible", "Ollama (local, opt-in)"]) {
+    // Bedrock's key page is on the shared list too (constants/ai-constants.ts AI_KEY_URLS), which the first-launch setup uses.
+    await provider.selectOption({ label: "Amazon Bedrock" });
+    expect(await page.locator(`.key-link a[href="${AI_KEY_URLS.bedrock}"]`).count()).toBe(1);
+    for (const label of ["LM Studio", "Other OpenAI-compatible", "Ollama (local, opt-in)"]) {
       await provider.selectOption({ label });
       expect(await page.locator(".key-link a").count(), label).toBe(0);
     }

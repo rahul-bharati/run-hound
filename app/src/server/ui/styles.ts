@@ -666,6 +666,51 @@ fieldset.brief-field legend { padding:0; }
   .brief-row.data-row .input { flex-basis:calc(50% - .25rem); }
   .brief-row.data-row .btn { margin-left:auto; }
 }
+/* First-launch setup (O1, client/onboarding.ts) and the Delete all keys and data confirmation (client/settings.ts). */
+.ob { max-width:44rem; }
+.ob-step { color:var(--muted); font-size:.85rem; margin-bottom:.35rem; }
+.ob h1 { font-size:clamp(1.55rem, 2.6vw, 2rem); line-height:1.12; font-weight:800; letter-spacing:-.025em; margin-bottom:.6rem; }
+.ob h1:focus { outline:none; }
+.ob-intro { color:var(--muted); max-width:40rem; margin-bottom:1.1rem; }
+.ob-points { display:grid; gap:.7rem; margin:1.1rem 0 0; padding:0; list-style:none; }
+.ob-points li { padding-left:1.1rem; border-left:2px solid var(--accent-edge); max-width:40rem; }
+.ob-actions { display:flex; flex-wrap:wrap; align-items:center; gap:.6rem; margin-top:1.5rem; }
+.ob-actions .ob-skip { margin:0 0 0 auto; align-self:center; min-height:44px; }
+.ob-guide { margin:1.1rem 0; }
+.ob-steps { padding-left:1.3rem; display:grid; gap:.35rem; }
+.ob-open { margin-top:.9rem; }
+.ob-private { margin-top:.9rem; color:var(--fg); font-weight:600; }
+.ob-fields { margin-top:1rem; }
+.ob-summary { display:grid; grid-template-columns:max-content minmax(0, 1fr); gap:.35rem 1.1rem; margin:1.1rem 0; }
+.ob-summary dt { color:var(--muted); }
+.ob-summary dd { margin:0; min-width:0; overflow-wrap:anywhere; }
+.ob-refresh { margin-top:.8rem; }
+.ob .ai-consent-slot { margin-top:.25rem; }
+.ob .notice { margin-top:.75rem; }
+.ob .error:not(:empty) { margin-top:.75rem; }
+.model-picker + .option, .model-picker.is-off { margin-top:.5rem; }
+.model-picker.is-off { opacity:.6; }
+.ai-helper-field { grid-column:1 / -1; }
+.ai-field .pw-row .input { flex:1 1 0; width:auto; min-width:0; }
+.ai-setup { margin:-.25rem 0 1rem; }
+.radio-cards { display:grid; gap:.6rem; border:0; padding:0; margin:0; min-width:0; }
+.radio-cards legend { padding:0; margin-bottom:.6rem; }
+.radio-card { display:flex; align-items:flex-start; gap:.75rem; min-height:44px; padding:.8rem .95rem; border:1px solid var(--line-strong); border-radius:var(--r-md); background:var(--surface); cursor:pointer; min-width:0; }
+.radio-card:hover { border-color:var(--dim); }
+.radio-card:has(input:checked) { border-color:var(--accent); background:var(--accent-tint); }
+.radio-card:has(input:focus-visible) { outline:2px solid var(--accent); outline-offset:2px; }
+.radio-card input { margin:.25rem 0 0; flex:none; accent-color:var(--accent); }
+.radio-card-text { display:grid; gap:.1rem; min-width:0; }
+.radio-card-title { font-weight:650; }
+.radio-card-desc { color:var(--muted); font-size:.88rem; }
+.btn.destructive { background:var(--fail-tint); border-color:var(--fail-edge); color:var(--fail); }
+.btn.destructive:hover { border-color:var(--fail); color:var(--fail); }
+.keys-delete { display:grid; gap:.75rem; max-width:48rem; margin-top:1.1rem; padding-top:1rem; border-top:1px solid var(--line); justify-items:start; }
+.keys-delete p { font-size:.9rem; }
+.confirm-panel { display:grid; gap:.75rem; width:100%; padding:1rem 1.1rem; border:1px solid var(--fail-edge); border-radius:var(--r-md); background:var(--fail-tint); }
+.confirm-panel h3 { font-size:1rem; font-weight:700; }
+.confirm-panel h3:focus { outline:none; }
+.confirm-panel .plain-list { padding-left:1.2rem; }
 /* Desktop app only. desktop/src/preload.ts marks <html data-shell="desktop"> and adds the .desktop-titlebar strip, because the
    window's own title bar is hidden (docs: desktop shell theme). Every rule is scoped here, so a browser renders none of it. */
 html[data-shell="desktop"] { scroll-padding-top: 36px; }

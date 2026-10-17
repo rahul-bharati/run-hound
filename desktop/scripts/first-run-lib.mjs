@@ -1,11 +1,12 @@
 // Pure helpers for first-run-check.mjs (the D5 first-run check of an INSTALLED desktop app): argument parsing, the
 // documented data folders, the app's isolated environment, the step recorder, the report assertions and the evidence
 // summary. Nothing here launches anything, so desktop/tests/first-run.test.ts covers it without Electron.
+import { createHash } from "node:crypto";
 import { posix, win32 } from "node:path";
 
 /** What the check accepts; see first-run-check.mjs for what each is for. */
 export function parseArgs(argv) {
-  const out = { app: "", evidence: "", artifact: "", home: "", realHome: false, installedPaths: [], packageFiles: "", afterUninstall: false, waitSeconds: 0 };
+  const out = { app: "", evidence: "", artifact: "", home: "", realHome: false, installedPaths: [], packageFiles: "", afterUninstall: false, afterReinstall: false, waitSeconds: 0 };
   const takes = new Map([
     ["--app", (v) => (out.app = v)],
     ["--evidence", (v) => (out.evidence = v)],
@@ -19,6 +20,10 @@ export function parseArgs(argv) {
     const flag = argv[i];
     if (flag === "--after-uninstall") {
       out.afterUninstall = true;
+      continue;
+    }
+    if (flag === "--after-reinstall") {
+      out.afterReinstall = true;
       continue;
     }
     if (flag === "--real-home") {
@@ -36,7 +41,8 @@ export function parseArgs(argv) {
   if (!out.evidence) throw new Error("--evidence <directory> is required.");
   if (!Number.isFinite(out.waitSeconds) || out.waitSeconds < 0) throw new Error("--wait-seconds must be a number of seconds.");
   if (out.realHome && out.home) throw new Error("--real-home and --home are alternatives.");
-  if (out.afterUninstall && !out.home && !out.realHome) throw new Error("--after-uninstall needs the --home the first run used, or --real-home.");
+  if (out.afterUninstall && out.afterReinstall) throw new Error("--after-uninstall and --after-reinstall are alternatives.");
+  if ((out.afterUninstall || out.afterReinstall) && !out.home && !out.realHome) throw new Error(`${out.afterUninstall ? "--after-uninstall" : "--after-reinstall"} needs the --home the first run used, or --real-home.`);
   return out;
 }
 
@@ -58,6 +64,33 @@ export function expectedDataDirs(platform, home, env = {}) {
   const config = env.XDG_CONFIG_HOME || posix.join(home, ".config");
   const data = env.XDG_DATA_HOME || posix.join(home, ".local", "share");
   return { settings: posix.join(config, "run-hound-desktop"), runs: posix.join(data, "run-hound", "runs") };
+}
+
+/**
+ * What the platform's uninstaller does to the user's data (docs/desktop-install.md "Uninstalling"): the Windows uninstaller
+ * deletes the settings folder, which holds the saved keys, and Electron's profile folder (`userData`), and keeps the reports
+ * (desktop/assets/installer.nsh); macOS (the app is dragged to the Trash) and the Linux packages have no per-user uninstall
+ * step, so they leave everything. `userData` is what the first run recorded, or null.
+ */
+export function uninstallDataExpectations(platform, dirs, userData) {
+  if (platform === "win32") return { gone: [dirs.settings, userData].filter(Boolean), kept: [dirs.runs] };
+  return { gone: [], kept: [dirs.settings, dirs.runs] };
+}
+
+/** The files of the settings folder that an install over the top must leave exactly as they are. */
+export const SETTINGS_FILES = ["ai.json", "accounts.json", "secrets.json", "secrets.key", "onboarding.json", "imported-from-cli.json"];
+
+/**
+ * A SHA-256 over the named files' names and bytes, in the order given, so an over-the-top install that deleted, rewrote or
+ * added one of them shows. `entries` is [name, bytes] for each file that exists.
+ */
+export function settingsDigest(entries) {
+  const hash = createHash("sha256");
+  for (const [name, bytes] of entries) {
+    hash.update(`${name}:${bytes.length}:`);
+    hash.update(bytes);
+  }
+  return { files: entries.map(([name]) => name), sha256: hash.digest("hex") };
 }
 
 /** Variables that would move the app's folders or switch its AI on by themselves: a first run has none of them. */

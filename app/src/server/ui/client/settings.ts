@@ -140,7 +140,69 @@ export const SETTINGS = String.raw`  // ---------- Settings ----------
       h("p", { class: "keys-lead", id: "keys-lead", text: lead }),
       platformNote ? noticeBox("info", platformNote, { id: "keys-platform-note" }) : null,
       protection === "environment" ? null : h("p", { class: "muted keys-more", text: "To change one, type a new value in its field. To delete one, choose Remove next to it." }),
-      protection === "environment" || !folder ? null : h("p", { class: "note keys-where" }, "Encrypted files are kept in ", h("code", { class: "mono", text: folder }), "."));
+      protection === "environment" || !folder ? null : h("p", { class: "note keys-where" }, "Encrypted files are kept in ", h("code", { class: "mono", text: folder }), "."),
+      onDesktop ? deleteDataBlock() : null);
+  }
+
+  /**
+   * Desktop only: "Delete all keys and data" with its confirmation (docs/onboarding-spec.md). The engine deletes the saved
+   * keys and passwords, the AI and account settings, the store's key and the setup and import markers, and the finished
+   * reports only when asked; then the setup opens again. Run defaults live in this page's own storage, so they go here.
+   */
+  function deleteDataBlock() {
+    const button = h("button", { type: "button", class: "btn destructive", id: "delete-data", text: "Delete all keys and data" });
+    const includeRuns = h("input", { type: "checkbox", id: "delete-runs" });
+    const error = h("p", { class: "error", id: "delete-error", role: "alert" });
+    const confirm = h("button", { type: "button", class: "btn destructive", id: "delete-confirm", text: "Delete everything" });
+    const cancel = h("button", { type: "button", class: "btn", id: "delete-cancel", text: "Cancel" });
+    const heading = h("h3", { id: "delete-h", tabindex: "-1", text: "Delete all keys and data?" });
+    const macNote = document.documentElement.dataset.platform === "darwin"
+      ? h("p", { class: "field-hint", id: "delete-mac-note", text: "macOS keeps its “Run Hound Safe Storage” keychain item, which an app can't remove. It unlocks nothing once Run Hound's key file is gone." })
+      : null;
+    const panel = h("div", { class: "confirm-panel", id: "delete-panel", role: "group", "aria-labelledby": "delete-h", hidden: true },
+      heading,
+      h("p", { text: "This deletes from this computer:" }),
+      h("ul", { class: "plain-list" },
+        h("li", { text: "Your saved AI keys and test-account passwords" }),
+        h("li", { text: "Your AI settings, test-account details and run defaults" }),
+        h("li", { text: "The key Run Hound's store is locked with" }),
+        h("li", { text: "The records that setup and the settings import were done" })),
+      h("div", { class: "option" }, includeRuns, h("label", { for: "delete-runs" }, "Also delete my reports", h("span", { class: "desc", text: "The finished runs in your reports folder. Left alone unless you tick this." }))),
+      h("p", { text: "This can't be undone. Run Hound opens its setup again afterwards." }),
+      macNote,
+      error,
+      h("div", { class: "ai-actions" }, confirm, cancel));
+    button.addEventListener("click", () => {
+      button.hidden = true;
+      panel.hidden = false;
+      heading.focus();
+    });
+    cancel.addEventListener("click", () => {
+      error.textContent = "";
+      panel.hidden = true;
+      button.hidden = false;
+      button.focus();
+    });
+    confirm.addEventListener("click", async () => {
+      error.textContent = "";
+      confirm.disabled = true;
+      cancel.disabled = true;
+      confirm.textContent = "Deleting…";
+      try {
+        await api("/api/data/delete", { includeRuns: includeRuns.checked });
+        try { localStorage.removeItem(DEFAULTS_KEY); } catch (e) { /* storage may be blocked */ }
+        announce("Deleted all keys and data.");
+        location.hash = "#/welcome";
+      } catch (err) {
+        error.textContent = err.message;
+        confirm.disabled = false;
+        cancel.disabled = false;
+        confirm.textContent = "Delete everything";
+      }
+    });
+    return h("div", { class: "keys-delete" },
+      h("p", { class: "muted", text: "Removes everything Run Hound saved on this computer. On macOS and Linux, use it before you remove the app; uninstalling on Windows does it for you." }),
+      button, panel);
   }
 
   // ---------- Settings: about ----------

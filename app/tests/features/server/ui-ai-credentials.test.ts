@@ -17,6 +17,7 @@ import { chromium, type Browser, type Page, type Request, type Route } from "pla
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AccountStatus, AccountsStatus } from "../../../src/interfaces/accounts.js";
 import type { AiStatus } from "../../../src/ai/types.js";
+import { AI_KEY_URLS } from "../../../src/constants/ai-constants.js";
 import { renderUi } from "../../../src/server/ui/index.js";
 
 const ORIGIN = "http://rh.test";
@@ -256,7 +257,8 @@ describe("Settings → AI card: each provider's own saved key (K1)", () => {
     expect(await visible(page, "#ai-aws-auth")).toBe(true);
     expect(await page.locator("#ai-key").getAttribute("placeholder")).toBe("Saved");
     expect(await page.locator(".key-note").innerText()).toBe("A key is saved for Amazon Bedrock.");
-    expect(await visible(page, ".key-link a")).toBe(false);
+    // Bedrock's key page is on the shared list too (AI_KEY_URLS), so the field links to it like the other providers'.
+    expect(await page.locator(".key-link a").getAttribute("href")).toBe(AI_KEY_URLS.bedrock);
     await provider.selectOption({ label: "Google Gemini" });
     expect(await page.locator("#ai-key").getAttribute("placeholder")).toBe("Not set");
     expect(await page.locator(".key-note").innerText()).toBe("");

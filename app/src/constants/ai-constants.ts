@@ -43,3 +43,43 @@ export const KEYS_FROM_ENVIRONMENT =
 /** AiStatus.secretNotice in the Docker image when a key is still saved in plain text in `file`. */
 export const plainTextKeyNotice = (file: string): string =>
   `A key is still saved in plain text in ${file}. Set it with an environment variable instead and remove it from the file.`;
+
+/** The page where each provider hands out API keys (the guide in onboarding and the link in Settings → AI use this one list). */
+export const AI_KEY_URLS: Partial<Record<AiProvider, string>> = {
+  anthropic: "https://platform.claude.com/settings/keys",
+  openai: "https://platform.openai.com/api-keys",
+  gemini: "https://aistudio.google.com/apikey",
+  bedrock: "https://console.aws.amazon.com/bedrock/",
+};
+
+/** Ordered patterns for one provider: the first pattern that matches any model wins. */
+export interface ModelPatterns {
+  /** For the main model: briefs and the agent's turns. */
+  main: readonly RegExp[];
+  /** For the helper model: plan review, suggested flows and explanations. */
+  helper: readonly RegExp[];
+}
+
+/**
+ * The model pair onboarding and Settings preselect from a provider's live model list (ai/recommend.ts). Within the first
+ * pattern that matches any model, the newest match wins. A provider without an entry, or a list no pattern matches,
+ * starts both selects on the first listed model. A model ID is never the only choice: the user can pick any other.
+ */
+export const RECOMMENDED_MODELS: Partial<Record<AiProvider, ModelPatterns>> = {
+  anthropic: { main: [/opus/i, /sonnet/i], helper: [/sonnet/i, /haiku/i] },
+  // From OpenAI's models page (checked 2026-10-17): the flagship tier, then the balanced tier, then the plain legacy flagships
+  // for a key that has no gpt-6; the helper takes the balanced tier first, then the efficient one. Anchored, so -pro, -mini,
+  // -codex, -chat-latest, realtime, audio, image and the like never match.
+  openai: {
+    main: [/^gpt-\d+(?:\.\d+)*-astra$/, /^gpt-\d+(?:\.\d+)*-sol$/, /^gpt-5(?:\.\d+)?$/],
+    helper: [/^gpt-\d+(?:\.\d+)*-sol$/, /^gpt-\d+(?:\.\d+)*-luna$/, /^gpt-5(?:\.\d+)*-(?:terra|mini)$/],
+  },
+  // From Google's models page (checked 2026-10-17): ids come without the "models/" prefix. The end anchors keep -tts, -image,
+  // -live and -native-audio variants out.
+  gemini: {
+    main: [/^gemini-\d+(?:\.\d+)*-argon$/, /^gemini-\d+(?:\.\d+)*-pro(?:-preview)?$/, /^gemini-pro-latest$/, /^gemini-\d+(?:\.\d+)*-flash(?:-preview)?$/],
+    helper: [/^gemini-\d+(?:\.\d+)*-flash(?:-preview)?$/, /^gemini-\d+(?:\.\d+)*-flash-lite(?:-preview)?$/, /^gemini-flash-latest$/, /^gemini-flash-lite-latest$/],
+  },
+  // Claude on Bedrock: anthropic.claude-… and us.anthropic.claude-… inference profile IDs.
+  bedrock: { main: [/anthropic\.claude.*opus/i, /anthropic\.claude.*sonnet/i], helper: [/anthropic\.claude.*sonnet/i, /anthropic\.claude.*haiku/i] },
+};

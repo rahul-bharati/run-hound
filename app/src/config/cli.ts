@@ -4,6 +4,7 @@ export const AI_OPTIONS = {
   ai: { type: "boolean" },
   "ai-provider": { type: "string" },
   "ai-model": { type: "string" },
+  "ai-helper-model": { type: "string" },
   "ai-base-url": { type: "string" },
   "ai-allow-remote": { type: "boolean" },
 } as const satisfies Record<string, ParseArgsOptionDescriptor>;

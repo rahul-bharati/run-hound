@@ -12,7 +12,9 @@
  * the bundle evaluates `playwright` when it loads.
  */
 
-export { createApp } from "../../app/src/server/app.js";
+// The desktop's engine is the app plus the routes only the desktop has (first-launch onboarding and "Delete all keys and
+// data", app/src/server/desktop-app.ts): the command line's `serve` and the Docker image use the plain createApp.
+export { createDesktopApp as createApp } from "../../app/src/server/desktop-app.js";
 export { startServerWithApp } from "../../app/src/cli/adapters/server.js";
 export { RUN_HOUND_VERSION } from "../../app/src/engine/runner/options.js";
 export { useOsKeyProtector } from "../../app/src/operations/secret-store.js";

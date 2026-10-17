@@ -20,7 +20,7 @@ function slowClient(ms: number, seen: (AbortSignal | undefined)[] = []): LlmClie
   };
 }
 
-const session = (client: LlmClient): AiSession => ({ client, remote: false, features: { review: true, suggest: true, explain: false } });
+const session = (client: LlmClient): AiSession => ({ client, helper: client, remote: false, features: { review: true, suggest: true, explain: false } });
 const req: JsonRequest<unknown> = { name: "x", system: "s", user: "u", schema: {}, validate: (v) => v };
 
 async function rejection(promise: Promise<unknown>): Promise<AiError> {

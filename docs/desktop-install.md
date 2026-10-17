@@ -19,7 +19,7 @@ From the [support matrix](desktop-architecture.md#support-matrix), which Playwri
 
 ## Where your data lives
 
-The app keeps your settings, saved keys and reports in folders of its own, apart from the command line's and from the app's files. Installing, updating and uninstalling never touch them.
+The app keeps your settings, saved keys and reports in folders of its own, apart from the command line's and from the app's files. Installing and updating never touch them. Uninstalling deletes your settings and keys on Windows only, and always keeps your reports; the other systems have no per-user uninstall step, so [remove your keys](#removing-your-keys-and-data) before you remove the app.
 
 | | Settings and saved keys | Reports |
 |---|---|---|
@@ -27,10 +27,18 @@ The app keeps your settings, saved keys and reports in folders of its own, apart
 | Windows | `%APPDATA%\run-hound` | `%LOCALAPPDATA%\run-hound\runs` |
 | Linux | `~/.config/run-hound-desktop` (or `$XDG_CONFIG_HOME/run-hound-desktop`) | `~/.local/share/run-hound/runs` (or `$XDG_DATA_HOME/run-hound/runs`) |
 
-- **Settings folder:** `ai.json` (your AI choices), `accounts.json` (the test accounts you saved) and `secrets.json` with `secrets.key` (the encrypted API keys and test-account passwords).
+- **Settings folder:** `ai.json` (your AI choices, including the main and helper models), `accounts.json` (the test accounts you saved), `secrets.json` with `secrets.key` (the encrypted API keys and test-account passwords), `onboarding.json` (the first-launch setup was finished or skipped, so it doesn't open again) and `imported-from-cli.json`.
 - **Reports:** one folder per run, each with its `report.html`, evidence and generated Playwright test.
 - `RUNHOUND_CONFIG_DIR` and `RUNHOUND_RUNS_DIR`, if set when the app starts, replace these two folders.
 - On the first launch the app copies your command line settings once (from `~/.config/run-hound`, or `$XDG_CONFIG_HOME/run-hound`) and says so. See the [decision](decisions/10-2026.md#2026-10-07-desktop-settings-import).
+
+## Removing your keys and data
+
+Your saved keys are encrypted: the keys and passwords are in `secrets.json`, locked with a key kept in `secrets.key` that the system keychain protects where there is one, and only Run Hound opens them. Nothing is kept inside the app itself, because installing a new version replaces the app and a signed macOS app can't be written to.
+
+- **In the app, on any system:** open **Settings**, find **Keys and passwords** and choose **Delete all keys and data**. After you confirm, Run Hound deletes your saved AI keys and test-account passwords, your AI settings, test-account details and run defaults, the key of the encrypted store and the records that the setup and the settings import were done. It deletes your reports only if you tick **Also delete my reports**. Then the first-launch setup opens again. It never touches the command line's settings folder, and it refuses (saying so) when the app's settings folder is the command line's folder, which happens only when `RUNHOUND_CONFIG_DIR` points both at one place.
+- **Windows:** uninstalling Run Hound deletes the settings folder `%APPDATA%\run-hound` (with the saved keys) and the app's browser profile `%APPDATA%\Run Hound`. It keeps your reports in `%LOCALAPPDATA%\run-hound\runs`. It deletes nothing when the uninstaller runs as part of an update or an install over an existing one.
+- **macOS and Linux:** there is no uninstall step that can reach your user's files (macOS: the app is dragged to the Trash; Linux: the packages run as root for every user, which is not the place to delete one user's files). Use **Delete all keys and data** first, then remove the app. macOS keeps a "Run Hound Safe Storage" item in Keychain Access, which an app can't remove; it unlocks nothing once `secrets.key` is gone, and you can delete it.
 
 ## macOS
 
@@ -46,7 +54,7 @@ A signed and notarized build opens with the usual "downloaded from the internet"
 
 **Update.** Download the newer `.dmg`, quit Run Hound, drag the new **Run Hound** onto **Applications** and choose **Replace**. Your settings, keys and reports stay. An unsigned build can make macOS ask again for access to the keychain after an update, the first time a saved key or password is used. Choose **Always Allow**. If you choose **Deny**, nothing is lost: Run Hound says the saved keys are locked, and the next time it asks you can allow it.
 
-**Uninstall.** Quit Run Hound and drag it from Applications to the Trash. That leaves your settings, keys and reports in place. To remove them as well, delete the two folders above (the reports are inside the settings folder) and, if you like, the app's browser profile `~/Library/Application Support/Run Hound`. Deleting the folders also deletes the saved keys. macOS may keep a "Run Hound Safe Storage" item in Keychain Access; you can delete it, because it is useless without the folder.
+**Uninstall.** Quit Run Hound and drag it from Applications to the Trash. That leaves your settings, keys and reports in place, because macOS has no uninstall step for the app to use. To remove your keys first, use **Settings > Keys and passwords > Delete all keys and data** (see [Removing your keys and data](#removing-your-keys-and-data)). Or delete the two folders above by hand (the reports are inside the settings folder) and, if you like, the app's browser profile `~/Library/Application Support/Run Hound`. Deleting the folders also deletes the saved keys. macOS may keep a "Run Hound Safe Storage" item in Keychain Access; you can delete it, because it is useless without the folder.
 
 ## Windows
 
@@ -56,7 +64,7 @@ A signed and notarized build opens with the usual "downloaded from the internet"
 
 **Update.** Download the newer installer and run it. It replaces the installed app and keeps your settings, keys and reports. Close Run Hound first if it is open.
 
-**Uninstall.** Open **Settings > Apps > Installed apps**, find **Run Hound** and choose **Uninstall**. That leaves your settings, keys and reports in place. To remove them as well, delete `%APPDATA%\run-hound` and `%LOCALAPPDATA%\run-hound` (paste each into File Explorer's address bar), and, if you like, the app's browser profile `%APPDATA%\Run Hound`. Deleting these also deletes the saved keys.
+**Uninstall.** Open **Settings > Apps > Installed apps**, find **Run Hound** and choose **Uninstall**. The uninstaller deletes your settings folder `%APPDATA%\run-hound`, which holds the saved keys, and the app's browser profile `%APPDATA%\Run Hound`. It keeps your reports in `%LOCALAPPDATA%\run-hound\runs`; delete that folder too if you don't want them (paste it into File Explorer's address bar). It does not delete anything when it runs as part of an update. To keep your keys, don't uninstall: install the newer version over the old one instead.
 
 ## Linux
 
@@ -83,7 +91,7 @@ rpm -qa | grep -i run-hound         # Fedora and other rpm-based systems
 sudo dnf remove <the package name>
 ```
 
-Removing the package leaves your settings, keys and reports in place. To remove them as well, delete `~/.config/run-hound-desktop` and `~/.local/share/run-hound` (or the `$XDG_CONFIG_HOME` and `$XDG_DATA_HOME` equivalents), and, if you like, the app's browser profile `~/.config/Run Hound`. Deleting these also deletes the saved keys.
+Removing the package leaves your settings, keys and reports in place: the package manager runs as root for every user, so it can't delete one user's files. To remove your keys first, use **Settings > Keys and passwords > Delete all keys and data** (see [Removing your keys and data](#removing-your-keys-and-data)). Or delete `~/.config/run-hound-desktop` and `~/.local/share/run-hound` by hand (or the `$XDG_CONFIG_HOME` and `$XDG_DATA_HOME` equivalents), and, if you like, the app's browser profile `~/.config/Run Hound`. Deleting these also deletes the saved keys.
 
 ## The update check
 

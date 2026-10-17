@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   CHECK_GROUPS,
   type Check,
@@ -166,6 +166,18 @@ function allowedDestructive(report: Report): boolean {
   );
 }
 
+/** Every RunsModel made in this process, so a deletion of report folders can reach the one serving that folder. */
+const models = new Set<WeakRef<RunsModel>>();
+
+/** Makes the runs models that serve `runsDir` forget their finished runs (see RunsModel.forgetFinished). */
+export function forgetFinishedRuns(runsDir: string): void {
+  for (const ref of models) {
+    const model = ref.deref();
+    if (!model) models.delete(ref);
+    else if (resolve(model.runsDir) === resolve(runsDir)) model.forgetFinished();
+  }
+}
+
 /**
  * Runs in memory (started by this process) and finished runs on disk (runsDir/<id>/report.json), with disk summaries
  * cached by mtime+size. The maps keep insertion order so listRuns preserves newest-first on tie-break.
@@ -177,6 +189,16 @@ export class RunsModel {
 
   constructor(options: RunsModelOptions) {
     this.#options = options;
+    models.add(new WeakRef(this));
+  }
+
+  /**
+   * Forgets every run that is not running: its report folder was deleted ("Delete all keys and data"), so it must not
+   * stay in the runs list or open from memory. A run in progress stays.
+   */
+  forgetFinished(): void {
+    for (const [id, state] of this.#runs) if (state.status !== "running") this.#runs.delete(id);
+    this.#diskSummaries.clear();
   }
 
   /** Runs allowed at the same time, from createApp's options. */

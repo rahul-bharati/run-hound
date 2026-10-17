@@ -24,6 +24,7 @@ export function aiStatusLines(status: AiStatus): string[] {
     `AI: ${status.enabled ? "on" : "off"}${from("enabled")}`,
     `Provider: ${status.provider ? `${PROVIDER_LABELS[status.provider]} (${status.provider})` : "(none)"}${from("provider")}`,
     `Model: ${status.model || "(none)"}${from("model")}`,
+    ...(status.helperModel ? [`Helper model: ${status.helperModel}${from("helperModel")}`] : []),
     status.provider
       ? `Endpoint: ${status.baseUrl ? `${status.baseUrl}${from("baseUrl")} ` : ""}(${status.remote ? "remote" : "local"}: ${status.host})`
       : "Endpoint: (none)",
