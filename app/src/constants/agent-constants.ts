@@ -23,3 +23,9 @@ export const AGENT_CHECK_CLASSES = {
   // A canary typed into an existing record (a profile's bio, say) changes that record.
   persistence: ["observation", "test-data-creation", "modification"],
 } as const satisfies Partial<Record<CheckId, readonly ActionClass[]>>;
+
+/** Roles whose value is the user's input: an observation says whether they're filled, never what they hold. */
+export const AGENT_EDITABLE_ROLES: readonly string[] = ["textbox", "searchbox", "combobox", "spinbutton", "slider"];
+
+/** Roles an observation checks with isDestructiveControl, so a click on them can be refused. */
+export const AGENT_CONTROL_ROLES: readonly string[] = ["button", "link", "menuitem", "menuitemcheckbox", "menuitemradio"];
