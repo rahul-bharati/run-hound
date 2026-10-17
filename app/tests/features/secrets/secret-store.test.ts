@@ -13,6 +13,7 @@ import {
   SEALED_SECRET,
   SECRETS_FILE,
   secretProtection,
+  STORE_DAMAGED,
   UNREADABLE_KEY,
   useOsKeyProtector,
   writeSecrets,
@@ -135,7 +136,8 @@ describe("saving and reading (run-hound protection)", () => {
 
   it("replaces a looser pre-existing secrets.json with a new 0600 file", async () => {
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, SECRETS_FILE), "{}", { mode: 0o644 });
+    // An empty store, not "{}": a file without `entries` is damaged and is moved aside to a backup (secret-store-read-errors.test.ts).
+    await writeFile(join(dir, SECRETS_FILE), JSON.stringify({ version: 1, entries: {} }), { mode: 0o644 });
     await chmod(join(dir, SECRETS_FILE), 0o644);
     await writeSecrets(dir, { "ai.apiKey": SECRET }, normal);
     expect((await stat(join(dir, SECRETS_FILE))).mode & 0o777).toBe(0o600);
@@ -231,10 +233,10 @@ describe("damaged entries", () => {
     expect(await readSecrets(dir, normal)).toEqual({ values: { a: "value-for-a-123" }, protection: "run-hound", problem: DAMAGED_ENTRIES });
   });
 
-  it("reads a secrets.json that is not JSON as holding nothing", async () => {
+  it("reads a secrets.json that is not JSON as holding nothing, and says it is damaged (secret-store-read-errors.test.ts: what a save does with it)", async () => {
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, SECRETS_FILE), "{not json");
-    expect(await readSecrets(dir, normal)).toEqual({ values: {}, protection: "run-hound", problem: null });
+    expect(await readSecrets(dir, normal)).toEqual({ values: {}, protection: "run-hound", problem: STORE_DAMAGED });
   });
 });
 
