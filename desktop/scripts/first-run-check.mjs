@@ -1,6 +1,7 @@
 // D5: the first-run check of an INSTALLED Run Hound desktop app, on a clean machine (a fresh GitHub runner).
 //
 //   node scripts/first-run-check.mjs --app <installed executable> --evidence <dir> [--artifact <installer file>] [--home <dir> | --real-home]
+//   node scripts/first-run-check.mjs --app <installed executable> --evidence <dir> (--home <dir> | --real-home) --after-reinstall
 //   node scripts/first-run-check.mjs --app <installed executable> --evidence <dir> (--home <dir> | --real-home) --after-uninstall
 //                                    [--installed-path <what the uninstaller removes>]... [--package-files <dpkg -L / rpm -ql listing>]
 //                                    [--wait-seconds 120]
@@ -10,13 +11,19 @@
 // a fresh home, so it is a true first run, and drives it through what a new user does:
 //   1 First launch      the window shows, the engine answers, saved keys report how they are protected, nothing imported,
 //                       and the app is named Run Hound (executable, Electron's app name and profile folder)
+//   1b Onboarding       the first launch opens the welcome screen, not New run; Skip for now and Test my app finish it, write
+//                       onboarding.json and never show it again (docs/onboarding-spec.md)
 //   2 Model setup       an Anthropic model and a FAKE key are saved; the key is never on disk as plain text
 //   3 Representative run  plan a small well-built app (fixtures/samples/spa-fetch) and run it: no confirmed finding
 //   4 Cancellation      stop a second run once it has begun: it ends stopped, the unfinished scenarios are skipped
 //   5 Restart           close and launch again on the same home: both runs, the AI settings and the key are still there
 // and writes first-run.json (the evidence), summary.md (for the job summary), the reports and two window screenshots to
-// --evidence (FIRST_RUN_DEBUG=1 also prints a failed step's stack). The second form runs after the platform's uninstaller
-// has, and adds two steps to that first-run.json: the app is gone, and the user's data is not.
+// --evidence (FIRST_RUN_DEBUG=1 also prints a failed step's stack). --after-reinstall runs after the installer was run again
+// over the existing install (an update): the app is still there and the settings folder is byte for byte what the first run
+// left. --after-uninstall runs after the platform's uninstaller has, and adds steps to that first-run.json: the app is gone,
+// and the user's data is what the platform's uninstaller does to it (docs/desktop-install.md "Uninstalling"): on Windows the
+// settings folder (the saved keys) and Electron's profile folder are gone and the reports are not; on macOS and Linux
+// everything is kept.
 //
 // No call goes to an AI provider (plans are made with ai:false, /api/ai/test is never called) and no key is ever printed.
 // The app under test is only the installed artifact; the harness (this file, Playwright, the fixture) comes from the repo.
@@ -44,8 +51,11 @@ import {
   parseArgs,
   poll,
   reportDigest,
+  SETTINGS_FILES,
+  settingsDigest,
   stoppedRunProblems,
   summaryMarkdown,
+  uninstallDataExpectations,
 } from "./first-run-lib.mjs";
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -87,8 +97,39 @@ function filesUnder(dir) {
     .map((path) => ({ path, bytes: readFileSync(path) }));
 }
 
+/** The digest of the settings folder's files that exist: what an install over the top must leave exactly as it is. */
+const digestOfSettings = (dir) => settingsDigest(SETTINGS_FILES.filter((name) => existsSync(join(dir, name))).map((name) => [name, readFileSync(join(dir, name))]));
+
 // ---------------------------------------------------------------------------------------------------------------------
-// After the uninstaller: the app is gone, the user's data is not.
+// After an install over the top (an update): the app is there, and nothing the user saved was deleted or changed.
+// ---------------------------------------------------------------------------------------------------------------------
+if (args.afterReinstall) {
+  const facts = JSON.parse(readFileSync(join(evidenceDir, "first-run.json"), "utf8"));
+  const home = args.realHome ? homedir() : resolve(args.home);
+  const dirs = facts.dataDirs ?? expectedDataDirs(platform, home, isolatedEnv({}, platform, home));
+  rec.steps.push(...facts.steps);
+
+  await rec.run("Install over the top kept your data", async () => {
+    assert.ok(existsSync(args.app), `${args.app} is gone after the install over the top`);
+    assert.ok(facts.settingsDigest, "the first run recorded no settings digest to compare with");
+    for (const name of ["ai.json", "secrets.json", "onboarding.json"]) assert.ok(existsSync(join(dirs.settings, name)), `${name} is gone from ${dirs.settings} after the install over the top`);
+    const now = digestOfSettings(dirs.settings);
+    assert.deepEqual(now.files, facts.settingsDigest.files, `the settings folder holds ${now.files.join(", ")} now, and held ${facts.settingsDigest.files.join(", ")} before`);
+    assert.equal(now.sha256, facts.settingsDigest.sha256, "a settings file changed in the install over the top");
+    if (facts.userData) assert.ok(existsSync(facts.userData), `the profile folder ${facts.userData} is gone after the install over the top`);
+    assert.ok(existsSync(dirs.runs), `${dirs.runs} is gone after the install over the top`);
+    const saved = JSON.parse(readFileSync(join(dirs.settings, "ai.json"), "utf8"));
+    assert.equal(saved.provider, "anthropic", `ai.json says provider ${JSON.stringify(saved.provider)} now`);
+    assert.equal(saved.model, MODEL, `ai.json says model ${JSON.stringify(saved.model)} now`);
+    return `${now.files.join(", ")} unchanged in ${dirs.settings}; the profile folder and the reports are still there`;
+  });
+
+  writeEvidence({ ...facts, reinstall: { app: args.app, settingsDigest: facts.settingsDigest } });
+  process.exit(rec.ok ? 0 : 1);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// After the uninstaller: the app is gone, and the user's data is what the platform's uninstaller does to it.
 // ---------------------------------------------------------------------------------------------------------------------
 if (args.afterUninstall) {
   const evidencePath = join(evidenceDir, "first-run.json");
@@ -123,14 +164,33 @@ if (args.afterUninstall) {
     });
   }
 
-  await rec.run("Uninstall kept your data", async () => {
-    for (const dir of [dirs.settings, dirs.runs]) assert.ok(existsSync(dir), `${dir} was removed by the uninstall`);
-    for (const file of ["ai.json", "secrets.json"]) assert.ok(existsSync(join(dirs.settings, file)), `${file} is gone from ${dirs.settings}`);
-    for (const id of Object.values(facts.runs ?? {}).filter(Boolean)) assert.ok(existsSync(join(dirs.runs, id, "report.json")), `the report of run ${id} is gone`);
-    return `kept: ${dirs.settings} and ${dirs.runs}`;
-  });
+  const expected = uninstallDataExpectations(platform, dirs, facts.userData);
+  if (expected.gone.length > 0) {
+    // Windows: the uninstaller deletes the saved keys with the settings folder and Electron's profile (desktop/assets/installer.nsh).
+    await rec.run("Uninstall removed your keys and settings", async () => {
+      const left = () => expected.gone.filter((path) => existsSync(path));
+      await poll(() => (left().length === 0 ? true : undefined), { timeoutMs: args.waitSeconds * 1000, intervalMs: 1000, what: "the uninstaller to delete the settings" }).catch(() => {
+        throw new Error(`still there after the uninstall: ${left().join(", ")}`);
+      });
+      for (const file of ["ai.json", "secrets.json", "secrets.key"]) assert.ok(!existsSync(join(dirs.settings, file)), `${file} is still in ${dirs.settings}`);
+      return `gone: ${expected.gone.join(", ")}`;
+    });
+    await rec.run("Uninstall kept your reports", async () => {
+      for (const dir of expected.kept) assert.ok(existsSync(dir), `${dir} was removed by the uninstall`);
+      for (const id of Object.values(facts.runs ?? {}).filter(Boolean)) assert.ok(existsSync(join(dirs.runs, id, "report.json")), `the report of run ${id} is gone`);
+      return `kept: ${expected.kept.join(", ")}`;
+    });
+  } else {
+    // macOS (dragged to the Trash) and the Linux packages have no per-user uninstall step: everything is kept.
+    await rec.run("Uninstall kept your data", async () => {
+      for (const dir of [dirs.settings, dirs.runs]) assert.ok(existsSync(dir), `${dir} was removed by the uninstall`);
+      for (const file of ["ai.json", "secrets.json"]) assert.ok(existsSync(join(dirs.settings, file)), `${file} is gone from ${dirs.settings}`);
+      for (const id of Object.values(facts.runs ?? {}).filter(Boolean)) assert.ok(existsSync(join(dirs.runs, id, "report.json")), `the report of run ${id} is gone`);
+      return `kept: ${dirs.settings} and ${dirs.runs}`;
+    });
+  }
 
-  writeEvidence({ ...facts, uninstall: { app: args.app, removed: [args.app, ...args.installedPaths], dataKept: [dirs.settings, dirs.runs], userDataKept } });
+  writeEvidence({ ...facts, uninstall: { app: args.app, removed: [args.app, ...args.installedPaths], dataKept: expected.kept, dataRemoved: expected.gone, userDataKept } });
   process.exit(rec.ok ? 0 : 1);
 }
 
@@ -334,6 +394,36 @@ try {
     return `Run Hound ${facts.appVersion}, Electron ${facts.electron}, Chromium ${facts.chromium}; window after ${(facts.windowShownAfterMs.first / 1000).toFixed(1)} s; keys: ${facts.secretProtection}`;
   });
 
+  // 1b --------------------------------------------------------------------------------------------------------------
+  // docs/onboarding-spec.md: a first launch opens the setup, skippable, once. Driven through the window, as a user does.
+  await rec.run("Onboarding", async () => {
+    assert.ok(session, "the app did not launch");
+    const { page } = session;
+    const marker = join(dirs.settings, "onboarding.json");
+    const first = await api(page, "GET", "/api/onboarding");
+    assert.equal(first.status, 200, `GET /api/onboarding answered ${first.status}: ${JSON.stringify(first.json)}`);
+    assert.deepEqual(first.json, { show: true }, `a first launch should show the setup: ${JSON.stringify(first.json)}`);
+    assert.equal(existsSync(marker), false, "onboarding.json exists before the setup was done");
+    await page.waitForURL(/#\/welcome$/, { timeout: MINUTE });
+    await page.getByRole("heading", { level: 1, name: "Welcome to Run Hound" }).waitFor({ timeout: MINUTE });
+    await page.screenshot({ path: join(evidenceDir, "window-welcome.png") });
+    await page.getByRole("button", { name: "Skip for now" }).click({ timeout: MINUTE });
+    await page.getByRole("heading", { level: 1, name: "You're ready to test" }).waitFor({ timeout: MINUTE });
+    await page.getByRole("button", { name: "Test my app" }).click({ timeout: MINUTE });
+    await page.getByRole("heading", { level: 1, name: "New run" }).waitFor({ timeout: MINUTE });
+    await poll(() => (existsSync(marker) ? true : undefined), { timeoutMs: 15_000, intervalMs: 200, what: "onboarding.json" });
+    const written = JSON.parse(readFileSync(marker, "utf8"));
+    assert.equal(written.outcome, "skipped", `onboarding.json says ${JSON.stringify(written)}`);
+    assert.equal(written.version, 1);
+    assert.ok(!Number.isNaN(Date.parse(written.completedAt)), `completedAt is ${written.completedAt}`);
+    const again = await api(page, "GET", "/api/onboarding");
+    assert.deepEqual(again.json, { show: false }, "the setup shows again after it was skipped");
+    const ai = await api(page, "GET", "/api/ai");
+    assert.equal(ai.json.enabled, false, "skipping the setup turned AI on");
+    assert.equal(ai.json.hasKey, false, "skipping the setup saved a key");
+    return `the welcome screen opened on a first launch; Skip for now wrote onboarding.json (${written.outcome}, version ${written.version}) and left AI off`;
+  });
+
   // 2 ---------------------------------------------------------------------------------------------------------------
   await rec.run("Model setup", async () => {
     assert.ok(session, "the app did not launch");
@@ -429,6 +519,8 @@ try {
       assert.equal(again.report.runId, id, `the report served for ${id} is run ${again.report.runId}`);
     }
     assert.equal((await reportOf(page, facts.runs.completed)).report.stopped === true, false, "the completed run reads back as stopped");
+    const onboarding = await api(page, "GET", "/api/onboarding");
+    assert.deepEqual(onboarding.json, { show: false }, `the setup shows again after the restart: ${JSON.stringify(onboarding.json)}`);
     const ai = await api(page, "GET", "/api/ai");
     assert.equal(ai.json.provider, "anthropic", `the provider is ${ai.json.provider} after the restart`);
     assert.equal(ai.json.model, MODEL);
@@ -454,6 +546,8 @@ try {
 }
 
 facts.finishedAt = new Date().toISOString();
+// What an install over the top must leave alone (--after-reinstall compares): recorded once the app has closed.
+facts.settingsDigest = digestOfSettings(dirs.settings);
 const evidence = writeEvidence(facts);
 if (ownsHome) rmSync(home, { recursive: true, force: true });
 process.exit(evidence.ok ? 0 : 1);

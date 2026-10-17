@@ -1,7 +1,10 @@
-export interface Args { app: string; evidence: string; artifact: string; home: string; realHome: boolean; installedPaths: string[]; packageFiles: string; afterUninstall: boolean; waitSeconds: number }
+export interface Args { app: string; evidence: string; artifact: string; home: string; realHome: boolean; installedPaths: string[]; packageFiles: string; afterUninstall: boolean; afterReinstall: boolean; waitSeconds: number }
 export interface Step { name: string; ok: boolean; ms: number; detail?: string; error?: string }
 export interface Evidence { schema: number; ok: boolean; steps: Step[]; [key: string]: unknown }
 export function parseArgs(argv: string[]): Args;
+export function uninstallDataExpectations(platform: string, dirs: { settings: string; runs: string }, userData: string | null | undefined): { gone: string[]; kept: string[] };
+export const SETTINGS_FILES: string[];
+export function settingsDigest(entries: [string, Uint8Array][]): { files: string[]; sha256: string };
 export function expectedDataDirs(platform: string, home: string, env?: Record<string, string | undefined>): { settings: string; runs: string };
 export function isolatedEnv(base: Record<string, string | undefined>, platform: string, home: string): Record<string, string>;
 export function leftoverFiles(listing: string, kind: (path: string) => "file" | "dir" | null): string[];

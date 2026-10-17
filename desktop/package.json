@@ -110,6 +110,9 @@
       "target": "nsis",
       "icon": "assets/icon.png"
     },
+    "nsis": {
+      "include": "assets/installer.nsh"
+    },
     "extraResources": [
       {
         "from": "build/playwright-browsers",
