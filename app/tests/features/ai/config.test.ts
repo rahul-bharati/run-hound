@@ -99,13 +99,13 @@ describe("resolveAiConfig", () => {
   });
 
   it("layers file values over the defaults", async () => {
-    await writeSaved({ enabled: true, model: "ornith-1.5:9b", timeoutMs: 60_000, features: { review: true, suggest: false, explain: true } });
+    await writeSaved({ enabled: true, provider: "ollama", model: "ornith-1.5:9b", timeoutMs: 60_000, features: { review: true, suggest: false, explain: true } });
     const r = await resolveAiConfig({ env, home: tmp });
     expect(r.config.enabled).toBe(true);
     expect(r.config.model).toBe("ornith-1.5:9b");
     expect(r.config.timeoutMs).toBe(60_000);
     expect(r.config.features).toEqual({ review: true, suggest: false, explain: true });
-    expect(r.sources).toMatchObject({ enabled: "file", model: "file", timeoutMs: "file", features: "file", provider: "default", apiKey: "default" });
+    expect(r.sources).toMatchObject({ enabled: "file", model: "file", timeoutMs: "file", features: "file", provider: "file", apiKey: "default" });
   });
 
   it("layers env over the file and flags over env", async () => {
@@ -275,7 +275,7 @@ describe("resolveAiConfig", () => {
 
   it("ignores an unknown provider name and keeps the lower source", async () => {
     await writeSaved({ provider: "openai-compatible" });
-    const r = await resolveAiConfig({ env: { ...env, RUNHOUND_AI_PROVIDER: "gemini" }, home: tmp });
+    const r = await resolveAiConfig({ env: { ...env, RUNHOUND_AI_PROVIDER: "claude" }, home: tmp });
     expect(r.config.provider).toBe("openai-compatible");
     expect(r.sources.provider).toBe("file");
   });
@@ -323,7 +323,7 @@ describe("saveAiConfig", () => {
   });
 
   it("keeps the saved key on an empty or missing apiKey and removes it on null", async () => {
-    await saveAiConfig({ apiKey: "sk-saved-key" }, { env, home: tmp });
+    await saveAiConfig({ provider: "ollama", apiKey: "sk-saved-key" }, { env, home: tmp });
     expect((await saveAiConfig({ apiKey: "" }, { env, home: tmp })).config.apiKey).toBe("sk-saved-key");
     expect((await saveAiConfig({ model: "m" }, { env, home: tmp })).config.apiKey).toBe("sk-saved-key");
     expect((await saveAiConfig({ apiKey: undefined }, { env, home: tmp })).config.apiKey).toBe("sk-saved-key");
@@ -372,7 +372,7 @@ describe("saveAiConfig", () => {
   });
 
   it("rejects an unknown provider", async () => {
-    await expectRejected(saveAiConfig({ provider: "gemini" as AiConfig["provider"] }, { env, home: tmp }));
+    await expectRejected(saveAiConfig({ provider: "claude" as AiConfig["provider"] }, { env, home: tmp }));
   });
 });
 
@@ -425,7 +425,7 @@ describe("aiStatus", () => {
   });
 
   it("asks for a model next", () => {
-    expect(aiStatus(resolved({ enabled: true, model: "" }), {}).problem).toBe("Choose a model");
+    expect(aiStatus(resolved({ enabled: true, provider: "ollama", model: "" }), {}).problem).toBe("Choose a model");
   });
 
   it("asks for a Bedrock region before a key", () => {
@@ -468,7 +468,7 @@ describe("aiStatus", () => {
   });
 
   it("has no problem for local Ollama with a model", () => {
-    const status = aiStatus(resolved({ enabled: true, model: "ornith-1.5:9b" }), {});
+    const status = aiStatus(resolved({ enabled: true, provider: "ollama", baseUrl: DEFAULT_BASE_URLS.ollama, model: "ornith-1.5:9b" }), {});
     expect(status.problem).toBeNull();
     expect(status.remote).toBe(false);
     expect(status.hasKey).toBe(false);
@@ -589,11 +589,16 @@ describe("the saved key does not follow a changed endpoint", () => {
     expect(r.config.apiKey).toBeNull();
   });
 
-  it("removes the key when the provider changes", async () => {
+  it("keeps the key when the provider changes: it is that provider's own and comes back with it", async () => {
     await saveAiConfig(withKey, { env, home: tmp });
     const r = await saveAiConfig({ provider: "ollama" }, { env, home: tmp });
     expect(r.config.apiKey).toBeNull();
-    expect(r.notice).toBe(NOTICE);
+    expect(r.notice).toBeUndefined();
+    expect(r.savedKeys).toEqual(["openai-compatible"]);
+    expect((await readSecrets(dir, { env })).values).toEqual({ "ai.key.openai-compatible": "sk-saved-key" });
+    const back = await saveAiConfig({ provider: "openai-compatible", baseUrl: withKey.baseUrl }, { env, home: tmp });
+    expect(back.config.apiKey).toBe("sk-saved-key");
+    expect(back.notice).toBeUndefined();
   });
 
   it("keeps a new key sent with the endpoint change, without a notice", async () => {
@@ -657,7 +662,7 @@ describe("saveAiConfig file permissions", () => {
 
   it("replaces a looser pre-existing file with a new 0600 file instead of writing the key into it", async () => {
     await mkdir(dir, { recursive: true });
-    await writeFile(file(), JSON.stringify({ model: "m" }), { mode: 0o644 });
+    await writeFile(file(), JSON.stringify({ provider: "ollama", model: "m" }), { mode: 0o644 });
     const before = await stat(file());
     expect(before.mode & 0o777).toBe(0o644);
     await saveAiConfig({ apiKey: "sk-new-key" }, { env, home: tmp });
@@ -666,10 +671,10 @@ describe("saveAiConfig file permissions", () => {
     expect(after.ino).not.toBe(before.ino);
     // The key is sealed in the encrypted store, never written into ai.json.
     const text = await readFile(file(), "utf8");
-    expect(JSON.parse(text)).toMatchObject({ model: "m" });
+    expect(JSON.parse(text)).toMatchObject({ provider: "ollama", model: "m" });
     expect(JSON.parse(text)).not.toHaveProperty("apiKey");
     expect(text).not.toContain("sk-new-key");
-    expect((await readSecrets(dir, { env })).values).toEqual({ "ai.apiKey": "sk-new-key" });
+    expect((await readSecrets(dir, { env })).values).toEqual({ "ai.key.ollama": "sk-new-key" });
     const { readdir } = await import("node:fs/promises");
     expect((await readdir(dir)).sort()).toEqual(["ai.json", "secrets.json", "secrets.key"]);
   });
@@ -680,11 +685,12 @@ describe("a saved key is bound to the origin it was saved for (Rule 7)", () => {
   const saved = async () => JSON.parse(await readFile(file(), "utf8")) as Record<string, unknown>;
   const remoteA = { enabled: true, provider: "openai-compatible" as const, baseUrl: "https://api.a.example/v1", model: "m", allowRemote: true };
 
-  it("records apiKeyOrigin, the effective endpoint's origin, when a key is saved", async () => {
+  it("records the provider's key origin, the effective endpoint's origin, when a key is saved", async () => {
     await saveAiConfig({ ...remoteA, apiKey: "sk-saved-key" }, { env, home: tmp });
     // The key itself is in the encrypted store; ai.json keeps only the origin it is bound to.
-    expect(await saved()).toMatchObject({ apiKeyOrigin: "https://api.a.example" });
+    expect(await saved()).toMatchObject({ keyOrigins: { "openai-compatible": "https://api.a.example" } });
     expect(await saved()).not.toHaveProperty("apiKey");
+    expect(await saved()).not.toHaveProperty("apiKeyOrigin");
     const r = await resolveAiConfig({ env, home: tmp });
     expect(r.config.apiKey).toBe("sk-saved-key");
     expect(aiStatus(r, env, tmp).hasKey).toBe(true);
@@ -714,7 +720,9 @@ describe("a saved key is bound to the origin it was saved for (Rule 7)", () => {
     await writeSaved({ ...remoteA, apiKey: "sk-legacy-key" });
     expect((await resolveAiConfig({ env, home: tmp })).config.apiKey).toBe("sk-legacy-key");
     expect((await resolveAiConfig({ env, flags: { baseUrl: "https://other.example/v1" }, home: tmp })).config.apiKey).toBeNull();
-    // A legacy file with a key but no base URL is bound to its provider's default endpoint.
+    // A legacy file with a key but no base URL is bound to its provider's default endpoint (a fresh store: the first
+    // file's key already moved into the openai-compatible slot, and a provider's own key wins over a legacy one).
+    await rm(dir, { recursive: true, force: true });
     await writeSaved({ provider: "openai-compatible", apiKey: "sk-legacy-key" });
     expect((await resolveAiConfig({ env, home: tmp })).config.apiKey).toBe("sk-legacy-key");
     expect((await resolveAiConfig({ env: { ...env, RUNHOUND_AI_BASE_URL: "https://other.example/v1" }, home: tmp })).config.apiKey).toBeNull();
@@ -722,7 +730,7 @@ describe("a saved key is bound to the origin it was saved for (Rule 7)", () => {
 
   it("bedrock: a saved key is bound to its region's endpoint; AWS_BEARER_TOKEN_BEDROCK still applies elsewhere", async () => {
     await saveAiConfig({ enabled: true, provider: "bedrock", region: "eu-central-1", model: "m", apiKey: "saved-bedrock-key" }, { env, home: tmp });
-    expect(await saved()).toMatchObject({ apiKeyOrigin: "https://bedrock-runtime.eu-central-1.amazonaws.com" });
+    expect(await saved()).toMatchObject({ keyOrigins: { bedrock: "https://bedrock-runtime.eu-central-1.amazonaws.com" } });
     expect((await resolveAiConfig({ env, home: tmp })).config.apiKey).toBe("saved-bedrock-key");
     const moved = await resolveAiConfig({ env: { ...env, RUNHOUND_AI_REGION: "us-east-1" }, home: tmp });
     expect(moved.config.apiKey).toBeNull();
@@ -734,15 +742,15 @@ describe("a saved key is bound to the origin it was saved for (Rule 7)", () => {
     await saveAiConfig({ enabled: true, provider: "bedrock", region: "eu-central-1", model: "m", apiKey: "saved-bedrock-key" }, { env, home: tmp });
     const r = await saveAiConfig({ region: "us-east-1" }, { env, home: tmp });
     expect(r.config.apiKey).toBe("saved-bedrock-key");
-    expect(await saved()).toMatchObject({ apiKeyOrigin: "https://bedrock-runtime.us-east-1.amazonaws.com" });
+    expect(await saved()).toMatchObject({ keyOrigins: { bedrock: "https://bedrock-runtime.us-east-1.amazonaws.com" } });
   });
 
   it("an unrelated save while the endpoint is moved by env does not rebind the saved key", async () => {
     await saveAiConfig({ ...remoteA, apiKey: "sk-saved-key" }, { env, home: tmp });
     const moved = { ...env, RUNHOUND_AI_BASE_URL: "https://other.example/v1" };
     await saveAiConfig({ model: "m2" }, { env: moved, home: tmp });
-    expect(await saved()).toMatchObject({ apiKeyOrigin: "https://api.a.example" });
-    expect((await readSecrets(dir, { env })).values).toEqual({ "ai.apiKey": "sk-saved-key" });
+    expect(await saved()).toMatchObject({ keyOrigins: { "openai-compatible": "https://api.a.example" } });
+    expect((await readSecrets(dir, { env })).values).toEqual({ "ai.key.openai-compatible": "sk-saved-key" });
     expect((await resolveAiConfig({ env: moved, home: tmp })).config.apiKey).toBeNull();
     expect((await resolveAiConfig({ env, home: tmp })).config.apiKey).toBe("sk-saved-key");
   });

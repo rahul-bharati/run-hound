@@ -60,6 +60,8 @@ interface AppOptions {
   refuse: number;
   /** A named anti-CSRF token (Rails' authenticity_token) the save also needs, refused with `refuse` too. */
   railsToken?: boolean;
+  /** The fetch version reloads the page this long after its save answers (default: at once). */
+  reloadAfterMs?: number;
 }
 
 // A task app with no CSRF defence (SameSite=None cookie, no Origin check) unless `railsToken`; form carries a hidden list_id (UUID, the list the task goes in), POST /tasks refuses a body without it.
@@ -70,7 +72,7 @@ async function refApp(o: AppOptions): Promise<FixtureServer & { tasks: { id: str
     ? ""
     : `<script>document.getElementById('new').addEventListener('submit', function (e) { e.preventDefault();
   fetch('/tasks', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(new FormData(e.target)).toString() })
-  .then(function () { location.reload(); }); });</script>`;
+  .then(function () { ${o.reloadAfterMs ? `setTimeout(function () { location.reload(); }, ${o.reloadAfterMs});` : "location.reload();"} }); });</script>`;
   const token = o.railsToken ? `<input type="hidden" name="authenticity_token" value="${RAILS_TOKEN}">` : "";
   const server = await startFixtureServer({
     pages: {
@@ -143,6 +145,20 @@ async function run(server: FixtureServer): Promise<CheckResult> {
   const scenario: Scenario = { ...planned, scope: "form", formIndex: 0 };
   return check.run(ctx, scenario);
 }
+
+describe("csrf: a page that reloads itself a moment after its save", () => {
+  // The check's own reload raced the page's: when the page's came second, the check read the capture before the new page
+  // loaded the record, and skipped as if nothing read it back. The window is narrow and depends on the machine, hence a
+  // spread of delays (100 ms hit it most often here).
+  for (const reloadAfterMs of [50, 100, 150, 200]) {
+    it(`still finds the read when the page reloads ${reloadAfterMs} ms after saving`, async () => {
+      const server = await refApp({ native: false, refuse: 400, reloadAfterMs });
+      const result = await run(server);
+      expect(result.notes).not.toMatch(/couldn't find an endpoint that reads the saved record back/);
+      expect(result.notes).toMatch(/^Inconclusive/);
+    }, 90_000);
+  }
+});
 
 describe("csrf: a hidden UUID reference the save needs, left out as a possible token", () => {
   for (const native of [true, false]) {

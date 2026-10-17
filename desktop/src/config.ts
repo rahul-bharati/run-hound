@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { posix, win32 } from "node:path";
+import { join as hostJoin, posix, win32 } from "node:path";
 import type { DesktopPlatform } from "./contract.js";
 
 /**
@@ -13,11 +13,19 @@ function join(platform: DesktopPlatform, ...parts: string[]): string {
 
 /**
  * Resolve a platform-appropriate configuration directory for the desktop
- * app. The XDG default in `app/src/config/ai.ts` is fine on Linux; on
- * macOS the native location is `Library/Application Support`; on Windows
- * it is `%APPDATA%`. The desktop package must call this so the engine
- * reads and writes its config in the right place without the user
- * setting `RUNHOUND_CONFIG_DIR`.
+ * app. The desktop app has a settings folder of its own on every OS, so
+ * the command line and the app never share one (docs/decisions
+ * 2026-10-07-desktop-settings-import):
+ *
+ * - `RUNHOUND_CONFIG_DIR` wins, as it does for the command line.
+ * - macOS: `~/Library/Application Support/run-hound`.
+ * - Windows: `%APPDATA%\run-hound`.
+ * - Linux: `$XDG_CONFIG_HOME/run-hound-desktop`, else
+ *   `~/.config/run-hound-desktop`. The command line keeps
+ *   `~/.config/run-hound`, which the desktop app imports from once.
+ *
+ * The desktop package must call this so the engine reads and writes its
+ * config in the right place without the user setting `RUNHOUND_CONFIG_DIR`.
  */
 export function resolveConfigDir(platform: DesktopPlatform, env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
   if (env.RUNHOUND_CONFIG_DIR) return env.RUNHOUND_CONFIG_DIR;
@@ -27,8 +35,26 @@ export function resolveConfigDir(platform: DesktopPlatform, env: NodeJS.ProcessE
     if (appData) return join(platform, appData, "run-hound");
     return join(platform, home, "AppData", "Roaming", "run-hound");
   }
-  if (env.XDG_CONFIG_HOME) return join(platform, env.XDG_CONFIG_HOME, "run-hound");
-  return join(platform, home, ".config", "run-hound");
+  if (env.XDG_CONFIG_HOME) return join(platform, env.XDG_CONFIG_HOME, "run-hound-desktop");
+  return join(platform, home, ".config", "run-hound-desktop");
+}
+
+/**
+ * The folder the command line saves its settings in, which the desktop app
+ * imports from once. It mirrors `configDir()` in `app/src/config/ai.ts`
+ * (main.ts must not import the engine before the environment is set):
+ * `$RUNHOUND_CONFIG_DIR`, else `$XDG_CONFIG_HOME/run-hound`, else
+ * `~/.config/run-hound`, on every OS and joined in the host's own style.
+ *
+ * Evaluate it with the environment as it is BEFORE the desktop main sets
+ * `RUNHOUND_CONFIG_DIR` to its own folder; afterwards it would name the
+ * desktop folder. An empty value counts as unset, as it does for the
+ * command line.
+ */
+export function resolveCliConfigDir(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
+  if (env.RUNHOUND_CONFIG_DIR) return env.RUNHOUND_CONFIG_DIR;
+  if (env.XDG_CONFIG_HOME) return hostJoin(env.XDG_CONFIG_HOME, "run-hound");
+  return hostJoin(home, ".config", "run-hound");
 }
 
 /**

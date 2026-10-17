@@ -64,6 +64,7 @@ describe("run command boundaries", () => {
   it("preserves the explicit-AI remedy and fails before discovery", async () => {
     const h = await runHarness();
     h.resolved.config.enabled = true;
+    h.resolved.config.provider = "ollama";
     h.resolved.config.model = "";
     await expect(runCommand(["http://localhost/book", "--ai"], h)).rejects.toThrow(
       "--ai: Choose a model. Pass --ai-model <id> or set RUNHOUND_AI_MODEL.",
@@ -75,6 +76,7 @@ describe("run command boundaries", () => {
   it("keeps the implicit-AI warning and plan-only masking without running checks", async () => {
     const h = await runHarness();
     h.resolved.config.enabled = true;
+    h.resolved.config.provider = "ollama";
     h.resolved.config.model = "";
     h.context.setAccountHider((text) => text.replaceAll("alice@example.test", "[account]"));
     expect(await runCommand(["http://localhost/book", "--plan-only"], h)).toBe(0);

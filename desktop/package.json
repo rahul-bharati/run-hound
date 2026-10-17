@@ -1,7 +1,9 @@
 {
   "name": "@run-hound/desktop",
   "private": true,
+  "productName": "Run Hound",
   "description": "Run Hound desktop app",
+  "homepage": "https://run-hound.rahulbharati.com/",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -23,7 +25,8 @@
     "start": "pnpm electron:fetch && pnpm build && electron .",
     "test:launch": "pnpm electron:fetch && pnpm build && node scripts/launch-check.mjs",
     "dist": "pnpm build && node scripts/dist.mjs",
-    "dist:dir": "pnpm build && node scripts/dist.mjs --dir"
+    "dist:dir": "pnpm build && node scripts/dist.mjs --dir",
+    "browsers:fetch": "node scripts/fetch-browsers.mjs"
   },
   "dependencies": {
     "@axe-core/playwright": "4.13.0",
@@ -41,7 +44,10 @@
   "build": {
     "appId": "dev.runhound.desktop",
     "productName": "Run Hound",
-    "executableName": "run-hound",
+    "extraMetadata": {
+      "name": "run-hound-desktop"
+    },
+    "artifactName": "Run-Hound-${version}-${os}-${arch}${env.RUNHOUND_UNSIGNED_SUFFIX}.${ext}",
     "files": [
       "dist/**/*",
       "package.json"
@@ -54,16 +60,67 @@
         "deb",
         "rpm"
       ],
-      "category": "Development"
+      "executableName": "run-hound",
+      "category": "Development",
+      "maintainer": "Run Hound <contact@rahulbharati.dev>",
+      "icon": "assets/icon.png",
+      "synopsis": "AI-assisted UI testing for AI-built apps"
+    },
+    "deb": {
+      "packageName": "run-hound",
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0",
+        "libasound2",
+        "libgbm1",
+        "libdrm2"
+      ]
+    },
+    "rpm": {
+      "packageName": "run-hound",
+      "depends": [
+        "gtk3",
+        "libnotify",
+        "nss",
+        "libXScrnSaver",
+        "(libXtst or libXtst6)",
+        "xdg-utils",
+        "at-spi2-core",
+        "(libuuid or libuuid1)",
+        "(alsa-lib or libasound2)",
+        "(mesa-libgbm or libgbm1)",
+        "(libdrm or libdrm2)"
+      ]
     },
     "mac": {
       "target": "dmg",
       "category": "public.app-category.developer-tools",
-      "hardenedRuntime": false,
-      "gatekeeperAssess": false
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "icon": "assets/icon.png"
     },
     "win": {
-      "target": "nsis"
-    }
+      "target": "nsis",
+      "icon": "assets/icon.png"
+    },
+    "extraResources": [
+      {
+        "from": "build/playwright-browsers",
+        "to": "playwright-browsers",
+        "filter": [
+          "**/*",
+          "!.links",
+          "!.links/**",
+          "!**/DEPENDENCIES_VALIDATED"
+        ]
+      }
+    ]
   }
 }

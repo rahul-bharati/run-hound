@@ -18,7 +18,9 @@
     "lint:cli": "oxlint --deny-warnings src/cli.ts src/cli src/config/cli.ts src/interfaces/cli.ts src/interfaces/cli-test.ts src/types/cli.ts src/types/cli-test.ts src/constants/cli-constants.ts src/errors/usage-error.ts src/utils/count.ts src/utils/parse-args-with-errors.ts tests/support/cli.ts tests/features/cli",
     "lint:fix": "pnpm lint --fix",
     "test": "vitest run",
-    "test:dev": "vitest run --watch"
+    "test:dev": "vitest run --watch",
+    "test:live": "vitest run --config vitest.live.config.ts",
+    "live-keys": "tsx scripts/live-keys.ts"
   },
   "dependencies": {
     "@axe-core/playwright": "4.13.0",

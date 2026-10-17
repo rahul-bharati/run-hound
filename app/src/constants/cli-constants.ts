@@ -11,8 +11,8 @@ export const USAGE = `Usage:
       --json                          print the report (or the plan) as JSON on stdout
       --ai / --no-ai                  use the AI model to review the plan, suggest flows and explain findings
                                       (off unless turned on here, in Settings or with RUNHOUND_AI=1)
-      --ai-provider <name>            ollama, openai-compatible or bedrock
-      --ai-model <id>                 model id, e.g. ornith-1.5:9b
+      --ai-provider <name>            anthropic, openai, gemini, bedrock, openai-compatible or ollama
+      --ai-model <id>                 model id as the provider names it, e.g. claude-haiku-4-5
       --ai-base-url <url>             e.g. http://127.0.0.1:11434/v1
       --ai-allow-remote               consent to send redacted page structure to a non-local endpoint
       --as a|b                        sign in as test account A or B first and run every check signed in

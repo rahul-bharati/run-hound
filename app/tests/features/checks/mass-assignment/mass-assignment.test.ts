@@ -112,6 +112,52 @@ function profilePuts(app: AccountsApp): Record<string, unknown>[] {
   return app.requests.filter((r) => r.method === "PUT" && r.url === "/api/users/u1/profile").map((r) => JSON.parse(r.body) as Record<string, unknown>);
 }
 
+/** A profile form that saves JSON and reloads itself `reloadAfterMs` after the save answers; GET /api/profile reads it back. */
+async function reloadingProfileApp(reloadAfterMs: number): Promise<FixtureServer> {
+  let profile: Record<string, unknown> = { id: "p1", name: "Sam" };
+  const server = await startFixtureServer({
+    pages: {
+      "/profile": `<!doctype html><html lang="en"><head><title>Profile</title></head><body><main><h1>Your profile</h1>
+<form id="profile" aria-label="Your profile"><p><label for="name">Name</label> <input id="name" name="name" required></p>
+<button type="submit">Save</button></form><p id="shown"></p></main>
+<script>
+fetch('/api/profile').then(function (r) { return r.json(); }).then(function (d) { document.getElementById('shown').textContent = d.profile.name; });
+document.getElementById('profile').addEventListener('submit', function (e) {
+  e.preventDefault();
+  fetch('/api/profile', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: document.getElementById('name').value }) })
+    .then(function () { setTimeout(function () { location.reload(); }, ${reloadAfterMs}); });
+});
+</script></body></html>`,
+    },
+    routes: {
+      "GET /api/profile": (_req, res) => json(res, 200, { profile }),
+      // Keeps only the field the form sends.
+      "PUT /api/profile": (req, res) => {
+        const body = JSON.parse(req.body) as Record<string, unknown>;
+        profile = { ...profile, name: String(body.name ?? profile.name) };
+        json(res, 200, { profile });
+      },
+    },
+  });
+  servers.push(server);
+  return server;
+}
+
+describe("mass-assignment on a page that reloads itself a moment after its save", () => {
+  // The check's own reload raced the page's: when the page's came second, the check read the capture before the new page
+  // loaded the record, found no record endpoint and fell back to the replay's answer. The window is narrow and depends
+  // on the machine, hence a spread of delays (100 ms hit it every time here).
+  for (const reloadAfterMs of [50, 100, 150, 200]) {
+    it(`still reads the record back when the page reloads ${reloadAfterMs} ms after saving`, async () => {
+      const server = await reloadingProfileApp(reloadAfterMs);
+      const page = await discoverWith(`${server.url}/profile`, NO_SESSION, "Your profile");
+      const { result } = await runOn({ targetUrl: `${server.url}/profile`, page, self: NO_SESSION });
+      expect(result.notes).toContain("The server kept only the fields the form sends");
+      expect(result.findings).toEqual([]);
+    }, 90_000);
+  }
+});
+
 describe("mass-assignment on the accounts app", () => {
   it("massAssign (V04): replays the form's own PUT plus the nine privilege fields; role is critical and confirmed", async () => {
     const app = await start({ massAssign: true });

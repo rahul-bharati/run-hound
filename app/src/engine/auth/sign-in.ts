@@ -72,6 +72,7 @@ import {
   sessionSecrets,
   SESSION_NAME,
 } from "./session-detection.js";
+import { isSealed } from "../../operations/secret-store.js";
 
 export { SignInError };
 
@@ -305,6 +306,8 @@ export async function signIn(browser: Browser, account: TestAccount, safety: Saf
   const label = accountLabel(account);
   const problem = notSetUp(account, label);
   if (problem) throw new SignInError(problem);
+  // A status read's sealed password (D10) is a marker, never a credential: never type it into a sign-in page.
+  if (isSealed(account.password)) throw new SignInError(`${label}'s saved password wasn't opened for this sign-in.`);
   const registrations = [registerSecretLiterals([account.password!])];
   try {
     return await signInReady(browser, account, label, safety, registrations);

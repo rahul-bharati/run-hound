@@ -20,6 +20,8 @@ export type DiscoverAndPlan = (target: string, options: Partial<RunOptions>) => 
 export type ResolveAccounts = (options?: {
   env?: NodeJS.ProcessEnv;
   home?: string;
+  /** Status only: passwords stay sealed and the OS keychain isn't asked (D10). */
+  sealed?: boolean;
 }) => Promise<{ config: AccountsConfig; status: AccountsStatus }>;
 
 /** The registerPasswords function from server/accounts. */

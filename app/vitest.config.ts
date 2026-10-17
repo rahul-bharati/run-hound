@@ -1,8 +1,10 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
+    // Live provider smoke tests call real APIs with real keys: only `pnpm test:live` runs them (vitest.live.config.ts).
+    exclude: [...configDefaults.exclude, "tests/live/**"],
     // Never the developer's real AI settings: each worker gets an empty config folder (see the file).
     setupFiles: ["tests/support/isolate-config.ts"],
     testTimeout: 60_000,

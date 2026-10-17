@@ -29,6 +29,18 @@ export const HELPERS = String.raw`
 
   // ---------- small helpers ----------
 
+  /**
+   * The desktop app (desktop/src/preload.ts marks <html data-shell="desktop"> before any script runs). There, Run Hound
+   * runs on this computer with no environment to configure, so copy about servers, browsers and RUNHOUND_* variables
+   * is said the desktop's way.
+   */
+  const onDesktop = document.documentElement.dataset.shell === "desktop";
+  /** An engine message as the desktop says it: no RUNHOUND_ALLOWED_HOSTS, which a desktop user can't set. */
+  function desktopWording(text) {
+    if (!onDesktop || typeof text !== "string") return text;
+    return text.replace(/,? ?(?:private addresses )?or hosts listed in RUNHOUND_ALLOWED_HOSTS/g, (m) => (m.includes("private") ? " and private network addresses" : ""));
+  }
+
   function h(tag, attrs) {
     const el = document.createElement(tag);
     if (attrs) {
@@ -63,6 +75,27 @@ export const HELPERS = String.raw`
     s.innerHTML = ICONS[name] || "";
     return s;
   }
+  /**
+   * A notice: an icon and a line of text, edged and tinted by its kind (ok, warn, err or info). Text only, never HTML.
+   * setNotice re-uses one element (a result slot): no text empties it, and CSS hides an empty notice.
+   */
+  const NOTICE_ICON = { ok: "statusPass", warn: "alert", err: "statusFail", info: "info" };
+  function setNotice(el, kind, text) {
+    for (const k of Object.keys(NOTICE_ICON)) el.classList.remove(k);
+    fill(el);
+    if (!text) return el;
+    el.classList.add(kind);
+    fill(el, icon(NOTICE_ICON[kind]), h("span", { class: "notice-text", text }));
+    return el;
+  }
+  function noticeBox(kind, text, attrs) {
+    const a = Object.assign({}, attrs || {});
+    a.class = "notice" + (a.class ? " " + a.class : "");
+    return setNotice(h("div", a), kind, text);
+  }
+  /** A small status chip (kind: ok, warn or nothing for neutral). */
+  const chip = (kind, text, attrs) => h("span", Object.assign({ class: "chip" + (kind ? " " + kind : ""), text }, attrs || {}));
+
   /** Lucide status icons (CONFIG.icons); the big verdict variants reuse them at 64 px. */
   const RINGS = {
     pass: ICONS.statusPass,

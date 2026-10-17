@@ -156,4 +156,80 @@ describe("converseJson", () => {
     expect(error.status).toBe(400);
     expect(error.message).toMatch(/model that supports tool use/i);
   });
+  describe("models that reject the usual settings", () => {
+    const TEMPERATURE_REJECTED = JSON.stringify({ message: "The model returned the following errors: `temperature` is deprecated for this model." });
+    const TOOL_CHOICE_REJECTED = JSON.stringify({ message: "The model returned the following errors: tool_choice: forcing a specific tool is not supported for this model; only auto is supported" });
+
+    it("retries once without temperature when the model rejects it, and remembers that for the model", async () => {
+      fake.reply({ status: 400, body: TEMPERATURE_REJECTED }, { answer: 5 });
+      const text = await converseJson(config(), MESSAGES, SCHEMA, undefined, {});
+      expect(JSON.parse(text)).toEqual({ answer: 5 });
+      expect(fake.calls).toHaveLength(2);
+      expect(fake.calls[0]!.body.inferenceConfig).toEqual({ temperature: 0 });
+      expect(fake.calls[1]!.body).not.toHaveProperty("inferenceConfig");
+      // Everything else of the request is as it was, with the tool still forced.
+      expect(fake.calls[1]!.body.toolConfig.toolChoice).toEqual({ tool: { name: "plan_review" } });
+
+      fake.reply({ answer: 6 });
+      await converseJson(config(), MESSAGES, SCHEMA, undefined, {});
+      expect(fake.calls).toHaveLength(3);
+      expect(fake.calls[2]!.body).not.toHaveProperty("inferenceConfig");
+    });
+
+    it("retries once with toolChoice auto when the tool can't be forced, and remembers that for the model", async () => {
+      fake.reply({ status: 400, body: TOOL_CHOICE_REJECTED }, { answer: 5 });
+      const text = await converseJson(config(), MESSAGES, SCHEMA, undefined, {});
+      expect(JSON.parse(text)).toEqual({ answer: 5 });
+      expect(fake.calls).toHaveLength(2);
+      expect(fake.calls[0]!.body.toolConfig.toolChoice).toEqual({ tool: { name: "plan_review" } });
+      expect(fake.calls[1]!.body.toolConfig.toolChoice).toEqual({ auto: {} });
+      expect(fake.calls[1]!.body.toolConfig.tools).toEqual(fake.calls[0]!.body.toolConfig.tools);
+      expect(fake.calls[1]!.body.inferenceConfig).toEqual({ temperature: 0 });
+
+      fake.reply({ answer: 6 });
+      await converseJson(config(), MESSAGES, SCHEMA, undefined, {});
+      expect(fake.calls).toHaveLength(3);
+      expect(fake.calls[2]!.body.toolConfig.toolChoice).toEqual({ auto: {} });
+    });
+
+    it("accepts a text answer with the JSON in it when the tool is not forced", async () => {
+      fake.reply({ status: 400, body: TOOL_CHOICE_REJECTED }, { raw: '{"answer": 9}' });
+      expect(JSON.parse(await converseJson(config(), MESSAGES, SCHEMA, undefined, {}))).toEqual({ answer: 9 });
+    });
+
+    it("copes with a model that rejects both, one retry each", async () => {
+      fake.reply({ status: 400, body: TEMPERATURE_REJECTED }, { status: 400, body: TOOL_CHOICE_REJECTED }, { answer: 3 });
+      expect(JSON.parse(await converseJson(config(), MESSAGES, SCHEMA, undefined, {}))).toEqual({ answer: 3 });
+      expect(fake.calls).toHaveLength(3);
+      expect(fake.calls[2]!.body).not.toHaveProperty("inferenceConfig");
+      expect(fake.calls[2]!.body.toolConfig.toolChoice).toEqual({ auto: {} });
+    });
+
+    it("signs every attempt on its own: the retry's signature covers the new body", async () => {
+      fake.reply({ status: 400, body: TEMPERATURE_REJECTED }, { answer: 5 });
+      await converseJson(config({ apiKey: null }), MESSAGES, SCHEMA, undefined, AWS_ENV);
+      expect(fake.calls).toHaveLength(2);
+      const [first, second] = fake.calls.map((c) => String(c.headers.authorization));
+      expect(first).toMatch(/^AWS4-HMAC-SHA256 /);
+      expect(second).toMatch(/^AWS4-HMAC-SHA256 /);
+      expect(second).not.toBe(first);
+    });
+
+    it("does not call the tool-choice rejection a missing tool-use feature, even when it stays rejected", async () => {
+      fake.reply({ status: 400, body: TOOL_CHOICE_REJECTED });
+      const error = await caught(converseJson(config(), MESSAGES, SCHEMA, undefined, {}));
+      expect(error.code).toBe("http");
+      expect(error.status).toBe(400);
+      expect(error.message).not.toMatch(/supports tool use/i);
+      expect(error.message).toContain("tool_choice");
+      expect(fake.calls).toHaveLength(2);
+    });
+
+    it("still says to choose another model when the model can't use tools at all", async () => {
+      fake.reply({ status: 400, body: JSON.stringify({ message: "This model doesn't support tool use." }) });
+      const error = await caught(converseJson(config(), MESSAGES, SCHEMA, undefined, {}));
+      expect(error.message).toMatch(/model that supports tool use/i);
+      expect(fake.calls).toHaveLength(1);
+    });
+  });
 });
