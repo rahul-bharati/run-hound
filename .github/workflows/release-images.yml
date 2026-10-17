@@ -22,8 +22,12 @@
 #   3. build: each image for each platform on a runner of that platform (arm64 on GitHub's arm64 runners, no QEMU),
 #      pushed by digest only (no tag yet) and started there as a sanity check.
 #   4. merge: per image, one multi-platform index from its two digests, and only then the tags.
-#   5. github-release: the GitHub Release (a pushed tag only), once every image is published, so
-#      releases/latest/download/run-hound.compose.yml never names images that aren't on GHCR yet.
+#   5. github-release: the images part of the GitHub Release (a pushed tag only), once every image is published, so
+#      releases/latest/download/run-hound.compose.yml never names images that aren't on GHCR yet. The release is shared with
+#      desktop-installers.yml, which adds the signed desktop installers on the same tag: it is created as a DRAFT and
+#      published by whichever of the two workflows completes it, so a tag whose installers failed their gate never becomes
+#      `releases/latest` (the desktop app's update check announces that) and neither workflow overwrites the other's notes.
+#      A commit without .github/workflows/desktop-installers.yml (the line before the desktop app merged) has no desktop part.
 #
 # GHCR needs no setup: the workflow's GITHUB_TOKEN pushes. New GHCR packages are private: after the first release,
 # open each package (github.com/rahul-bharati?tab=packages) → Package settings → Change visibility → Public.
@@ -57,7 +61,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: The tag matches app/package.json and its CHANGELOG section, and no compose image is pinned to a version
         id: version
         env:
@@ -234,12 +238,12 @@ jobs:
       GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.image.name }}
       DOCKERHUB_IMAGE: docker.io/${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image.name }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -247,7 +251,7 @@ jobs:
 
       - name: Log in to Docker Hub (optional mirror)
         if: env.HAS_DOCKERHUB == 'true'
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -258,7 +262,7 @@ jobs:
       # tagged commit), which metadata-action fills in itself. merge runs this step with these same inputs for its tags.
       - name: Image names, tags, labels and annotations
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         env:
           DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest
         with: &metadata
@@ -295,7 +299,7 @@ jobs:
       # speeds up a re-run of this release, not the next release.
       - name: Build and push by digest
         id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ${{ matrix.image.file }}
@@ -361,7 +365,7 @@ jobs:
       # The image name comes last in the artifact's name: run-hound is a prefix of the other three names, and merge
       # picks an image's two digests by how the artifact's name ends.
       - name: Upload the digest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: digests-${{ matrix.target.arch }}-${{ matrix.image.name }}
           path: ${{ runner.temp }}/digests/*
@@ -391,16 +395,16 @@ jobs:
       DOCKERHUB_IMAGE: docker.io/${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image.name }}
     steps:
       - name: Download the digests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: ${{ runner.temp }}/digests
           pattern: digests-*-${{ matrix.image.name }}
           merge-multiple: true
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -408,7 +412,7 @@ jobs:
 
       - name: Log in to Docker Hub (optional mirror)
         if: env.HAS_DOCKERHUB == 'true'
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -416,7 +420,7 @@ jobs:
       # build's inputs (same tags, labels and annotations), with the annotations for the index this time.
       - name: Image names, tags, labels and annotations
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         env:
           DOCKER_METADATA_ANNOTATIONS_LEVELS: index
         with: *metadata
@@ -465,13 +469,21 @@ jobs:
           done
           exit "$fail"
 
-  # The GitHub Release for the tag: title "Run Hound 0.4.1", this version's CHANGELOG.md section as its notes, and the
-  # compose file and settings example of the tagged commit attached. It runs only after every image's merge passed,
-  # which is the point: README.md, TESTING.md and the site hand out
+  # The images part of the GitHub Release for the tag: title "Run Hound 0.4.1", this version's CHANGELOG.md section as its
+  # notes, and the compose file and settings example of the tagged commit attached. It runs only after every image's merge
+  # passed, which is the point: README.md, TESTING.md and the site hand out
   # https://github.com/rahul-bharati/run-hound/releases/latest/download/run-hound.compose.yml, and that URL can only
   # ever name images that are already on GHCR. (They used to hand out the compose file pinned to the tag, which exists
-  # from the moment the tag is pushed, before its images were published.) A pre-release is published as one, so
-  # releases/latest, like the latest image tag, stays on the last release. A manual run has no tag and skips this job.
+  # from the moment the tag is pushed, before its images were published.) A manual run has no tag and skips this job.
+  #
+  # The release is shared with desktop-installers.yml (docs/decisions/10-2026.md#2026-10-17-desktop-release-pipeline-hardening),
+  # so this job never publishes it by itself when that workflow's part is due: scripts/release-coordination.mjs creates the
+  # release as a draft, replaces only this part's block of the notes (the installer table is the other part's), and
+  # publishes the release (as a pre-release for a pre-release version, so releases/latest stays on the last full release)
+  # only when every part this tag needs is in. If the desktop installers are not in (their gate failed, or the workflow is
+  # still running or waiting for approval) the release stays a draft: re-run that workflow, or publish the draft by hand
+  # after checking it. The concurrency group is the one desktop-installers.yml's publish job uses, so the two parts never edit
+  # the release at the same moment.
   github-release:
     name: GitHub Release
     needs: [check-version, merge]
@@ -479,11 +491,17 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    concurrency:
+      group: release-publish-${{ github.ref_name }}
+      cancel-in-progress: false
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
 
-      - name: Create the GitHub Release (or update it, on a re-run)
+      - name: Add the images part to the GitHub Release (a draft until every part is in)
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -521,15 +539,9 @@ jobs:
             exit 1
           fi
 
-          if [[ "$VERSION" == *-* ]]; then flags=(--prerelease); else flags=(--latest); fi
-          files=("$assets/run-hound.compose.yml" "$assets/run-hound.env.example")
-          if gh release view "$tag" > /dev/null 2>&1; then
-            # A re-run: the release, or the draft an interrupted create left, is already there.
-            gh release upload "$tag" "${files[@]}" --clobber
-            gh release edit "$tag" --title "Run Hound $VERSION" --notes-file "$notes" --draft=false "${flags[@]}"
-          else
-            # With assets, gh creates the release as a draft, uploads them and only then publishes it, so the latest
-            # release never lacks its compose file.
-            gh release create "$tag" "${files[@]}" --verify-tag --title "Run Hound $VERSION" --notes-file "$notes" \
-              "${flags[@]}"
-          fi
+          # Tags cut from a commit that has the desktop workflow need its part too. (A commit that doesn't, such as an
+          # old tag re-run, has no installers to wait for.)
+          require=images
+          if [ -f .github/workflows/desktop-installers.yml ]; then require=images,desktop; fi
+          node desktop/scripts/release-coordination.mjs publish --tag "$tag" --part images --require "$require" \
+            --title "Run Hound $VERSION" --notes-file "$notes" "$assets/run-hound.compose.yml" "$assets/run-hound.env.example"

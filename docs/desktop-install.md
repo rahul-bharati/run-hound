@@ -101,3 +101,5 @@ To turn the check off (offline machines, tests, CI), start the app with `RUNHOUN
 - macOS: run `launchctl setenv RUNHOUND_NO_UPDATE_CHECK 1`, then start Run Hound. This lasts until you log out or restart.
 
 With the check off, the app makes no request to GitHub at all.
+
+A version appears to this check only once it is published, and a release is published only after its signed installers are attached to it (see [Releasing](development.md#releasing)); a release that is still a draft is not announced.

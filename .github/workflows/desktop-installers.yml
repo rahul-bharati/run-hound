@@ -11,22 +11,33 @@
 # dmg pair are the same macOS (macos-latest is macos-26).
 #
 # Build now, sign later: every build produces installers as private workflow artifacts (7 days), named
-# Run-Hound-<version>-<os>-<arch>[-unsigned].<ext>. Signing and notarization switch on by themselves when the secrets
-# exist; desktop/scripts/signing.mjs decides, from electron-builder's own variables:
+# Run-Hound-<version>-<os>-<arch>[-unsigned].<ext>. Only a run for a release tag (v*.*.*) signs; pushes, pull requests
+# and manual runs build unsigned whatever secrets exist (their signing steps are not given the secrets, and
+# desktop/scripts/signing.mjs refuses to sign outside a release tag as a second lock). On a tag the macOS and Windows build
+# legs run in the GitHub Environment `release-signing`, where the secrets live (docs/development.md "Signing secrets"), and
+# signing and notarization switch on by themselves when the secrets exist; desktop/scripts/signing.mjs decides, from
+# electron-builder's own variables:
 #   macOS    MACOS_CSC_LINK (base64 .p12 of a Developer ID Application certificate) and MACOS_CSC_KEY_PASSWORD, and
 #            notarization by either APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID, or
 #            APPLE_API_KEY_P8 (the .p8 file's text) + APPLE_API_KEY_ID + APPLE_API_ISSUER
 #   Windows  WIN_CSC_LINK (base64 .pfx) and WIN_CSC_KEY_PASSWORD
 # A platform with an incomplete set builds unsigned and says why in the log and the job summary. Linux packages are not
-# signed by this pipeline.
+# signed by this pipeline. A signed build is then verified, not trusted: codesign, spctl and stapler on macOS,
+# Get-AuthenticodeSignature on Windows, and the build fails if any of them disagrees.
+#
+# A release tag also has to pass `preflight` before anything is built: its commit must be on main, and CI must have passed
+# on main for exactly that commit (the same check release-images.yml's ci-status makes). So no signing secret is ever
+# handed to code that main has not tested.
 #
 # Publishing (tag v*.*.* only): the publish job runs when the gate job finds every macOS and Windows build signed and no
 # blocking first-run leg (the install-and-run checks of the first-run jobs) failed, and
-# then attaches the installers and a combined SHA256SUMS to the GitHub Release of the tag. Otherwise the gate's summary
-# says "not published: ..." and nothing leaves the workflow artifacts. release-images.yml creates and publishes the
-# GitHub Release once its images are on GHCR; the publish job adds to that release if it exists, or creates it as a
-# DRAFT, which release-images.yml then finds, completes and publishes, so a release page never goes public ahead of
-# the images its compose file names.
+# then attaches the installers, a combined SHA256SUMS and the installer table to the GitHub Release of the tag. Otherwise the
+# gate's summary says "not published: ..." and nothing leaves the workflow artifacts. The release is shared with
+# release-images.yml (the images, the compose file and the CHANGELOG notes): whichever workflow gets there first creates it
+# as a DRAFT, each adds its own part (assets and a block of the notes, scripts/release-coordination.mjs), and the one that
+# completes the set publishes it. So a release page never goes public ahead of the images its compose file names or the
+# installers the desktop app tells users to download, and a tag whose installers failed their gate stays a draft instead
+# of becoming `releases/latest`, which the desktop app's update check announces.
 name: Desktop installers
 
 on:
@@ -50,19 +61,93 @@ concurrency:
   cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 jobs:
+  # A release tag only (every other trigger skips this job and builds unsigned): is the tag's commit on main, and did CI pass
+  # on main for exactly that commit? It is release-images.yml's ci-status check (a CI run on main for this exact commit that
+  # is still running is waited for), and it runs BEFORE the build so that no signing secret reaches code main has not
+  # tested: a tag can be pushed from any commit, and the release-signing Environment's tag rule only looks at the tag's name.
+  # Unlike release-images.yml, this does not run CI itself when main's run is missing or failed: re-run CI on main, then
+  # re-run this workflow. The job fails (red) when either check does, so a tag that signs nothing is not mistaken for a
+  # green release.
+  preflight:
+    name: Tag is on main and CI passed
+    if: ${{ github.ref_type == 'tag' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Is the tag's commit on main, and did CI pass for it there?
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          fail=()
+          # compare/main...<sha> is "behind" when the commit is an ancestor of main and "identical" when it is main's head.
+          status=$(gh api "repos/$GH_REPO/compare/main...$SHA" --jq .status) || status="unknown"
+          case "$status" in
+            identical | behind) echo "::notice::$TAG ($SHA) is on main ($status)." ;;
+            *) fail+=("the tag's commit is not on main (compare says: $status)") ;;
+          esac
+
+          fields=databaseId,status,conclusion,url
+          run=$(gh run list --workflow ci.yml --event push --branch main --commit "$SHA" --limit 1 --json "$fields" \
+            --jq '.[0] // empty') || { echo "::warning::Couldn't list CI's runs on main"; run=""; }
+          if [ -z "$run" ]; then
+            fail+=("no CI run on main for $SHA")
+          else
+            id=$(jq -r .databaseId <<< "$run")
+            if [ "$(jq -r .status <<< "$run")" != completed ]; then
+              echo "Waiting for CI on main: $(jq -r .url <<< "$run")"
+              timeout 90m gh run watch "$id" --interval 60 --compact || true
+              run=$(gh run view "$id" --json "$fields") || run='{}'
+            fi
+            conclusion=$(jq -r '.conclusion // ""' <<< "$run")
+            url=$(jq -r '.url // ""' <<< "$run")
+            if [ "$(jq -r '.status // ""' <<< "$run")" = completed ] && [ "$conclusion" = success ]; then
+              echo "::notice::CI passed on main for this commit ($url)."
+            else
+              fail+=("CI on main for this commit is ${conclusion:-not finished} ($url)")
+            fi
+          fi
+
+          {
+            echo "### Preflight for $TAG"
+            echo
+            if [ "${#fail[@]}" = 0 ]; then
+              echo "The tag's commit is on main and CI passed on main for it. The installers are built."
+            else
+              echo "**Nothing is built or signed:**"
+              for reason in "${fail[@]}"; do echo "- $reason"; done
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${#fail[@]}" != 0 ]; then
+            for reason in "${fail[@]}"; do echo "::error title=Release preflight::$reason"; done
+            exit 1
+          fi
+
   build:
     name: Installers (${{ matrix.label }})
+    needs: preflight
+    # preflight is skipped (not a tag) or succeeded; a tag that failed it builds nothing.
+    if: ${{ !cancelled() && (github.ref_type != 'tag' || needs.preflight.result == 'success') }}
     runs-on: ${{ matrix.runner }}
+    # The signing legs of a release tag run in the release-signing Environment (docs/development.md "Signing secrets"): its
+    # deployment rule admits only v*.*.* tags, its required reviewers approve the run, and its secrets are visible to no
+    # other job. Every other run, and the Linux legs, run in no Environment, so they can't see those secrets.
+    environment: ${{ github.ref_type == 'tag' && matrix.environment || '' }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { id: mac_arm64, os: mac, label: macOS arm64, runner: macos-15 }
-          - { id: mac_x64, os: mac, label: macOS x64, runner: macos-15-intel }
-          - { id: win_x64, os: win, label: Windows x64, runner: windows-2025 }
-          - { id: linux_x64, os: linux, label: Linux x64, runner: ubuntu-24.04 }
-          - { id: linux_arm64, os: linux, label: Linux arm64, runner: ubuntu-24.04-arm }
+          - { id: mac_arm64, os: mac, label: macOS arm64, runner: macos-15, environment: release-signing }
+          - { id: mac_x64, os: mac, label: macOS x64, runner: macos-15-intel, environment: release-signing }
+          - { id: win_x64, os: win, label: Windows x64, runner: windows-2025, environment: release-signing }
+          - { id: linux_x64, os: linux, label: Linux x64, runner: ubuntu-24.04, environment: "" }
+          - { id: linux_arm64, os: linux, label: Linux arm64, runner: ubuntu-24.04-arm, environment: "" }
     # One output name per matrix leg (signing_mac_arm64, ...), as GitHub documents for matrix jobs ("jobs.<job_id>.outputs"):
     # outputs of one name would be overwritten by whichever leg finishes last. A leg sets only its own; the others stay
     # empty and the gate job reads the combined set. Each is signed, unsigned or not-required (Linux).
@@ -73,9 +158,37 @@ jobs:
       signing_linux_x64: ${{ steps.record.outputs.signing_linux_x64 }}
       signing_linux_arm64: ${{ steps.record.outputs.signing_linux_arm64 }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      # Tripwire for a mistake that would undo the Environment: a signing secret saved as a repository or organization secret
+      # (the default place the Secrets page offers) is visible to every job of every workflow, including one a pull request
+      # or an agent's branch edits. Outside a release tag this job runs in no Environment, so any signing secret that is
+      # visible here is one of those. Only whether each is set is read (a `!= ''` expression); nothing is exported.
+      - name: No signing secret outside the release-signing Environment
+        if: ${{ github.ref_type != 'tag' }}
+        shell: bash
+        env:
+          MACOS_CSC_LINK: ${{ secrets.MACOS_CSC_LINK != '' }}
+          MACOS_CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD != '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID != '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD != '' }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID != '' }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 != '' }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID != '' }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER != '' }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK != '' }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD != '' }}
+        run: |
+          visible=()
+          for name in MACOS_CSC_LINK MACOS_CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER WIN_CSC_LINK WIN_CSC_KEY_PASSWORD; do
+            if [ "${!name}" = true ]; then visible+=("$name"); fi
+          done
+          if [ "${#visible[@]}" != 0 ]; then
+            echo "::error title=Signing secret outside the release-signing Environment::${visible[*]} is visible to a run that is not for a release tag, so it is a repository or organization secret. Delete it there and add it to the release-signing Environment instead (docs/development.md, Signing secrets)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: pnpm
@@ -88,9 +201,10 @@ jobs:
         if: matrix.os == 'linux'
         run: sudo apt-get update && sudo apt-get install -y rpm xvfb
 
-      # electron-builder's notarization wants APPLE_API_KEY to be the path of the .p8 file.
+      # electron-builder's notarization wants APPLE_API_KEY to be the path of the .p8 file. Release tags only, like every
+      # other use of a signing secret below; the file is deleted again right after the build.
       - name: Write the App Store Connect API key
-        if: matrix.os == 'mac'
+        if: ${{ matrix.os == 'mac' && github.ref_type == 'tag' }}
         shell: bash
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
@@ -102,22 +216,80 @@ jobs:
           fi
 
       # fetch-browsers (run by dist) downloads this runner's Chromium, then electron-builder packages for this runner's
-      # platform and architecture. Only this platform's secrets reach the step; unset ones arrive as empty strings, and
-      # dist.mjs treats those as absent. It writes `signing` to this step's outputs and builds unsigned (and says so)
-      # when the secrets are incomplete.
+      # platform and architecture. Only a release tag's step is given this platform's secrets (the expressions below are
+      # empty strings on every other trigger and for the other platforms); an unset secret is an empty string too, and
+      # dist.mjs treats that as absent. It writes `signing` to this step's outputs and builds unsigned (and says so) when
+      # the secrets are incomplete or the run is not for a release tag (scripts/signing.mjs).
       - name: Build the installers
         id: dist
         env:
-          CSC_LINK: ${{ matrix.os == 'mac' && secrets.MACOS_CSC_LINK || '' }}
-          CSC_KEY_PASSWORD: ${{ matrix.os == 'mac' && secrets.MACOS_CSC_KEY_PASSWORD || '' }}
-          APPLE_ID: ${{ matrix.os == 'mac' && secrets.APPLE_ID || '' }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.os == 'mac' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ matrix.os == 'mac' && secrets.APPLE_TEAM_ID || '' }}
-          APPLE_API_KEY_ID: ${{ matrix.os == 'mac' && secrets.APPLE_API_KEY_ID || '' }}
-          APPLE_API_ISSUER: ${{ matrix.os == 'mac' && secrets.APPLE_API_ISSUER || '' }}
-          WIN_CSC_LINK: ${{ matrix.os == 'win' && secrets.WIN_CSC_LINK || '' }}
-          WIN_CSC_KEY_PASSWORD: ${{ matrix.os == 'win' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+          CSC_LINK: ${{ github.ref_type == 'tag' && matrix.os == 'mac' && secrets.MACOS_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ github.ref_type == 'tag' && matrix.os == 'mac' && secrets.MACOS_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ github.ref_type == 'tag' && matrix.os == 'mac' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ github.ref_type == 'tag' && matrix.os == 'mac' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ github.ref_type == 'tag' && matrix.os == 'mac' && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_API_KEY_ID: ${{ github.ref_type == 'tag' && matrix.os == 'mac' && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ github.ref_type == 'tag' && matrix.os == 'mac' && secrets.APPLE_API_ISSUER || '' }}
+          WIN_CSC_LINK: ${{ github.ref_type == 'tag' && matrix.os == 'win' && secrets.WIN_CSC_LINK || '' }}
+          WIN_CSC_KEY_PASSWORD: ${{ github.ref_type == 'tag' && matrix.os == 'win' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
         run: pnpm --filter @run-hound/desktop dist
+
+      - name: Delete the App Store Connect API key
+        if: ${{ always() && matrix.os == 'mac' }}
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8"
+
+      # A build that says it signed is checked, not believed: the signature on what the installer will install, that
+      # Gatekeeper accepts it, and that the notarization ticket is stapled. Any failing check fails the job, so the gate
+      # (which only reads what the job reports) can't publish it. Unsigned builds skip this; the gate refuses them anyway.
+      - name: Verify the signature, Gatekeeper and notarization (macOS)
+        if: ${{ matrix.os == 'mac' && steps.dist.outputs.signing == 'signed' }}
+        shell: bash
+        working-directory: desktop
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          dmgs=(release/*.dmg)
+          if [ "${#dmgs[@]}" != 1 ]; then echo "::error::Expected one dmg in desktop/release, found ${#dmgs[@]}"; exit 1; fi
+          mnt="$RUNNER_TEMP/verify-dmg"
+          mkdir -p "$mnt"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "${dmgs[0]}"
+          trap 'hdiutil detach "$mnt" -force > /dev/null 2>&1 || true' EXIT
+          app=$(find "$mnt" -maxdepth 1 -name '*.app' -print -quit)
+          if [ -z "$app" ]; then echo "::error::No .app in ${dmgs[0]}"; exit 1; fi
+          echo "Verifying $app from ${dmgs[0]}"
+          echo "## codesign --verify --deep --strict --verbose=2"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          echo "## codesign -dvv (identity: a Developer ID Application certificate, not ad hoc, with the hardened runtime)"
+          details=$(codesign -dvv "$app" 2>&1)
+          echo "$details"
+          grep -q '^Authority=Developer ID Application:' <<< "$details" || { echo "::error::The app is not signed with a Developer ID Application certificate"; exit 1; }
+          if grep -q '^Signature=adhoc' <<< "$details"; then echo "::error::The app has only an ad hoc signature"; exit 1; fi
+          grep -Eq '^CodeDirectory .*flags=0x[0-9a-f]+\(.*runtime' <<< "$details" || { echo "::error::The hardened runtime is not on"; exit 1; }
+          echo "## spctl -a -vv -t exec"
+          spctl -a -vv -t exec "$app"
+          echo "## xcrun stapler validate"
+          xcrun stapler validate "$app"
+
+      - name: Verify the Authenticode signature (Windows)
+        if: ${{ matrix.os == 'win' && steps.dist.outputs.signing == 'signed' }}
+        shell: pwsh
+        working-directory: desktop
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # The installer that will be published (the name package.json's artifactName gives it) and the app inside it.
+          $files = @(Get-ChildItem release -Filter 'Run-Hound-*.exe' | Select-Object -ExpandProperty FullName) + @(Get-ChildItem release/win-unpacked -Filter 'Run Hound.exe' | Select-Object -ExpandProperty FullName)
+          if ($files.Count -ne 2) { throw "Expected one installer and win-unpacked/Run Hound.exe in desktop/release, found: $($files -join ', ')" }
+          $bad = @()
+          foreach ($file in $files) {
+            $sig = Get-AuthenticodeSignature -FilePath $file
+            $sig | Format-List Path, Status, StatusMessage, SignatureType | Out-String | Write-Host
+            if ($sig.Status -ne 'Valid') { $bad += "$file : status $($sig.Status) ($($sig.StatusMessage))" }
+            elseif ($null -eq $sig.SignerCertificate) { $bad += "$file : no signer certificate" }
+            elseif ($null -eq $sig.TimeStamperCertificate) { $bad += "$file : the signature carries no timestamp, so it would stop validating when the certificate expires" }
+            else { Write-Host "$file signed by $($sig.SignerCertificate.Subject), timestamped by $($sig.TimeStamperCertificate.Subject)" }
+          }
+          if ($bad.Count -gt 0) { $bad | ForEach-Object { Write-Host "::error::$_" }; exit 1 }
 
       - name: Record whether this build signed
         id: record
@@ -176,7 +348,7 @@ jobs:
           exe=$(find release/win-unpacked -maxdepth 1 -name '*.exe' -print -quit)
           DESKTOP_EXECUTABLE=$(node -p 'require("path").resolve(process.argv[1])' "$exe") node scripts/launch-check.mjs
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: installers-${{ matrix.id }}
           path: |
@@ -231,16 +403,16 @@ jobs:
           # The same installer (built on windows-2025) on the older image, so an OS or image difference shows up.
           - { id: windows-2022-x64, key: windows_2022_x64, os: win, label: Windows x64 (windows-2022), runner: windows-2022, installers: win_x64, advisory: false }
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: pnpm
       - name: Install the harness
         run: pnpm install --frozen-lockfile
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: installers-${{ matrix.installers }}
           path: ${{ runner.temp }}/installers
@@ -461,7 +633,7 @@ jobs:
             cat "$EVIDENCE/diagnostics.md" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: first-run-${{ matrix.id }}
@@ -510,9 +682,9 @@ jobs:
       - name: Tools the actions need
         run: dnf install -y git tar gzip xz zstd which findutils
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: installers-${{ matrix.installers }}
           path: ${{ runner.temp }}/installers
@@ -542,8 +714,8 @@ jobs:
       - name: Node, npm and libatomic for pnpm
         run: dnf install -y nodejs npm libatomic
 
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: pnpm
@@ -591,7 +763,7 @@ jobs:
             cat "$EVIDENCE/diagnostics.md" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: first-run-${{ matrix.id }}
@@ -606,12 +778,13 @@ jobs:
         shell: bash
         run: echo "${{ matrix.key }}=${{ matrix.advisory && 'advisory' || 'blocking' }}:${{ job.status }}" >> "$GITHUB_OUTPUT"
 
-  # Decides whether to publish, and says why not. Every macOS and Windows build must have reported `signed` (Linux
-  # reports not-required), the whole matrix must have succeeded, no blocking first-run leg may have failed (the legs
-  # still marked advisory in their matrix report here but never block), and the run must be a release tag.
+  # Decides whether to publish, and says why not. The run must be a release tag whose preflight passed (its commit is on
+  # main and CI passed there for it), every macOS and Windows build must have reported `signed` (Linux reports
+  # not-required), the whole matrix must have succeeded, and no blocking first-run leg may have failed (the legs still
+  # marked advisory in their matrix report here but never block).
   gate:
     name: Release gate
-    needs: [build, first-run, first-run-rpm]
+    needs: [preflight, build, first-run, first-run-rpm]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -621,6 +794,7 @@ jobs:
       - name: Signed, and a release tag?
         id: gate
         env:
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
           BUILD_RESULT: ${{ needs.build.result }}
           BUILD_OUTPUTS: ${{ toJSON(needs.build.outputs) }}
           FIRST_RUN_RESULT: ${{ needs.first-run.result }}
@@ -672,6 +846,8 @@ jobs:
             reasons+=("first run failed (${failed_list%, })")
           fi
           if [ "$REF_TYPE" != tag ]; then reasons+=("not a release tag ($REF_NAME), so the installers stay workflow artifacts for 7 days"); fi
+          # preflight is skipped on anything but a tag; on a tag it must have found the commit on main with CI green.
+          if [ "$REF_TYPE" = tag ] && [ "$PREFLIGHT_RESULT" != success ]; then reasons+=("the tag's commit is not on main or CI has not passed on main for it, so nothing was built (preflight: $PREFLIGHT_RESULT)"); fi
           if [ "$BUILD_RESULT" != success ]; then reasons+=("a build did not succeed ($BUILD_RESULT)"); fi
           if [ "${#unsigned[@]}" != 0 ]; then reasons+=("unsigned builds (${unsigned[*]})"); fi
           if [ "${#reasons[@]}" = 0 ]; then
@@ -686,7 +862,11 @@ jobs:
           if [ "$publish" = true ]; then echo "::notice::$verdict"; else echo "::warning::$verdict"; fi
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
-  # The only job that can write to the repository.
+  # The only job that can write to the repository. It adds the desktop part to the tag's GitHub Release and never
+  # publishes the release by itself unless this part completes it: scripts/release-coordination.mjs keeps the release a
+  # draft until release-images.yml's part (the images, the compose file, the CHANGELOG notes) is in as well, and merges
+  # the two parts' notes instead of overwriting either. The concurrency group is the one release-images.yml's github-release
+  # job uses, so the two parts never edit the release at the same moment (a lost notes update would drop a part's block).
   publish:
     name: Attach to the GitHub Release
     needs: [build, gate]
@@ -694,19 +874,22 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+    concurrency:
+      group: release-publish-${{ github.ref_name }}
+      cancel-in-progress: false
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: ${{ runner.temp }}/downloaded
           pattern: installers-*
 
-      - name: Collect the installers, write SHA256SUMS and the notes, and attach them
+      - name: Collect the installers, write SHA256SUMS and the notes, and add them to the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -735,24 +918,14 @@ jobs:
           fi
 
           node desktop/scripts/checksums.mjs "$assets"
-          node desktop/scripts/release-notes.mjs --version "$version" --tag "$TAG" --assets "$assets" --out "$notes"
+          # Only the installer table: the CHANGELOG part of the notes is release-images.yml's.
+          node desktop/scripts/release-notes.mjs --version "$version" --tag "$TAG" --assets "$assets" --installers-only --out "$notes"
 
-          if [[ "$version" == *-* ]]; then flags=(--prerelease); else flags=(); fi
-          files=("$assets"/*)
-          if gh release view "$TAG" > /dev/null 2>&1; then
-            gh release upload "$TAG" "${files[@]}" --clobber
-            where="the existing release"
-          elif gh release create "$TAG" "${files[@]}" --draft --verify-tag --title "Run Hound $version" --notes-file "$notes" "${flags[@]}"; then
-            where="a new draft release (release-images.yml publishes it with the images)"
-          else
-            # release-images.yml created it between the check and the create.
-            gh release upload "$TAG" "${files[@]}" --clobber
-            where="the release created meanwhile"
-          fi
+          # The release is published only when both parts are in: this one and release-images.yml's images part.
+          node desktop/scripts/release-coordination.mjs publish --tag "$TAG" --part desktop --require images,desktop --notes-file "$notes" "$assets"/*
           {
-            echo "### Published"
             echo
-            echo "Attached ${#files[@]} files to $where for $TAG:"
+            echo "Installers and checksums for $TAG:"
             echo
             echo '```'
             cat "$assets/SHA256SUMS"

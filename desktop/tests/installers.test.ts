@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { checksumsFor, installersIn } from "../scripts/checksums.mjs";
 import { changelogSection, releaseNotes } from "../scripts/release-notes.mjs";
-import { SIGNING_VARIABLES, builderEnv, resolveSigning } from "../scripts/signing.mjs";
+import { SIGNING_VARIABLES, builderEnv, mayCodeSign, resolveSigning } from "../scripts/signing.mjs";
 
 describe("D4 signing follows the environment", () => {
   const appleId = { APPLE_ID: "a@example.com", APPLE_APP_SPECIFIC_PASSWORD: "x", APPLE_TEAM_ID: "T" };
@@ -33,6 +33,48 @@ describe("D4 signing follows the environment", () => {
 
   it("does not sign Linux packages, and does not call that unsigned", () => {
     expect(resolveSigning("linux", { CSC_LINK: "base64" }).state).toBe("not-required");
+  });
+
+  describe("on GitHub Actions only a run for a release tag signs, whatever secrets it was given", () => {
+    const secrets = { CSC_LINK: "base64", CSC_KEY_PASSWORD: "p", WIN_CSC_LINK: "base64", ...appleId };
+    const actions = (type: string, name: string) => ({ ...secrets, GITHUB_ACTIONS: "true", GITHUB_REF_TYPE: type, GITHUB_REF_NAME: name });
+
+    it("signs for v*.*.* tags, pre-releases included", () => {
+      for (const name of ["v1.2.3", "v0.7.0", "v1.2.3-rc.1"]) {
+        expect(mayCodeSign(actions("tag", name)), name).toBe(true);
+        expect(resolveSigning("darwin", actions("tag", name)).state, name).toBe("signed");
+        expect(resolveSigning("win32", actions("tag", name)).state, name).toBe("signed");
+      }
+    });
+
+    it.each([
+      ["a push to main", "branch", "main"],
+      ["a branch an agent pushed", "branch", "claude/some-branch"],
+      ["a pull request", "branch", "66/merge"],
+      ["a manual run from a branch", "branch", "integration/desktop"],
+      ["a tag that is not a release version", "tag", "latest"],
+      ["a tag that only looks like one", "tag", "vfoo.bar.baz"],
+      ["a tag with a path in it", "tag", "v1.2.3/../x"],
+    ])("builds unsigned for %s, says why, and strips every secret", (_label, type, name) => {
+      const env = actions(type, name);
+      expect(mayCodeSign(env)).toBe(false);
+      for (const platform of ["darwin", "win32"]) {
+        expect(resolveSigning(platform, env)).toMatchObject({ state: "unsigned", reason: expect.stringContaining("release tag") });
+      }
+      const builder = builderEnv(resolveSigning("darwin", env), env);
+      expect(Object.keys(builder).filter((variable) => SIGNING_VARIABLES.includes(variable))).toEqual([]);
+      expect(builder).toMatchObject({ CSC_IDENTITY_AUTO_DISCOVERY: "false", RUNHOUND_UNSIGNED_SUFFIX: "-unsigned" });
+    });
+
+    it("leaves a maintainer's own machine alone: off GitHub Actions the secrets decide", () => {
+      expect(mayCodeSign(secrets)).toBe(true);
+      expect(resolveSigning("darwin", secrets).state).toBe("signed");
+      expect(mayCodeSign({ ...secrets, GITHUB_ACTIONS: "false" })).toBe(true);
+    });
+
+    it("still calls Linux packages not-required rather than unsigned on a branch", () => {
+      expect(resolveSigning("linux", actions("branch", "main")).state).toBe("not-required");
+    });
   });
 
   it("strips every signing variable and turns the keychain search off for an unsigned build, and names it", () => {

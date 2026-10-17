@@ -8,7 +8,8 @@
 //
 // Signing follows the environment (scripts/signing.mjs): with a complete set of secrets for the platform the installers
 // are signed (and, on macOS, notarized) and electron-builder is told to fail if it can't; without them they are built
-// unsigned, named "...-unsigned.<ext>", and the build says so. Nothing here publishes: --publish never keeps
+// unsigned, named "...-unsigned.<ext>", and the build says so. On GitHub Actions only a run for a release tag signs, whatever
+// secrets it was given. Nothing here publishes: --publish never keeps
 // electron-builder from uploading on its own (it would otherwise, implicitly, on a CI tag build), so a release goes
 // through the publish job of .github/workflows/desktop-installers.yml, which checks the builds are signed first.
 // Under GitHub Actions the result is written to the step's outputs as `signing` (signed, unsigned or not-required).
