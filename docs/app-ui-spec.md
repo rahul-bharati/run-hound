@@ -127,6 +127,16 @@ for a signed-in run, date and time, duration, counts. It includes finished runs 
 history survives a server restart. A running run shows "Running · 3 / 15", and the list refreshes while one is
 running. Clicking a row opens its Running or Report view.
 
+## Welcome (`#/welcome`): the desktop's first launch
+
+Only in the desktop app, and only once: when `GET /api/onboarding` says `{ show: true }` (no `onboarding.json` in the desktop settings folder and no usable AI setup yet), the bare address opens `#/welcome` instead of New run; a deep link such as `#/settings` opens as asked, and the setup can be opened again from Settings → AI ("Run setup again") or by Delete all keys and data. [onboarding-spec.md](onboarding-spec.md) is the contract. Five screens on one route, each its own view with "Step n of 5", the heading focused when it opens, Back (not on the first), one primary button and **Skip setup** (the first screen's is the secondary button **Skip for now**), which leads to the skipped variant of the last screen. Nothing is sent or saved by skipping. It works with the keyboard alone and at 320 px, and has no `RUNHOUND_*` name in its wording.
+
+1. **Welcome**: "Welcome to Run Hound", three points (tests an app on this computer in a real browser; every finding comes from a plain-code check; AI is optional), **Set up AI** and **Skip for now**.
+2. **Provider**: radio cards, nothing preselected: Anthropic (Claude), OpenAI, Google Gemini, Amazon Bedrock, "A model on this computer", with a line that the agent needs a cloud provider.
+3. **Key**: a short guide for the provider (numbered steps, a link that opens the provider's key page in the browser, from the list Settings uses too, and "Keep this key private. Run Hound keeps it encrypted on this computer and sends it only to <host>."), a password field with Show/Hide, for Bedrock the Region and a choice of API key or AWS profile, for a local model the server and its address, the consent box naming the host for a remote provider (it has to be ticked), **Test connection**, **Save without testing** and **Next**, which is enabled after a passing test. Testing saves the connection with `PUT /api/ai` (AI stays off), picks the recommended main model from `GET /api/ai/models` and runs `POST /api/ai/test` on it, because the test needs a model; nothing else is saved yet. A list that fails (a refused key) is the test's answer.
+4. **Models**: **Main model** ("Investigates as the agent and drafts testing briefs") and **Helper model** ("Reviews the plan, suggests extra flows and explains findings"), preselected with the recommended pair, and "Use the main model for everything", which clears the helper. A local model gets one select. Where the models can't be listed the IDs are typed. **Finish setup** saves both with `PUT /api/ai` and turns AI on.
+5. **Ready**: "AI is set up" with the provider and models and where the key is kept and how to remove it, or the skipped variant ("You can add a key later in Settings → AI. Run Hound's checks work without AI."). **Test my app** opens New run, **Open Settings** opens Settings; either posts the outcome (`POST /api/onboarding`).
+
 ## Settings (`#/settings`)
 
 A row of links under the heading ("AI model", "Test accounts", "Keys and passwords", "Run defaults", "About") moves
@@ -135,7 +145,9 @@ focus to each card's heading without changing the route. Five cards, in this ord
 - **AI model** (0.3.0): the **Use AI** switch, provider presets, base URL, a model dropdown with Refresh and "Other…", a
   write-only API key (with Remove key) and a link to the Keys card, region and AWS profile for Bedrock, "What the model
   does" (review, suggest, explain), a consent box naming the host for a remote endpoint, **Save** and **Test
-  connection**. With a key saved in Settings, models are listed only on Refresh, a provider change or Save, never on
+  connection**. Under the model, a **Helper model** select (with "Use the main model for everything", which clears it)
+  for the cheaper model that reviews, suggests and explains; the model above drafts briefs and answers the agent. The
+  desktop app also has **Run setup again**. With a key saved in Settings, models are listed only on Refresh, a provider change or Save, never on
   load: listing uses the key, and opening Settings must not make the OS ask for the keychain. Details in
   [ai-spec.md](ai-spec.md) "Surfaces".
 - **Test accounts** (0.4.0): what the accounts are for (use accounts made for testing, never a real customer's), with
@@ -148,7 +160,10 @@ focus to each card's heading without changing the route. Five cards, in this ord
 - **Keys and passwords**: the one place that says how keys and passwords are kept (the system keychain, Run Hound's
   own store, or environment variables only), what that means, how to change or delete one, and the folder that holds
   the encrypted files. In the desktop app with the keychain, a note says the OS may ask once (macOS: Always Allow;
-  Linux: unlock the keyring).
+  Linux: unlock the keyring). The desktop app also has **Delete all keys and data**: a confirmation lists what goes (saved AI
+  keys and test-account passwords; AI settings, test-account details and run defaults; the store's key; the setup and import
+  markers), with **Also delete my reports** unticked, and on confirming it opens `#/welcome`. Not shown in a browser, in
+  Docker or by `serve`.
 - **Run defaults** (saved in this browser, or on this computer in the desktop app): "Allow destructive scenarios" and
   "Show the browser window" (greyed out without a display).
 - **About** (read-only): the version, the runs and settings folders, allowed extra hosts, accepted server host names
@@ -172,8 +187,9 @@ The full list, with every status code, is the comment above `createApp` in `app/
 | `GET /api/settings` | `{version, runsDir, allowedHosts, serverHosts, ai}` (read-only; `ai` is the AI status without the key) |
 | `/api/ai*` | AI settings, test and model list ([ai-spec.md](ai-spec.md) "Surfaces") |
 | `/api/accounts*` | Test accounts and sign-in test ([v2-spec.md](v2-spec.md) "API") |
+| `GET`/`POST /api/onboarding`, `POST /api/data/delete` | The desktop's first launch and "Delete all keys and data" ([onboarding-spec.md](onboarding-spec.md)); only in the desktop app's engine, absent from `serve` and Docker |
 
-`/api/ai*` and `/api/accounts*` need the `X-Run-Hound: 1` header, which the UI sends.
+`/api/ai*`, `/api/accounts*`, `/api/onboarding` and `/api/data/*` need the `X-Run-Hound: 1` header, which the UI sends.
 
 ## Contract changes (0.2.0)
 

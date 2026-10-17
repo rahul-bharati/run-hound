@@ -3,6 +3,8 @@ import { CHECK_GROUPS, V1_CHECK_IDS } from "../../core/types.js";
 import { BRIEF_CLIENT_LIMITS, briefTemplate } from "./brief-template.js";
 import { CLIENT } from "./client.js";
 import { ICONS } from "./icons.js";
+import { AI_KEY_URLS } from "../../constants/ai-constants.js";
+import { KEY_GUIDES } from "../../constants/onboarding-constants.js";
 import { STYLES } from "./styles.js";
 
 /**
@@ -42,6 +44,13 @@ import { STYLES } from "./styles.js";
  *                      viewer (main image + thumbnail strip, served from /api/runs/<id>/artifacts/), "Reproduction steps",
  *                      "Key facts", "Why it matters", "What to ask your AI", "Generated Playwright test" with a Copy button;
  *                      then a "Results by group" table, "Pages tested" and "Not visible from outside").
+ *     #/welcome       The desktop's first-launch setup (O1, docs/onboarding-spec.md), five screens on one route: .ob-step ("Step n of 5")
+ *                      and the heading #ob-h (focused on every screen), Back (#ob-back, not on the first), one primary button
+ *                      (#ob-start, #ob-next, #ob-finish) and a Skip (#ob-skip) that opens the skipped Ready screen. 2: radio cards
+ *                      (name ob-provider, #ob-p-<anthropic|openai|gemini|bedrock|local>); 3: the key guide (.ob-steps, a link in
+ *                      .ob-open), #ob-key with #ob-key-toggle, the consent box #ob-consent, #ob-test, #ob-save-untested, the result
+ *                      #ob-test-result; 4: #ob-main and #ob-helper (or their -other text fields), #ob-same; 5: #ob-kept or #ob-later.
+ *                      Opened at the bare address on a first launch (GET /api/onboarding), never in a browser.
  *     #/settings      Five cards in order, each a region named by its h2 and reachable from the "On this page" nav at the
  *                      top: "AI model" (#ai-card), "Test accounts" (#accounts-card), "Keys and passwords" (#keys-card),
  *                      "Run defaults" (#defaults-card; saved in localStorage) and "About" (#about-card; read-only
@@ -49,7 +58,10 @@ import { STYLES } from "./styles.js";
  *                      #acct-isolated and one fieldset per slot, #acct-a and #acct-b, with a status chip (#acct-<id>-status)
  *                      and inputs #acct-<id>-loginUrl, -username, the write-only -password (with a Show / Hide button)
  *                      and -label; buttons #acct-<id>-save and #acct-<id>-test, whose answer is #acct-<id>-test-result.
- *                      How secrets are kept is said once, in the Keys and passwords card.
+ *                      How secrets are kept is said once, in the Keys and passwords card. The AI card has #ai-helper-model
+ *                      (with #ai-helper-same) under the model, and on the desktop #ai-run-setup; the Keys card has #delete-data
+ *                      ("Delete all keys and data") whose confirmation #delete-panel lists what goes, with #delete-runs
+ *                      ("Also delete my reports"), #delete-confirm and #delete-cancel.
  * - Unknown hashes fall back to #/new; the old "#run=<id>" links open #/runs/<id>. Everything works at 360 px (the
  *   sidebar becomes a top bar with a "Menu" button).
  * - One polite live region (#announcer) announces scenario and group changes and the end of a run; nothing else is live.
@@ -85,6 +97,8 @@ export function renderUi(options: UiOptions): string {
     headedDesc,
     groups: CHECK_GROUPS.map((g) => ({ id: g.id, label: g.label, categories: g.categories })),
     v1Checks: V1_CHECK_IDS,
+    keyUrls: AI_KEY_URLS,
+    keyGuides: KEY_GUIDES,
     icons: ICONS,
   });
 

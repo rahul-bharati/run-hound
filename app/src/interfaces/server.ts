@@ -381,3 +381,15 @@ export interface BriefFlowDeps {
   now?: () => Date;
   newId?: () => string;
 }
+
+/** The answer of POST /api/onboarding: the marker written, or why it could not be. */
+export type PostOnboardingOutcome =
+  | { ok: true; marker: import("./onboarding.js").OnboardingMarker }
+  | { ok: false; status: 400 | 500; message: string };
+
+/** What the desktop controller needs (server/desktop-app.ts mounts it; the command line and Docker never do). */
+export interface IDesktopFlow {
+  getOnboarding(): Promise<import("./onboarding.js").OnboardingStatus>;
+  postOnboarding(body: unknown): Promise<PostOnboardingOutcome>;
+  deleteData(body: unknown): Promise<import("./onboarding.js").DataDeleteOutcome>;
+}

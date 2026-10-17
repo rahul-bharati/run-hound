@@ -5,7 +5,8 @@
 export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) ----------
 
   // Mirrors FIXED_ENDPOINT_PROVIDERS and DEFAULT_BASE_URLS: these three always go to their own endpoint, so the page
-  // shows no base URL for them and sends none. keyUrl is the page where the provider hands out API keys.
+  // shows no base URL for them and sends none. keyUrl is the page where the provider hands out API keys, from the one
+  // list Settings and the first-launch setup share (CONFIG.keyUrls, constants/ai-constants.ts AI_KEY_URLS).
   const AI_FIXED_ENDPOINTS = {
     anthropic: "https://api.anthropic.com/v1",
     openai: "https://api.openai.com/v1",
@@ -15,10 +16,10 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
   const AI_PROVIDER_LABELS = { anthropic: "Anthropic", openai: "OpenAI", gemini: "Google Gemini", bedrock: "Amazon Bedrock", "openai-compatible": "OpenAI-compatible", ollama: "Ollama" };
   // No provider is the default: the select starts on a placeholder until one is chosen. Ollama is opt-in, so it is last.
   const AI_PRESETS = [
-    { key: "anthropic", label: "Anthropic", provider: "anthropic", baseUrl: AI_FIXED_ENDPOINTS.anthropic, keyUrl: "https://platform.claude.com/settings/keys" },
-    { key: "openai", label: "OpenAI", provider: "openai", baseUrl: AI_FIXED_ENDPOINTS.openai, keyUrl: "https://platform.openai.com/api-keys" },
-    { key: "gemini", label: "Google Gemini", provider: "gemini", baseUrl: AI_FIXED_ENDPOINTS.gemini, keyUrl: "https://aistudio.google.com/apikey" },
-    { key: "bedrock", label: "Amazon Bedrock", provider: "bedrock", baseUrl: "" },
+    { key: "anthropic", label: "Anthropic", provider: "anthropic", baseUrl: AI_FIXED_ENDPOINTS.anthropic, keyUrl: CONFIG.keyUrls.anthropic },
+    { key: "openai", label: "OpenAI", provider: "openai", baseUrl: AI_FIXED_ENDPOINTS.openai, keyUrl: CONFIG.keyUrls.openai },
+    { key: "gemini", label: "Google Gemini", provider: "gemini", baseUrl: AI_FIXED_ENDPOINTS.gemini, keyUrl: CONFIG.keyUrls.gemini },
+    { key: "bedrock", label: "Amazon Bedrock", provider: "bedrock", baseUrl: "", keyUrl: CONFIG.keyUrls.bedrock },
     { key: "lmstudio", label: "LM Studio", provider: "openai-compatible", baseUrl: "http://127.0.0.1:1234/v1" },
     { key: "openai-compatible", label: "Other OpenAI-compatible", provider: "openai-compatible", baseUrl: "" },
     { key: "ollama", label: "Ollama (local, opt-in)", provider: "ollama", baseUrl: "http://127.0.0.1:11434/v1" },
@@ -208,12 +209,31 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
     const baseRow = h("div", { class: "ai-field" }, baseLabel, baseUrl, lockNote("baseUrl"));
     const modelField = h("div", { class: "ai-field ai-model-field" }, modelLabel, modelRow, modelOther, lockNote("model"), modelsMsg);
     const modelValue = () => (isBedrock() || otherMode ? modelOther.value.trim() : modelSelect.value === OTHER_MODEL ? "" : modelSelect.value);
+    // The helper model (docs/ai-spec.md "Model roles"): reviews the plan, suggests flows and explains findings, on the same
+    // provider and key. Empty = the main model does these too. The model above drafts briefs and answers the agent.
+    let helperCurrent = st.helperModel || "";
+    const helperPicker = modelPicker("ai-helper-model", "Helper model", "Reviews the plan, suggests extra flows and explains findings. The model above drafts briefs and investigates as the agent.");
+    const helperSame = h("input", { type: "checkbox", id: "ai-helper-same", disabled: locked("helperModel") });
+    helperSame.checked = helperCurrent === "";
+    const helperField = h("div", { class: "ai-field ai-helper-field" }, helperPicker.el,
+      h("div", { class: "option" }, helperSame, h("label", { for: "ai-helper-same", text: "Use the main model for everything" })), lockNote("helperModel"));
+    function drawHelper() {
+      if (isBedrock()) helperPicker.text(helperCurrent);
+      else helperPicker.fill(list, helperCurrent);
+      helperPicker.disable(helperSame.checked || locked("helperModel"));
+    }
+    helperPicker.el.addEventListener("pick", () => { helperCurrent = helperPicker.value(); });
+    helperSame.addEventListener("change", () => {
+      if (!helperSame.checked && !helperCurrent && list && list.recommended && list.recommended.helper) helperCurrent = list.recommended.helper;
+      drawHelper();
+    });
 
     function syncModelUi() {
       const bed = isBedrock();
       // Nothing to set until a provider is chosen; the fixed providers have no base URL to set.
       baseRow.hidden = !providerOf() || isFixed();
       modelField.hidden = !providerOf();
+      helperField.hidden = !providerOf();
       modelRow.hidden = bed;
       modelOther.hidden = !(bed || otherMode);
       modelOther.placeholder = bed ? BEDROCK_MODEL_PLACEHOLDER : "Model id as the server names it";
@@ -256,6 +276,7 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
     function drawModels() {
       fillModelSelect(modelSelect, list, otherMode ? "" : current);
       if (otherMode) modelSelect.value = OTHER_MODEL;
+      drawHelper();
     }
     async function loadModels() {
       clearTimeout(timer);
@@ -274,7 +295,7 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
       }
       if (mine !== seq || my !== gen || !card.isConnected) return;
       refresh.disabled = locked("model");
-      list = { models: Array.isArray(res.models) ? res.models : [], error: res.error || null };
+      list = { models: Array.isArray(res.models) ? res.models : [], error: res.error || null, recommended: res.recommended || null };
       // Unticked consent is a step still to take, not a failure: said as a hint, not in red.
       if (list.error) { modelsMsg.className = consent && !consent.checked ? "field-hint" : "error"; modelsMsg.textContent = list.error; }
       else { modelsMsg.className = "field-hint"; modelsMsg.textContent = list.models.length ? plural(list.models.length, "model") + " on this server." : "The server lists no models."; }
@@ -368,6 +389,10 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
       if (!locked("provider") && providerOf()) patch.provider = providerOf();
       if (!locked("baseUrl") && !isFixed()) patch.baseUrl = baseUrl.value.trim();
       if (!locked("model")) patch.model = modelValue();
+      if (!locked("helperModel")) {
+        const helperValue = helperSame.checked ? "" : helperPicker.value();
+        patch.helperModel = helperValue === modelValue() ? "" : helperValue;
+      }
       if (isBedrock()) {
         // The chosen method's values, and null for each other method's value saved in ai.json, so one method is saved
         // at a time. A locked (env) field is never sent. Half a pair goes as typed: the server says what is missing.
@@ -445,6 +470,7 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
     fill(card, 
       h("h2", { id: "ai-h", class: "card-title" }, icon("sparkle"), "AI model"),
       h("p", { class: "muted ai-intro", text: "Optional. A model reviews the plan, suggests extra flows and explains findings in plain words. It never decides pass or fail: the checks do." }),
+      onDesktop ? h("p", { class: "ai-setup" }, h("button", { type: "button", class: "btn small", id: "ai-run-setup", onclick: () => { location.hash = "#/welcome"; } }, "Run setup again")) : null,
       st.problem ? noticeBox(st.enabled === true ? "warn" : "info", st.problem, { id: "ai-problem", class: "ai-problem" }) : null,
       migrationNote,
       h("div", { class: "option ai-switch" }, enabled, h("label", { for: "ai-enabled" }, "Use AI", h("span", { class: "desc", text: "Off by default. Planning and runs work the same without it." })), lockNote("enabled")),
@@ -452,6 +478,7 @@ export const SETTINGS_AI = String.raw`  // ---------- Settings: AI (0.3.0) -----
         h("div", { class: "ai-field" }, h("label", { class: "field-label", for: "ai-provider", text: "Provider" }), preset, lockNote("provider")),
         baseRow,
         modelField,
+        helperField,
         regionRow,
         authRow,
         keyField,

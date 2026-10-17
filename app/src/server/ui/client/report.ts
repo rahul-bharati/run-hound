@@ -494,6 +494,6 @@ export const REPORT = String.raw`  // ---------- Report ----------
   }
 
   window.addEventListener("hashchange", render);
-  render();
+  startUp();
 })();
 `;

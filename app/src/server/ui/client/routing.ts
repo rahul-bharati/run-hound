@@ -25,6 +25,7 @@ export const ROUTING = String.raw`  // ---------- routing ----------
     m = /^#\/runs\/([\w-]+)$/.exec(hash);
     if (m) return { name: "run", id: m[1], nav: "#/runs" };
     if (hash === "#/settings") return { name: "settings", nav: "#/settings" };
+    if (hash === "#/welcome") return { name: "welcome", nav: "" };
     history.replaceState(null, "", "#/new");
     return { name: "new", nav: "#/new" };
   }
@@ -75,6 +76,7 @@ export const ROUTING = String.raw`  // ---------- routing ----------
     else if (r.name === "runs") viewRuns(my, initial);
     else if (r.name === "run") viewRun(r.id, my, initial);
     else if (r.name === "settings") viewSettings(my, initial);
+    else if (r.name === "welcome") viewWelcome(my);
   }
 
 `;
