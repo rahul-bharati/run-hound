@@ -29,9 +29,17 @@ const MAX_OPTIONS = 20;
 /** The children of a node, whatever Playwright put there. */
 const childrenOf = (raw: Record<string, unknown>): unknown[] => (Array.isArray(raw.children) ? raw.children : []);
 
-/** A child the parent reads as text: a bare string, a "text" node, or a node with no ref (except a select's options). */
+/** A field: what it holds is what was typed, which an observation only ever shows as `filled`. */
+const isField = (node: Record<string, unknown>): boolean => typeof node.role === "string" && AGENT_EDITABLE_ROLES.includes(node.role);
+
+/**
+ * A child the parent reads as text: a bare string, a "text" node, or a node with no ref, except a select's options and
+ * any field. A field Playwright gives no ref (pointer-events: none, zero size) would otherwise hand its value, a
+ * password or a card number, to the nearest parent with one.
+ */
 const isTextual = (child: unknown): boolean =>
-  typeof child === "string" || (isRecord(child) && (child.role === "text" || (typeof child.ref !== "string" && child.role !== "option")));
+  typeof child === "string" ||
+  (isRecord(child) && !isField(child) && (child.role === "text" || (typeof child.ref !== "string" && child.role !== "option")));
 
 /** The text a node's textual children hold, deepest included. */
 function textOf(children: unknown[]): string[] {
@@ -136,7 +144,7 @@ export function toObservation(
   const roots = Array.isArray(snapshot) ? snapshot : [snapshot];
   const tree = roots.flatMap(convert);
   const observation: PageObservation = {
-    path: meta.path,
+    path: cut(meta.path, LIMITS.textChars),
     title: meta.title === null ? null : cut(meta.title, LIMITS.nameChars) || null,
     status: meta.status,
     tree,
