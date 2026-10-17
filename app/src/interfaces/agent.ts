@@ -68,6 +68,11 @@ export interface ObservedNode {
   checked?: boolean | "mixed";
   disabled?: boolean;
   expanded?: boolean;
+  /** The page marks the element invalid (aria-invalid), as forms do after a failed validation. */
+  invalid?: boolean;
+  pressed?: boolean | "mixed";
+  /** For tabs, rows and similar: whether it is the selected one. Never set for a select's options. */
+  selected?: boolean;
   level?: number;
   /** For selects and radio groups: the option labels, at most 20. */
   options?: string[];
