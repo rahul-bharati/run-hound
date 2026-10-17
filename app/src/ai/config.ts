@@ -12,6 +12,6 @@ export {
   isRemote,
   endpointHost,
 } from "../config/ai.js";
-export { resolveAiConfig, saveAiConfig, aiStatus } from "../operations/ai-storage.js";
+export { resolveAiConfig, saveAiConfig, aiStatus, savedFixedProviderKey } from "../operations/ai-storage.js";
 export { AI_PROVIDERS, DEFAULT_BASE_URLS, KEY_REMOVED_NOTICE } from "../constants/ai-constants.js";
 export type { AiFlags, ResolvedAiConfig, ConfigSource } from "../interfaces/ai.js";

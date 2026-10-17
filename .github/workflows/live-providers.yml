@@ -1,0 +1,48 @@
+# Live provider smoke tests (K1): one tiny structured call per provider (Anthropic, OpenAI, Gemini, Bedrock) through
+# createLlmClient, plus one call with an invalid key that must fail as "auth" (app/tests/live). A few cents per run.
+# Keys come from GitHub Actions secrets only; a provider whose secret is missing (a fork's pull request, an unset
+# secret) is skipped, not failed. ci.yml never calls a provider. Runs by hand, and on pull requests that touch the AI
+# layer or these tests.
+name: Live providers
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "app/src/ai/**"
+      - "app/tests/live/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live:
+    name: Live provider smoke tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RUNHOUND_LIVE_ANTHROPIC_KEY: ${{ secrets.RUNHOUND_LIVE_ANTHROPIC_KEY }}
+      RUNHOUND_LIVE_OPENAI_KEY: ${{ secrets.RUNHOUND_LIVE_OPENAI_KEY }}
+      RUNHOUND_LIVE_GEMINI_KEY: ${{ secrets.RUNHOUND_LIVE_GEMINI_KEY }}
+      RUNHOUND_LIVE_BEDROCK_TOKEN: ${{ secrets.RUNHOUND_LIVE_BEDROCK_TOKEN }}
+      RUNHOUND_LIVE_BEDROCK_REGION: ${{ secrets.RUNHOUND_LIVE_BEDROCK_REGION }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # No version input: pnpm/action-setup reads "packageManager" from package.json.
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Live provider smoke tests
+        run: pnpm --filter run-hound test:live

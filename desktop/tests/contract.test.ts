@@ -5,6 +5,7 @@ import type {
   DesktopEntry,
   DesktopIpcChannels,
   DesktopLaunchOptions,
+  DesktopNotice,
   DesktopPlatform,
   DesktopPreloadBridge,
   DesktopVersionCheckChannel,
@@ -88,12 +89,18 @@ describe("D2 contract: IPC channel names", () => {
   it("declares the version-check request and response shapes", () => {
     const channels: DesktopIpcChannels["desktop:version:check"] = {
       request: undefined,
-      response: { latest: "0.6.6", current: "0.6.5" },
+      response: { latest: "0.6.6", current: "0.6.5", newer: true, url: "https://github.com/rahul-bharati/run-hound/releases/tag/v0.6.6" },
     };
     expect(channels.request).toBeUndefined();
     const response: DesktopVersionCheckChannel["response"] = channels.response;
     expect(response.current).toBe("0.6.5");
     expect(typeof response.latest === "string" || response.latest === null).toBe(true);
+    expect(response.newer).toBe(true);
+  });
+
+  it("a failed version check is latest null, not newer and without a link, with a short reason", () => {
+    const failed: DesktopVersionCheckChannel["response"] = { latest: null, current: "0.6.5", newer: false, url: null, error: "offline" };
+    expect(failed).toEqual({ latest: null, current: "0.6.5", newer: false, url: null, error: "offline" });
   });
 
   it("engine-ready channel carries a single payload", () => {
@@ -113,14 +120,25 @@ describe("D2 contract: IPC channel names", () => {
 describe("D2 contract: preload bridge surface", () => {
   it("exposes only the agreed channels, no Node integration", () => {
     const bridge: DesktopPreloadBridge = {
-      version: { check: async () => ({ latest: null, current: "0.6.5" }) },
+      version: { check: async () => ({ latest: null, current: "0.6.5", newer: false, url: null }) },
       runsDir: { open: async () => ({ ok: true }) },
+      notices: { take: async () => [] },
       engine: { onReady: () => () => {} },
     };
     expect(typeof bridge.version.check).toBe("function");
     expect(typeof bridge.runsDir.open).toBe("function");
+    expect(typeof bridge.notices.take).toBe("function");
     expect(typeof bridge.engine.onReady).toBe("function");
     // The bridge must not include arbitrary keys; the type is a closed interface.
-    expect(Object.keys(bridge).sort()).toEqual(["engine", "runsDir", "version"]);
+    expect(Object.keys(bridge).sort()).toEqual(["engine", "notices", "runsDir", "version"]);
+  });
+});
+
+describe("D8 contract: notices", () => {
+  it("the notices channel takes nothing and answers a list of plain-text notices", () => {
+    const notice: DesktopNotice = { type: "warning", message: "Run Hound could not import your settings.", detail: "EACCES" };
+    const channel: DesktopIpcChannels["desktop:notices:take"] = { request: undefined, response: [{ type: "info", message: "Imported." }, notice] };
+    expect(channel.request).toBeUndefined();
+    expect(channel.response.map((n) => n.type)).toEqual(["info", "warning"]);
   });
 });

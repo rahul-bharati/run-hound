@@ -9,7 +9,7 @@ import { isLocalOrigin, isSameOrigin } from "../core/saves.js";
 import type { Capture, Check, CheckContext, Evidence, Finding, PlanEnv, Scenario, Severity } from "../core/types.js";
 import { isDestructiveControl } from "./dead-control.js";
 import { endpointOf, errorResult, guarded, result, tryCard } from "./lib/functional-finding.js";
-import { canaryValues, createRequests, fillForm, isSearchForm, settle, submitControl, submitForm, waitForCreates, type FieldValue } from "./lib/functional-form.js";
+import { canaryValues, createRequests, fillForm, isSearchForm, settle, submitControl, submitForm, waitForCreates, waitForQuiet, type FieldValue } from "./lib/functional-form.js";
 import { findOwnRecord, jsonObjectBody, nearest, parseJson, recordChains, type JsonObject } from "./lib/record-state.js";
 
 const ID = "mass-assignment" as const;
@@ -171,6 +171,9 @@ export const check: Check = {
       await fillForm(page, values);
       await submitForm(page, form);
       await waitForCreates(page, capture, ctx.targetUrl, undefined, ctx.runToken);
+      // What the page does once its save has answered (its own reload, say) comes a moment later: the reload below would
+      // race it, and a page reload that wins leaves no record endpoint found (as csrf and write-access).
+      await waitForQuiet(capture);
 
       // The form's own save: a write to this app carrying a JSON object body.
       const creates = createRequests(capture, ctx.targetUrl, ctx.runToken).filter((r) => isSameOrigin(r.url, ctx.targetUrl) || isLocalOrigin(r.url, ctx.targetUrl));

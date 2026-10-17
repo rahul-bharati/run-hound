@@ -4,11 +4,13 @@
  *
  * Structure pinned here (the spec names the pieces; the roles and labels are this file's reading of it):
  * - Settings → a section (role region) named "Test accounts" holding:
- *   - one card per slot: a role=group named by the account's label (e.g. a fieldset whose legend is "Account A"), with
- *     inputs labelled "Label", "Sign-in page URL", "Username" and "Password" (type=password, never prefilled), a
- *     "saved" note and a "Remove" link or button when a password is saved, a button "Save…" and a button "Test sign-in";
+ *   - one card per slot: a role=group named by the account's label (e.g. a fieldset whose legend is "Account A"), with a
+ *     status chip (Ready, Not set up or what is missing), inputs labelled "Sign-in page URL", "Username (or email)",
+ *     "Password" (type=password, never prefilled, with a Show / Hide button) and "Name in plans and reports", a "saved"
+ *     note and a "Remove" link or button when a password is saved, a button "Save…" and a button "Test sign-in";
  *   - the checkbox labelled "A and B must not see each other's data" (GET's `isolated`);
- *   - a short note on what the access checks do and that the accounts must be ones the user owns.
+ *   - a short intro (accounts made for testing, never a real customer's) and, collapsed, what the access checks do.
+ *   How passwords are kept is said once, in the "Keys and passwords" card (ui-settings.test.ts), not in this one.
  *   Save sends PUT /api/accounts { accounts: { <slot>: { … } } } with that slot only; `password` only when one was
  *   typed, or "" after Remove. * Remove may save at once or on Save; the isolated box may save at once or with a Save.
  *   A slot's `problem` and a refused save's `error` are shown in its card. Test sign-in sends
@@ -185,7 +187,7 @@ describe("Settings → Test accounts", () => {
 
     await expect.poll(() => a.getByLabel("Sign-in page URL").inputValue()).toBe(LOGIN_URL);
     expect(await a.getByLabel("Username").inputValue()).toBe("alex@fernway.test");
-    expect(await a.getByLabel("Label").count()).toBe(1);
+    expect(await a.getByLabel("Name in plans and reports").count()).toBe(1);
     const password = a.getByLabel("Password", { exact: true });
     expect(await password.getAttribute("type")).toBe("password");
     expect(await password.inputValue()).toBe("");
@@ -201,8 +203,12 @@ describe("Settings → Test accounts", () => {
 
     const isolated = section(page).getByLabel(/must not see each other's data/);
     expect(await isolated.isChecked()).toBe(true);
+    // The intro says what the accounts are for; what the checks do is one click away.
+    expect(await section(page).locator(".acct-intro").innerText()).toMatch(/never a real customer's/);
+    expect(await section(page).locator("details.more").evaluate((d) => (d as HTMLDetailsElement).open)).toBe(false);
+    await section(page).getByText("What Run Hound does with two accounts").click();
     const text = await section(page).innerText();
-    expect(text).toMatch(/access/i);
+    expect(text).toMatch(/access checks/i);
     expect(text).toMatch(/\bown\b/i);
     expect(text).not.toMatch(/\b(null|undefined)\b/);
 
@@ -336,26 +342,18 @@ describe("Settings → Test accounts", () => {
     await o.page.close();
   });
 
-  it("shows where saved passwords are kept when secretProtection is set", async () => {
-    const st = accounts(READY_A, slot("b"));
-    st.secretProtection = "run-hound";
-    const o = await open("#/settings", { accounts: st });
-    const { page } = o;
-    const content = await page.locator("#accounts-card").innerText();
-    expect(content).toContain("encrypted by Run Hound");
-    expect(content).toContain("no system keychain");
-    await page.close();
-  });
-
-  it("shows that passwords are not saved when using environment variables only", async () => {
-    const st = accounts(READY_A, slot("b"));
-    st.secretProtection = "environment";
-    const o = await open("#/settings", { accounts: st });
-    const { page } = o;
-    const content = await page.locator("#accounts-card").innerText();
-    expect(content).toContain("aren't saved here");
-    expect(content).toContain("environment variables");
-    await page.close();
+  it("says nothing about how passwords are kept: that is said once, in the Keys and passwords card", async () => {
+    for (const protection of ["os-keychain", "run-hound", "environment"] as const) {
+      const st = accounts(READY_A, slot("b"));
+      st.secretProtection = protection;
+      const o = await open("#/settings", { accounts: st });
+      const { page } = o;
+      await card(page, /Account A/).waitFor();
+      const content = await page.locator("#accounts-card").innerText();
+      expect(content, protection).not.toMatch(/encrypted|keychain|aren't saved here|accounts\.json|readable only by you/i);
+      expect(await page.locator("#keys-card").innerText(), protection).toMatch(/passwords/);
+      await page.close();
+    }
   });
 });
 
@@ -499,11 +497,11 @@ describe("Settings → Test accounts, details", () => {
     expect(await a.getByLabel("Sign-in page URL").isDisabled()).toBe(true);
     expect(await a.getByLabel("Username").isDisabled()).toBe(true);
     expect(await a.getByLabel("Password", { exact: true }).isDisabled()).toBe(true);
-    expect(await a.getByLabel("Label").isDisabled()).toBe(false);
+    expect(await a.getByLabel("Name in plans and reports").isDisabled()).toBe(false);
     expect(await a.innerText()).toMatch(/Set by environment/);
     expect(await removeControl(a).count()).toBe(0);
     expect(await section(o.page).getByLabel(/must not see each other's data/).isDisabled()).toBe(true);
-    await a.getByLabel("Label").fill("Owner");
+    await a.getByLabel("Name in plans and reports").fill("Owner");
     await a.getByRole("button", { name: /^Save/ }).click();
     await expect.poll(() => puts(o).length).toBe(1);
     expect(slotPatch(puts(o)[0]!, "a")).toEqual({ label: "Owner" });
@@ -555,7 +553,7 @@ describe("Settings → Test accounts, details", () => {
     const o = await open("#/settings", { accounts: accounts({ ...READY_A, label: "Owner" }) });
     const owner = card(o.page, "Owner · Account A");
     await owner.waitFor();
-    expect(await owner.getByLabel("Label").inputValue()).toBe("Owner");
+    expect(await owner.getByLabel("Name in plans and reports").inputValue()).toBe("Owner");
     await o.page.close();
   });
 });

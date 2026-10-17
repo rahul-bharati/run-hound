@@ -8,16 +8,15 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { isPrivateAddress } from "../engine/safety.js";
 import type { AiConfig } from "../ai/types.js";
-import { DEFAULT_BASE_URLS } from "../constants/ai-constants.js";
 
 /**
- * AI off, provider "ollama", its default base URL, no model, no key, no AWS profile or access keys, all three features
+ * AI off, no provider (one must be chosen; a file saved before 0.7 without one means Ollama), no base URL, no model, no key, no AWS profile or access keys, all three features
  * on (they apply once enabled), 120 s.
  */
 export const DEFAULT_AI_CONFIG: AiConfig = {
   enabled: false,
-  provider: "ollama",
-  baseUrl: DEFAULT_BASE_URLS.ollama,
+  provider: null,
+  baseUrl: "",
   model: "",
   apiKey: null,
   region: null,

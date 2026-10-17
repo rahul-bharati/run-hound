@@ -243,3 +243,32 @@ describe("Settings → AI card: the Bedrock credentials choice", () => {
     await page.close();
   });
 });
+
+describe("Settings → AI card: each provider's own saved key (K1)", () => {
+  it("tells a saved Bedrock API key apart from another provider's when the provider changes", async () => {
+    const anthropic = { ...bedrock(), provider: "anthropic" as const, baseUrl: "https://api.anthropic.com/v1", model: "m", host: "api.anthropic.com", hasKey: true, savedKeys: ["anthropic" as const, "bedrock" as const] };
+    const o = await open(anthropic);
+    const { page } = o;
+    const provider = page.getByLabel("Provider");
+    await page.locator("#ai-key").waitFor();
+    expect(await visible(page, "#ai-aws-auth")).toBe(false);
+    await provider.selectOption({ label: "Amazon Bedrock" });
+    expect(await visible(page, "#ai-aws-auth")).toBe(true);
+    expect(await page.locator("#ai-key").getAttribute("placeholder")).toBe("Saved");
+    expect(await page.locator(".key-note").innerText()).toBe("A key is saved for Amazon Bedrock.");
+    expect(await visible(page, ".key-link a")).toBe(false);
+    await provider.selectOption({ label: "Google Gemini" });
+    expect(await page.locator("#ai-key").getAttribute("placeholder")).toBe("Not set");
+    expect(await page.locator(".key-note").innerText()).toBe("");
+    expect(await visible(page, "#ai-aws-auth")).toBe(false);
+    await page.close();
+  });
+
+  it("keeps Bedrock's own 'Saved' (an API key from the file) when it is the provider in effect", async () => {
+    const o = await open(bedrock({ hasKey: true, savedKeys: ["bedrock"] }, { apiKey: "file" }));
+    await o.page.locator("#ai-key").waitFor();
+    expect(await o.page.locator("#ai-key").getAttribute("placeholder")).toBe("Saved");
+    expect(await o.page.locator("#ai-key-remove").isVisible()).toBe(true);
+    await o.page.close();
+  });
+});

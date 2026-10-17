@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { startFixtureServer, type FixtureServer } from "../../support/server.js";
-import { httpError, send } from "../../../src/ai/http.js";
+import { httpError, requireKey, send } from "../../../src/ai/http.js";
 import { ollamaChatJson } from "../../../src/ai/ollama.js";
 import { chatJson } from "../../../src/ai/openai-compatible.js";
 import { AiError } from "../../../src/ai/types.js";
@@ -108,5 +108,72 @@ describe("AI endpoint errors never carry the key (AI-2)", () => {
     expect(httpError(400, '{"detail":"api_key=zz-custom-9f8e7d6c5b is not valid"}').message).not.toContain("zz-custom-9f8e7d6c5b");
     // Ordinary words stay readable.
     expect(httpError(404, '{"error":"model not found"}').message).toContain("model not found");
+  });
+});
+
+describe("httpError messages", () => {
+  it("uses the message of a JSON error body (OpenAI, Anthropic and Google shape, and Bedrock's)", () => {
+    expect(httpError(429, '{"error": {"message": "You exceeded your current quota.", "type": "insufficient_quota"}}', "OpenAI").message).toBe("OpenAI answered HTTP 429: You exceeded your current quota.");
+    expect(httpError(529, '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}', "Anthropic").message).toBe("Anthropic answered HTTP 529: Overloaded");
+    expect(httpError(400, '{"message":"Malformed input request"}', "Bedrock").message).toBe("Bedrock answered HTTP 400: Malformed input request");
+  });
+
+  it("falls back to the body when it is not JSON or has no message", () => {
+    expect(httpError(502, "<html>Bad gateway</html>").message).toBe("The server answered HTTP 502: <html>Bad gateway</html>");
+    expect(httpError(400, '{"error":"model not found"}').message).toContain("model not found");
+    expect(httpError(500, "").message).toBe("The server answered HTTP 500");
+  });
+
+  it("redacts the configured key and key formats in the extracted message", () => {
+    const message = httpError(400, JSON.stringify({ error: { message: `bad key ${ODD_KEY} and ${GOOGLE_KEY}` } }), "Google Gemini", [ODD_KEY]).message;
+    expect(message).not.toContain(ODD_KEY);
+    expect(message).not.toContain(GOOGLE_KEY);
+  });
+
+  it("treats a 400 as auth only when the body matches authOn400", () => {
+    const invalidKey = /API_KEY_INVALID|API key not valid/i;
+    const refused = httpError(400, '{"error":{"message":"API key not valid. Please pass a valid API key."}}', "Google Gemini", [], invalidKey);
+    expect(refused.code).toBe("auth");
+    expect(refused.status).toBe(400);
+    expect(httpError(400, '{"error":{"message":"The schema is invalid."}}', "Google Gemini", [], invalidKey).code).toBe("http");
+    expect(httpError(400, '{"error":{"message":"API key not valid."}}').code).toBe("http");
+    expect(httpError(500, "API key not valid", "Google Gemini", [], invalidKey).code).toBe("http");
+  });
+});
+
+describe("requireKey", () => {
+  it("returns the key, or asks for it by provider name", () => {
+    expect(requireKey("sk-test", "OpenAI")).toBe("sk-test");
+    for (const missing of [null, undefined, ""]) {
+      try {
+        requireKey(missing, "Anthropic");
+        throw new Error("expected a throw");
+      } catch (error) {
+        expect(error).toBeInstanceOf(AiError);
+        expect((error as AiError).code).toBe("not-configured");
+        expect((error as AiError).message).toBe("Enter your Anthropic API key");
+      }
+    }
+  });
+});
+
+describe("x-api-key and x-goog-api-key headers are credentials", () => {
+  it("send removes the key a server echoes back from an error answer", async () => {
+    const base = await (async () => {
+      const server = await startFixtureServer({
+        fallback: (req, res) => {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: { message: `rejected ${String(req.headers["x-api-key"])} ${String(req.headers["x-goog-api-key"])}` } }));
+        },
+      });
+      servers.push(server);
+      return server.url;
+    })();
+    const antKey = "plain-custom-anthropic-key-0001";
+    const googKey = "plain-custom-google-key-0002";
+    const answer = await send(`${base}/x`, { method: "POST", headers: { "x-api-key": antKey, "x-goog-api-key": googKey } }, 10_000);
+    expect(answer.status).toBe(400);
+    expect(answer.text).not.toContain(antKey);
+    expect(answer.text).not.toContain(googKey);
   });
 });

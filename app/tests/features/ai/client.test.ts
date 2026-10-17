@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startFakeLlm, type FakeLlm } from "../../support/fake-llm.js";
-import { startFixtureServer } from "../../support/server.js";
+import { json, startFixtureServer, type FixtureServer } from "../../support/server.js";
 import { createLlmClient, testConnection } from "../../../src/ai/client.js";
 import { DEFAULT_AI_CONFIG } from "../../../src/ai/config.js";
 import type { ChatMessage } from "../../../src/ai/openai-compatible.js";
@@ -227,6 +227,148 @@ describe("generateJson", () => {
   it("does not retry when nothing is listening", async () => {
     const error = await caught(createLlmClient(ollama({ baseUrl: await closedPortUrl() }), { env: {} }).generateJson(request()));
     expect(error.code).toBe("unreachable");
+  });
+});
+
+/** A server for the official APIs' wire formats: Anthropic Messages and Gemini generateContent, answering from a queue. */
+async function startOfficialApi(): Promise<FixtureServer & { reply(...bodies: unknown[]): void; bodies(): any[] }> {
+  let queue: { status: number; body: unknown }[] = [];
+  const server = await startFixtureServer({
+    fallback: (_req, res) => {
+      const next = (queue.length > 1 ? queue.shift() : queue[0]) ?? { status: 200, body: {} };
+      json(res, next.status, next.body);
+    },
+  });
+  return {
+    ...server,
+    reply: (...bodies) => void (queue = bodies.map((b) => (typeof b === "object" && b !== null && "status" in b && "body" in b ? (b as { status: number; body: unknown }) : { status: 200, body: b }))),
+    bodies: () => server.requests.map((r) => JSON.parse(r.body)),
+  };
+}
+const anthropicText = (text: string) => ({ type: "message", content: [{ type: "text", text }], stop_reason: "end_turn" });
+const geminiText = (text: string) => ({ candidates: [{ content: { role: "model", parts: [{ text }] }, finishReason: "STOP" }] });
+
+describe("generateJson for the official APIs", () => {
+  let api: Awaited<ReturnType<typeof startOfficialApi>>;
+  beforeEach(async () => {
+    api = await startOfficialApi();
+  });
+  afterEach(async () => {
+    await api.close();
+  });
+  const official = (provider: AiConfig["provider"], baseUrl: string, overrides: Partial<AiConfig> = {}): AiConfig => ({
+    ...DEFAULT_AI_CONFIG,
+    enabled: true,
+    provider,
+    baseUrl,
+    model: "test-model",
+    apiKey: "fake-provider-key-0123456789",
+    timeoutMs: 10_000,
+    ...overrides,
+  });
+
+  it("throws not-configured without a provider", () => {
+    const error = thrown(() => createLlmClient(official(null, api.url), { env: {} }));
+    expect(error.code).toBe("not-configured");
+    expect(error.message).toBe("Choose a provider");
+  });
+
+  it("calls the Messages API for anthropic", async () => {
+    api.reply(anthropicText('{"ok": true}'));
+    const client = createLlmClient(official("anthropic", `${api.url}/v1`), { env: {} });
+    expect(client.provider).toBe("anthropic");
+    expect(await client.generateJson(request())).toEqual({ ok: true });
+    expect(api.requests[0]!.url).toBe("/v1/messages");
+    expect(api.requests[0]!.headers["x-api-key"]).toBe("fake-provider-key-0123456789");
+    expect(api.bodies()[0].output_config.format.schema).toEqual(request().schema);
+  });
+
+  it("calls generateContent for gemini", async () => {
+    api.reply(geminiText('{"ok": true}'));
+    const client = createLlmClient(official("gemini", `${api.url}/v1beta`), { env: {} });
+    expect(client.provider).toBe("gemini");
+    expect(await client.generateJson(request())).toEqual({ ok: true });
+    expect(api.requests[0]!.url).toBe("/v1beta/models/test-model:generateContent");
+    expect(api.requests[0]!.headers["x-goog-api-key"]).toBe("fake-provider-key-0123456789");
+  });
+
+  it("calls Chat Completions for openai, with the key and no temperature", async () => {
+    api.reply({ choices: [{ finish_reason: "stop", message: { role: "assistant", content: '{"ok": true}' } }] });
+    const client = createLlmClient(official("openai", `${api.url}/v1`), { env: {} });
+    expect(client.provider).toBe("openai");
+    expect(await client.generateJson(request())).toEqual({ ok: true });
+    expect(api.requests[0]!.url).toBe("/v1/chat/completions");
+    expect(api.requests[0]!.headers.authorization).toBe("Bearer fake-provider-key-0123456789");
+    expect(api.bodies()[0]).not.toHaveProperty("temperature");
+  });
+
+  it("retries an invalid answer from anthropic with the answer and the error, the user turn last", async () => {
+    api.reply(anthropicText("Sure! ok"), anthropicText('{"ok": true}'));
+    const client = createLlmClient(official("anthropic", `${api.url}/v1`), { env: {} });
+    expect(await client.generateJson(request())).toEqual({ ok: true });
+    expect(api.requests).toHaveLength(2);
+    const retry = api.bodies()[1].messages as ChatMessage[];
+    expect(retry.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+    expect(retry[1]!.content).toBe("Sure! ok");
+    expect(retry[2]!.content).toContain("Answer again with JSON that matches the schema.");
+  });
+
+  it("retries an invalid answer from gemini with the answer as a model turn", async () => {
+    api.reply(geminiText("nope"), geminiText('{"ok": true}'));
+    const client = createLlmClient(official("gemini", `${api.url}/v1beta`), { env: {} });
+    expect(await client.generateJson(request())).toEqual({ ok: true });
+    const contents = api.bodies()[1].contents as { role: string }[];
+    expect(contents.map((c) => c.role)).toEqual(["user", "model", "user"]);
+  });
+
+  it("does not retry a refusal, an out-of-space stop or an HTTP error", async () => {
+    api.reply({ type: "message", content: [{ type: "text", text: "no" }], stop_reason: "refusal" });
+    const refused = await caught(createLlmClient(official("anthropic", `${api.url}/v1`), { env: {} }).generateJson(request()));
+    expect(refused.message).toBe("The model refused");
+    api.reply({ status: 529, body: { type: "error", error: { type: "overloaded_error", message: "Overloaded" } } });
+    const busy = await caught(createLlmClient(official("anthropic", `${api.url}/v1`), { env: {} }).generateJson(request()));
+    expect(busy.code).toBe("http");
+    expect(api.requests).toHaveLength(2);
+  });
+
+  it("refuses the official endpoints without consent, before any request", () => {
+    for (const provider of ["anthropic", "openai", "gemini"] as const) {
+      const config = official(provider, { anthropic: "https://api.anthropic.com/v1", openai: "https://api.openai.com/v1", gemini: "https://generativelanguage.googleapis.com/v1beta" }[provider]);
+      expect(thrown(() => createLlmClient(config, { env: {} })).code).toBe("remote-not-allowed");
+      expect(() => createLlmClient({ ...config, allowRemote: true }, { env: {} })).not.toThrow();
+    }
+  });
+
+  it("tests the connection of each official provider", async () => {
+    api.reply(anthropicText('{"ok": true}'));
+    expect(await testConnection(official("anthropic", `${api.url}/v1`), { env: {} })).toMatchObject({ ok: true, model: "test-model" });
+    api.reply(geminiText('{"ok": true}'));
+    expect(await testConnection(official("gemini", `${api.url}/v1beta`), { env: {} })).toMatchObject({ ok: true });
+  });
+
+  it("explains a refused key by provider, without the key", async () => {
+    api.reply({ status: 401, body: { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } } });
+    const refused = await testConnection(official("anthropic", `${api.url}/v1`), { env: {} });
+    expect(refused).toEqual({ ok: false, error: "Anthropic refused the credentials (HTTP 401); check the API key" });
+    api.reply({ status: 400, body: { error: { code: 400, message: "API key not valid. Please pass a valid API key.", details: [{ reason: "API_KEY_INVALID" }] } } });
+    const invalid = await testConnection(official("gemini", `${api.url}/v1beta`), { env: {} });
+    expect(invalid).toEqual({ ok: false, error: "Google Gemini refused the credentials (HTTP 400); check the API key" });
+  });
+
+  it("says when a key is missing, and does not blame the server", async () => {
+    const result = await testConnection(official("openai", `${api.url}/v1`, { apiKey: null }), { env: {} });
+    expect(result).toEqual({ ok: false, error: "Enter your OpenAI API key" });
+    expect(api.requests).toHaveLength(0);
+  });
+
+  it("points at the internet connection when an official API can't be reached", async () => {
+    const closed = await closedPortUrl();
+    const result = await testConnection(official("anthropic", closed), { env: {} });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected an error");
+    expect(result.error).toContain("Could not reach");
+    expect(result.error).toContain("internet connection");
+    expect(result.error).not.toContain("is the server running");
   });
 });
 

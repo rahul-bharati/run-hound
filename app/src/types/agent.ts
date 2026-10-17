@@ -6,8 +6,9 @@
 import type { CheckId } from "../core/types.js";
 
 /**
- * An element handle from the latest observation ("e12"): Playwright's AI-mode aria snapshot reference. Valid only
- * until the next observation; the engine resolves it to an element, the model never sees or sends a selector.
+ * An element handle from the latest observation: the observation's number, a dot, and Playwright's AI-mode aria
+ * snapshot reference ("4.e17"). Valid only until the next observation; the engine resolves it to an element, the model
+ * never sees or sends a selector.
  */
 export type ElementRef = string;
 

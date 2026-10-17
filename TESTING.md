@@ -138,6 +138,8 @@ When the same problem affects several elements (no visible focus on 6 controls),
 
 ## Install
 
+The desktop app (internal testing builds) installs as [docs/desktop-install.md](docs/desktop-install.md) says, and [docs/desktop-acceptance.md](docs/desktop-acceptance.md) records how each installer is validated on clean machines.
+
 ### Docker or Podman (no clone)
 
 Pull the image and run it, from any folder:
@@ -464,6 +466,13 @@ docker compose -f run-hound.compose.yml run --rm run-hound run http://kennel:300
 In a container, Ollama on your machine is `http://127.0.0.1:11434/v1` with `--network host` on Linux; otherwise it is `http://host.docker.internal:11434/v1` (Docker) or `http://host.containers.internal:11434/v1` (Podman), and Ollama must listen on all interfaces. Settings you save in the UI are kept in `./runs/.config`: the image sets `RUNHOUND_CONFIG_DIR=/repo/app/runs/.config`, inside the runs folder you mount. **`runs/.config/ai.json` holds any API key you saved: share a single `runs/<runId>` folder, never the whole `runs/` folder.** A remote endpoint needs you to tick the consent box first; nothing is sent until then.
 
 What we'd like to hear: were the reasons and suggested flows useful or noise, did a suggested flow report something that isn't a bug, and which model you used.
+
+## Live provider tests
+
+Run Hound's AI layer has a small set of live smoke tests (`app/tests/live`): per provider (Anthropic, OpenAI, Gemini, Amazon Bedrock) one tiny structured call to a cheap model, plus one call with a deliberately invalid key that must be refused as an authentication error. That is eight requests of a few tokens each, a fraction of a cent per run. They are for maintainers: normal `pnpm test` never calls a provider, and CI's `ci.yml` doesn't either.
+
+- **Locally**: save a key once with `pnpm --filter run-hound live-keys set anthropic` (also `openai`, `gemini`, `bedrock`), paste it and press Enter (nothing is echoed). It is kept in Run Hound's encrypted store (`~/.config/run-hound/secrets.json`), never in the repository or a `.env` file. `live-keys list` shows which are set (names only), `live-keys clear <provider>` removes one. Then `pnpm --filter run-hound test:live`. A provider with no key is skipped, and the skipped test's name says how to set one. The environment overrides the store: `RUNHOUND_LIVE_ANTHROPIC_KEY`, `RUNHOUND_LIVE_OPENAI_KEY`, `RUNHOUND_LIVE_GEMINI_KEY`, `RUNHOUND_LIVE_BEDROCK_TOKEN` (or `RUNHOUND_LIVE_BEDROCK_ACCESS_KEY_ID` and `RUNHOUND_LIVE_BEDROCK_SECRET_ACCESS_KEY`), `RUNHOUND_LIVE_BEDROCK_REGION` (default `us-east-1`), and `RUNHOUND_LIVE_<PROVIDER>_MODEL` to try another model.
+- **In CI**: `.github/workflows/live-providers.yml` runs on demand and on pull requests that change `app/src/ai/**` or `app/tests/live/**`, with the repository secrets `RUNHOUND_LIVE_ANTHROPIC_KEY`, `RUNHOUND_LIVE_OPENAI_KEY`, `RUNHOUND_LIVE_GEMINI_KEY`, `RUNHOUND_LIVE_BEDROCK_TOKEN` and `RUNHOUND_LIVE_BEDROCK_REGION`. A missing secret (a fork's pull request) skips that provider.
 
 ## Reading the report
 

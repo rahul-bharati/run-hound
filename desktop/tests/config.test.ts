@@ -2,7 +2,7 @@ import { platform as nodePlatform } from "node:process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { resolveConfigDir, resolveRunsDir } from "../src/config.js";
+import { resolveCliConfigDir, resolveConfigDir, resolveRunsDir } from "../src/config.js";
 import type { DesktopPlatform } from "../src/contract.js";
 
 const hostPlatform: DesktopPlatform =
@@ -34,14 +34,54 @@ describe("resolveConfigDir", () => {
     expect(resolveConfigDir("win32", { APPDATA: "C:\\Users\\qa\\AppData\\Roaming" }, isolatedHome)).toBe("C:\\Users\\qa\\AppData\\Roaming\\run-hound");
   });
 
-  it("uses XDG_CONFIG_HOME on linux when set", () => {
+  it("uses its own folder under XDG_CONFIG_HOME on linux when set", () => {
     delete process.env.RUNHOUND_CONFIG_DIR;
-    expect(resolveConfigDir("linux", { XDG_CONFIG_HOME: "/srv/cfg" }, isolatedHome)).toBe("/srv/cfg/run-hound");
+    expect(resolveConfigDir("linux", { XDG_CONFIG_HOME: "/srv/cfg" }, isolatedHome)).toBe("/srv/cfg/run-hound-desktop");
   });
 
-  it("falls back to ~/.config/run-hound on linux", () => {
+  it("falls back to ~/.config/run-hound-desktop on linux, never the command line's folder", () => {
     delete process.env.RUNHOUND_CONFIG_DIR;
-    expect(resolveConfigDir("linux", {}, isolatedHome)).toBe(join(isolatedHome, ".config", "run-hound"));
+    const folder = resolveConfigDir("linux", {}, isolatedHome);
+    expect(folder).toBe(join(isolatedHome, ".config", "run-hound-desktop"));
+    expect(folder).not.toBe(resolveCliConfigDir({}, isolatedHome));
+  });
+
+  it("lets RUNHOUND_CONFIG_DIR win on every platform, and treats an empty value as unset", () => {
+    for (const platform of ["linux", "darwin", "win32"] as const) {
+      expect(resolveConfigDir(platform, { RUNHOUND_CONFIG_DIR: "/custom/cfg", XDG_CONFIG_HOME: "/srv/cfg" }, isolatedHome)).toBe("/custom/cfg");
+    }
+    expect(resolveConfigDir("linux", { RUNHOUND_CONFIG_DIR: "" }, isolatedHome)).toBe(join(isolatedHome, ".config", "run-hound-desktop"));
+  });
+
+  it("keeps the macOS and Windows folders it had before", () => {
+    expect(resolveConfigDir("win32", {}, "C:\\Users\\qa")).toBe("C:\\Users\\qa\\AppData\\Roaming\\run-hound");
+  });
+});
+
+describe("resolveCliConfigDir", () => {
+  const isolatedHome = join(tmpdir(), "run-hound-desktop-test-home");
+
+  it("mirrors the command line: RUNHOUND_CONFIG_DIR first", () => {
+    expect(resolveCliConfigDir({ RUNHOUND_CONFIG_DIR: "/custom/cfg", XDG_CONFIG_HOME: "/srv/cfg" }, isolatedHome)).toBe("/custom/cfg");
+  });
+
+  it("then XDG_CONFIG_HOME/run-hound", () => {
+    expect(resolveCliConfigDir({ XDG_CONFIG_HOME: "/srv/cfg" }, isolatedHome)).toBe(join("/srv/cfg", "run-hound"));
+  });
+
+  it("then ~/.config/run-hound, on every OS", () => {
+    expect(resolveCliConfigDir({}, isolatedHome)).toBe(join(isolatedHome, ".config", "run-hound"));
+  });
+
+  it("counts an empty value as unset", () => {
+    expect(resolveCliConfigDir({ RUNHOUND_CONFIG_DIR: "", XDG_CONFIG_HOME: "" }, isolatedHome)).toBe(join(isolatedHome, ".config", "run-hound"));
+  });
+
+  it("matches the engine's own rule (app/src/config/ai.ts)", async () => {
+    const { configDir } = await import("../../app/src/config/ai.js");
+    for (const env of [{}, { XDG_CONFIG_HOME: "/srv/cfg" }, { RUNHOUND_CONFIG_DIR: "/custom/cfg" }, { RUNHOUND_CONFIG_DIR: "", XDG_CONFIG_HOME: "/srv/cfg" }]) {
+      expect(resolveCliConfigDir(env, isolatedHome)).toBe(configDir(env, isolatedHome));
+    }
   });
 });
 

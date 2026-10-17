@@ -3,7 +3,7 @@
  * AI config, lists models, and reports whether the saved API key was used (only when the target endpoint matches the
  * saved one).
  */
-import { aiStatus, resolveAiConfig, saveAiConfig } from "../../ai/config.js";
+import { aiStatus, resolveAiConfig, saveAiConfig, savedFixedProviderKey } from "../../ai/config.js";
 import { testConnection } from "../../ai/client.js";
 import { resolveModelsList } from "./ai-models.js";
 import { redactSecrets } from "../../engine/redact.js";
@@ -38,12 +38,12 @@ export class AiFlow implements IAiFlow {
       runsDir: this.#deps.host.runsDir,
       allowedHosts: this.#deps.host.allowedHosts(),
       serverHosts: this.#deps.host.extraHosts,
-      ai: aiStatus(await resolveAiConfig()),
+      ai: aiStatus(await resolveAiConfig({ sealed: true })),
     };
   }
 
   async getAi(): Promise<unknown> {
-    return aiStatus(await resolveAiConfig());
+    return aiStatus(await resolveAiConfig({ sealed: true }));
   }
 
   async putAi(patch: unknown): Promise<PutAiOutcome> {
@@ -84,16 +84,25 @@ export class AiFlow implements IAiFlow {
   }
 
   async getAiModels(query: AiModelsQuery): Promise<AiModelsOutcome> {
-    const { config } = await resolveAiConfig();
+    // Settings lists models as it draws, so this reads sealed (D10): the store, and the OS keychain behind it, is opened
+    // only when the listing sends a saved key.
+    const { config } = await resolveAiConfig({ sealed: true });
     const asked = query.provider;
     if (asked && !(AI_PROVIDERS as readonly string[]).includes(asked)) {
       return { ok: false, message: `Unknown provider "${redactSecrets(asked)}".`, status: 400 };
     }
-    const resolved2 = await resolveModelsList(config, {
-      ...(asked !== undefined ? { provider: asked } : {}),
-      ...(query.baseUrl !== undefined ? { baseUrl: query.baseUrl } : {}),
-      ...(query.allowRemote !== undefined ? { allowRemote: query.allowRemote } : {}),
-    });
+    // Settings may list the models of a provider before switching to it: Anthropic, OpenAI and Gemini use their own
+    // saved key (each provider keeps one), and only at their official endpoint.
+    const resolved2 = await resolveModelsList(
+      config,
+      {
+        ...(asked !== undefined ? { provider: asked } : {}),
+        ...(query.baseUrl !== undefined ? { baseUrl: query.baseUrl } : {}),
+        ...(query.allowRemote !== undefined ? { allowRemote: query.allowRemote } : {}),
+      },
+      (provider) => (provider === asked && asked !== config.provider ? savedFixedProviderKey(provider) : null),
+      async () => (await resolveAiConfig()).config.apiKey,
+    );
     if (!resolved2.ok) {
       return { ok: false, message: `Unknown provider "${redactSecrets(resolved2.raw)}".`, status: 400 };
     }
