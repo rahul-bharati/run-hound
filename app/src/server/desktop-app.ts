@@ -12,7 +12,6 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { configDir } from "../config/ai.js";
 import type { ServerOptions } from "../interfaces/server.js";
-import { forgetStoreKey } from "../operations/secret-store.js";
 import { createApp } from "./app.js";
 import { registerDesktopRoutes } from "./controllers/index.js";
 import { DesktopFlow } from "./models/desktop-flow.js";
@@ -22,6 +21,12 @@ export interface DesktopAppOptions extends ServerOptions {
   configDir?: string;
   /** The command line's settings folder. Default: where the command line saves when RUNHOUND_CONFIG_DIR is not set. */
   cliConfigDir?: string;
+  /**
+   * Drops the secret store's unwrapped data key for a settings folder from memory, called once "Delete all keys and data" has
+   * deleted its files. Wired to operations/secret-store.ts's forgetStoreKey once the secret-store fix has landed; until then
+   * nothing is held back by it: a deleted key file is never read from the cache (loadKey returns null first).
+   */
+  forgetStoreKey?: (dir: string) => void;
   /** For tests: the environment and home folder the defaults are read from. */
   env?: NodeJS.ProcessEnv;
   home?: string;
@@ -40,7 +45,7 @@ export function createDesktopApp(options: DesktopAppOptions = {}): Hono {
       configDir: () => options.configDir ?? configDir(env, options.home),
       cliConfigDir: () => options.cliConfigDir ?? commandLineConfigDir(env, options.home),
       runsDir: resolve(options.runsDir ?? "runs"),
-      forgetStoreKey,
+      forgetStoreKey: options.forgetStoreKey ?? (() => undefined),
     }),
   });
   return app;

@@ -14,6 +14,7 @@
  *   refuses (409) when the settings folder is the command line's.
  * - Both sit behind the guards of /api/ai: X-Run-Hound, Sec-Fetch-Site, Origin, JSON only.
  */
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -238,6 +239,23 @@ describe("POST /api/data/delete", () => {
     // A store started again works: the forgotten key is not mixed into it.
     await writeSecrets(desktopDir, { "ai.key.openai": "new-key-0123456789abcdef" });
     expect((await readSecrets(desktopDir)).values).toEqual({ "ai.key.openai": "new-key-0123456789abcdef" });
+  });
+
+  it("tells the secret store to forget the settings folder's key once the files are gone, and never before", async () => {
+    const forgotten: { dir: string; keyFileThere: boolean }[] = [];
+    const watched = createDesktopApp({
+      canShowBrowser: false,
+      runsDir,
+      cliConfigDir: cliDir,
+      forgetStoreKey: (dir) => forgotten.push({ dir, keyFileThere: existsSync(join(dir, "secrets.key")) }),
+    });
+    await populate(desktopDir);
+    expect((await send("POST", "/api/data/delete", { includeRuns: false }, RH, watched)).status).toBe(200);
+    expect(forgotten).toEqual([{ dir: desktopDir, keyFileThere: false }]);
+    // A refusal deletes nothing and forgets nothing.
+    const shared = createDesktopApp({ canShowBrowser: false, runsDir, cliConfigDir: desktopDir, forgetStoreKey: (dir) => forgotten.push({ dir, keyFileThere: false }) });
+    expect((await send("POST", "/api/data/delete", {}, RH, shared)).status).toBe(409);
+    expect(forgotten).toHaveLength(1);
   });
 
   it("works on a folder that has nothing in it", async () => {
