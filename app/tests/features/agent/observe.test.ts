@@ -37,7 +37,7 @@ import type { ObservedNode, PageObservation } from "../../../src/interfaces/agen
  *   * A parent counts as one node and its children come after it. Exactly 400 nodes is not truncated. The characters
  *     counted are the tree's JSON; the test allows the 2 brackets of the list (and a few characters) over the limit,
  *     and checks the cut is where the next node would not have fitted.
- * - path, title, status, problems and dialog are copied from `meta`.
+ * - path goes through `hide` and is cut like a text; title, status, problems and dialog are copied from `meta`.
  * - Anything that isn't a node (a value without a string `role`) is ignored, and nothing the page sends makes it throw.
  */
 
@@ -181,6 +181,28 @@ describe("field values never leave", () => {
     ]);
     expect(got(find(observation, role, "Empty"), "a field").filled).toBe(false);
     expect(got(find(observation, role, "Blank"), "a field with an empty text").filled).toBe(false);
+  });
+
+  it.each(AGENT_EDITABLE_ROLES)("%s with no ref (pointer-events: none, zero size): its value never reaches the parent's text", (role) => {
+    // Playwright 1.63 gives no ref to a field the pointer can't reach: a password field so styled came out as
+    // "Password Password hunter2-SECRET", and a form mid-submit as "Card note 4111 1111 1111 1111 Pay".
+    const { observation } = observe([
+      {
+        role: "form",
+        name: "Pay",
+        ref: "e1",
+        children: [
+          { role: "text", text: "Card note" },
+          { role, name: "Card note", text: "4111 1111 1111 1111" },
+          { role: "generic", children: [{ role, name: "Password", text: "hunter2-SECRET", children: [{ role: "text", text: "hunter2-SECRET" }] }] },
+          { role: "button", name: "Pay", ref: "e4" },
+        ],
+      },
+    ]);
+    const text = JSON.stringify(observation);
+    expect(text).not.toContain("4111");
+    expect(text).not.toContain("hunter2-SECRET");
+    expect(find(observation, "form")?.text).toBe("Card note");
   });
 
   it("keeps the text of roles that aren't editable, and gives them no filled flag", () => {
@@ -541,6 +563,14 @@ describe("what comes from the page itself", () => {
     expect(observation.status).toBe(404);
     expect(observation.problems).toEqual(problems);
     expect(observation.dialog).toEqual(dialog);
+  });
+
+  it("redacts and cuts the path like any text: a username or token in it never reaches the model whole", () => {
+    const hide: Hide = (text) => text.replaceAll("ACME-SECRET", "[hidden]");
+    const { observation } = observe([], { path: `/reset/ACME-SECRET/${"a".repeat(300)}` }, hide);
+    expect(observation.path).not.toContain("ACME-SECRET");
+    expect(observation.path.startsWith("/reset/[hidden]/")).toBe(true);
+    expect(observation.path.length).toBeLessThanOrEqual(200);
   });
 
   it("copies the empty values too: no title, no status, no dialog", () => {
