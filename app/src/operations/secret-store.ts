@@ -232,22 +232,53 @@ function unseal(key: Buffer, name: string, entry: unknown): string | null {
   }
 }
 
-/** The sealed entries by name; an unreadable or malformed file holds none. */
-async function readEntries(dir: string): Promise<Record<string, string>> {
-  const text = await readText(join(dir, SECRETS_FILE)).catch(() => null);
-  if (text === null) return {};
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * The sealed entries by name, and whether secrets.json is `damaged` (it reads, but is not a JSON object holding an
+ * `entries` object). Only a file that doesn't exist (ENOENT) holds nothing and is not damaged. A file that exists but
+ * can't be read (EBUSY, EACCES, EPERM: antivirus or a sync tool holding it on Windows) throws STORE_UNREADABLE with the
+ * error as its cause: it must never be taken for an empty store, as a save would merge into nothing and overwrite the
+ * secrets it could not see. An entry that is not text could never have opened, and is left out.
+ */
+async function readEntries(dir: string): Promise<{ entries: Record<string, string>; damaged: boolean }> {
+  let text: string | null;
   try {
-    const raw = JSON.parse(text) as { entries?: unknown };
-    if (typeof raw.entries !== "object" || raw.entries === null || Array.isArray(raw.entries)) return {};
-    return Object.fromEntries(Object.entries(raw.entries).filter((e): e is [string, string] => typeof e[1] === "string"));
+    text = await readText(join(dir, SECRETS_FILE));
+  } catch (error) {
+    throw new Error(STORE_UNREADABLE, { cause: error });
+  }
+  if (text === null) return { entries: {}, damaged: false };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
   } catch {
-    return {};
+    return { entries: {}, damaged: true };
+  }
+  if (!isObject(raw) || !isObject(raw.entries)) return { entries: {}, damaged: true };
+  const entries = Object.fromEntries(Object.entries(raw.entries).filter((e): e is [string, string] => typeof e[1] === "string"));
+  return { entries, damaged: false };
+}
+
+/**
+ * Moves a damaged secrets.json aside to secrets.json.corrupt-<time>-<random> in the same folder (same 0600 mode),
+ * never overwriting an earlier backup, so a save can start a clean store without destroying what was there: whatever
+ * is readable in it can still be recovered by hand. Fails (and the save with it) if the file can't be moved.
+ */
+async function setAsideDamaged(dir: string): Promise<void> {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backup = join(dir, `${CORRUPT_BACKUP_PREFIX}${stamp}-${randomBytes(3).toString("hex")}`);
+  try {
+    await rename(join(dir, SECRETS_FILE), backup);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; // already gone: nothing to keep
   }
 }
 
 /**
- * Every saved secret in `dir` that opens. Never throws for a missing, locked or damaged store: `problem` says what
- * could not be read. With RUNHOUND_SECRETS=environment nothing is read.
+ * Every saved secret in `dir` that opens. Never throws for a missing, locked, unreadable or damaged store: `problem`
+ * says what could not be read (STORE_UNREADABLE when secrets.json exists but can't be read just now, STORE_DAMAGED when
+ * it isn't a secret store). Nothing is changed on disk. With RUNHOUND_SECRETS=environment nothing is read.
  *
  * `open: false` is a sealed read, for status only: every saved secret's value is SEALED_SECRET and the data key is
  * not loaded, so the OS keychain is never asked (opening the app or a settings page must not make the OS prompt).
@@ -256,7 +287,14 @@ async function readEntries(dir: string): Promise<Record<string, string>> {
 export async function readSecrets(dir: string, options: { env?: NodeJS.ProcessEnv; upgrade?: boolean; open?: boolean } = {}): Promise<SecretsRead> {
   const protection = secretProtection(options.env);
   if (protection === "environment") return { values: {}, protection, problem: null };
-  const entries = await readEntries(dir);
+  let read: Awaited<ReturnType<typeof readEntries>>;
+  try {
+    read = await readEntries(dir);
+  } catch {
+    return { values: {}, protection, problem: STORE_UNREADABLE };
+  }
+  if (read.damaged) return { values: {}, protection, problem: STORE_DAMAGED };
+  const { entries } = read;
   const names = Object.keys(entries);
   if (names.length === 0) return { values: {}, protection, problem: null };
   if (options.open === false) return { values: Object.fromEntries(names.map((name) => [name, SEALED_SECRET])), protection, problem: null };
@@ -282,6 +320,11 @@ export async function readSecrets(dir: string, options: { env?: NodeJS.ProcessEn
  * Saves (a string) or removes (null or "") each named secret, creating the store on the first save. Throws with
  * RUNHOUND_SECRETS=environment, and when the store is locked by the desktop app's OS keychain. A store whose key no
  * longer opens here starts again empty. Saves of one store run one at a time in this process.
+ *
+ * A save rewrites the whole file, so it first needs to see what is saved: when secrets.json (or secrets.key) exists but
+ * can't be read, the save fails (STORE_UNREADABLE) and changes nothing, rather than treat the store as empty and
+ * erase every other secret. A secrets.json that reads but is damaged is moved aside to secrets.json.corrupt-* first
+ * (setAsideDamaged), then a clean store is written; its secrets were unreadable already, and the backup keeps the file.
  */
 export function writeSecrets(
   dir: string,
@@ -292,11 +335,14 @@ export function writeSecrets(
   if (protection === "environment") return Promise.reject(new Error(ENVIRONMENT_ONLY));
   return oneAtATime(dir, async () => {
     const saving = Object.values(updates).some((v) => typeof v === "string" && v !== "");
-    let entries = await readEntries(dir);
+    const read = await readEntries(dir); // throws when the file can't be read: nothing below runs
+    let entries = read.entries;
     let loaded = await loadKey(dir, protection);
+    if (loaded !== null && !("key" in loaded) && loaded.locked) throw new Error(loaded.problem);
+    // The save goes ahead from here: a damaged file is kept as a backup before anything replaces or removes it.
+    if (read.damaged) await setAsideDamaged(dir);
     let reset = false;
     if (loaded !== null && !("key" in loaded)) {
-      if (loaded.locked) throw new Error(loaded.problem);
       await rm(join(dir, KEY_FILE), { force: true });
       unwrapped.delete(join(dir, KEY_FILE));
       entries = {};

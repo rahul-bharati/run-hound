@@ -5,12 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CORRUPT_BACKUP_PREFIX,
   KEY_FILE,
+  LOCKED_BY_OS_KEYCHAIN,
   readSecrets,
   SECRETS_FILE,
   STORE_DAMAGED,
   STORE_UNREADABLE,
   useOsKeyProtector,
   writeSecrets,
+  type KeyProtector,
 } from "../../../src/operations/secret-store.js";
 
 /**
@@ -208,6 +210,19 @@ describe("a damaged secrets.json (reads, but is not a secret store)", () => {
     await writeSecrets(dir, { x: "value-1234" }, normal);
     expect(await readSecrets(dir, normal)).toEqual({ values: { x: "value-1234" }, protection: "run-hound", problem: null });
     expect((await readdir(dir)).filter((name) => name.startsWith("."))).toEqual([]);
+  });
+
+  it("is left in place when the save is refused because the OS keychain locks the key", async () => {
+    const protector: KeyProtector = { wrap: (key) => Buffer.from(key.map((b) => b ^ 0x5a)), unwrap: (wrapped) => Buffer.from(wrapped.map((b) => b ^ 0x5a)) };
+    useOsKeyProtector(protector);
+    await writeSecrets(dir, SAVED, normal);
+    await writeFile(join(dir, SECRETS_FILE), "{not json");
+    useOsKeyProtector(null); // the command line, which can't open a key the desktop app's keychain wrapped
+    const keyBefore = await bytes(KEY_FILE);
+    await expect(writeSecrets(dir, { x: "value-1234" }, normal)).rejects.toThrow(LOCKED_BY_OS_KEYCHAIN);
+    expect(await bytes(SECRETS_FILE)).toBe("{not json");
+    expect(await bytes(KEY_FILE)).toBe(keyBefore);
+    expect(await backups()).toEqual([]);
   });
 
   it("drops an entry that is not text but keeps the others (it could never have opened)", async () => {

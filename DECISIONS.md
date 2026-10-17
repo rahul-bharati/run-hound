@@ -180,3 +180,5 @@ Everyone working on Run Hound, people and AI agents alike, records each decision
 - 2026-10-10: [After start-up, an error in the app, a page that won't load and a crashed page appear in Run Hound's own window, never in Electron's error box or Chromium's error page](docs/decisions/10-2026.md#2026-10-10-desktop-branded-errors)
 - 2026-10-10: [The OS keychain is asked only when a saved key or password is used, never because the app or a settings page opened](docs/decisions/10-2026.md#2026-10-10-keychain-only-when-used)
 - 2026-10-10: [Settings is reorganised around what a desktop user sets up: AI model, test accounts, then one card that says how keys and passwords are kept](docs/decisions/10-2026.md#2026-10-10-settings-page)
+- 2026-10-17: [A secrets.json that can't be read is an error that changes nothing, and a damaged one is moved aside to a backup, never overwritten](docs/decisions/10-2026.md#2026-10-17-unreadable-secret-store-is-not-empty)
+- 2026-10-17: [A remote model gets only evidence facts whose label is on an allow-list, and no model gets a response-body excerpt](docs/decisions/10-2026.md#2026-10-17-remote-explanations-send-allow-listed-facts)

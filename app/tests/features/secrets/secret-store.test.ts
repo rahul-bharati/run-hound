@@ -13,6 +13,7 @@ import {
   SEALED_SECRET,
   SECRETS_FILE,
   secretProtection,
+  STORE_DAMAGED,
   UNREADABLE_KEY,
   useOsKeyProtector,
   writeSecrets,
@@ -231,10 +232,10 @@ describe("damaged entries", () => {
     expect(await readSecrets(dir, normal)).toEqual({ values: { a: "value-for-a-123" }, protection: "run-hound", problem: DAMAGED_ENTRIES });
   });
 
-  it("reads a secrets.json that is not JSON as holding nothing", async () => {
+  it("reads a secrets.json that is not JSON as holding nothing, and says it is damaged (secret-store-read-errors.test.ts: what a save does with it)", async () => {
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, SECRETS_FILE), "{not json");
-    expect(await readSecrets(dir, normal)).toEqual({ values: {}, protection: "run-hound", problem: null });
+    expect(await readSecrets(dir, normal)).toEqual({ values: {}, protection: "run-hound", problem: STORE_DAMAGED });
   });
 });
 
