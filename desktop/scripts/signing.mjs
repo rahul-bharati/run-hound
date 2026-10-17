@@ -26,6 +26,21 @@ const NOTARIZATION = [
   ["a keychain profile", ["APPLE_KEYCHAIN_PROFILE"]],
 ];
 
+/** The tags a release is cut from (the workflows' `v*.*.*`): v1.2.3, v1.2.3-rc.1. */
+const RELEASE_TAG = /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+/**
+ * Whether this run may sign at all. Off GitHub Actions (a maintainer's own machine) always. On GitHub Actions only a run
+ * for a release tag, so a branch, a pull request or a manual run that somehow sees the signing secrets still builds
+ * unsigned. This is a second lock behind the Environment the workflow's signing legs use (docs/development.md "Signing
+ * secrets"), not a replacement for it: a workflow edited in a branch can ignore this file.
+ * @param {Record<string, string | undefined>} env
+ */
+export function mayCodeSign(env) {
+  if (env.GITHUB_ACTIONS !== "true") return true;
+  return env.GITHUB_REF_TYPE === "tag" && RELEASE_TAG.test(env.GITHUB_REF_NAME ?? "");
+}
+
 /**
  * @param {string} platform process.platform of the machine building the installer
  * @param {Record<string, string | undefined>} env
@@ -33,6 +48,7 @@ const NOTARIZATION = [
  */
 export function resolveSigning(platform, env) {
   if (platform === "linux") return { state: "not-required", reason: "deb and rpm packages are not signed" };
+  if (!mayCodeSign(env)) return { state: "unsigned", reason: "this GitHub Actions run is not for a release tag (v*.*.*), and only those sign" };
   if (platform === "win32") {
     return filled(env.WIN_CSC_LINK) || filled(env.CSC_LINK)
       ? { state: "signed", reason: "a code-signing certificate (WIN_CSC_LINK or CSC_LINK)" }
