@@ -53,6 +53,7 @@ const ALL_DEFAULT: AiStatus["sources"] = {
   provider: "default",
   baseUrl: "default",
   model: "default",
+  helperModel: "default",
   apiKey: "default",
   region: "default",
   allowRemote: "default",

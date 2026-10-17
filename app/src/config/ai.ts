@@ -18,6 +18,7 @@ export const DEFAULT_AI_CONFIG: AiConfig = {
   provider: null,
   baseUrl: "",
   model: "",
+  helperModel: "",
   apiKey: null,
   region: null,
   awsProfile: null,

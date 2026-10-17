@@ -2,9 +2,15 @@ import { createLlmClient } from "./client.js";
 import { aiStatus, isRemote, type ResolvedAiConfig } from "./config.js";
 import { AiError, type AiFeatures, type AiStatus, type JsonRequest, type LlmClient } from "./types.js";
 
-/** What the runner takes as RunOptions.ai: the client, whether the endpoint is remote, and which features to use. */
+/**
+ * What the runner takes as RunOptions.ai: two clients on the same provider, endpoint, key and consent, whether the
+ * endpoint is remote, and which features to use. `client` is the main model (briefs and the agent's turns); `helper`
+ * is the helper model (plan review, suggested flows, explanations), the same client as `client` when no helper model is
+ * set. A call site picks the one for its job, so what it records (plan.ai, report.ai) names the model that did the job.
+ */
 export interface AiSession {
   client: LlmClient;
+  helper: LlmClient;
   remote: boolean;
   features: AiFeatures;
 }
@@ -18,7 +24,9 @@ export function aiSession(resolved: ResolvedAiConfig, env: NodeJS.ProcessEnv = p
   if (status.problem) return { problem: status.problem, status };
   try {
     const client = createLlmClient(resolved.config, { env });
-    return { session: { client, remote: isRemote(resolved.config), features: { ...resolved.config.features } }, status };
+    const helperModel = resolved.config.helperModel ?? "";
+    const helper = helperModel !== "" && helperModel !== resolved.config.model ? createLlmClient({ ...resolved.config, model: helperModel }, { env }) : client;
+    return { session: { client, helper, remote: isRemote(resolved.config), features: { ...resolved.config.features } }, status };
   } catch (error) {
     return { problem: error instanceof Error ? error.message : String(error), status };
   }
@@ -42,11 +50,11 @@ function describeBudget(ms: number): string {
  */
 export function boundSession(session: AiSession, options: { signal?: AbortSignal; budgetMs?: number }): { session: AiSession; timedOut: () => boolean } {
   const budgetMs = options.budgetMs ?? AI_PLAN_BUDGET_MS;
-  const inner = session.client;
   let deadline: AbortSignal | undefined;
   const overBudget = () => new AiError("timeout", `The AI steps took longer than ${describeBudget(budgetMs)}, so they were stopped`);
   const cancelled = () => new AiError("timeout", "Planning was cancelled");
-  const client: LlmClient = {
+  // The main and helper clients share one deadline, so the budget is for all the model calls together.
+  const bind = (inner: LlmClient): LlmClient => ({
     provider: inner.provider,
     model: inner.model,
     async generateJson<T>(request: JsonRequest<T>): Promise<T> {
@@ -70,8 +78,10 @@ export function boundSession(session: AiSession, options: { signal?: AbortSignal
         aborted.catch(() => {});
       }
     },
-  };
-  return { session: { ...session, client }, timedOut: () => deadline?.aborted === true };
+  });
+  const client = bind(session.client);
+  const helper = session.helper === session.client ? client : bind(session.helper);
+  return { session: { ...session, client, helper }, timedOut: () => deadline?.aborted === true };
 }
 
 /** "<provider>/<model>", as shown in engine steps and reports. */

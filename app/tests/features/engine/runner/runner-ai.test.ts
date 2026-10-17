@@ -11,6 +11,7 @@ import { discoverAndPlan, runPlan, type ProgressEvent, type RunOptions } from ".
 // The option the integrator adds to RunOptions; typed separately so this file compiles before it exists.
 interface AiRunOptions {
   client: LlmClient;
+  helper: LlmClient;
   remote: boolean;
   features: AiFeatures;
 }
@@ -94,11 +95,11 @@ interface FakeClient extends LlmClient {
 }
 
 // Answers the first canned answer the request's validator accepts; `fail` makes every call reject.
-function fakeClient(options: { fail?: boolean } = {}): FakeClient {
+function fakeClient(options: { fail?: boolean; model?: string } = {}): FakeClient {
   const calls: string[] = [];
   return {
     provider: "ollama",
-    model: "fake-model",
+    model: options.model ?? "fake-model",
     calls,
     async generateJson<T>(request: JsonRequest<T>): Promise<T> {
       calls.push(request.name);
@@ -144,7 +145,7 @@ describe("discoverAndPlan with AI", () => {
     const steps: string[] = [];
     const options: Options = {
       checks,
-      ai: { client, remote: false, features: { review: true, suggest: true, explain: false } },
+      ai: { client, helper: client, remote: false, features: { review: true, suggest: true, explain: false } },
       onProgress: (e: ProgressEvent) => {
         if (e.type === "step") steps.push(e.label);
       },
@@ -166,7 +167,7 @@ describe("discoverAndPlan with AI", () => {
 
   it("only reviews when suggest is off", async () => {
     const client = fakeClient();
-    const options: Options = { checks, ai: { client, remote: false, features: { review: true, suggest: false, explain: false } } };
+    const options: Options = { checks, ai: { client, helper: client, remote: false, features: { review: true, suggest: false, explain: false } } };
     const plan = await discoverAndPlan(url(), options);
     expect(client.calls.length).toBe(1);
     expect(plan.ai?.reviewed).toBe(true);
@@ -176,7 +177,7 @@ describe("discoverAndPlan with AI", () => {
 
   it("keeps the built-in plan with warnings when the model fails", async () => {
     const client = fakeClient({ fail: true });
-    const options: Options = { checks, ai: { client, remote: false, features: ALL } };
+    const options: Options = { checks, ai: { client, helper: client, remote: false, features: ALL } };
     const plan = await discoverAndPlan(url(), options);
     expect(plan.ai?.reviewed).toBe(false);
     expect(plan.ai?.warnings.length).toBeGreaterThan(0);
@@ -195,7 +196,7 @@ describe("runPlan with AI explanations", () => {
   it("explains findings into report.json and report.md, labelled advisory", async () => {
     const plan = await discoverAndPlan(url(), { checks });
     const client = fakeClient();
-    const options: Options = { checks, runsDir, ai: { client, remote: false, features: { review: false, suggest: false, explain: true } } };
+    const options: Options = { checks, runsDir, ai: { client, helper: client, remote: false, features: { review: false, suggest: false, explain: true } } };
     const { report, dir } = await runPlan(plan, options);
     expect(client.calls.length).toBe(1);
     expect(report.ai).toMatchObject({ provider: "ollama", model: "fake-model", remote: false, explained: 1, warnings: [] });
@@ -219,7 +220,7 @@ describe("runPlan with AI explanations", () => {
   it("a failed explanation leaves the finding without one and a warning", async () => {
     const plan = await discoverAndPlan(url(), { checks });
     const client = fakeClient({ fail: true });
-    const options: Options = { checks, runsDir, ai: { client, remote: false, features: { review: false, suggest: false, explain: true } } };
+    const options: Options = { checks, runsDir, ai: { client, helper: client, remote: false, features: { review: false, suggest: false, explain: true } } };
     const { report } = await runPlan(plan, options);
     expect(report.findings[0]!.ai).toBeUndefined();
     expect(report.ai?.explained).toBe(0);
@@ -230,7 +231,7 @@ describe("runPlan with AI explanations", () => {
   it("does not explain when the explain feature is off", async () => {
     const plan = await discoverAndPlan(url(), { checks });
     const client = fakeClient();
-    const options: Options = { checks, runsDir, ai: { client, remote: false, features: { review: true, suggest: true, explain: false } } };
+    const options: Options = { checks, runsDir, ai: { client, helper: client, remote: false, features: { review: true, suggest: true, explain: false } } };
     const { report } = await runPlan(plan, options);
     expect(client.calls).toHaveLength(0);
     expect(report.findings[0]!.ai).toBeUndefined();
@@ -247,5 +248,36 @@ describe("runPlan with AI explanations", () => {
     expect(md).not.toContain("AI explanation");
     const json = await readFile(join(dir, "report.json"), "utf8");
     expect(json).not.toMatch(/"ai"\s*:/);
+  });
+});
+
+describe("main and helper models", () => {
+  // The plan review, the suggested flows and the explanations are the helper's jobs; docs/ai-spec.md "Model roles".
+  it("asks the helper to review and suggest, records it in plan.ai, and never asks the main model", async () => {
+    const main = fakeClient({ model: "main-model" });
+    const helper = fakeClient({ model: "helper-model" });
+    const steps: string[] = [];
+    const plan = await discoverAndPlan(url(), {
+      checks,
+      ai: { client: main, helper, remote: false, features: ALL },
+      onProgress: (e: ProgressEvent) => {
+        if (e.type === "step") steps.push(e.label);
+      },
+    } as Options);
+    expect(main.calls).toEqual([]);
+    expect(helper.calls.length).toBe(2);
+    expect(plan.ai).toMatchObject({ provider: "ollama", model: "helper-model", reviewed: true, suggested: 1 });
+    expect(steps.some((l) => /Asking ollama\/helper-model to review the plan/.test(l))).toBe(true);
+  });
+
+  it("asks the helper to explain, and records it in report.ai and on each finding", async () => {
+    const plan = await discoverAndPlan(url(), { checks });
+    const main = fakeClient({ model: "main-model" });
+    const helper = fakeClient({ model: "helper-model" });
+    const { report } = await runPlan(plan, { checks, runsDir, ai: { client: main, helper, remote: false, features: { review: false, suggest: false, explain: true } } } as Options);
+    expect(main.calls).toEqual([]);
+    expect(helper.calls.length).toBe(1);
+    expect(report.ai).toMatchObject({ model: "helper-model", explained: 1 });
+    expect(report.findings[0]!.ai?.model).toBe("ollama/helper-model");
   });
 });

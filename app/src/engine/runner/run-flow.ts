@@ -408,9 +408,9 @@ async function runPlanWith(plan: Plan, options: RunOptions, secrets: SecretRegis
   const ai = options.ai;
   if (ai?.features.explain && findings.length > 0 && !stopped()) {
     const n = Math.min(findings.length, MAX_EXPLAINED);
-    engineStep(options, `Asking ${modelLabel(ai.client)} to explain ${n} ${n === 1 ? "finding" : "findings"}`, plan.target);
+    engineStep(options, `Asking ${modelLabel(ai.helper)} to explain ${n} ${n === 1 ? "finding" : "findings"}`, plan.target);
     try {
-      raw = await explainFindings(raw, ai.client, { remote: ai.remote, runToken, signal });
+      raw = await explainFindings(raw, ai.helper, { remote: ai.remote, runToken, signal });
     } catch {
       // Only a stop rejects: the report is written without explanations.
     }

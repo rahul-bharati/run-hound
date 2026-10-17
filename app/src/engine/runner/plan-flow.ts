@@ -138,7 +138,7 @@ function aiReason(error: unknown): string {
 
 async function planWithAi(built: Plan, ai: AiSession, options: RunOptions, url: string): Promise<Plan> {
   if (!ai.features.review && !ai.features.suggest) return built;
-  const label = modelLabel(ai.client);
+  const label = modelLabel(ai.helper);
   const warnings: string[] = [];
   let plan = built;
   let reviewed = false;
@@ -146,7 +146,7 @@ async function planWithAi(built: Plan, ai: AiSession, options: RunOptions, url: 
   if (ai.features.review) {
     engineStep(options, `Asking ${label} to review the plan`, url);
     try {
-      plan = await reviewPlan(plan, ai.client, { remote: ai.remote, signal: options.signal });
+      plan = await reviewPlan(plan, ai.helper, { remote: ai.remote, signal: options.signal });
       reviewed = true;
     } catch (error) {
       warnings.push(`${label} could not review the plan (${aiReason(error)}), so the built-in plan is shown.`);
@@ -156,7 +156,7 @@ async function planWithAi(built: Plan, ai: AiSession, options: RunOptions, url: 
     engineStep(options, `Asking ${label} to suggest flows`, url);
     try {
       const before = plan.scenarios.length;
-      const out = await suggestScenarios(plan, ai.client, { remote: ai.remote, signal: options.signal });
+      const out = await suggestScenarios(plan, ai.helper, { remote: ai.remote, signal: options.signal });
       plan = out.plan;
       suggested = plan.scenarios.length - before;
       for (const rejected of out.rejected) warnings.push(`Left out a flow ${label} suggested: ${redactSecrets(rejected)}`);
@@ -166,6 +166,6 @@ async function planWithAi(built: Plan, ai: AiSession, options: RunOptions, url: 
   }
   return {
     ...plan,
-    ai: { provider: ai.client.provider, model: ai.client.model, remote: ai.remote, warnings, reviewedAt: new Date().toISOString(), reviewed, suggested },
+    ai: { provider: ai.helper.provider, model: ai.helper.model, remote: ai.remote, warnings, reviewedAt: new Date().toISOString(), reviewed, suggested },
   };
 }

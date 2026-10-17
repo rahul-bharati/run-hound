@@ -33,6 +33,12 @@ export interface AiConfig {
   baseUrl: string;
   /** Model id as the server names it ("ornith-1.5:9b", "gpt-5-mini", "anthropic.claude-…"). Empty = not configured. */
   model: string;
+  /**
+   * The cheaper model that reviews the plan, suggests flows and explains findings (docs/ai-spec.md "Model roles"), on the
+   * same provider, endpoint, key and consent as `model`, which drafts briefs and answers the agent's turns. Empty or
+   * absent: the main model does everything.
+   */
+  helperModel?: string;
   /** Bearer key (OpenAI-compatible) or Bedrock API key. Never sent to the browser or written to reports. */
   apiKey: string | null;
   /** Bedrock region, e.g. "us-east-1". */
@@ -68,8 +74,9 @@ export interface AiConfig {
    * The origin (keyOriginFor) the key is bound to, when it came from the saved file: saved as `apiKeyOrigin` in ai.json
    * (the effective endpoint's origin when the key was saved; a legacy file without it binds to its own endpoint). A
    * saved key resolves to null when the effective endpoint has another origin. null or absent: a key from env
-   * (RUNHOUND_AI_API_KEY, AWS_BEARER_TOKEN_BEDROCK), which follows that invocation's endpoint. createLlmClient refuses
-   * when it is set and differs from the endpoint's origin.
+   * (RUNHOUND_AI_API_KEY, AWS_BEARER_TOKEN_BEDROCK), which resolveAiConfig applies only to a fixed provider's official
+   * endpoint, Bedrock's regional endpoint or an endpoint that same invocation sets itself (never to a base URL saved in
+   * ai.json). createLlmClient refuses when it is set and differs from the endpoint's origin.
    */
   apiKeyOrigin?: string | null;
   features: AiFeatures;
@@ -86,7 +93,10 @@ export interface AiStatus {
   /** null until one is chosen: there is no default provider. */
   provider: AiProvider | null;
   baseUrl: string;
+  /** The main model (briefs and the agent). */
   model: string;
+  /** The helper model (plan review, suggested flows, explanations); "" = the main model does these too. Always set by aiStatus. */
+  helperModel?: string;
   region: string | null;
   /** Bedrock: the AWS profile named in the config (or by AWS_PROFILE); null = none named, so ~/.aws is not read. */
   awsProfile?: string | null;
@@ -114,6 +124,8 @@ export interface AiStatus {
   /** Per field. Env and flag values can't be changed from the UI (it shows them locked). */
   sources: Record<"enabled" | "provider" | "baseUrl" | "model" | "apiKey" | "region" | "allowRemote" | "features" | "timeoutMs", ConfigSource> & {
     awsProfile?: ConfigSource;
+    /** Where the helper model came from ("env" = locked in the UI). Always set by aiStatus. */
+    helperModel?: ConfigSource;
     /** 0.6.1: where the AWS access key pair came from ("env" = locked in the UI). Always set by aiStatus. */
     awsKeys?: ConfigSource;
   };
@@ -191,8 +203,16 @@ export interface AiModelInfo {
   suitable: boolean | null;
 }
 
+/** The pair onboarding and Settings preselect from a live list (constants/ai-constants.ts RECOMMENDED_MODELS); null when the list is empty. */
+export interface RecommendedModels {
+  main: string | null;
+  helper: string | null;
+}
+
 export interface AiModelList {
   models: AiModelInfo[];
+  /** The recommended main and helper model among `models`. Set by GET /api/ai/models when the list holds a usable model. */
+  recommended?: RecommendedModels;
   /** Plain-language reason when the list is empty or failed: "Nothing is answering at http://127.0.0.1:11434 — is Ollama running?". */
   error: string | null;
 }

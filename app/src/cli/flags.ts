@@ -13,6 +13,7 @@ export function aiFlagsFrom(values: IAiFlags): AiFlags {
   if (values.ai !== undefined) flags.enabled = values.ai;
   if (provider !== undefined) flags.provider = provider as AiProvider;
   if (values["ai-model"] !== undefined) flags.model = values["ai-model"];
+  if (values["ai-helper-model"] !== undefined) flags.helperModel = values["ai-helper-model"];
   if (values["ai-base-url"] !== undefined) flags.baseUrl = values["ai-base-url"];
   if (values["ai-allow-remote"]) flags.allowRemote = true;
   return flags;

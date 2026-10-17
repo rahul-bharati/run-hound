@@ -40,7 +40,7 @@ import { readSecrets, secretProtection, writeSecrets } from "./secret-store.js";
 type Field = Exclude<keyof Required<AiStatus["sources"]>, "awsKeys">;
 type Layer = Partial<Omit<AiConfig, "features">> & { features?: Partial<AiFeatures> };
 
-const FIELDS: readonly Field[] = ["enabled", "provider", "baseUrl", "model", "apiKey", "region", "awsProfile", "allowRemote", "features", "timeoutMs"];
+const FIELDS: readonly Field[] = ["enabled", "provider", "baseUrl", "model", "helperModel", "apiKey", "region", "awsProfile", "allowRemote", "features", "timeoutMs"];
 const FEATURE_NAMES: readonly (keyof AiFeatures)[] = ["review", "suggest", "explain"];
 /** Bedrock's AWS secrets, saved in the encrypted store (secret-store.ts) as "ai.<field>", never in the file. */
 const SECRET_FIELDS = ["awsSecretAccessKey", "awsSessionToken"] as const;
@@ -66,6 +66,7 @@ function fromFile(raw: unknown): Layer {
   if (isProvider(r.provider)) out.provider = r.provider;
   if (typeof r.baseUrl === "string") out.baseUrl = r.baseUrl;
   if (typeof r.model === "string") out.model = r.model;
+  if (typeof r.helperModel === "string" && r.helperModel !== "") out.helperModel = r.helperModel;
   if (typeof r.apiKey === "string" && r.apiKey !== "") out.apiKey = r.apiKey;
   if (isAwsRegion(r.region)) out.region = r.region;
   if (typeof r.awsProfile === "string" && r.awsProfile !== "") out.awsProfile = r.awsProfile;
@@ -230,6 +231,7 @@ function fromEnv(env: NodeJS.ProcessEnv): { layer: Layer; names: Partial<Record<
   set("provider", isProvider(env.RUNHOUND_AI_PROVIDER) ? env.RUNHOUND_AI_PROVIDER : undefined, "RUNHOUND_AI_PROVIDER");
   set("baseUrl", str("RUNHOUND_AI_BASE_URL"), "RUNHOUND_AI_BASE_URL");
   set("model", str("RUNHOUND_AI_MODEL"), "RUNHOUND_AI_MODEL");
+  set("helperModel", str("RUNHOUND_AI_HELPER_MODEL"), "RUNHOUND_AI_HELPER_MODEL");
   set("apiKey", str("RUNHOUND_AI_API_KEY"), "RUNHOUND_AI_API_KEY");
   set("region", isAwsRegion(env.RUNHOUND_AI_REGION) ? env.RUNHOUND_AI_REGION : undefined, "RUNHOUND_AI_REGION");
   set("awsProfile", str("RUNHOUND_AI_AWS_PROFILE"), "RUNHOUND_AI_AWS_PROFILE");
@@ -249,6 +251,7 @@ function fromFlags(flags: AiFlags): Layer {
   if (isProvider(flags.provider)) out.provider = flags.provider;
   if (flags.baseUrl !== undefined) out.baseUrl = flags.baseUrl;
   if (flags.model !== undefined) out.model = flags.model;
+  if (flags.helperModel !== undefined) out.helperModel = flags.helperModel;
   if (flags.allowRemote !== undefined) out.allowRemote = flags.allowRemote;
   return out;
 }
@@ -330,6 +333,18 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
     }
   }
 
+  // A key from the environment (RUNHOUND_AI_API_KEY here, AWS_BEARER_TOKEN_BEDROCK below) goes only to a fixed provider's
+  // official endpoint, Bedrock's regional endpoint or an endpoint this same invocation sets (RUNHOUND_AI_BASE_URL, the
+  // base-URL flag), never to a base URL that comes only from the saved ai.json, which PUT /api/ai can change (Rule 7).
+  // Without it, the provider's own saved key (bound to its origin, below) still applies.
+  const savedEndpointOnly = endpointSavedOnly(config, sources.baseUrl, fileLayer);
+  let envKeyHeld: ResolvedAiConfig["staleKey"];
+  if (savedEndpointOnly && sources.apiKey === "env") {
+    envKeyHeld = { savedFor: "", endpoint: keyOriginFor(config), fromEnvironment: true };
+    config.apiKey = fileLayer.apiKey ?? null;
+    sources.apiKey = fileLayer.apiKey ? "file" : "default";
+  }
+
   // A key saved from the Settings page is bound to the origin it was saved for (a legacy file without apiKeyOrigin:
   // the file's own endpoint) and is not applied when a flag or env points this invocation elsewhere (Rule 7).
   let staleKey: ResolvedAiConfig["staleKey"];
@@ -345,10 +360,14 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
   }
 
   if (config.provider === "bedrock" && config.apiKey === null && env.AWS_BEARER_TOKEN_BEDROCK) {
-    config.apiKey = env.AWS_BEARER_TOKEN_BEDROCK;
-    sources.apiKey = "env";
-    envNames.apiKey = "AWS_BEARER_TOKEN_BEDROCK";
+    if (savedEndpointOnly) envKeyHeld = { savedFor: "", endpoint: keyOriginFor(config), fromEnvironment: true };
+    else {
+      config.apiKey = env.AWS_BEARER_TOKEN_BEDROCK;
+      sources.apiKey = "env";
+      envNames.apiKey = "AWS_BEARER_TOKEN_BEDROCK";
+    }
   }
+  if (!staleKey && envKeyHeld && config.apiKey === null) staleKey = envKeyHeld;
 
   // The AWS access key pair resolves as a unit from one source (defaults < file < env, no flag): a layer counts only
   // with both the ID and the secret, and the session token comes only from the same layer as its pair. The env pair
@@ -399,6 +418,17 @@ async function resolve(env: NodeJS.ProcessEnv, flags: AiFlags, home: string | un
   };
 }
 
+/**
+ * True when requests would go to a base URL that only the saved ai.json names: not a fixed provider's official endpoint,
+ * not one the environment or a flag sets, and not the provider's own default. An environment key never follows it.
+ */
+function endpointSavedOnly(config: AiConfig, baseUrlSource: ConfigSource, fileLayer: Layer): boolean {
+  const provider = config.provider;
+  if (!provider || FIXED_ENDPOINT_PROVIDERS.has(provider) || baseUrlSource !== "file") return false;
+  const saved = fileLayer.baseUrl;
+  return saved !== undefined && saved !== "" && config.baseUrl === saved && saved !== DEFAULT_BASE_URLS[provider];
+}
+
 /** Shortest an API key can be and still count as a real credential without looking random (below: looksRandom must say so). */
 const MIN_API_KEY_LENGTH = 16;
 
@@ -439,7 +469,12 @@ function legacyKeyOrigin(file: Layer, region: string | null): string {
  * A key from the file applies only while keyOriginFor(resolved config) equals the file's apiKeyOrigin (a legacy file
  * without one: keyOriginFor of the file's own provider/baseUrl/region); then config.apiKeyOrigin is that origin.
  * Otherwise apiKey resolves to null (source "default"; for bedrock AWS_BEARER_TOKEN_BEDROCK may still apply) and
- * `staleKey` says why. Env keys are never bound.
+ * `staleKey` says why. An env key (RUNHOUND_AI_API_KEY, AWS_BEARER_TOKEN_BEDROCK) is bound to an endpoint too, but by
+ * where the endpoint comes from: it applies to a fixed provider's official endpoint, Bedrock's regional endpoint and a
+ * base URL the env or a flag sets, and never to a base URL that only the saved file names (and that is not the
+ * provider's own default). Then the provider's saved key, if it has one for that endpoint, applies instead, else
+ * apiKey is null and `staleKey` says `fromEnvironment`.
+ * helperModel: file < RUNHOUND_AI_HELPER_MODEL < flag; empty means the main model does the helper's jobs too.
  *
  * Redaction (docs/launch-spec.md "Redaction"): every AI secret the resolution read (Resolution.secrets), applied or not,
  * is registered with registerSecretLiterals — except an API key (file apiKey or RUNHOUND_AI_API_KEY) too short and too
@@ -624,7 +659,7 @@ export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS
       throw new Error("The timeout must be between 5 000 and 600 000 ms");
     }
     if ((field === "enabled" || field === "allowRemote") && typeof value !== "boolean") throw new Error(`${field} must be true or false`);
-    if ((field === "model" || field === "region" || field === "apiKey" || field === "awsProfile") && value !== null && typeof value !== "string") throw new Error(`${field} must be a string`);
+    if ((field === "model" || field === "helperModel" || field === "region" || field === "apiKey" || field === "awsProfile") && value !== null && typeof value !== "string") throw new Error(`${field} must be a string`);
     if (field === "region" && value !== null && value !== "" && !isAwsRegion(value)) throw new Error(`"${String(value)}" is not an AWS region, such as us-east-1`);
     if (field === "features") value = { ...current.config.features, ...(value as Partial<AiFeatures>) };
     if (current.sources[field] === "env") {
@@ -645,6 +680,7 @@ export async function saveAiConfig(patch: AiConfigPatch, options: { env?: NodeJS
   delete changes.apiKey;
   const next: Record<string, unknown> = { ...saved, ...changes };
   if (next.region === null || next.region === "") delete next.region;
+  if (next.helperModel === null || next.helperModel === "") delete next.helperModel;
   if (next.awsProfile === null || next.awsProfile === "") delete next.awsProfile;
   if (pair.kind === "remove") {
     delete next.awsAccessKeyId;
@@ -758,7 +794,9 @@ export function aiStatus(resolved: ResolvedAiConfig, env: NodeJS.ProcessEnv = pr
   else if (!c.model) problem = "Choose a model";
   else if (c.provider === "bedrock" && !c.region) problem = "Choose a Bedrock region";
   else if (stale && ((((c.provider === "openai-compatible" && remote) || needsKey) && !c.apiKey) || (c.provider === "bedrock" && !hasKey))) {
-    problem = `The saved API key is for ${stale.savedFor}; enter a key for ${stale.endpoint}`;
+    problem = stale.fromEnvironment
+      ? `The API key from the environment is not sent to ${stale.endpoint}, which was saved in Settings; enter a key for ${stale.endpoint}`
+      : `The saved API key is for ${stale.savedFor}; enter a key for ${stale.endpoint}`;
   } else if (c.provider === "bedrock" && !hasKey) problem = NO_CREDENTIALS;
   else if (needsKey && !c.apiKey) problem = `Enter your ${PROVIDER_LABELS[c.provider!]} API key`;
   else if (remote && !c.allowRemote) problem = `Sending page structure to ${host} needs your consent`;
@@ -767,6 +805,7 @@ export function aiStatus(resolved: ResolvedAiConfig, env: NodeJS.ProcessEnv = pr
     provider: c.provider,
     baseUrl: c.baseUrl,
     model: c.model,
+    helperModel: c.helperModel ?? "",
     region: c.region,
     awsProfile: c.awsProfile ?? null,
     allowRemote: c.allowRemote,
@@ -778,7 +817,7 @@ export function aiStatus(resolved: ResolvedAiConfig, env: NodeJS.ProcessEnv = pr
     remote,
     host,
     problem,
-    sources: { ...resolved.sources, awsKeys: resolved.sources.awsKeys ?? "default" },
+    sources: { ...resolved.sources, awsKeys: resolved.sources.awsKeys ?? "default", helperModel: resolved.sources.helperModel ?? "default" },
     file: resolved.file,
     savedKeys: resolved.savedKeys ?? [],
     secretProtection: secretProtection(env),

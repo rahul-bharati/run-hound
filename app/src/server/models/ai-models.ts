@@ -1,9 +1,11 @@
 /**
  * AI model-list orchestration: parse the GET /api/ai/models query (provider, baseUrl, allowRemote), resolve the target
- * (provider/baseUrl/region), decide whether the saved key can travel to the requested endpoint, and call listModels.
+ * (provider/baseUrl/region), decide whether the saved key can travel to the requested endpoint, and call listModels. The
+ * answer also names the recommended main and helper model (ai/recommend.ts).
  */
 import { DEFAULT_BASE_URLS, endpointHost } from "../../ai/config.js";
 import { listModels } from "../../ai/models.js";
+import { recommendModels } from "../../ai/recommend.js";
 import { AI_PROVIDERS, FIXED_ENDPOINT_PROVIDERS } from "../../constants/ai-constants.js";
 import { isSealed } from "../../operations/secret-store.js";
 import type { AiConfig, AiProvider } from "../../ai/types.js";
@@ -64,5 +66,6 @@ export async function resolveModelsList(
     /^(1|true|on)$/i.test(query.allowRemote ?? "") ||
     (config.allowRemote && endpointHost(target) === endpointHost(config));
   const list = await listModels({ ...target, apiKey, allowRemote: consent });
-  return { ok: true, list };
+  // The pair onboarding and Settings preselect (RECOMMENDED_MODELS); a list that holds no model has none.
+  return { ok: true, list: list.models.length > 0 ? { ...list, recommended: recommendModels(provider, list.models) } : list };
 }
