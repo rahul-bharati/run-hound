@@ -54,6 +54,14 @@ export const UNREADABLE_KEY =
 export const DAMAGED_ENTRIES = "Some saved keys or passwords were damaged and could not be read. Enter them again.";
 export const KEYCHAIN_REFUSED =
   "Run Hound couldn't use your system keychain, so saved keys and passwords can't be opened right now. Allow Run Hound to use the keychain when your system asks, then quit Run Hound and open it again.";
+/** secrets.json exists but could not be read (in use by another program, or no access): the read is an error, not an empty store. */
+export const STORE_UNREADABLE =
+  "Saved keys and passwords can't be read right now: secrets.json is in use by another program or Run Hound has no access to it. Nothing was changed. Try again in a moment.";
+/** secrets.json was read but is not a secret store: saving moves it aside to a backup instead of overwriting it. */
+export const STORE_DAMAGED =
+  "The file that holds your saved keys and passwords (secrets.json) is damaged, so none of them can be read. Enter them again: the damaged file is kept next to it as a backup, not overwritten.";
+/** The name a damaged secrets.json is moved to starts with this (then a timestamp and a random suffix). */
+export const CORRUPT_BACKUP_PREFIX = `${SECRETS_FILE}.corrupt-`;
 
 /**
  * What a sealed read (readSecrets with `open: false`) gives for every saved secret instead of its value: enough to
