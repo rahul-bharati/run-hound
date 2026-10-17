@@ -61,3 +61,6 @@ export const DEFAULT_BRIEF_ACTIONS: readonly ActionClass[] = ["observation", "te
 
 /** How long drafting a brief may wait for the model: one call, so the same as one AI request. */
 export const BRIEF_DRAFT_BUDGET_MS = 120_000;
+
+/** How long one navigation may take to load before it fails as page-error. Network idle is waited for briefly after. */
+export const AGENT_NAVIGATION_TIMEOUT_MS = 20_000;
